@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>siteio Brand Kit</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --blue: #0969da;
+      --green: #2da44e;
+      --blue-dark: #58a6ff;
+      --green-dark: #3fb950;
+      --text: #1f2328;
+      --text-dark: #e6edf3;
+      --muted: #656d76;
+      --bg: #ffffff;
+      --bg-dark: #0d1117;
+      --surface: #f6f8fa;
+      --surface-dark: #161b22;
+      --border: #d0d7de;
+      --border-dark: #30363d;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Header */
+    header {
+      padding: 48px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      font-size: 48px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--blue) 0%, var(--green) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 8px;
+    }
+
+    header p {
+      font-size: 20px;
+      color: var(--muted);
+    }
+
+    /* Sections */
+    section {
+      padding: 64px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    section:last-child {
+      border-bottom: none;
+    }
+
+    h2 {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    h2::before {
+      content: '';
+      width: 4px;
+      height: 24px;
+      background: linear-gradient(180deg, var(--blue) 0%, var(--green) 100%);
+      border-radius: 2px;
+    }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+    }
+
+    /* Logo Grid */
+    .logo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+    }
+
+    .logo-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .logo-preview {
+      padding: 48px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 160px;
+    }
+
+    .logo-preview.light {
+      background: var(--surface);
+    }
+
+    .logo-preview.dark {
+      background: var(--bg-dark);
+    }
+
+    .logo-preview img {
+      max-width: 200px;
+      max-height: 80px;
+      width: auto;
+      height: auto;
+    }
+
+    .logo-preview.mark img {
+      max-width: 64px;
+      max-height: 64px;
+    }
+
+    .logo-info {
+      padding: 16px 20px;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo-name {
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .logo-file {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .download-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text);
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+
+    .download-btn:hover {
+      background: var(--border);
+    }
+
+    /* Color Palette */
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .color-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .color-swatch {
+      height: 80px;
+    }
+
+    .color-info {
+      padding: 12px 16px;
+    }
+
+    .color-name {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .color-values {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* Gradient */
+    .gradient-preview {
+      height: 120px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--blue) 0%, var(--green) 100%);
+      margin-bottom: 16px;
+    }
+
+    .gradient-code {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      overflow-x: auto;
+    }
+
+    /* Typography */
+    .type-sample {
+      margin-bottom: 32px;
+    }
+
+    .type-sample:last-child {
+      margin-bottom: 0;
+    }
+
+    .type-label {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .type-display {
+      font-size: 48px;
+      font-weight: 600;
+      line-height: 1.1;
+    }
+
+    .type-h1 {
+      font-size: 32px;
+      font-weight: 600;
+      line-height: 1.2;
+    }
+
+    .type-h2 {
+      font-size: 24px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    .type-body {
+      font-size: 16px;
+      line-height: 1.5;
+      max-width: 600px;
+    }
+
+    .type-code {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 14px;
+      background: var(--surface);
+      padding: 16px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    /* Spacing */
+    .subsection {
+      margin-bottom: 48px;
+    }
+
+    .subsection:last-child {
+      margin-bottom: 0;
+    }
+
+    /* Downloads */
+    .downloads-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 12px;
+    }
+
+    .download-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    .download-item-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .download-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--blue) 0%, var(--green) 100%);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .download-icon svg {
+      width: 16px;
+      height: 16px;
+      color: white;
+    }
+
+    /* Footer */
+    footer {
+      padding: 48px 0;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    footer a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>siteio Brand Kit</h1>
+      <p>Visual assets and guidelines for consistent brand representation</p>
+    </header>
+
+    <!-- Logos -->
+    <section>
+      <h2>Logos</h2>
+
+      <div class="subsection">
+        <h3>Full Logo</h3>
+        <div class="logo-grid">
+          <div class="logo-card">
+            <div class="logo-preview light">
+              <img src="logo-full.svg" alt="siteio full logo">
+            </div>
+            <div class="logo-info">
+              <div>
+                <div class="logo-name">Full Logo (Light)</div>
+                <div class="logo-file">logo-full.svg</div>
+              </div>
+              <a href="logo-full.svg" download class="download-btn">Download</a>
+            </div>
+          </div>
+          <div class="logo-card">
+            <div class="logo-preview dark">
+              <img src="logo-full-dark.svg" alt="siteio full logo dark">
+            </div>
+            <div class="logo-info">
+              <div>
+                <div class="logo-name">Full Logo (Dark)</div>
+                <div class="logo-file">logo-full-dark.svg</div>
+              </div>
+              <a href="logo-full-dark.svg" download class="download-btn">Download</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <h3>Logo Mark</h3>
+        <div class="logo-grid">
+          <div class="logo-card">
+            <div class="logo-preview light mark">
+              <img src="logo-mark.svg" alt="siteio mark">
+            </div>
+            <div class="logo-info">
+              <div>
+                <div class="logo-name">Logo Mark (Light)</div>
+                <div class="logo-file">logo-mark.svg</div>
+              </div>
+              <a href="logo-mark.svg" download class="download-btn">Download</a>
+            </div>
+          </div>
+          <div class="logo-card">
+            <div class="logo-preview dark mark">
+              <img src="logo-mark-dark.svg" alt="siteio mark dark">
+            </div>
+            <div class="logo-info">
+              <div>
+                <div class="logo-name">Logo Mark (Dark)</div>
+                <div class="logo-file">logo-mark-dark.svg</div>
+              </div>
+              <a href="logo-mark-dark.svg" download class="download-btn">Download</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <h3>Wordmark</h3>
+        <div class="logo-grid">
+          <div class="logo-card">
+            <div class="logo-preview light">
+              <img src="wordmark.svg" alt="siteio wordmark">
+            </div>
+            <div class="logo-info">
+              <div>
+                <div class="logo-name">Wordmark (Light)</div>
+                <div class="logo-file">wordmark.svg</div>
+              </div>
+              <a href="wordmark.svg" download class="download-btn">Download</a>
+            </div>
+          </div>
+          <div class="logo-card">
+            <div class="logo-preview dark">
+              <img src="wordmark-dark.svg" alt="siteio wordmark dark">
+            </div>
+            <div class="logo-info">
+              <div>
+                <div class="logo-name">Wordmark (Dark)</div>
+                <div class="logo-file">wordmark-dark.svg</div>
+              </div>
+              <a href="wordmark-dark.svg" download class="download-btn">Download</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <h3>Icons</h3>
+        <div class="logo-grid">
+          <div class="logo-card">
+            <div class="logo-preview light mark">
+              <img src="favicon.svg" alt="siteio favicon">
+            </div>
+            <div class="logo-info">
+              <div>
+                <div class="logo-name">Favicon</div>
+                <div class="logo-file">favicon.svg</div>
+              </div>
+              <a href="favicon.svg" download class="download-btn">Download</a>
+            </div>
+          </div>
+          <div class="logo-card">
+            <div class="logo-preview light mark">
+              <img src="icon-mono.svg" alt="siteio monochrome icon" style="color: var(--text);">
+            </div>
+            <div class="logo-info">
+              <div>
+                <div class="logo-name">Monochrome Icon</div>
+                <div class="logo-file">icon-mono.svg</div>
+              </div>
+              <a href="icon-mono.svg" download class="download-btn">Download</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Colors -->
+    <section>
+      <h2>Color Palette</h2>
+
+      <div class="subsection">
+        <h3>Primary Colors</h3>
+        <div class="color-grid">
+          <div class="color-card">
+            <div class="color-swatch" style="background: #0969da;"></div>
+            <div class="color-info">
+              <div class="color-name">Blue</div>
+              <div class="color-values">#0969da / rgb(9, 105, 218)</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch" style="background: #2da44e;"></div>
+            <div class="color-info">
+              <div class="color-name">Green</div>
+              <div class="color-values">#2da44e / rgb(45, 164, 78)</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch" style="background: #58a6ff;"></div>
+            <div class="color-info">
+              <div class="color-name">Blue (Dark Mode)</div>
+              <div class="color-values">#58a6ff / rgb(88, 166, 255)</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch" style="background: #3fb950;"></div>
+            <div class="color-info">
+              <div class="color-name">Green (Dark Mode)</div>
+              <div class="color-values">#3fb950 / rgb(63, 185, 80)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <h3>Neutrals</h3>
+        <div class="color-grid">
+          <div class="color-card">
+            <div class="color-swatch" style="background: #1f2328;"></div>
+            <div class="color-info">
+              <div class="color-name">Text</div>
+              <div class="color-values">#1f2328</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch" style="background: #656d76;"></div>
+            <div class="color-info">
+              <div class="color-name">Muted</div>
+              <div class="color-values">#656d76</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch" style="background: #f6f8fa; border: 1px solid #d0d7de;"></div>
+            <div class="color-info">
+              <div class="color-name">Surface</div>
+              <div class="color-values">#f6f8fa</div>
+            </div>
+          </div>
+          <div class="color-card">
+            <div class="color-swatch" style="background: #0d1117;"></div>
+            <div class="color-info">
+              <div class="color-name">Background (Dark)</div>
+              <div class="color-values">#0d1117</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <h3>Gradient</h3>
+        <div class="gradient-preview"></div>
+        <div class="gradient-code">
+          background: linear-gradient(135deg, #0969da 0%, #2da44e 100%);
+        </div>
+      </div>
+    </section>
+
+    <!-- Typography -->
+    <section>
+      <h2>Typography</h2>
+
+      <div class="type-sample">
+        <div class="type-label">Display / 48px / SemiBold</div>
+        <div class="type-display">Deploy static sites with a single command</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-label">Heading 1 / 32px / SemiBold</div>
+        <div class="type-h1">Your server. Your sites. One command.</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-label">Heading 2 / 24px / SemiBold</div>
+        <div class="type-h2">Self-hosted static sites, the easy way</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-label">Body / 16px / Regular</div>
+        <div class="type-body">siteio is a CLI that deploys static sites to your own server. You run an agent on your VPS, and from anywhere you can deploy a folder to get a live HTTPS subdomain in seconds.</div>
+      </div>
+
+      <div class="type-sample">
+        <div class="type-label">Code / IBM Plex Mono / 14px</div>
+        <div class="type-code">$ siteio sites deploy ./my-site<br>Deploying to my-site.axel.siteio.me...<br>Site deployed successfully!</div>
+      </div>
+    </section>
+
+    <!-- Downloads -->
+    <section>
+      <h2>Quick Downloads</h2>
+      <div class="downloads-list">
+        <a href="logo-full.svg" download class="download-item">
+          <div class="download-item-info">
+            <div class="download-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </div>
+            <div>
+              <div class="logo-name">Full Logo (Light)</div>
+              <div class="logo-file">logo-full.svg</div>
+            </div>
+          </div>
+        </a>
+        <a href="logo-full-dark.svg" download class="download-item">
+          <div class="download-item-info">
+            <div class="download-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </div>
+            <div>
+              <div class="logo-name">Full Logo (Dark)</div>
+              <div class="logo-file">logo-full-dark.svg</div>
+            </div>
+          </div>
+        </a>
+        <a href="logo-mark.svg" download class="download-item">
+          <div class="download-item-info">
+            <div class="download-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </div>
+            <div>
+              <div class="logo-name">Logo Mark</div>
+              <div class="logo-file">logo-mark.svg</div>
+            </div>
+          </div>
+        </a>
+        <a href="favicon.svg" download class="download-item">
+          <div class="download-item-info">
+            <div class="download-icon">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </div>
+            <div>
+              <div class="logo-name">Favicon</div>
+              <div class="logo-file">favicon.svg</div>
+            </div>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <footer>
+      <p>See <a href="GUIDELINES.md">GUIDELINES.md</a> for detailed usage specifications and <a href="BRAND_BRIEFING.md">BRAND_BRIEFING.md</a> for brand strategy.</p>
+      <p style="margin-top: 8px;">siteio.me</p>
+    </footer>
+  </div>
+</body>
+</html>
