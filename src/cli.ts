@@ -69,11 +69,43 @@ const agent = program
   .description("Run the siteio agent server")
 
 agent
+  .command("install")
+  .description("Install and start the agent as a systemd service")
+  .action(async () => {
+    const { installAgentCommand } = await import("./commands/agent/install.ts")
+    await installAgentCommand()
+  })
+
+agent
   .command("start")
-  .description("Start the agent server")
+  .description("Start the agent server (foreground or via systemd)")
   .action(async () => {
     const { startAgentCommand } = await import("./commands/agent/start.ts")
     await startAgentCommand()
+  })
+
+agent
+  .command("stop")
+  .description("Stop the agent server")
+  .action(async () => {
+    const { stopAgentCommand } = await import("./commands/agent/stop.ts")
+    await stopAgentCommand()
+  })
+
+agent
+  .command("restart")
+  .description("Restart the agent server")
+  .action(async () => {
+    const { restartAgentCommand } = await import("./commands/agent/restart.ts")
+    await restartAgentCommand()
+  })
+
+agent
+  .command("status")
+  .description("Check agent server status")
+  .action(async () => {
+    const { statusAgentCommand } = await import("./commands/agent/status.ts")
+    await statusAgentCommand()
   })
 
 program.parse()

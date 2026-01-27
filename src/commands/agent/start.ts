@@ -1,6 +1,8 @@
 import * as p from "@clack/prompts"
 import chalk from "chalk"
 import { randomBytes } from "crypto"
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { formatError } from "../../utils/output.ts"
 import { encodeToken } from "../../utils/token.ts"
@@ -29,9 +31,35 @@ function parseSize(size: string): number {
   }
 }
 
+// Load or generate persistent config (API key, domain)
+function loadOrCreateConfig(dataDir: string): { apiKey: string; domain?: string } {
+  const configPath = join(dataDir, "agent-config.json")
+
+  if (existsSync(configPath)) {
+    try {
+      return JSON.parse(readFileSync(configPath, "utf-8"))
+    } catch {
+      // Ignore parse errors, regenerate
+    }
+  }
+
+  return { apiKey: generateApiKey() }
+}
+
+function saveConfig(dataDir: string, config: { apiKey: string; domain: string }): void {
+  const configPath = join(dataDir, "agent-config.json")
+  mkdirSync(dataDir, { recursive: true })
+  writeFileSync(configPath, JSON.stringify(config, null, 2))
+}
+
 export async function startAgentCommand(): Promise<void> {
+  const dataDir = process.env.SITEIO_DATA_DIR || "/data"
+
+  // Load persistent config
+  const persistedConfig = loadOrCreateConfig(dataDir)
+
   // Read configuration from environment variables or prompt
-  let domain = process.env.SITEIO_DOMAIN
+  let domain = process.env.SITEIO_DOMAIN || persistedConfig.domain
 
   if (!domain) {
     p.intro(chalk.bgCyan(" siteio agent "))
@@ -53,12 +81,14 @@ export async function startAgentCommand(): Promise<void> {
     domain = result
   }
 
-  const apiKey = process.env.SITEIO_API_KEY || generateApiKey()
-  const dataDir = process.env.SITEIO_DATA_DIR || "/data"
+  const apiKey = process.env.SITEIO_API_KEY || persistedConfig.apiKey
   const maxUploadSize = parseSize(process.env.SITEIO_MAX_UPLOAD_SIZE || "50MB")
   const httpPort = parseInt(process.env.SITEIO_HTTP_PORT || "80", 10)
   const httpsPort = parseInt(process.env.SITEIO_HTTPS_PORT || "443", 10)
   const email = process.env.SITEIO_EMAIL
+
+  // Save config for persistence
+  saveConfig(dataDir, { apiKey, domain })
 
   const config: AgentConfig = {
     apiKey,
@@ -84,9 +114,6 @@ export async function startAgentCommand(): Promise<void> {
 
   // Connection credentials - easy to copy/paste
   console.log(chalk.cyan.bold("─── Connection Credentials ───"))
-  if (!process.env.SITEIO_API_KEY) {
-    console.log(chalk.yellow("(API key auto-generated)"))
-  }
   console.log("")
   console.log(`  URL:     ${apiUrl}`)
   console.log(`  API Key: ${apiKey}`)
