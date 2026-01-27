@@ -131,7 +131,25 @@ log:
     if (Array.isArray(obj)) {
       for (const item of obj) {
         if (typeof item === "object" && item !== null) {
-          result += `${spaces}-\n${this.toYaml(item, indent + 1)}`
+          // Inline the first key-value on the same line as the dash
+          const entries = Object.entries(item)
+          if (entries.length > 0) {
+            const [firstKey, firstValue] = entries[0]!
+            if (typeof firstValue === "object" && firstValue !== null) {
+              result += `${spaces}- ${firstKey}:\n${this.toYaml(firstValue, indent + 2)}`
+            } else {
+              result += `${spaces}- ${firstKey}: ${JSON.stringify(firstValue)}\n`
+            }
+            // Add remaining entries
+            for (let i = 1; i < entries.length; i++) {
+              const [key, value] = entries[i]!
+              if (typeof value === "object" && value !== null) {
+                result += `${spaces}  ${key}:\n${this.toYaml(value, indent + 2)}`
+              } else {
+                result += `${spaces}  ${key}: ${JSON.stringify(value)}\n`
+              }
+            }
+          }
         } else {
           result += `${spaces}- ${item}\n`
         }
