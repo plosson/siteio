@@ -51,6 +51,8 @@ sites
   .command("deploy <folder>")
   .description("Deploy a folder as a static site")
   .option("-s, --subdomain <name>", "Subdomain to deploy to (defaults to folder name)")
+  .option("-u, --user <username>", "Username for basic auth")
+  .option("-p, --password <password>", "Password for basic auth")
   .action(async (folder, options) => {
     const { deployCommand } = await import("./commands/sites/deploy.ts")
     await deployCommand(folder, options)
@@ -70,6 +72,17 @@ sites
   .action(async (subdomain) => {
     const { undeployCommand } = await import("./commands/sites/undeploy.ts")
     await undeployCommand(subdomain)
+  })
+
+sites
+  .command("auth <subdomain>")
+  .description("Set or remove basic auth for a site")
+  .option("-u, --user <username>", "Username for basic auth")
+  .option("-p, --password <password>", "Password for basic auth")
+  .option("--remove", "Remove authentication")
+  .action(async (subdomain, options) => {
+    const { authCommand } = await import("./commands/sites/auth.ts")
+    await authCommand(subdomain, options)
   })
 
 // Agent command (for running the server)

@@ -19,11 +19,12 @@ export async function listCommand(): Promise<void> {
     }
 
     // Format the table
-    const headers = ["SUBDOMAIN", "URL", "SIZE", "DEPLOYED"]
+    const headers = ["SUBDOMAIN", "URL", "SIZE", "AUTH", "DEPLOYED"]
     const rows = sites.map((site) => {
       const date = new Date(site.deployedAt)
       const dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      return [site.subdomain, site.url, formatBytes(site.size), dateStr]
+      const authStr = site.auth ? chalk.yellow("yes") : chalk.dim("-")
+      return [site.subdomain, site.url, formatBytes(site.size), authStr, dateStr]
     })
 
     console.error("")

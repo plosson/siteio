@@ -13,6 +13,7 @@ export interface SiteInfo {
   url: string
   size: number
   deployedAt: string
+  auth?: boolean // true if basic auth is enabled
 }
 
 // Config stored in ~/.config/siteio/config.json
@@ -39,17 +40,32 @@ export interface DeployRequest {
   subdomain: string
 }
 
+// Basic auth credentials for a site
+export interface SiteAuth {
+  user: string
+  passwordHash: string // htpasswd format (bcrypt)
+}
+
 // Internal site metadata stored by agent
 export interface SiteMetadata {
   subdomain: string
   size: number
   deployedAt: string
   files: string[]
+  auth?: SiteAuth
 }
 
 // Command options
 export interface DeployOptions {
   subdomain?: string
+  user?: string
+  password?: string
+}
+
+export interface AuthOptions {
+  user?: string
+  password?: string
+  remove?: boolean
 }
 
 export interface LoginOptions {

@@ -4,7 +4,7 @@ import ora from "ora"
 import chalk from "chalk"
 import { zipSync } from "fflate"
 import { SiteioClient } from "../../lib/client.ts"
-import { formatSuccess, formatError, formatBytes } from "../../utils/output.ts"
+import { formatSuccess, formatError, formatBytes, generatePassword } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import type { DeployOptions } from "../../types.ts"
 
@@ -86,10 +86,24 @@ export async function deployCommand(folder: string, options: DeployOptions): Pro
     // Step 2: Upload
     spinner.start("Uploading")
     const client = new SiteioClient()
+
+    // Prepare auth if either user or password is provided
+    let auth: { user: string; password: string } | undefined
+    let generatedPassword: string | undefined
+
+    if (options.user || options.password) {
+      const user = options.user || subdomain
+      const password = options.password || generatePassword(13)
+      if (!options.password) {
+        generatedPassword = password
+      }
+      auth = { user, password }
+    }
+
     const site = await client.deploySite(subdomain, zipData, (uploaded, total) => {
       const percent = Math.round((uploaded / total) * 100)
       spinner.text = `Uploading (${percent}%)`
-    })
+    }, auth)
     spinner.succeed("Uploaded")
 
     // Step 3: Done
@@ -98,10 +112,21 @@ export async function deployCommand(folder: string, options: DeployOptions): Pro
     console.error("")
     console.error(`  URL: ${chalk.cyan(site.url)}`)
     console.error(`  Size: ${formatBytes(site.size)}`)
+    if (site.auth && auth) {
+      console.error(`  Auth: ${chalk.yellow("enabled")}`)
+      console.error(`    User: ${chalk.cyan(auth.user)}`)
+      if (generatedPassword) {
+        console.error(`    Password: ${chalk.cyan(generatedPassword)} ${chalk.dim("(generated)")}`)
+      }
+    }
     console.error("")
 
     // JSON output to stdout
-    console.log(JSON.stringify({ success: true, data: site }, null, 2))
+    const output: Record<string, unknown> = { success: true, data: site }
+    if (auth) {
+      output.auth = { user: auth.user, password: generatedPassword || "(provided)" }
+    }
+    console.log(JSON.stringify(output, null, 2))
     process.exit(0)
   } catch (err) {
     spinner.stop()
