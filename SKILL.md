@@ -1,6 +1,13 @@
 # Skill: Deploy Static Sites with siteio
 
-Use this skill when the user asks to deploy a static site, website, HTML files, or web application to a URL.
+Use this skill when the user asks to deploy a static site, website, or HTML files to a URL.
+
+## IMPORTANT
+
+- **siteio deploys STATIC websites only** - HTML, CSS, JS, images, fonts, etc.
+- **NOT for backends, APIs, or server-side applications** - no Node.js, Python, PHP, databases, etc.
+- **You deploy a FOLDER** - the entire folder contents are uploaded and served as-is
+- The folder must contain an `index.html` at the root (or appropriate entry point)
 
 ## Installation
 
@@ -22,7 +29,8 @@ The token is provided by the siteio agent administrator and contains the API URL
 
 1. siteio must be installed (see above)
 2. User must be logged in with a valid token
-3. The site must be a folder containing static files (HTML, CSS, JS, images, etc.)
+3. The site must be a **folder** containing static files only (HTML, CSS, JS, images, fonts, etc.)
+4. The folder should have an `index.html` file at the root
 
 ## Deploying a Site
 
@@ -58,9 +66,12 @@ siteio sites undeploy <subdomain>
 
 ## Workflow
 
-1. Build the static site if needed (e.g., `npm run build`)
-2. Deploy with `siteio sites deploy <build-folder> -s <subdomain>`
-3. Access at `https://<subdomain>.<domain>`
+1. Ensure you have a folder with static files (HTML, CSS, JS, images)
+2. If using a framework (React, Vue, etc.), build first: `npm run build`
+3. Deploy the **output folder** (e.g., `dist`, `build`, `out`): `siteio sites deploy ./dist -s mysite`
+4. Access at `https://<subdomain>.<domain>`
+
+**The entire folder is uploaded** - all files and subfolders within it will be served.
 
 ## Notes
 
