@@ -1,0 +1,313 @@
+#!/bin/sh
+# siteio installer script
+# Usage: curl -LsSf https://siteio.me/install | sh
+
+set -e
+
+GITHUB_REPO="${SITEIO_GITHUB_REPO:-plosson/siteio}"
+INSTALL_DIR="${SITEIO_INSTALL_DIR:-}"
+VERSION="${SITEIO_VERSION:-}"
+NO_MODIFY_PATH="${SITEIO_NO_MODIFY_PATH:-}"
+GITHUB_TOKEN="${SITEIO_GITHUB_TOKEN:-}"
+
+# Colors
+RED=''
+GREEN=''
+YELLOW=''
+BLUE=''
+RESET=''
+
+setup_colors() {
+    if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
+        RED=$(tput setaf 1 2>/dev/null || true)
+        GREEN=$(tput setaf 2 2>/dev/null || true)
+        YELLOW=$(tput setaf 3 2>/dev/null || true)
+        BLUE=$(tput setaf 4 2>/dev/null || true)
+        RESET=$(tput sgr0 2>/dev/null || true)
+    fi
+}
+
+info() {
+    printf '%s[info]%s %s\n' "$BLUE" "$RESET" "$1"
+}
+
+success() {
+    printf '%s[success]%s %s\n' "$GREEN" "$RESET" "$1"
+}
+
+warn() {
+    printf '%s[warn]%s %s\n' "$YELLOW" "$RESET" "$1" >&2
+}
+
+error() {
+    printf '%s[error]%s %s\n' "$RED" "$RESET" "$1" >&2
+    exit 1
+}
+
+need_cmd() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        error "Required command not found: $1"
+    fi
+}
+
+get_platform() {
+    local os arch
+    os=$(uname -s)
+    arch=$(uname -m)
+
+    case "$os" in
+        Linux)
+            case "$arch" in
+                x86_64) echo "linux-x64" ;;
+                aarch64|arm64) echo "linux-arm64" ;;
+                *) error "Unsupported architecture: $arch" ;;
+            esac
+            ;;
+        Darwin)
+            case "$arch" in
+                x86_64) echo "darwin-x64" ;;
+                arm64) echo "darwin-arm64" ;;
+                *) error "Unsupported architecture: $arch" ;;
+            esac
+            ;;
+        *)
+            error "Unsupported operating system: $os"
+            ;;
+    esac
+}
+
+get_install_dir() {
+    # 1. Explicit install dir
+    if [ -n "$INSTALL_DIR" ]; then
+        echo "$INSTALL_DIR"
+        return
+    fi
+
+    # 2. Existing installation location
+    if command -v siteio >/dev/null 2>&1; then
+        dirname "$(command -v siteio)"
+        return
+    fi
+
+    # 3. XDG_BIN_HOME
+    if [ -n "$XDG_BIN_HOME" ]; then
+        echo "$XDG_BIN_HOME"
+        return
+    fi
+
+    # 4. XDG_DATA_HOME/../bin
+    if [ -n "$XDG_DATA_HOME" ]; then
+        echo "$(dirname "$XDG_DATA_HOME")/bin"
+        return
+    fi
+
+    # 5. Default: ~/.local/bin
+    echo "$HOME/.local/bin"
+}
+
+get_latest_version() {
+    local url="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
+    local auth_header=""
+
+    if [ -n "$GITHUB_TOKEN" ]; then
+        auth_header="Authorization: Bearer $GITHUB_TOKEN"
+    fi
+
+    if command -v curl >/dev/null 2>&1; then
+        if [ -n "$auth_header" ]; then
+            curl -sL -H "$auth_header" "$url" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/'
+        else
+            curl -sL "$url" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/'
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if [ -n "$auth_header" ]; then
+            wget -qO- --header="$auth_header" "$url" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/'
+        else
+            wget -qO- "$url" | grep '"tag_name"' | sed -E 's/.*"v([^"]+)".*/\1/'
+        fi
+    else
+        error "Either curl or wget is required"
+    fi
+}
+
+download_binary() {
+    local version="$1"
+    local platform="$2"
+    local dest="$3"
+    local url="https://github.com/$GITHUB_REPO/releases/download/v${version}/siteio-${platform}"
+    local auth_header=""
+
+    if [ -n "$GITHUB_TOKEN" ]; then
+        auth_header="Authorization: Bearer $GITHUB_TOKEN"
+    fi
+
+    info "Downloading siteio v${version} for ${platform}..."
+
+    if command -v curl >/dev/null 2>&1; then
+        if [ -n "$auth_header" ]; then
+            curl -fsSL -H "$auth_header" -o "$dest" "$url"
+        else
+            curl -fsSL -o "$dest" "$url"
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if [ -n "$auth_header" ]; then
+            wget -q --header="$auth_header" -O "$dest" "$url"
+        else
+            wget -q -O "$dest" "$url"
+        fi
+    else
+        error "Either curl or wget is required"
+    fi
+
+    if [ ! -s "$dest" ]; then
+        error "Download failed or file is empty"
+    fi
+}
+
+add_to_path() {
+    local install_dir="$1"
+    local shell_rc=""
+    local path_export="export PATH=\"$install_dir:\$PATH\""
+
+    # Detect shell and rc file
+    case "$SHELL" in
+        */zsh)
+            shell_rc="$HOME/.zshrc"
+            ;;
+        */bash)
+            if [ -f "$HOME/.bash_profile" ]; then
+                shell_rc="$HOME/.bash_profile"
+            else
+                shell_rc="$HOME/.bashrc"
+            fi
+            ;;
+        */fish)
+            shell_rc="$HOME/.config/fish/config.fish"
+            path_export="fish_add_path $install_dir"
+            ;;
+        *)
+            shell_rc="$HOME/.profile"
+            ;;
+    esac
+
+    # Check if already in PATH
+    case ":$PATH:" in
+        *":$install_dir:"*)
+            return 0
+            ;;
+    esac
+
+    # Check if already in rc file
+    if [ -f "$shell_rc" ] && grep -q "siteio" "$shell_rc" 2>/dev/null; then
+        return 0
+    fi
+
+    # Add to rc file
+    if [ -n "$shell_rc" ]; then
+        mkdir -p "$(dirname "$shell_rc")"
+        printf '\n# siteio\n%s\n' "$path_export" >> "$shell_rc"
+        warn "Added $install_dir to PATH in $shell_rc"
+        warn "Run 'source $shell_rc' or start a new terminal to use siteio"
+    fi
+}
+
+main() {
+    setup_colors
+
+    # Parse arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --install-dir)
+                INSTALL_DIR="$2"
+                shift 2
+                ;;
+            --version)
+                VERSION="$2"
+                shift 2
+                ;;
+            --no-modify-path)
+                NO_MODIFY_PATH=1
+                shift
+                ;;
+            --help|-h)
+                cat <<EOF
+siteio installer
+
+Usage: curl -LsSf https://siteio.me/install | sh
+
+Options:
+  --install-dir DIR    Install to specific directory
+  --version VERSION    Install specific version (default: latest)
+  --no-modify-path     Don't modify PATH in shell rc file
+  --help               Show this help
+
+Environment variables:
+  SITEIO_INSTALL_DIR      Installation directory
+  SITEIO_VERSION          Version to install
+  SITEIO_NO_MODIFY_PATH   Set to skip PATH modification
+  SITEIO_GITHUB_TOKEN     GitHub token for rate limiting
+EOF
+                exit 0
+                ;;
+            *)
+                error "Unknown option: $1"
+                ;;
+        esac
+    done
+
+    need_cmd uname
+    need_cmd chmod
+    need_cmd mkdir
+
+    local platform
+    platform=$(get_platform)
+
+    local version
+    if [ -n "$VERSION" ]; then
+        version="$VERSION"
+    else
+        info "Fetching latest version..."
+        version=$(get_latest_version)
+        if [ -z "$version" ]; then
+            error "Failed to fetch latest version"
+        fi
+    fi
+
+    local install_dir
+    install_dir=$(get_install_dir)
+
+    info "Installing siteio v${version} to ${install_dir}"
+
+    # Create install directory
+    mkdir -p "$install_dir"
+
+    # Create temp file
+    local tmp_file
+    tmp_file=$(mktemp)
+    trap 'rm -f "$tmp_file"' EXIT
+
+    # Download
+    download_binary "$version" "$platform" "$tmp_file"
+
+    # Install
+    chmod +x "$tmp_file"
+    mv "$tmp_file" "$install_dir/siteio"
+    trap - EXIT
+
+    success "Installed siteio v${version} to ${install_dir}/siteio"
+
+    # Add to PATH if needed
+    if [ -z "$NO_MODIFY_PATH" ]; then
+        add_to_path "$install_dir"
+    fi
+
+    # Verify installation
+    if command -v siteio >/dev/null 2>&1; then
+        success "siteio is ready to use!"
+    else
+        warn "siteio installed but not in PATH"
+        warn "Add ${install_dir} to your PATH or run: ${install_dir}/siteio"
+    fi
+}
+
+main "$@"

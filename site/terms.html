@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms of Service - SiteIO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Backgrounds */
+      --bg: #f8f9fa;
+      --surface: #ffffff;
+      --code-bg: #f6f8fa;
+
+      /* Borders */
+      --border: #d1d9e0;
+      --border-light: #e8ecf0;
+
+      /* Text */
+      --text: #1f2328;
+      --text-secondary: #656d76;
+      --text-muted: #8b949e;
+
+      /* Accent */
+      --accent: #0969da;
+      --accent-hover: #0860ca;
+      --accent-bg: #ddf4ff;
+
+      /* Layout */
+      --radius: 8px;
+      --radius-lg: 12px;
+      --transition: 0.15s ease;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 60px 24px 80px;
+    }
+
+    .back {
+      margin-bottom: 40px;
+    }
+
+    .back a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: color var(--transition);
+    }
+
+    .back a:hover {
+      color: var(--accent);
+    }
+
+    header {
+      margin-bottom: 48px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .updated {
+      color: var(--text-muted);
+      font-size: 0.8125rem;
+    }
+
+    section {
+      margin-bottom: 40px;
+    }
+
+    h2 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 24px 0 12px;
+      color: var(--text-secondary);
+    }
+
+    p {
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      font-size: 0.875rem;
+    }
+
+    ul {
+      list-style: none;
+      margin-bottom: 16px;
+    }
+
+    li {
+      position: relative;
+      padding-left: 18px;
+      margin-bottom: 8px;
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+    }
+
+    li::before {
+      content: '•';
+      position: absolute;
+      left: 0;
+      color: var(--text-muted);
+    }
+
+    li strong {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    code {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.8125rem;
+      border: 1px solid var(--border-light);
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    @media (max-width: 600px) {
+      .container {
+        padding: 40px 16px 60px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="back"><a href="/">&larr; Back</a></div>
+
+    <header>
+      <h1>Terms of Service</h1>
+      <p class="updated">Last updated: January 27, 2026</p>
+    </header>
+
+    <section>
+      <h2>Acceptance of Terms</h2>
+      <p>By using SiteIO, you agree to these Terms of Service. If you do not agree, do not use the software.</p>
+    </section>
+
+    <section>
+      <h2>Description of Service</h2>
+      <p>SiteIO is an open source command-line interface (CLI) tool and self-hosted agent for deploying static websites. The software is provided free of charge.</p>
+    </section>
+
+    <section>
+      <h2>Use of Service</h2>
+
+      <h3>Permitted Use</h3>
+      <p>You may use SiteIO to:</p>
+      <ul>
+        <li>Deploy static websites to your own infrastructure</li>
+        <li>Manage and remove deployed sites</li>
+        <li>Run the SiteIO agent on servers you control</li>
+        <li>Automate deployments for personal or business use</li>
+      </ul>
+
+      <h3>Prohibited Use</h3>
+      <p>You agree NOT to use SiteIO to:</p>
+      <ul>
+        <li>Host malware, phishing sites, or illegal content</li>
+        <li>Violate any applicable laws or regulations</li>
+        <li>Infringe on the rights of others</li>
+        <li>Distribute content that violates third-party terms of service</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Self-Hosted Responsibility</h2>
+      <p>SiteIO is designed to run on infrastructure you control. You are responsible for:</p>
+      <ul>
+        <li>Securing your server and API credentials</li>
+        <li>Managing SSL certificates and domain configuration</li>
+        <li>Ensuring compliance with applicable laws in your jurisdiction</li>
+        <li>The content you host using SiteIO</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Disclaimer of Warranties</h2>
+      <p>SiteIO is provided "AS IS" and "AS AVAILABLE" without warranties of any kind, including:</p>
+      <ul>
+        <li>Merchantability</li>
+        <li>Fitness for a particular purpose</li>
+        <li>Non-infringement</li>
+        <li>Accuracy or reliability</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Limitation of Liability</h2>
+      <p>To the maximum extent permitted by law, the developers shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including:</p>
+      <ul>
+        <li>Loss of data</li>
+        <li>Loss of profits</li>
+        <li>Business interruption</li>
+        <li>Any damages arising from your use or inability to use the software</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Third-Party Services</h2>
+      <p>SiteIO integrates with third-party services. Your use is also subject to:</p>
+      <ul>
+        <li><a href="https://letsencrypt.org/repository/">Let's Encrypt Subscriber Agreement</a></li>
+        <li>Your hosting provider's terms of service</li>
+        <li>Your domain registrar's terms of service</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Open Source License</h2>
+      <p>SiteIO is open source software available at <a href="https://github.com/plosson/siteio">github.com/plosson/siteio</a> and subject to its license terms.</p>
+    </section>
+
+    <section>
+      <h2>Modifications to Terms</h2>
+      <p>We may modify these terms at any time. Changes will be reflected here with an updated date. Continued use constitutes acceptance.</p>
+    </section>
+
+    <section>
+      <h2>Termination</h2>
+      <p>You may stop using SiteIO at any time by:</p>
+      <ul>
+        <li>Deleting the CLI configuration (<code>~/.config/siteio</code>)</li>
+        <li>Stopping the SiteIO agent on your server</li>
+        <li>Removing deployed sites and data</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Contact</h2>
+      <p>For questions, open an issue at <a href="https://github.com/plosson/siteio/issues">github.com/plosson/siteio/issues</a></p>
+    </section>
+
+    <section>
+      <h2>Governing Law</h2>
+      <p>These terms shall be governed by applicable laws, without regard to conflict of law principles.</p>
+    </section>
+  </div>
+</body>
+</html>
