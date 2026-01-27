@@ -16,6 +16,41 @@ function sanitizeSubdomain(name: string): string {
     .replace(/^-|-$/g, "")
 }
 
+function generateTestSubdomain(): string {
+  const randomId = Math.random().toString(36).substring(2, 8)
+  return `test-${randomId}`
+}
+
+function generateTestHtml(subdomain: string): string {
+  const timestamp = new Date().toISOString()
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Site - ${subdomain}</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 600px;
+      margin: 100px auto;
+      padding: 20px;
+      text-align: center;
+    }
+    h1 { color: #333; }
+    .info { color: #666; font-size: 14px; }
+    .success { color: #22c55e; font-size: 48px; margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <div class="success">✓</div>
+  <h1>Test Site Deployed</h1>
+  <p>This is a test deployment for <strong>${subdomain}</strong></p>
+  <p class="info">Deployed at: ${timestamp}</p>
+</body>
+</html>`
+}
+
 async function collectFiles(dir: string, baseDir: string = dir): Promise<Record<string, Uint8Array>> {
   const files: Record<string, Uint8Array> = {}
 
@@ -39,49 +74,79 @@ async function collectFiles(dir: string, baseDir: string = dir): Promise<Record<
   return files
 }
 
-export async function deployCommand(folder: string, options: DeployOptions): Promise<void> {
+export async function deployCommand(folder: string | undefined, options: DeployOptions): Promise<void> {
   const spinner = ora()
 
   try {
-    // Resolve and validate folder
-    const folderPath = resolve(folder)
-    if (!existsSync(folderPath)) {
-      throw new ValidationError(`Folder not found: ${folderPath}`)
-    }
+    let files: Record<string, Uint8Array>
+    let subdomain: string
+    let fileCount: number
 
-    const stat = statSync(folderPath)
-    if (!stat.isDirectory()) {
-      throw new ValidationError(`Not a directory: ${folderPath}`)
-    }
+    if (options.test) {
+      // Test mode: generate a simple test site
+      subdomain = options.subdomain || generateTestSubdomain()
 
-    // Determine subdomain
-    const subdomain = options.subdomain || sanitizeSubdomain(basename(folderPath))
-    if (!subdomain) {
-      throw new ValidationError("Could not determine subdomain. Please specify one with --subdomain")
-    }
+      if (!/^[a-z0-9-]+$/.test(subdomain)) {
+        throw new ValidationError("Subdomain must contain only lowercase letters, numbers, and hyphens")
+      }
 
-    if (!/^[a-z0-9-]+$/.test(subdomain)) {
-      throw new ValidationError("Subdomain must contain only lowercase letters, numbers, and hyphens")
-    }
+      if (subdomain === "api") {
+        throw new ValidationError("'api' is a reserved subdomain")
+      }
 
-    if (subdomain === "api") {
-      throw new ValidationError("'api' is a reserved subdomain")
-    }
+      console.error(chalk.cyan(`> Deploying test site to ${subdomain}`))
 
-    console.error(chalk.cyan(`> Deploying ${folder} to ${subdomain}`))
+      spinner.start("Generating test site")
+      const htmlContent = generateTestHtml(subdomain)
+      files = {
+        "index.html": new TextEncoder().encode(htmlContent),
+      }
+      fileCount = 1
+      spinner.succeed("Generated test site")
+    } else {
+      // Normal mode: deploy from folder
+      if (!folder) {
+        throw new ValidationError("Folder is required. Use --test to deploy a test site without a folder.")
+      }
 
-    // Step 1: Collect and zip files
-    spinner.start("Zipping files")
-    const files = await collectFiles(folderPath)
-    const fileCount = Object.keys(files).length
+      const folderPath = resolve(folder)
+      if (!existsSync(folderPath)) {
+        throw new ValidationError(`Folder not found: ${folderPath}`)
+      }
 
-    if (fileCount === 0) {
-      spinner.fail("No files found")
-      throw new ValidationError("Folder is empty")
+      const stat = statSync(folderPath)
+      if (!stat.isDirectory()) {
+        throw new ValidationError(`Not a directory: ${folderPath}`)
+      }
+
+      subdomain = options.subdomain || sanitizeSubdomain(basename(folderPath))
+      if (!subdomain) {
+        throw new ValidationError("Could not determine subdomain. Please specify one with --subdomain")
+      }
+
+      if (!/^[a-z0-9-]+$/.test(subdomain)) {
+        throw new ValidationError("Subdomain must contain only lowercase letters, numbers, and hyphens")
+      }
+
+      if (subdomain === "api") {
+        throw new ValidationError("'api' is a reserved subdomain")
+      }
+
+      console.error(chalk.cyan(`> Deploying ${folder} to ${subdomain}`))
+
+      spinner.start("Zipping files")
+      files = await collectFiles(folderPath)
+      fileCount = Object.keys(files).length
+
+      if (fileCount === 0) {
+        spinner.fail("No files found")
+        throw new ValidationError("Folder is empty")
+      }
+      spinner.succeed(`Zipped ${fileCount} files`)
     }
 
     const zipData = zipSync(files, { level: 6 })
-    spinner.succeed(`Zipped ${fileCount} files (${formatBytes(zipData.length)})`)
+    console.error(chalk.dim(`  ${fileCount} file(s), ${formatBytes(zipData.length)}`))
 
     // Step 2: Check OAuth if auth options are provided
     const client = new SiteioClient()
