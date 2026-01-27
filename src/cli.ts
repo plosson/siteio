@@ -21,6 +21,15 @@ const program = new Command()
   .description("Deploy static sites with ease")
   .version(getVersion())
 
+// Status command
+program
+  .command("status")
+  .description("Show connection status")
+  .action(async () => {
+    const { statusCommand } = await import("./commands/status.ts")
+    await statusCommand()
+  })
+
 // Login command
 program
   .command("login")
