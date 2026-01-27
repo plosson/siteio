@@ -65,9 +65,8 @@ get_platform() {
             ;;
         Darwin)
             case "$arch" in
-                x86_64) echo "darwin-x64" ;;
                 arm64) echo "darwin-arm64" ;;
-                *) error "Unsupported architecture: $arch" ;;
+                *) error "Unsupported architecture: $arch (only Apple Silicon is supported)" ;;
             esac
             ;;
         *)
