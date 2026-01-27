@@ -515,7 +515,7 @@
           </div>
         </div>
         <div class="update-hint">
-          Requires a running SiteIO agent. See <a href="https://github.com/plosson/siteio">deployment guide</a>.
+          Already installed? Run <code>siteio update</code> to get the latest version.
         </div>
       </div>
     </section>
@@ -526,10 +526,10 @@
         <div class="step">
           <div class="step-num">1</div>
           <div class="step-content">
-            <h3>Configure your credentials</h3>
-            <p>Point the CLI to your SiteIO agent and set your API key.</p>
-            <pre><code>siteio login
-# Enter your API URL and key</code></pre>
+            <h3>Connect to your agent</h3>
+            <p>Get a connection token from your SiteIO administrator and login.</p>
+            <pre><code>siteio login -t &lt;token&gt;
+# Or check status with: siteio status</code></pre>
           </div>
         </div>
         <div class="step">
@@ -602,8 +602,8 @@ siteio sites undeploy my-site</code></pre>
           <p>Every site gets its own subdomain on your domain.</p>
         </div>
         <div class="feature">
-          <h3>Docker ready</h3>
-          <p>Deploy the agent with a single docker-compose command.</p>
+          <h3>Easy server setup</h3>
+          <p>Install agent with <code>siteio agent install</code>. Uses systemd + Docker.</p>
         </div>
         <div class="feature">
           <h3>JSON output</h3>
