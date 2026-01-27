@@ -1,0 +1,17 @@
+services:
+  siteio-agent:
+    build: .
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - siteio-data:/data
+    environment:
+      - SITEIO_DOMAIN=${SITEIO_DOMAIN:?SITEIO_DOMAIN is required}
+      - SITEIO_API_KEY=${SITEIO_API_KEY:-}
+      - SITEIO_EMAIL=${SITEIO_EMAIL:-}
+      - SITEIO_MAX_UPLOAD_SIZE=${SITEIO_MAX_UPLOAD_SIZE:-50MB}
+    restart: unless-stopped
+
+volumes:
+  siteio-data:
