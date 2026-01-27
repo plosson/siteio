@@ -71,3 +71,12 @@ Optional:
 - Tests use `skipTraefik: true` to run without Traefik
 - E2E tests spin up a real `AgentServer` on a custom port
 - Integration tests run the CLI as a subprocess
+
+## Releasing a New Version
+
+1. Bump version in `package.json`
+2. Commit: `git commit -am "Bump version to X.Y.Z"`
+3. Push: `git push`
+4. Create and push tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
+
+The Release workflow builds binaries and creates a GitHub release when a tag is pushed.
