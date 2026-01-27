@@ -51,8 +51,8 @@ sites
   .command("deploy <folder>")
   .description("Deploy a folder as a static site")
   .option("-s, --subdomain <name>", "Subdomain to deploy to (defaults to folder name)")
-  .option("-u, --user <username>", "Username for basic auth")
-  .option("-p, --password <password>", "Password for basic auth")
+  .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses for Google OAuth")
+  .option("--allowed-domain <domain>", "Allow all emails from this domain for Google OAuth")
   .action(async (folder, options) => {
     const { deployCommand } = await import("./commands/sites/deploy.ts")
     await deployCommand(folder, options)
@@ -76,9 +76,9 @@ sites
 
 sites
   .command("auth <subdomain>")
-  .description("Set or remove basic auth for a site")
-  .option("-u, --user <username>", "Username for basic auth")
-  .option("-p, --password <password>", "Password for basic auth")
+  .description("Set or remove Google OAuth for a site")
+  .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses")
+  .option("--allowed-domain <domain>", "Allow all emails from this domain")
   .option("--remove", "Remove authentication")
   .action(async (subdomain, options) => {
     const { authCommand } = await import("./commands/sites/auth.ts")
@@ -96,6 +96,14 @@ agent
   .action(async () => {
     const { installAgentCommand } = await import("./commands/agent/install.ts")
     await installAgentCommand()
+  })
+
+agent
+  .command("oauth")
+  .description("Configure Google OAuth via Clerk")
+  .action(async () => {
+    const { oauthAgentCommand } = await import("./commands/agent/oauth.ts")
+    await oauthAgentCommand()
   })
 
 agent

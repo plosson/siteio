@@ -62,14 +62,3 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`
 }
-
-// Generate random password
-export function generatePassword(length: number = 13): string {
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-  let password = ""
-  const randomBytes = crypto.getRandomValues(new Uint8Array(length))
-  for (let i = 0; i < length; i++) {
-    password += chars[randomBytes[i]! % chars.length]
-  }
-  return password
-}

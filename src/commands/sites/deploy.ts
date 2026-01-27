@@ -4,9 +4,9 @@ import ora from "ora"
 import chalk from "chalk"
 import { zipSync } from "fflate"
 import { SiteioClient } from "../../lib/client.ts"
-import { formatSuccess, formatError, formatBytes, generatePassword } from "../../utils/output.ts"
+import { formatSuccess, formatBytes } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
-import type { DeployOptions } from "../../types.ts"
+import type { DeployOptions, SiteOAuth } from "../../types.ts"
 
 function sanitizeSubdomain(name: string): string {
   return name
@@ -83,49 +83,66 @@ export async function deployCommand(folder: string, options: DeployOptions): Pro
     const zipData = zipSync(files, { level: 6 })
     spinner.succeed(`Zipped ${fileCount} files (${formatBytes(zipData.length)})`)
 
-    // Step 2: Upload
-    spinner.start("Uploading")
+    // Step 2: Check OAuth if auth options are provided
     const client = new SiteioClient()
 
-    // Prepare auth if either user or password is provided
-    let auth: { user: string; password: string } | undefined
-    let generatedPassword: string | undefined
+    let oauth: SiteOAuth | undefined
+    if (options.allowedEmails || options.allowedDomain) {
+      spinner.start("Checking OAuth status")
+      const oauthEnabled = await client.getOAuthStatus()
+      spinner.stop()
 
-    if (options.user || options.password) {
-      const user = options.user || subdomain
-      const password = options.password || generatePassword(13)
-      if (!options.password) {
-        generatedPassword = password
+      if (!oauthEnabled) {
+        console.error(chalk.red("Google authentication not configured on the server."))
+        console.error("")
+        console.error(chalk.yellow("Run 'siteio agent oauth' on the server to enable Google authentication."))
+        console.error(chalk.yellow("Or deploy without auth options to create a public site."))
+        console.error("")
+        process.exit(1)
       }
-      auth = { user, password }
+
+      oauth = {}
+      if (options.allowedEmails) {
+        oauth.allowedEmails = options.allowedEmails.split(",").map((e) => e.trim().toLowerCase())
+      }
+      if (options.allowedDomain) {
+        oauth.allowedDomain = options.allowedDomain.toLowerCase()
+      }
     }
 
-    const site = await client.deploySite(subdomain, zipData, (uploaded, total) => {
-      const percent = Math.round((uploaded / total) * 100)
-      spinner.text = `Uploading (${percent}%)`
-    }, auth)
+    // Step 3: Upload
+    spinner.start("Uploading")
+
+    const site = await client.deploySite(
+      subdomain,
+      zipData,
+      (uploaded, total) => {
+        const percent = Math.round((uploaded / total) * 100)
+        spinner.text = `Uploading (${percent}%)`
+      },
+      oauth
+    )
     spinner.succeed("Uploaded")
 
-    // Step 3: Done
+    // Step 4: Done
     console.error("")
     console.error(formatSuccess("Site deployed successfully!"))
     console.error("")
     console.error(`  URL: ${chalk.cyan(site.url)}`)
     console.error(`  Size: ${formatBytes(site.size)}`)
-    if (site.auth && auth) {
-      console.error(`  Auth: ${chalk.yellow("enabled")}`)
-      console.error(`    User: ${chalk.cyan(auth.user)}`)
-      if (generatedPassword) {
-        console.error(`    Password: ${chalk.cyan(generatedPassword)} ${chalk.dim("(generated)")}`)
+    if (site.oauth) {
+      console.error(`  Auth: ${chalk.yellow("Google OAuth enabled")}`)
+      if (site.oauth.allowedEmails) {
+        console.error(`    Allowed emails: ${chalk.cyan(site.oauth.allowedEmails.join(", "))}`)
+      }
+      if (site.oauth.allowedDomain) {
+        console.error(`    Allowed domain: ${chalk.cyan(site.oauth.allowedDomain)}`)
       }
     }
     console.error("")
 
     // JSON output to stdout
     const output: Record<string, unknown> = { success: true, data: site }
-    if (auth) {
-      output.auth = { user: auth.user, password: generatedPassword || "(provided)" }
-    }
     console.log(JSON.stringify(output, null, 2))
     process.exit(0)
   } catch (err) {

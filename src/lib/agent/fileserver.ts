@@ -69,6 +69,34 @@ export function createFileServerHandler(
       return new Response("Site not found", { status: 404 })
     }
 
+    // Check OAuth restrictions if configured
+    const metadata = storage.getMetadata(subdomain)
+    if (metadata?.oauth) {
+      const email = req.headers.get("X-Auth-Request-Email")
+
+      // If site has OAuth but no email header, user is not authenticated
+      if (!email) {
+        return new Response("Unauthorized - authentication required", { status: 401 })
+      }
+
+      const { allowedEmails, allowedDomain } = metadata.oauth
+
+      // Check allowed emails
+      if (allowedEmails && allowedEmails.length > 0) {
+        if (!allowedEmails.includes(email.toLowerCase())) {
+          return new Response("Forbidden - email not in allowed list", { status: 403 })
+        }
+      }
+
+      // Check allowed domain
+      if (allowedDomain) {
+        const emailDomain = email.split("@")[1]?.toLowerCase()
+        if (emailDomain !== allowedDomain.toLowerCase()) {
+          return new Response("Forbidden - email domain not allowed", { status: 403 })
+        }
+      }
+    }
+
     // Get the requested path
     let pathname = url.pathname
     if (pathname === "/") {

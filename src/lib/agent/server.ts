@@ -1,7 +1,8 @@
-import type { AgentConfig, ApiResponse, SiteInfo } from "../../types.ts"
+import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteOAuth } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { createFileServerHandler } from "./fileserver.ts"
+import { loadOAuthConfig } from "../../config/oauth.ts"
 
 export class AgentServer {
   private config: AgentConfig
@@ -9,10 +10,15 @@ export class AgentServer {
   private traefik: TraefikManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
   private fileServerHandler: (req: Request) => Promise<Response | null>
+  private oauthConfig: AgentOAuthConfig | null = null
 
   constructor(config: AgentConfig) {
     this.config = config
     this.storage = new SiteStorage(config.dataDir)
+
+    // Load OAuth config if it exists
+    this.oauthConfig = loadOAuthConfig(config.dataDir)
+
     if (!config.skipTraefik) {
       this.traefik = new TraefikManager({
         dataDir: config.dataDir,
@@ -21,9 +27,14 @@ export class AgentServer {
         httpPort: config.httpPort,
         httpsPort: config.httpsPort,
         fileServerPort: config.port || 3000,
+        oauthConfig: this.oauthConfig || undefined,
       })
     }
     this.fileServerHandler = createFileServerHandler(this.storage, config.domain)
+  }
+
+  hasOAuthEnabled(): boolean {
+    return this.oauthConfig !== null
   }
 
   private json<T>(data: T, status = 200): Response {
@@ -66,6 +77,11 @@ export class AgentServer {
       return this.json({ status: "ok" })
     }
 
+    // OAuth status (no auth required - public info)
+    if (path === "/oauth/status" && req.method === "GET") {
+      return this.json({ enabled: this.hasOAuthEnabled() })
+    }
+
     // All other routes require auth
     if (!this.checkAuth(req)) {
       return this.error("Unauthorized", 401)
@@ -103,7 +119,7 @@ export class AgentServer {
       url: `https://${site.subdomain}.${this.config.domain}`,
       size: site.size,
       deployedAt: site.deployedAt,
-      auth: !!site.auth,
+      oauth: site.oauth,
     }))
     return this.json(siteInfos)
   }
@@ -135,19 +151,31 @@ export class AgentServer {
       // Read the zip data
       const zipData = new Uint8Array(await req.arrayBuffer())
 
-      // Check for basic auth headers
-      const authUser = req.headers.get("X-Site-Auth-User")
-      const authPassword = req.headers.get("X-Site-Auth-Password")
+      // Check for OAuth headers
+      const allowedEmails = req.headers.get("X-Site-OAuth-Emails")
+      const allowedDomain = req.headers.get("X-Site-OAuth-Domain")
 
-      let auth: { user: string; passwordHash: string } | undefined
-      if (authUser && authPassword) {
-        // Hash password in htpasswd bcrypt format for Traefik
-        const passwordHash = await Bun.password.hash(authPassword, { algorithm: "bcrypt" })
-        auth = { user: authUser, passwordHash }
+      let oauth: SiteOAuth | undefined
+      if (allowedEmails || allowedDomain) {
+        // Reject if OAuth is not configured
+        if (!this.hasOAuthEnabled()) {
+          return this.error(
+            "Google authentication not configured. Run 'siteio agent oauth' on the server to enable it.",
+            400
+          )
+        }
+
+        oauth = {}
+        if (allowedEmails) {
+          oauth.allowedEmails = allowedEmails.split(",").map((e) => e.trim().toLowerCase())
+        }
+        if (allowedDomain) {
+          oauth.allowedDomain = allowedDomain.toLowerCase()
+        }
       }
 
       // Extract and store
-      const metadata = await this.storage.extractAndStore(subdomain, zipData, auth)
+      const metadata = await this.storage.extractAndStore(subdomain, zipData, oauth)
 
       // Update Traefik config with site metadata (for auth middleware)
       const allSites = this.storage.listSites()
@@ -158,7 +186,7 @@ export class AgentServer {
         url: `https://${metadata.subdomain}.${this.config.domain}`,
         size: metadata.size,
         deployedAt: metadata.deployedAt,
-        auth: !!metadata.auth,
+        oauth: metadata.oauth,
       }
 
       return this.json(siteInfo)
@@ -191,22 +219,38 @@ export class AgentServer {
     }
 
     try {
-      const body = await req.json() as { user?: string; password?: string; remove?: boolean }
-
-      let auth: { user: string; passwordHash: string } | null = null
-
-      if (body.remove) {
-        // Remove auth
-        auth = null
-      } else if (body.user && body.password) {
-        // Set auth - hash password
-        const passwordHash = await Bun.password.hash(body.password, { algorithm: "bcrypt" })
-        auth = { user: body.user, passwordHash }
-      } else {
-        return this.error("Provide user and password, or set remove: true")
+      const body = (await req.json()) as {
+        allowedEmails?: string[]
+        allowedDomain?: string
+        remove?: boolean
       }
 
-      const updated = this.storage.updateAuth(subdomain, auth)
+      let oauth: SiteOAuth | null = null
+
+      if (body.remove) {
+        // Remove OAuth
+        oauth = null
+      } else if (body.allowedEmails || body.allowedDomain) {
+        // Reject if OAuth is not configured on the server
+        if (!this.hasOAuthEnabled()) {
+          return this.error(
+            "Google authentication not configured. Run 'siteio agent oauth' on the server to enable it.",
+            400
+          )
+        }
+
+        oauth = {}
+        if (body.allowedEmails) {
+          oauth.allowedEmails = body.allowedEmails.map((e) => e.toLowerCase())
+        }
+        if (body.allowedDomain) {
+          oauth.allowedDomain = body.allowedDomain.toLowerCase()
+        }
+      } else {
+        return this.error("Provide allowedEmails or allowedDomain, or set remove: true")
+      }
+
+      const updated = this.storage.updateOAuth(subdomain, oauth)
       if (!updated) {
         return this.error("Failed to update authentication", 500)
       }

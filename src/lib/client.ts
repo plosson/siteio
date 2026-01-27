@@ -1,6 +1,6 @@
 import { loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
-import type { ApiResponse, SiteInfo } from "../types.ts"
+import type { ApiResponse, SiteInfo, SiteOAuth } from "../types.ts"
 
 export interface ClientOptions {
   apiUrl?: string
@@ -64,7 +64,7 @@ export class SiteioClient {
     subdomain: string,
     zipData: Uint8Array,
     onProgress?: (uploaded: number, total: number) => void,
-    auth?: { user: string; password: string }
+    oauth?: SiteOAuth
   ): Promise<SiteInfo> {
     // For progress tracking, we'll use XMLHttpRequest-like approach
     // But fetch doesn't support upload progress, so we'll just call onProgress at start and end
@@ -75,10 +75,14 @@ export class SiteioClient {
       "Content-Length": String(zipData.length),
     }
 
-    // Add auth headers if provided
-    if (auth) {
-      headers["X-Site-Auth-User"] = auth.user
-      headers["X-Site-Auth-Password"] = auth.password
+    // Add OAuth headers if provided
+    if (oauth) {
+      if (oauth.allowedEmails && oauth.allowedEmails.length > 0) {
+        headers["X-Site-OAuth-Emails"] = oauth.allowedEmails.join(",")
+      }
+      if (oauth.allowedDomain) {
+        headers["X-Site-OAuth-Domain"] = oauth.allowedDomain
+      }
     }
 
     const response = await this.request<ApiResponse<SiteInfo>>(
@@ -101,10 +105,7 @@ export class SiteioClient {
     await this.request<ApiResponse<null>>("DELETE", `/sites/${subdomain}`)
   }
 
-  async updateSiteAuth(
-    subdomain: string,
-    auth: { user: string; password: string } | null
-  ): Promise<void> {
+  async updateSiteOAuth(subdomain: string, oauth: SiteOAuth | null): Promise<void> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     }
@@ -112,9 +113,18 @@ export class SiteioClient {
     await this.request<ApiResponse<null>>(
       "PATCH",
       `/sites/${subdomain}/auth`,
-      JSON.stringify(auth ? { user: auth.user, password: auth.password } : { remove: true }),
+      JSON.stringify(oauth ? oauth : { remove: true }),
       headers
     )
+  }
+
+  async getOAuthStatus(): Promise<boolean> {
+    try {
+      const response = await this.request<ApiResponse<{ enabled: boolean }>>("GET", "/oauth/status")
+      return response.data?.enabled ?? false
+    } catch {
+      return false
+    }
   }
 
   async healthCheck(): Promise<boolean> {
