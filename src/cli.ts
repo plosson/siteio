@@ -27,6 +27,7 @@ program
   .description("Configure API credentials")
   .option("--api-url <url>", "API URL")
   .option("--api-key <key>", "API key")
+  .option("-t, --token <token>", "Connection token (contains URL and API key)")
   .action(async (options) => {
     const { loginCommand } = await import("./commands/login.ts")
     await loginCommand(options)

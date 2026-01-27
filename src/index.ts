@@ -5,6 +5,7 @@ export { SiteioClient } from "./lib/client.ts"
 export { AgentServer } from "./lib/agent/server.ts"
 export { SiteStorage } from "./lib/agent/storage.ts"
 export { TraefikManager } from "./lib/agent/traefik.ts"
+export { encodeToken, decodeToken, isValidToken } from "./utils/token.ts"
 
 export type {
   ApiResponse,
@@ -17,3 +18,5 @@ export type {
   LoginOptions,
   AgentStartOptions,
 } from "./types.ts"
+
+export type { TokenData } from "./utils/token.ts"

@@ -1,7 +1,9 @@
+import * as p from "@clack/prompts"
 import chalk from "chalk"
 import { randomBytes } from "crypto"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { formatError } from "../../utils/output.ts"
+import { encodeToken } from "../../utils/token.ts"
 import type { AgentConfig } from "../../types.ts"
 
 function generateApiKey(): string {
@@ -28,12 +30,27 @@ function parseSize(size: string): number {
 }
 
 export async function startAgentCommand(): Promise<void> {
-  // Read configuration from environment variables
-  const domain = process.env.SITEIO_DOMAIN
+  // Read configuration from environment variables or prompt
+  let domain = process.env.SITEIO_DOMAIN
+
   if (!domain) {
-    console.error(formatError("SITEIO_DOMAIN environment variable is required"))
-    console.error(chalk.gray("  Example: SITEIO_DOMAIN=axel.siteio.me"))
-    process.exit(1)
+    p.intro(chalk.bgCyan(" siteio agent "))
+
+    const result = await p.text({
+      message: "Domain for this agent:",
+      placeholder: "example.siteio.me",
+      validate: (value) => {
+        if (!value) return "Domain is required"
+        if (!value.includes(".")) return "Please enter a valid domain"
+      },
+    })
+
+    if (p.isCancel(result)) {
+      p.cancel("Setup cancelled")
+      process.exit(0)
+    }
+
+    domain = result
   }
 
   const apiKey = process.env.SITEIO_API_KEY || generateApiKey()
@@ -53,19 +70,32 @@ export async function startAgentCommand(): Promise<void> {
     email,
   }
 
+  // Generate connection info
+  const apiUrl = `https://api.${domain}`
+  const token = encodeToken(apiUrl, apiKey)
+
   console.log(chalk.cyan("siteio-agent starting..."))
   console.log("")
-  console.log(`  Domain: ${chalk.bold(domain)}`)
-  console.log(`  Data dir: ${dataDir}`)
+  console.log(`  Domain:     ${chalk.bold(domain)}`)
+  console.log(`  Data dir:   ${dataDir}`)
   console.log(`  Max upload: ${maxUploadSize / 1024 / 1024}MB`)
-  console.log(`  HTTP port: ${httpPort}`)
-  console.log(`  HTTPS port: ${httpsPort}`)
+  console.log(`  Ports:      ${httpPort} (HTTP), ${httpsPort} (HTTPS)`)
   console.log("")
 
+  // Connection credentials - easy to copy/paste
+  console.log(chalk.cyan.bold("─── Connection Credentials ───"))
   if (!process.env.SITEIO_API_KEY) {
-    console.log(chalk.yellow("! No API key set, generated one:"))
+    console.log(chalk.yellow("(API key auto-generated)"))
   }
-  console.log(`  API Key: ${chalk.bold(apiKey)}`)
+  console.log("")
+  console.log(`  URL:     ${apiUrl}`)
+  console.log(`  API Key: ${apiKey}`)
+  console.log(`  Token:   ${token}`)
+  console.log("")
+  console.log(chalk.cyan.bold("──────────────────────────────"))
+  console.log("")
+  console.log(chalk.gray("Users can connect with:"))
+  console.log(chalk.gray(`  siteio login -t ${token}`))
   console.log("")
 
   const server = new AgentServer(config)
