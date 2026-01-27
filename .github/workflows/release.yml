@@ -54,8 +54,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - target: darwin-x64
-            artifact: siteio-darwin-x64
           - target: darwin-arm64
             artifact: siteio-darwin-arm64
           - target: linux-x64
