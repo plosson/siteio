@@ -63,20 +63,29 @@ export class SiteioClient {
   async deploySite(
     subdomain: string,
     zipData: Uint8Array,
-    onProgress?: (uploaded: number, total: number) => void
+    onProgress?: (uploaded: number, total: number) => void,
+    auth?: { user: string; password: string }
   ): Promise<SiteInfo> {
     // For progress tracking, we'll use XMLHttpRequest-like approach
     // But fetch doesn't support upload progress, so we'll just call onProgress at start and end
     onProgress?.(0, zipData.length)
 
+    const headers: Record<string, string> = {
+      "Content-Type": "application/zip",
+      "Content-Length": String(zipData.length),
+    }
+
+    // Add auth headers if provided
+    if (auth) {
+      headers["X-Site-Auth-User"] = auth.user
+      headers["X-Site-Auth-Password"] = auth.password
+    }
+
     const response = await this.request<ApiResponse<SiteInfo>>(
       "POST",
       `/sites/${subdomain}`,
       zipData,
-      {
-        "Content-Type": "application/zip",
-        "Content-Length": String(zipData.length),
-      }
+      headers
     )
 
     onProgress?.(zipData.length, zipData.length)
@@ -90,6 +99,22 @@ export class SiteioClient {
 
   async undeploySite(subdomain: string): Promise<void> {
     await this.request<ApiResponse<null>>("DELETE", `/sites/${subdomain}`)
+  }
+
+  async updateSiteAuth(
+    subdomain: string,
+    auth: { user: string; password: string } | null
+  ): Promise<void> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    }
+
+    await this.request<ApiResponse<null>>(
+      "PATCH",
+      `/sites/${subdomain}/auth`,
+      JSON.stringify(auth ? { user: auth.user, password: auth.password } : { remove: true }),
+      headers
+    )
   }
 
   async healthCheck(): Promise<boolean> {

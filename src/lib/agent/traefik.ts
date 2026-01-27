@@ -1,6 +1,7 @@
 import { existsSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 import { spawn, spawnSync } from "bun"
+import type { SiteMetadata } from "../../types.ts"
 
 const CONTAINER_NAME = "siteio-traefik"
 const TRAEFIK_IMAGE = "traefik:v3.0"
@@ -83,20 +84,22 @@ log:
 `.trim()
   }
 
-  generateDynamicConfig(subdomains: string[]): string {
+  generateDynamicConfig(sites: SiteMetadata[]): string {
     const { domain, fileServerPort } = this.config
     const routers: Record<string, unknown> = {}
     const services: Record<string, unknown> = {}
+    const middlewares: Record<string, unknown> = {}
 
     // Use host.docker.internal to reach the host from container
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
 
-    // Add router and service for each subdomain
-    for (const subdomain of subdomains) {
+    // Add router and service for each site
+    for (const site of sites) {
+      const { subdomain, auth } = site
       const routerName = `${subdomain}-router`
       const serviceName = `${subdomain}-service`
 
-      routers[routerName] = {
+      const router: Record<string, unknown> = {
         rule: `Host(\`${subdomain}.${domain}\`)`,
         entryPoints: ["websecure"],
         service: serviceName,
@@ -104,6 +107,19 @@ log:
           certResolver: "letsencrypt",
         },
       }
+
+      // Add basicAuth middleware if auth is configured
+      if (auth) {
+        const middlewareName = `${subdomain}-auth`
+        middlewares[middlewareName] = {
+          basicAuth: {
+            users: [`${auth.user}:${auth.passwordHash}`],
+          },
+        }
+        router.middlewares = [middlewareName]
+      }
+
+      routers[routerName] = router
 
       services[serviceName] = {
         loadBalancer: {
@@ -128,11 +144,16 @@ log:
       },
     }
 
-    const config = {
+    const config: Record<string, unknown> = {
       http: {
         routers,
         services,
       },
+    }
+
+    // Only add middlewares section if there are any
+    if (Object.keys(middlewares).length > 0) {
+      ;(config.http as Record<string, unknown>).middlewares = middlewares
     }
 
     return this.toYaml(config)
@@ -185,8 +206,8 @@ log:
     writeFileSync(this.staticConfigPath, this.generateStaticConfig())
   }
 
-  updateDynamicConfig(subdomains: string[]): void {
-    writeFileSync(this.dynamicConfigPath, this.generateDynamicConfig(subdomains))
+  updateDynamicConfig(sites: SiteMetadata[]): void {
+    writeFileSync(this.dynamicConfigPath, this.generateDynamicConfig(sites))
   }
 
   private isDockerAvailable(): boolean {

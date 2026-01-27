@@ -87,6 +87,12 @@ export class AgentServer {
       return this.handleUndeploy(deployMatch[1]!)
     }
 
+    // PATCH /sites/:subdomain/auth - update site authentication
+    const authMatch = path.match(/^\/sites\/([a-z0-9-]+)\/auth$/)
+    if (authMatch && req.method === "PATCH") {
+      return this.handleUpdateAuth(authMatch[1]!, req)
+    }
+
     return this.error("Not found", 404)
   }
 
@@ -97,6 +103,7 @@ export class AgentServer {
       url: `https://${site.subdomain}.${this.config.domain}`,
       size: site.size,
       deployedAt: site.deployedAt,
+      auth: !!site.auth,
     }))
     return this.json(siteInfos)
   }
@@ -128,18 +135,30 @@ export class AgentServer {
       // Read the zip data
       const zipData = new Uint8Array(await req.arrayBuffer())
 
-      // Extract and store
-      const metadata = await this.storage.extractAndStore(subdomain, zipData)
+      // Check for basic auth headers
+      const authUser = req.headers.get("X-Site-Auth-User")
+      const authPassword = req.headers.get("X-Site-Auth-Password")
 
-      // Update Traefik config
+      let auth: { user: string; passwordHash: string } | undefined
+      if (authUser && authPassword) {
+        // Hash password in htpasswd bcrypt format for Traefik
+        const passwordHash = await Bun.password.hash(authPassword, { algorithm: "bcrypt" })
+        auth = { user: authUser, passwordHash }
+      }
+
+      // Extract and store
+      const metadata = await this.storage.extractAndStore(subdomain, zipData, auth)
+
+      // Update Traefik config with site metadata (for auth middleware)
       const allSites = this.storage.listSites()
-      this.traefik?.updateDynamicConfig(allSites.map((s) => s.subdomain))
+      this.traefik?.updateDynamicConfig(allSites)
 
       const siteInfo: SiteInfo = {
         subdomain: metadata.subdomain,
         url: `https://${metadata.subdomain}.${this.config.domain}`,
         size: metadata.size,
         deployedAt: metadata.deployedAt,
+        auth: !!metadata.auth,
       }
 
       return this.json(siteInfo)
@@ -159,11 +178,47 @@ export class AgentServer {
       return this.error("Failed to delete site", 500)
     }
 
-    // Update Traefik config
+    // Update Traefik config with site metadata
     const allSites = this.storage.listSites()
-    this.traefik?.updateDynamicConfig(allSites.map((s) => s.subdomain))
+    this.traefik?.updateDynamicConfig(allSites)
 
     return this.json(null)
+  }
+
+  private async handleUpdateAuth(subdomain: string, req: Request): Promise<Response> {
+    if (!this.storage.siteExists(subdomain)) {
+      return this.error("Site not found", 404)
+    }
+
+    try {
+      const body = await req.json() as { user?: string; password?: string; remove?: boolean }
+
+      let auth: { user: string; passwordHash: string } | null = null
+
+      if (body.remove) {
+        // Remove auth
+        auth = null
+      } else if (body.user && body.password) {
+        // Set auth - hash password
+        const passwordHash = await Bun.password.hash(body.password, { algorithm: "bcrypt" })
+        auth = { user: body.user, passwordHash }
+      } else {
+        return this.error("Provide user and password, or set remove: true")
+      }
+
+      const updated = this.storage.updateAuth(subdomain, auth)
+      if (!updated) {
+        return this.error("Failed to update authentication", 500)
+      }
+
+      // Update Traefik config with site metadata
+      const allSites = this.storage.listSites()
+      this.traefik?.updateDynamicConfig(allSites)
+
+      return this.json(null)
+    } catch (err) {
+      return this.error("Invalid request body")
+    }
   }
 
   async start(): Promise<void> {
@@ -171,7 +226,7 @@ export class AgentServer {
     if (this.traefik) {
       await this.traefik.start()
       const existingSites = this.storage.listSites()
-      this.traefik.updateDynamicConfig(existingSites.map((s) => s.subdomain))
+      this.traefik.updateDynamicConfig(existingSites)
     }
 
     const port = this.config.port || 3000

@@ -27,7 +27,11 @@ export class SiteStorage {
     return join(this.metadataDir, `${subdomain}.json`)
   }
 
-  async extractAndStore(subdomain: string, zipData: Uint8Array): Promise<SiteMetadata> {
+  async extractAndStore(
+    subdomain: string,
+    zipData: Uint8Array,
+    auth?: { user: string; passwordHash: string }
+  ): Promise<SiteMetadata> {
     const sitePath = this.getSitePath(subdomain)
 
     // Remove existing site if it exists
@@ -69,6 +73,7 @@ export class SiteStorage {
       size: totalSize,
       deployedAt: new Date().toISOString(),
       files,
+      auth,
     }
 
     writeFileSync(this.getMetadataPath(subdomain), JSON.stringify(metadata, null, 2))
@@ -129,5 +134,21 @@ export class SiteStorage {
 
   siteExists(subdomain: string): boolean {
     return existsSync(this.getSitePath(subdomain)) && existsSync(this.getMetadataPath(subdomain))
+  }
+
+  updateAuth(subdomain: string, auth: { user: string; passwordHash: string } | null): boolean {
+    const metadata = this.getMetadata(subdomain)
+    if (!metadata) {
+      return false
+    }
+
+    if (auth) {
+      metadata.auth = auth
+    } else {
+      delete metadata.auth
+    }
+
+    writeFileSync(this.getMetadataPath(subdomain), JSON.stringify(metadata, null, 2))
+    return true
   }
 }
