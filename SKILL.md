@@ -2,10 +2,27 @@
 
 Use this skill when the user asks to deploy a static site, website, HTML files, or web application to a URL.
 
+## Installation
+
+```sh
+curl -LsSf https://siteio.me/install | sh
+```
+
+## Setup
+
+Before deploying, the user needs to login with a connection token. If they don't have one, ask them to get it from their siteio administrator.
+
+```sh
+siteio login -t <token>
+```
+
+The token is provided by the siteio agent administrator and contains the API URL and key.
+
 ## Prerequisites
 
-1. User must be logged in: `siteio login -t <token>`
-2. The site must be a folder containing static files (HTML, CSS, JS, images, etc.)
+1. siteio must be installed (see above)
+2. User must be logged in with a valid token
+3. The site must be a folder containing static files (HTML, CSS, JS, images, etc.)
 
 ## Deploying a Site
 
