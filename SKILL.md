@@ -15,6 +15,14 @@ Use this skill when the user asks to deploy a static site, website, or HTML file
 curl -LsSf https://siteio.me/install | sh
 ```
 
+## Check for Updates
+
+Before deploying, ensure you have the latest version:
+
+```sh
+siteio update
+```
+
 ## Setup
 
 Before deploying, the user needs to login with a connection token. If they don't have one, ask them to get it from their siteio administrator.
