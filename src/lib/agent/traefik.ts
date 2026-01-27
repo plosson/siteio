@@ -104,15 +104,28 @@ log:
 
     // Use host.docker.internal to reach the host from container
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
+    const oauthProxyUrl = `http://host.docker.internal:${this.oauthProxyPort}`
 
-    // Add forwardAuth middleware if OAuth is configured and any site needs it
+    // Check if we have protected sites
     const hasProtectedSites = oauthConfig && sites.some((site) => site.oauth)
+
+    // Add oauth2-proxy service if OAuth is configured
     if (hasProtectedSites) {
-      middlewares["oauth-auth"] = {
-        forwardAuth: {
-          address: `http://host.docker.internal:${this.oauthProxyPort}/oauth2/auth`,
-          trustForwardHeader: true,
-          authResponseHeaders: ["X-Auth-Request-Email"],
+      services["oauth2-proxy-service"] = {
+        loadBalancer: {
+          servers: [{ url: oauthProxyUrl }],
+        },
+      }
+
+      // Add router for /oauth2/* paths on API domain (for callback, sign_in, etc.)
+      // This needs higher priority than the general api-router
+      routers["oauth2-router"] = {
+        rule: `Host(\`api.${domain}\`) && PathPrefix(\`/oauth2/\`)`,
+        entryPoints: ["websecure"],
+        service: "oauth2-proxy-service",
+        priority: 100,
+        tls: {
+          certResolver: "letsencrypt",
         },
       }
     }
@@ -123,28 +136,29 @@ log:
       const routerName = `${subdomain}-router`
       const serviceName = `${subdomain}-service`
 
+      // Protected sites route through oauth2-proxy (which proxies to fileserver)
+      // Unprotected sites route directly to fileserver
+      const useOAuthProxy = oauth && oauthConfig
+
       const router: Record<string, unknown> = {
         rule: `Host(\`${subdomain}.${domain}\`)`,
         entryPoints: ["websecure"],
-        service: serviceName,
+        service: useOAuthProxy ? "oauth2-proxy-service" : serviceName,
         tls: {
           certResolver: "letsencrypt",
         },
       }
 
-      // Add forwardAuth middleware if OAuth is configured for this site
-      // Note: if OAuth config doesn't exist but site has oauth settings,
-      // the site is served without protection (edge case during transition)
-      if (oauth && oauthConfig) {
-        router.middlewares = ["oauth-auth"]
-      }
-
       routers[routerName] = router
 
-      services[serviceName] = {
-        loadBalancer: {
-          servers: [{ url: hostUrl }],
-        },
+      // Only create dedicated service for unprotected sites
+      // Protected sites use the shared oauth2-proxy-service
+      if (!useOAuthProxy) {
+        services[serviceName] = {
+          loadBalancer: {
+            servers: [{ url: hostUrl }],
+          },
+        }
       }
     }
 
@@ -271,6 +285,10 @@ log:
     }
 
     // oauth2-proxy configuration for Clerk as OIDC provider
+    // Using reverse proxy mode: oauth2-proxy handles auth and proxies to fileserver
+    const { fileServerPort } = this.config
+    const upstreamUrl = `http://host.docker.internal:${fileServerPort}`
+
     const args = [
       "docker",
       "run",
@@ -314,6 +332,8 @@ log:
       `OAUTH2_PROXY_REDIRECT_URL=https://api.${domain}/oauth2/callback`,
       "-e",
       "OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true",
+      "-e",
+      `OAUTH2_PROXY_UPSTREAMS=${upstreamUrl}`,
       OAUTH_PROXY_IMAGE,
     ]
 
