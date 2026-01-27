@@ -5,7 +5,12 @@ import { tmpdir } from "os"
 import { zipSync } from "fflate"
 import { AgentServer } from "../lib/agent/server.ts"
 import { SiteioClient } from "../lib/client.ts"
-import type { AgentConfig } from "../types.ts"
+import type { AgentConfig, ApiResponse, SiteInfo } from "../types.ts"
+
+// Helper to parse JSON responses with proper typing
+async function parseJson<T>(response: Response): Promise<ApiResponse<T>> {
+  return response.json() as Promise<ApiResponse<T>>
+}
 
 const TEST_PORT = 4567
 const TEST_API_KEY = "test-api-key-12345"
@@ -58,9 +63,9 @@ describe("siteio e2e", () => {
     test("should return ok without auth", async () => {
       const response = await fetch(`http://localhost:${TEST_PORT}/health`)
       expect(response.ok).toBe(true)
-      const data = await response.json()
+      const data = await parseJson<{ status: string }>(response)
       expect(data.success).toBe(true)
-      expect(data.data.status).toBe("ok")
+      expect(data.data?.status).toBe("ok")
     })
   })
 
@@ -93,7 +98,7 @@ describe("siteio e2e", () => {
         headers: { "X-API-Key": TEST_API_KEY },
       })
       expect(response.ok).toBe(true)
-      const data = await response.json()
+      const data = await parseJson<SiteInfo[]>(response)
       expect(data.success).toBe(true)
       expect(data.data).toEqual([])
     })
@@ -118,12 +123,12 @@ describe("siteio e2e", () => {
       })
 
       expect(response.ok).toBe(true)
-      const data = await response.json()
+      const data = await parseJson<SiteInfo>(response)
       expect(data.success).toBe(true)
-      expect(data.data.subdomain).toBe(subdomain)
-      expect(data.data.url).toBe(`https://${subdomain}.${TEST_DOMAIN}`)
-      expect(data.data.size).toBeGreaterThan(0)
-      expect(data.data.deployedAt).toBeDefined()
+      expect(data.data?.subdomain).toBe(subdomain)
+      expect(data.data?.url).toBe(`https://${subdomain}.${TEST_DOMAIN}`)
+      expect(data.data?.size).toBeGreaterThan(0)
+      expect(data.data?.deployedAt).toBeDefined()
     })
 
     test("should list deployed site", async () => {
@@ -131,10 +136,10 @@ describe("siteio e2e", () => {
         headers: { "X-API-Key": TEST_API_KEY },
       })
       expect(response.ok).toBe(true)
-      const data = await response.json()
+      const data = await parseJson<SiteInfo[]>(response)
       expect(data.success).toBe(true)
-      expect(data.data.length).toBe(1)
-      expect(data.data[0].subdomain).toBe(subdomain)
+      expect(data.data?.length).toBe(1)
+      expect(data.data?.[0]?.subdomain).toBe(subdomain)
     })
 
     test("should reject reserved subdomain 'api'", async () => {
@@ -150,7 +155,7 @@ describe("siteio e2e", () => {
       })
 
       expect(response.status).toBe(400)
-      const data = await response.json()
+      const data = await parseJson<null>(response)
       expect(data.error).toContain("reserved")
     })
 
@@ -180,7 +185,7 @@ describe("siteio e2e", () => {
       })
 
       expect(response.status).toBe(400)
-      const data = await response.json()
+      const data = await parseJson<null>(response)
       expect(data.error).toContain("application/zip")
     })
 
@@ -201,15 +206,15 @@ describe("siteio e2e", () => {
       })
 
       expect(response.ok).toBe(true)
-      const data = await response.json()
+      const data = await parseJson<SiteInfo>(response)
       expect(data.success).toBe(true)
 
       // Verify still only one site
       const listResponse = await fetch(`http://localhost:${TEST_PORT}/sites`, {
         headers: { "X-API-Key": TEST_API_KEY },
       })
-      const listData = await listResponse.json()
-      expect(listData.data.length).toBe(1)
+      const listData = await parseJson<SiteInfo[]>(listResponse)
+      expect(listData.data?.length).toBe(1)
     })
 
     test("should undeploy a site", async () => {
@@ -219,7 +224,7 @@ describe("siteio e2e", () => {
       })
 
       expect(response.ok).toBe(true)
-      const data = await response.json()
+      const data = await parseJson<null>(response)
       expect(data.success).toBe(true)
     })
 
@@ -237,7 +242,7 @@ describe("siteio e2e", () => {
         headers: { "X-API-Key": TEST_API_KEY },
       })
       expect(response.ok).toBe(true)
-      const data = await response.json()
+      const data = await parseJson<SiteInfo[]>(response)
       expect(data.data).toEqual([])
     })
   })
