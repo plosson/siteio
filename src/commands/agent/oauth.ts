@@ -8,7 +8,9 @@ import { formatSuccess, formatError } from "../../utils/output.ts"
 import type { AgentOAuthConfig } from "../../types.ts"
 
 function generateCookieSecret(): string {
-  return randomBytes(32).toString("base64")
+  // oauth2-proxy requires exactly 16, 24, or 32 bytes
+  // 16 bytes as hex = 32 characters
+  return randomBytes(16).toString("hex")
 }
 
 export async function oauthAgentCommand(): Promise<void> {
