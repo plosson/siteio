@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - SiteIO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Backgrounds */
+      --bg: #f8f9fa;
+      --surface: #ffffff;
+      --code-bg: #f6f8fa;
+
+      /* Borders */
+      --border: #d1d9e0;
+      --border-light: #e8ecf0;
+
+      /* Text */
+      --text: #1f2328;
+      --text-secondary: #656d76;
+      --text-muted: #8b949e;
+
+      /* Accent */
+      --accent: #0969da;
+      --accent-hover: #0860ca;
+      --accent-bg: #ddf4ff;
+
+      /* Layout */
+      --radius: 8px;
+      --radius-lg: 12px;
+      --transition: 0.15s ease;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 60px 24px 80px;
+    }
+
+    .back {
+      margin-bottom: 40px;
+    }
+
+    .back a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: color var(--transition);
+    }
+
+    .back a:hover {
+      color: var(--accent);
+    }
+
+    header {
+      margin-bottom: 48px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .updated {
+      color: var(--text-muted);
+      font-size: 0.8125rem;
+    }
+
+    section {
+      margin-bottom: 40px;
+    }
+
+    h2 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 24px 0 12px;
+      color: var(--text-secondary);
+    }
+
+    p {
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      font-size: 0.875rem;
+    }
+
+    ul {
+      list-style: none;
+      margin-bottom: 16px;
+    }
+
+    li {
+      position: relative;
+      padding-left: 18px;
+      margin-bottom: 8px;
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+    }
+
+    li::before {
+      content: '•';
+      position: absolute;
+      left: 0;
+      color: var(--text-muted);
+    }
+
+    li strong {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    code {
+      font-family: 'IBM Plex Mono', monospace;
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.8125rem;
+      border: 1px solid var(--border-light);
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    @media (max-width: 600px) {
+      .container {
+        padding: 40px 16px 60px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="back"><a href="/">&larr; Back</a></div>
+
+    <header>
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated: January 27, 2026</p>
+    </header>
+
+    <section>
+      <h2>Overview</h2>
+      <p>SiteIO is a command-line interface (CLI) tool and self-hosted agent for deploying static websites. This privacy policy explains how SiteIO handles your data.</p>
+    </section>
+
+    <section>
+      <h2>Data Collection and Use</h2>
+
+      <h3>What SiteIO Processes</h3>
+      <p>When you use SiteIO to deploy a site:</p>
+      <ul>
+        <li><strong>Site files</strong> &mdash; Your static site files are zipped and uploaded to your SiteIO agent</li>
+        <li><strong>Metadata</strong> &mdash; Subdomain names, file counts, and deployment timestamps</li>
+      </ul>
+
+      <h3>What SiteIO Stores</h3>
+      <p>The CLI stores the following data locally on your device:</p>
+      <ul>
+        <li><strong>Configuration</strong> &mdash; Your API URL and API key in <code>~/.config/siteio/config.json</code></li>
+      </ul>
+
+      <p>The self-hosted agent stores:</p>
+      <ul>
+        <li><strong>Site files</strong> &mdash; Extracted static files on your server</li>
+        <li><strong>Site metadata</strong> &mdash; JSON files with deployment information</li>
+        <li><strong>Traefik configuration</strong> &mdash; Auto-generated routing and SSL configuration</li>
+      </ul>
+
+      <p>SiteIO does NOT:</p>
+      <ul>
+        <li>Transmit your data to any external servers (other than your own agent)</li>
+        <li>Share your data with third parties</li>
+        <li>Collect analytics or usage data</li>
+        <li>Store data on any servers we control</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Self-Hosted Architecture</h2>
+      <p>SiteIO is designed to be fully self-hosted. All data remains on infrastructure you control:</p>
+      <ul>
+        <li>Your deployed sites live on your VPS</li>
+        <li>Your API credentials are stored only on your machine</li>
+        <li>No data passes through any central server</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Data Security</h2>
+      <ul>
+        <li>API authentication uses bearer tokens transmitted over HTTPS</li>
+        <li>Traefik handles automatic SSL certificate provisioning via Let's Encrypt</li>
+        <li>All communication between CLI and agent uses encrypted connections</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Your Rights</h2>
+      <p>You can at any time:</p>
+      <ul>
+        <li><strong>Delete local config</strong> &mdash; Remove <code>~/.config/siteio</code></li>
+        <li><strong>Delete deployed sites</strong> &mdash; Use <code>siteio sites undeploy</code> or delete files from your server</li>
+        <li><strong>Stop the agent</strong> &mdash; Shut down the SiteIO agent on your server</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Third-Party Services</h2>
+      <p>SiteIO integrates with:</p>
+      <ul>
+        <li><strong>Let's Encrypt</strong> &mdash; For automatic SSL certificates. See <a href="https://letsencrypt.org/privacy/">letsencrypt.org/privacy</a></li>
+        <li><strong>Traefik</strong> &mdash; For reverse proxy and SSL termination. See <a href="https://traefik.io/privacy/">traefik.io/privacy</a></li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Open Source</h2>
+      <p>SiteIO is open source. Review the source code at <a href="https://github.com/plosson/siteio">github.com/plosson/siteio</a></p>
+    </section>
+
+    <section>
+      <h2>Contact</h2>
+      <p>For questions, open an issue at <a href="https://github.com/plosson/siteio/issues">github.com/plosson/siteio/issues</a></p>
+    </section>
+
+    <section>
+      <h2>Changes to This Policy</h2>
+      <p>Changes will be reflected here with an updated date. All changes are tracked in the project's git history.</p>
+    </section>
+  </div>
+</body>
+</html>
