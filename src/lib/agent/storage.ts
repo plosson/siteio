@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, rmSync, readdirSync, statSync, readFileSync, writeFileSync } from "fs"
 import { join } from "path"
-import type { SiteMetadata } from "../../types.ts"
+import type { SiteMetadata, SiteOAuth } from "../../types.ts"
 
 export class SiteStorage {
   private sitesDir: string
@@ -30,7 +30,7 @@ export class SiteStorage {
   async extractAndStore(
     subdomain: string,
     zipData: Uint8Array,
-    auth?: { user: string; passwordHash: string }
+    oauth?: SiteOAuth
   ): Promise<SiteMetadata> {
     const sitePath = this.getSitePath(subdomain)
 
@@ -73,7 +73,7 @@ export class SiteStorage {
       size: totalSize,
       deployedAt: new Date().toISOString(),
       files,
-      auth,
+      oauth,
     }
 
     writeFileSync(this.getMetadataPath(subdomain), JSON.stringify(metadata, null, 2))
@@ -136,16 +136,16 @@ export class SiteStorage {
     return existsSync(this.getSitePath(subdomain)) && existsSync(this.getMetadataPath(subdomain))
   }
 
-  updateAuth(subdomain: string, auth: { user: string; passwordHash: string } | null): boolean {
+  updateOAuth(subdomain: string, oauth: SiteOAuth | null): boolean {
     const metadata = this.getMetadata(subdomain)
     if (!metadata) {
       return false
     }
 
-    if (auth) {
-      metadata.auth = auth
+    if (oauth) {
+      metadata.oauth = oauth
     } else {
-      delete metadata.auth
+      delete metadata.oauth
     }
 
     writeFileSync(this.getMetadataPath(subdomain), JSON.stringify(metadata, null, 2))

@@ -23,7 +23,7 @@ export async function listCommand(): Promise<void> {
     const rows = sites.map((site) => {
       const date = new Date(site.deployedAt)
       const dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-      const authStr = site.auth ? chalk.yellow("yes") : chalk.dim("-")
+      const authStr = site.oauth ? chalk.yellow("oauth") : chalk.dim("-")
       return [site.subdomain, site.url, formatBytes(site.size), authStr, dateStr]
     })
 

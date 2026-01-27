@@ -1,10 +1,12 @@
 import { existsSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 import { spawn, spawnSync } from "bun"
-import type { SiteMetadata } from "../../types.ts"
+import type { SiteMetadata, AgentOAuthConfig } from "../../types.ts"
 
-const CONTAINER_NAME = "siteio-traefik"
+const TRAEFIK_CONTAINER_NAME = "siteio-traefik"
+const OAUTH_PROXY_CONTAINER_NAME = "siteio-oauth2-proxy"
 const TRAEFIK_IMAGE = "traefik:v3.0"
+const OAUTH_PROXY_IMAGE = "quay.io/oauth2-proxy/oauth2-proxy:v7.6.0"
 
 export interface TraefikConfig {
   dataDir: string
@@ -13,6 +15,7 @@ export interface TraefikConfig {
   httpPort: number
   httpsPort: number
   fileServerPort: number
+  oauthConfig?: AgentOAuthConfig
 }
 
 export class TraefikManager {
@@ -21,6 +24,7 @@ export class TraefikManager {
   private dynamicConfigPath: string
   private staticConfigPath: string
   private certsDir: string
+  private oauthProxyPort = 4180
 
   constructor(config: TraefikConfig) {
     this.config = config
@@ -44,6 +48,14 @@ export class TraefikManager {
       // Set permissions to 600 (required by Traefik)
       spawnSync({ cmd: ["chmod", "600", acmePath] })
     }
+  }
+
+  hasOAuthConfig(): boolean {
+    return !!this.config.oauthConfig
+  }
+
+  updateOAuthConfig(oauthConfig: AgentOAuthConfig): void {
+    this.config.oauthConfig = oauthConfig
   }
 
   generateStaticConfig(): string {
@@ -85,7 +97,7 @@ log:
   }
 
   generateDynamicConfig(sites: SiteMetadata[]): string {
-    const { domain, fileServerPort } = this.config
+    const { domain, fileServerPort, oauthConfig } = this.config
     const routers: Record<string, unknown> = {}
     const services: Record<string, unknown> = {}
     const middlewares: Record<string, unknown> = {}
@@ -93,9 +105,21 @@ log:
     // Use host.docker.internal to reach the host from container
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
 
+    // Add forwardAuth middleware if OAuth is configured and any site needs it
+    const hasProtectedSites = oauthConfig && sites.some((site) => site.oauth)
+    if (hasProtectedSites) {
+      middlewares["oauth-auth"] = {
+        forwardAuth: {
+          address: `http://host.docker.internal:${this.oauthProxyPort}/oauth2/auth`,
+          trustForwardHeader: true,
+          authResponseHeaders: ["X-Auth-Request-Email"],
+        },
+      }
+    }
+
     // Add router and service for each site
     for (const site of sites) {
-      const { subdomain, auth } = site
+      const { subdomain, oauth } = site
       const routerName = `${subdomain}-router`
       const serviceName = `${subdomain}-service`
 
@@ -108,15 +132,11 @@ log:
         },
       }
 
-      // Add basicAuth middleware if auth is configured
-      if (auth) {
-        const middlewareName = `${subdomain}-auth`
-        middlewares[middlewareName] = {
-          basicAuth: {
-            users: [`${auth.user}:${auth.passwordHash}`],
-          },
-        }
-        router.middlewares = [middlewareName]
+      // Add forwardAuth middleware if OAuth is configured for this site
+      // Note: if OAuth config doesn't exist but site has oauth settings,
+      // the site is served without protection (edge case during transition)
+      if (oauth && oauthConfig) {
+        router.middlewares = ["oauth-auth"]
       }
 
       routers[routerName] = router
@@ -215,26 +235,123 @@ log:
     return result.exitCode === 0
   }
 
-  private isContainerRunning(): boolean {
+  private isContainerRunning(containerName: string): boolean {
     const result = spawnSync({
-      cmd: ["docker", "inspect", "-f", "{{.State.Running}}", CONTAINER_NAME],
+      cmd: ["docker", "inspect", "-f", "{{.State.Running}}", containerName],
       stdout: "pipe",
       stderr: "pipe",
     })
     return result.exitCode === 0 && result.stdout.toString().trim() === "true"
   }
 
-  private containerExists(): boolean {
+  private containerExists(containerName: string): boolean {
     const result = spawnSync({
-      cmd: ["docker", "inspect", CONTAINER_NAME],
+      cmd: ["docker", "inspect", containerName],
       stdout: "pipe",
       stderr: "pipe",
     })
     return result.exitCode === 0
   }
 
-  private removeContainer(): void {
-    spawnSync({ cmd: ["docker", "rm", "-f", CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
+  private removeContainer(containerName: string): void {
+    spawnSync({ cmd: ["docker", "rm", "-f", containerName], stdout: "pipe", stderr: "pipe" })
+  }
+
+  async startOAuthProxy(): Promise<void> {
+    const { oauthConfig, domain } = this.config
+
+    if (!oauthConfig) {
+      return
+    }
+
+    // Remove existing container if it exists
+    if (this.containerExists(OAUTH_PROXY_CONTAINER_NAME)) {
+      console.log("> Removing existing oauth2-proxy container...")
+      this.removeContainer(OAUTH_PROXY_CONTAINER_NAME)
+    }
+
+    // oauth2-proxy configuration for Clerk as OIDC provider
+    const args = [
+      "docker",
+      "run",
+      "-d",
+      "--name",
+      OAUTH_PROXY_CONTAINER_NAME,
+      "--restart",
+      "unless-stopped",
+      "--add-host",
+      "host.docker.internal:host-gateway",
+      "-p",
+      `${this.oauthProxyPort}:4180`,
+      // Environment variables for oauth2-proxy
+      "-e",
+      "OAUTH2_PROXY_PROVIDER=oidc",
+      "-e",
+      `OAUTH2_PROXY_OIDC_ISSUER_URL=https://${oauthConfig.clerkPublishableKey.split("_")[1]}.clerk.accounts.dev`,
+      "-e",
+      `OAUTH2_PROXY_CLIENT_ID=${oauthConfig.clerkPublishableKey}`,
+      "-e",
+      `OAUTH2_PROXY_CLIENT_SECRET=${oauthConfig.clerkSecretKey}`,
+      "-e",
+      `OAUTH2_PROXY_COOKIE_SECRET=${oauthConfig.cookieSecret}`,
+      "-e",
+      `OAUTH2_PROXY_COOKIE_DOMAINS=.${oauthConfig.cookieDomain}`,
+      "-e",
+      "OAUTH2_PROXY_EMAIL_DOMAINS=*",
+      "-e",
+      "OAUTH2_PROXY_COOKIE_SECURE=true",
+      "-e",
+      "OAUTH2_PROXY_REVERSE_PROXY=true",
+      "-e",
+      "OAUTH2_PROXY_SET_XAUTHREQUEST=true",
+      "-e",
+      "OAUTH2_PROXY_PASS_ACCESS_TOKEN=true",
+      "-e",
+      `OAUTH2_PROXY_WHITELIST_DOMAINS=.${domain}`,
+      "-e",
+      "OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180",
+      "-e",
+      `OAUTH2_PROXY_REDIRECT_URL=https://api.${domain}/oauth2/callback`,
+      "-e",
+      "OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true",
+      OAUTH_PROXY_IMAGE,
+    ]
+
+    const result = spawnSync({ cmd: args, stdout: "pipe", stderr: "pipe" })
+
+    if (result.exitCode !== 0) {
+      const stderr = result.stderr.toString()
+      throw new Error(`Failed to start oauth2-proxy container: ${stderr}`)
+    }
+
+    const containerId = result.stdout.toString().trim().slice(0, 12)
+    console.log(`> oauth2-proxy container started: ${containerId}`)
+
+    // Wait a moment and verify it's running
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    if (!this.isContainerRunning(OAUTH_PROXY_CONTAINER_NAME)) {
+      const logs = spawnSync({
+        cmd: ["docker", "logs", OAUTH_PROXY_CONTAINER_NAME],
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+      const output = logs.stdout.toString() + logs.stderr.toString()
+      throw new Error(`oauth2-proxy container failed to start. Logs:\n${output}`)
+    }
+  }
+
+  stopOAuthProxy(): void {
+    if (this.containerExists(OAUTH_PROXY_CONTAINER_NAME)) {
+      console.log("> Stopping oauth2-proxy container...")
+      spawnSync({ cmd: ["docker", "stop", OAUTH_PROXY_CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
+      spawnSync({ cmd: ["docker", "rm", OAUTH_PROXY_CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
+    }
+  }
+
+  async restartOAuthProxy(): Promise<void> {
+    this.stopOAuthProxy()
+    await this.startOAuthProxy()
   }
 
   async start(): Promise<void> {
@@ -248,9 +365,9 @@ log:
     this.updateDynamicConfig([])
 
     // Remove existing container if it exists
-    if (this.containerExists()) {
+    if (this.containerExists(TRAEFIK_CONTAINER_NAME)) {
       console.log("> Removing existing Traefik container...")
-      this.removeContainer()
+      this.removeContainer(TRAEFIK_CONTAINER_NAME)
     }
 
     const { httpPort, httpsPort } = this.config
@@ -261,7 +378,7 @@ log:
       "run",
       "-d",
       "--name",
-      CONTAINER_NAME,
+      TRAEFIK_CONTAINER_NAME,
       "--restart",
       "unless-stopped",
       // Add host.docker.internal support on Linux
@@ -297,23 +414,31 @@ log:
     // Wait a moment and verify it's running
     await new Promise((resolve) => setTimeout(resolve, 1000))
 
-    if (!this.isContainerRunning()) {
+    if (!this.isContainerRunning(TRAEFIK_CONTAINER_NAME)) {
       // Get logs for debugging
       const logs = spawnSync({
-        cmd: ["docker", "logs", CONTAINER_NAME],
+        cmd: ["docker", "logs", TRAEFIK_CONTAINER_NAME],
         stdout: "pipe",
         stderr: "pipe",
       })
       const output = logs.stdout.toString() + logs.stderr.toString()
       throw new Error(`Traefik container failed to start. Logs:\n${output}`)
     }
+
+    // Start oauth2-proxy if OAuth is configured
+    if (this.config.oauthConfig) {
+      await this.startOAuthProxy()
+    }
   }
 
   stop(): void {
-    if (this.containerExists()) {
+    // Stop oauth2-proxy first
+    this.stopOAuthProxy()
+
+    if (this.containerExists(TRAEFIK_CONTAINER_NAME)) {
       console.log("> Stopping Traefik container...")
-      spawnSync({ cmd: ["docker", "stop", CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
-      spawnSync({ cmd: ["docker", "rm", CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
+      spawnSync({ cmd: ["docker", "stop", TRAEFIK_CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
+      spawnSync({ cmd: ["docker", "rm", TRAEFIK_CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
     }
   }
 }

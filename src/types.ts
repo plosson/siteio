@@ -7,13 +7,19 @@ export interface ApiResponse<T> {
   error?: string
 }
 
+// OAuth settings for a site
+export interface SiteOAuth {
+  allowedEmails?: string[]
+  allowedDomain?: string
+}
+
 // Site information
 export interface SiteInfo {
   subdomain: string
   url: string
   size: number
   deployedAt: string
-  auth?: boolean // true if basic auth is enabled
+  oauth?: SiteOAuth
 }
 
 // Config stored in ~/.config/siteio/config.json
@@ -40,31 +46,25 @@ export interface DeployRequest {
   subdomain: string
 }
 
-// Basic auth credentials for a site
-export interface SiteAuth {
-  user: string
-  passwordHash: string // htpasswd format (bcrypt)
-}
-
 // Internal site metadata stored by agent
 export interface SiteMetadata {
   subdomain: string
   size: number
   deployedAt: string
   files: string[]
-  auth?: SiteAuth
+  oauth?: SiteOAuth
 }
 
 // Command options
 export interface DeployOptions {
   subdomain?: string
-  user?: string
-  password?: string
+  allowedEmails?: string
+  allowedDomain?: string
 }
 
 export interface AuthOptions {
-  user?: string
-  password?: string
+  allowedEmails?: string
+  allowedDomain?: string
   remove?: boolean
 }
 
@@ -76,4 +76,12 @@ export interface LoginOptions {
 
 export interface AgentStartOptions {
   port?: number
+}
+
+// OAuth configuration for the agent (Clerk/Google)
+export interface AgentOAuthConfig {
+  clerkPublishableKey: string
+  clerkSecretKey: string
+  cookieSecret: string
+  cookieDomain: string
 }
