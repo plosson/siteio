@@ -1,6 +1,9 @@
 import { existsSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
-import { spawn, type Subprocess } from "bun"
+import { spawn, spawnSync } from "bun"
+
+const CONTAINER_NAME = "siteio-traefik"
+const TRAEFIK_IMAGE = "traefik:v3.0"
 
 export interface TraefikConfig {
   dataDir: string
@@ -17,7 +20,6 @@ export class TraefikManager {
   private dynamicConfigPath: string
   private staticConfigPath: string
   private certsDir: string
-  private process: Subprocess | null = null
 
   constructor(config: TraefikConfig) {
     this.config = config
@@ -33,11 +35,20 @@ export class TraefikManager {
     if (!existsSync(this.certsDir)) {
       mkdirSync(this.certsDir, { recursive: true })
     }
+
+    // Ensure acme.json exists with correct permissions
+    const acmePath = join(this.certsDir, "acme.json")
+    if (!existsSync(acmePath)) {
+      writeFileSync(acmePath, "{}")
+      // Set permissions to 600 (required by Traefik)
+      spawnSync({ cmd: ["chmod", "600", acmePath] })
+    }
   }
 
   generateStaticConfig(): string {
     const { httpPort, httpsPort, email } = this.config
 
+    // Paths are relative to container mount points
     return `
 api:
   dashboard: false
@@ -56,14 +67,14 @@ entryPoints:
 
 providers:
   file:
-    filename: ${this.dynamicConfigPath}
+    filename: /etc/traefik/dynamic.yml
     watch: true
 
 certificatesResolvers:
   letsencrypt:
     acme:
       email: ${email || "admin@example.com"}
-      storage: ${join(this.certsDir, "acme.json")}
+      storage: /certs/acme.json
       httpChallenge:
         entryPoint: web
 
@@ -76,6 +87,9 @@ log:
     const { domain, fileServerPort } = this.config
     const routers: Record<string, unknown> = {}
     const services: Record<string, unknown> = {}
+
+    // Use host.docker.internal to reach the host from container
+    const hostUrl = `http://host.docker.internal:${fileServerPort}`
 
     // Add router and service for each subdomain
     for (const subdomain of subdomains) {
@@ -93,7 +107,7 @@ log:
 
       services[serviceName] = {
         loadBalancer: {
-          servers: [{ url: `http://127.0.0.1:${fileServerPort}` }],
+          servers: [{ url: hostUrl }],
         },
       }
     }
@@ -110,7 +124,7 @@ log:
 
     services["api-service"] = {
       loadBalancer: {
-        servers: [{ url: `http://127.0.0.1:${fileServerPort}` }],
+        servers: [{ url: hostUrl }],
       },
     }
 
@@ -175,25 +189,110 @@ log:
     writeFileSync(this.dynamicConfigPath, this.generateDynamicConfig(subdomains))
   }
 
+  private isDockerAvailable(): boolean {
+    const result = spawnSync({ cmd: ["docker", "info"], stdout: "pipe", stderr: "pipe" })
+    return result.exitCode === 0
+  }
+
+  private isContainerRunning(): boolean {
+    const result = spawnSync({
+      cmd: ["docker", "inspect", "-f", "{{.State.Running}}", CONTAINER_NAME],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    return result.exitCode === 0 && result.stdout.toString().trim() === "true"
+  }
+
+  private containerExists(): boolean {
+    const result = spawnSync({
+      cmd: ["docker", "inspect", CONTAINER_NAME],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    return result.exitCode === 0
+  }
+
+  private removeContainer(): void {
+    spawnSync({ cmd: ["docker", "rm", "-f", CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
+  }
+
   async start(): Promise<void> {
+    // Check Docker is available
+    if (!this.isDockerAvailable()) {
+      throw new Error("Docker is not available. Please install Docker to run siteio agent.")
+    }
+
     // Write initial configs
     this.writeStaticConfig()
     this.updateDynamicConfig([])
 
-    // Start Traefik process
-    this.process = spawn({
-      cmd: ["traefik", "--configFile", this.staticConfigPath],
-      stdout: "inherit",
-      stderr: "inherit",
-    })
+    // Remove existing container if it exists
+    if (this.containerExists()) {
+      console.log("> Removing existing Traefik container...")
+      this.removeContainer()
+    }
 
-    console.log(`> Traefik started with PID ${this.process.pid}`)
+    const { httpPort, httpsPort } = this.config
+
+    // Start Traefik container
+    const args = [
+      "docker",
+      "run",
+      "-d",
+      "--name",
+      CONTAINER_NAME,
+      "--restart",
+      "unless-stopped",
+      // Add host.docker.internal support on Linux
+      "--add-host",
+      "host.docker.internal:host-gateway",
+      // Port mappings
+      "-p",
+      `${httpPort}:${httpPort}`,
+      "-p",
+      `${httpsPort}:${httpsPort}`,
+      // Mount config directory
+      "-v",
+      `${this.configDir}:/etc/traefik:ro`,
+      // Mount certs directory (needs write access for acme.json)
+      "-v",
+      `${this.certsDir}:/certs`,
+      // Traefik image
+      TRAEFIK_IMAGE,
+      // Config file path inside container
+      "--configFile=/etc/traefik/traefik.yml",
+    ]
+
+    const result = spawnSync({ cmd: args, stdout: "pipe", stderr: "pipe" })
+
+    if (result.exitCode !== 0) {
+      const stderr = result.stderr.toString()
+      throw new Error(`Failed to start Traefik container: ${stderr}`)
+    }
+
+    const containerId = result.stdout.toString().trim().slice(0, 12)
+    console.log(`> Traefik container started: ${containerId}`)
+
+    // Wait a moment and verify it's running
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    if (!this.isContainerRunning()) {
+      // Get logs for debugging
+      const logs = spawnSync({
+        cmd: ["docker", "logs", CONTAINER_NAME],
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+      const output = logs.stdout.toString() + logs.stderr.toString()
+      throw new Error(`Traefik container failed to start. Logs:\n${output}`)
+    }
   }
 
   stop(): void {
-    if (this.process) {
-      this.process.kill()
-      this.process = null
+    if (this.containerExists()) {
+      console.log("> Stopping Traefik container...")
+      spawnSync({ cmd: ["docker", "stop", CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
+      spawnSync({ cmd: ["docker", "rm", CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
     }
   }
 }

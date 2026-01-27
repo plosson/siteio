@@ -55,6 +55,7 @@ export interface DeployOptions {
 export interface LoginOptions {
   apiUrl?: string
   apiKey?: string
+  token?: string
 }
 
 export interface AgentStartOptions {
