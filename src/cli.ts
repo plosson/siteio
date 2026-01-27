@@ -48,11 +48,12 @@ const sites = program
   .description("Manage deployed sites")
 
 sites
-  .command("deploy <folder>")
+  .command("deploy [folder]")
   .description("Deploy a folder as a static site")
   .option("-s, --subdomain <name>", "Subdomain to deploy to (defaults to folder name)")
   .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses for Google OAuth")
   .option("--allowed-domain <domain>", "Allow all emails from this domain for Google OAuth")
+  .option("--test", "Deploy a simple test page (no folder required)")
   .action(async (folder, options) => {
     const { deployCommand } = await import("./commands/sites/deploy.ts")
     await deployCommand(folder, options)

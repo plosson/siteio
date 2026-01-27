@@ -60,6 +60,7 @@ export interface DeployOptions {
   subdomain?: string
   allowedEmails?: string
   allowedDomain?: string
+  test?: boolean
 }
 
 export interface AuthOptions {
