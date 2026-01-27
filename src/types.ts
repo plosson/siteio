@@ -81,8 +81,9 @@ export interface AgentStartOptions {
 
 // OAuth configuration for the agent (Clerk/Google)
 export interface AgentOAuthConfig {
-  clerkPublishableKey: string
-  clerkSecretKey: string
+  clerkIssuerUrl: string
+  clerkClientId: string
+  clerkClientSecret: string
   cookieSecret: string
   cookieDomain: string
 }
