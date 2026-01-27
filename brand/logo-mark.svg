@@ -1,0 +1,10 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="siteio-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0969da"/>
+      <stop offset="100%" stop-color="#2da44e"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#siteio-gradient)"/>
+  <path d="M44 22.5C44 22.5 42 20 36 20C30 20 26 24 26 28C26 32 30 34 34 35C38 36 42 37 42 42C42 47 37 48 34 48C28 48 24 44 24 44" stroke="white" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
