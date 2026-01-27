@@ -108,4 +108,16 @@ agent
     await statusAgentCommand()
   })
 
+// Update command
+program
+  .command("update")
+  .description("Update siteio to the latest version")
+  .option("--check", "Only check for updates, don't install")
+  .option("--force", "Force update even if already on latest version")
+  .option("-y, --yes", "Skip confirmation prompt")
+  .action(async (options) => {
+    const { updateCommand } = await import("./commands/update.ts")
+    await updateCommand(options)
+  })
+
 program.parse()
