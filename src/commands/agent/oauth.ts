@@ -57,26 +57,36 @@ export async function oauthAgentCommand(): Promise<void> {
   console.log("")
   console.log("  1. Go to https://clerk.com and create a new application")
   console.log("  2. Enable Google as a social connection")
-  console.log("  3. Copy your API keys from the Clerk dashboard")
+  console.log("  3. Go to Configure > SSO Connections and create an OIDC connection")
+  console.log("  4. Copy the values from the Clerk dashboard:")
+  console.log("     - Issuer URL (e.g., https://your-app.clerk.accounts.dev)")
+  console.log("     - Client ID")
+  console.log("     - Client Secret")
   console.log("")
 
   const answers = await p.group(
     {
-      clerkPublishableKey: () =>
+      clerkIssuerUrl: () =>
         p.text({
-          message: "Clerk Publishable Key:",
-          placeholder: "pk_live_...",
+          message: "Clerk Issuer URL:",
+          placeholder: "https://your-app.clerk.accounts.dev",
           validate: (value) => {
-            if (!value) return "Publishable key is required"
-            if (!value.startsWith("pk_")) return "Invalid publishable key format"
+            if (!value) return "Issuer URL is required"
+            if (!value.startsWith("https://")) return "Issuer URL must start with https://"
           },
         }),
-      clerkSecretKey: () =>
-        p.password({
-          message: "Clerk Secret Key:",
+      clerkClientId: () =>
+        p.text({
+          message: "Client ID:",
           validate: (value) => {
-            if (!value) return "Secret key is required"
-            if (!value.startsWith("sk_")) return "Invalid secret key format"
+            if (!value) return "Client ID is required"
+          },
+        }),
+      clerkClientSecret: () =>
+        p.password({
+          message: "Client Secret:",
+          validate: (value) => {
+            if (!value) return "Client Secret is required"
           },
         }),
     },
@@ -89,8 +99,9 @@ export async function oauthAgentCommand(): Promise<void> {
   )
 
   const config: AgentOAuthConfig = {
-    clerkPublishableKey: answers.clerkPublishableKey as string,
-    clerkSecretKey: answers.clerkSecretKey as string,
+    clerkIssuerUrl: answers.clerkIssuerUrl as string,
+    clerkClientId: answers.clerkClientId as string,
+    clerkClientSecret: answers.clerkClientSecret as string,
     cookieSecret: generateCookieSecret(),
     cookieDomain: domain,
   }
