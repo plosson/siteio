@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, rmSync, readdirSync, statSync, readFileSync, writeFileSync } from "fs"
 import { join } from "path"
+import { zipSync } from "fflate"
 import type { SiteMetadata, SiteOAuth } from "../../types.ts"
 
 export class SiteStorage {
@@ -134,6 +135,33 @@ export class SiteStorage {
 
   siteExists(subdomain: string): boolean {
     return existsSync(this.getSitePath(subdomain)) && existsSync(this.getMetadataPath(subdomain))
+  }
+
+  async zipSite(subdomain: string): Promise<Uint8Array | null> {
+    const sitePath = this.getSitePath(subdomain)
+    if (!existsSync(sitePath)) {
+      return null
+    }
+
+    const files: Record<string, Uint8Array> = {}
+
+    const collectFiles = (dir: string, baseDir: string = dir): void => {
+      const entries = readdirSync(dir)
+      for (const entry of entries) {
+        const fullPath = join(dir, entry)
+        const relativePath = fullPath.slice(baseDir.length + 1)
+        const stat = statSync(fullPath)
+
+        if (stat.isDirectory()) {
+          collectFiles(fullPath, baseDir)
+        } else {
+          files[relativePath] = readFileSync(fullPath)
+        }
+      }
+    }
+
+    collectFiles(sitePath)
+    return zipSync(files, { level: 6 })
   }
 
   updateOAuth(subdomain: string, oauth: SiteOAuth | null): boolean {

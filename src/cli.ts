@@ -86,6 +86,14 @@ sites
   })
 
 sites
+  .command("download <subdomain> <output-folder>")
+  .description("Download a deployed site to a local folder")
+  .action(async (subdomain, outputFolder) => {
+    const { downloadCommand } = await import("./commands/sites/download.ts")
+    await downloadCommand(subdomain, outputFolder, { json: program.opts().json })
+  })
+
+sites
   .command("undeploy <subdomain>")
   .description("Remove a deployed site")
   .action(async (subdomain) => {

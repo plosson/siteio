@@ -110,6 +110,30 @@ export class SiteioClient {
     await this.request<ApiResponse<null>>("DELETE", `/sites/${subdomain}`)
   }
 
+  async downloadSite(subdomain: string): Promise<Uint8Array> {
+    const url = `${this.apiUrl}/sites/${subdomain}/download`
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "X-API-Key": this.apiKey,
+      },
+    })
+
+    if (!response.ok) {
+      const text = await response.text()
+      let message = `API error: ${response.status}`
+      try {
+        const json = JSON.parse(text) as ApiResponse<unknown>
+        if (json.error) message = json.error
+      } catch {
+        if (text) message = text
+      }
+      throw new ApiError(message, response.status)
+    }
+
+    return new Uint8Array(await response.arrayBuffer())
+  }
+
   async updateSiteOAuth(subdomain: string, oauth: SiteOAuth | null): Promise<void> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",

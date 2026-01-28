@@ -106,6 +106,12 @@ export class AgentServer {
       return this.handleUndeploy(deployMatch[1]!)
     }
 
+    // GET /sites/:subdomain/download - download site as zip
+    const downloadMatch = path.match(/^\/sites\/([a-z0-9-]+)\/download$/)
+    if (downloadMatch && req.method === "GET") {
+      return this.handleDownload(downloadMatch[1]!)
+    }
+
     // PATCH /sites/:subdomain/auth - update site authentication
     const authMatch = path.match(/^\/sites\/([a-z0-9-]+)\/auth$/)
     if (authMatch && req.method === "PATCH") {
@@ -246,6 +252,31 @@ export class AgentServer {
     this.traefik?.updateDynamicConfig(allSites)
 
     return this.json(null)
+  }
+
+  private async handleDownload(subdomain: string): Promise<Response> {
+    if (!this.storage.siteExists(subdomain)) {
+      return this.error("Site not found", 404)
+    }
+
+    try {
+      const zipData = await this.storage.zipSite(subdomain)
+      if (!zipData) {
+        return this.error("Failed to create zip", 500)
+      }
+
+      return new Response(zipData, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="${subdomain}.zip"`,
+          "Content-Length": String(zipData.length),
+        },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to download site"
+      return this.error(message, 500)
+    }
   }
 
   private async handleUpdateAuth(subdomain: string, req: Request): Promise<Response> {
