@@ -60,7 +60,8 @@ export async function oauthAgentCommand(): Promise<void> {
   console.log("     - Client ID")
   console.log("     - Client Secret")
   console.log("")
-  console.log(`  Callback URL: ${chalk.cyan(`https://api.${domain}/oauth2/callback`)}`)
+  console.log("  Callback URL (add this to your OIDC provider):")
+  console.log(chalk.cyan(`    https://*.${domain}/oauth2/callback`))
   console.log("")
 
   const answers = await p.group(
