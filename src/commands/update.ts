@@ -4,6 +4,9 @@ import * as path from "path"
 import * as os from "os"
 import { formatSuccess, formatError } from "../utils/output.ts"
 
+// BUILD_VERSION is injected at compile time via --define
+declare const BUILD_VERSION: string | undefined
+
 const GITHUB_REPO = "plosson/siteio"
 
 interface GitHubRelease {
@@ -15,8 +18,13 @@ interface GitHubRelease {
 }
 
 function getCurrentVersion(): string {
+  // Use build-time version if available (compiled binary)
+  if (typeof BUILD_VERSION !== "undefined") {
+    return BUILD_VERSION
+  }
+
+  // Fallback: try to read from package.json (development)
   try {
-    // Try to read from package.json relative to the binary
     const pkgPath = path.join(path.dirname(process.execPath), "../package.json")
     if (fs.existsSync(pkgPath)) {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"))
@@ -26,7 +34,6 @@ function getCurrentVersion(): string {
     // Ignore
   }
 
-  // Fallback: try to get version from --version output or return unknown
   return "0.0.0"
 }
 
