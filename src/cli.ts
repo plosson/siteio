@@ -101,7 +101,7 @@ agent
 
 agent
   .command("oauth")
-  .description("Configure Google OAuth via Clerk")
+  .description("Configure OIDC authentication (Auth0, Okta, etc.)")
   .action(async () => {
     const { oauthAgentCommand } = await import("./commands/agent/oauth.ts")
     await oauthAgentCommand()

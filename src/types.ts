@@ -79,11 +79,11 @@ export interface AgentStartOptions {
   port?: number
 }
 
-// OAuth configuration for the agent (Clerk/Google)
+// OAuth configuration for the agent (OIDC provider like Auth0, Clerk, etc.)
 export interface AgentOAuthConfig {
-  clerkIssuerUrl: string
-  clerkClientId: string
-  clerkClientSecret: string
+  issuerUrl: string
+  clientId: string
+  clientSecret: string
   cookieSecret: string
   cookieDomain: string
 }

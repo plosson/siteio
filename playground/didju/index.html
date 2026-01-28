@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Didju - Alligator Game</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #1a472a 0%, #2d5a3f 100%);
+      font-family: 'Segoe UI', sans-serif;
+      color: #fff;
+    }
+    h1 {
+      margin-bottom: 10px;
+      font-size: 2.5rem;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+    }
+    .subtitle {
+      margin-bottom: 20px;
+      opacity: 0.8;
+    }
+    #game-container {
+      position: relative;
+      background: #000;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+    }
+    #score {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      font-size: 1.2rem;
+      font-weight: bold;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+    #game-over {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.8);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+    }
+    #game-over h2 {
+      font-size: 2rem;
+      margin-bottom: 10px;
+    }
+    #game-over p {
+      margin-bottom: 20px;
+    }
+    button {
+      padding: 12px 30px;
+      font-size: 1.1rem;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 25px;
+      cursor: pointer;
+      transition: transform 0.2s, background 0.2s;
+    }
+    button:hover {
+      background: #45a049;
+      transform: scale(1.05);
+    }
+    .controls {
+      margin-top: 20px;
+      text-align: center;
+      opacity: 0.7;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>🐊 Didju</h1>
+  <p class="subtitle">The Alligator Game</p>
+  <div id="game-container">
+    <canvas id="game" width="400" height="400"></canvas>
+    <div id="score">Score: 0</div>
+    <div id="game-over">
+      <h2>Game Over!</h2>
+      <p>Final Score: <span id="final-score">0</span></p>
+      <button id="restart">Play Again</button>
+    </div>
+  </div>
+  <p class="controls">Use Arrow Keys or WASD to move</p>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const gameOverEl = document.getElementById('game-over');
+    const finalScoreEl = document.getElementById('final-score');
+    const restartBtn = document.getElementById('restart');
+
+    const gridSize = 20;
+    const tileCount = canvas.width / gridSize;
+
+    let gator = [];
+    let food = {};
+    let direction = { x: 1, y: 0 };
+    let nextDirection = { x: 1, y: 0 };
+    let score = 0;
+    let gameLoop;
+    let gameSpeed = 150;
+
+    function init() {
+      gator = [
+        { x: 5, y: 10 },
+        { x: 4, y: 10 },
+        { x: 3, y: 10 }
+      ];
+      direction = { x: 1, y: 0 };
+      nextDirection = { x: 1, y: 0 };
+      score = 0;
+      scoreEl.textContent = 'Score: 0';
+      gameOverEl.style.display = 'none';
+      placeFood();
+      if (gameLoop) clearInterval(gameLoop);
+      gameLoop = setInterval(update, gameSpeed);
+    }
+
+    function placeFood() {
+      do {
+        food = {
+          x: Math.floor(Math.random() * tileCount),
+          y: Math.floor(Math.random() * tileCount)
+        };
+      } while (gator.some(seg => seg.x === food.x && seg.y === food.y));
+    }
+
+    function update() {
+      direction = { ...nextDirection };
+      const head = { x: gator[0].x + direction.x, y: gator[0].y + direction.y };
+
+      // Wall collision
+      if (head.x < 0 || head.x >= tileCount || head.y < 0 || head.y >= tileCount) {
+        return gameOver();
+      }
+
+      // Self collision
+      if (gator.some(seg => seg.x === head.x && seg.y === head.y)) {
+        return gameOver();
+      }
+
+      gator.unshift(head);
+
+      // Eat food
+      if (head.x === food.x && head.y === food.y) {
+        score += 10;
+        scoreEl.textContent = `Score: ${score}`;
+        placeFood();
+      } else {
+        gator.pop();
+      }
+
+      draw();
+    }
+
+    function draw() {
+      // Background - swampy water
+      ctx.fillStyle = '#1a3a2a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Grid pattern - murky water ripples
+      ctx.strokeStyle = '#2d4a3f';
+      ctx.lineWidth = 0.5;
+      for (let i = 0; i <= tileCount; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * gridSize, 0);
+        ctx.lineTo(i * gridSize, canvas.height);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, i * gridSize);
+        ctx.lineTo(canvas.width, i * gridSize);
+        ctx.stroke();
+      }
+
+      // Draw alligator
+      gator.forEach((seg, i) => {
+        const x = seg.x * gridSize;
+        const y = seg.y * gridSize;
+
+        if (i === 0) {
+          // Head - elongated snout
+          ctx.fillStyle = '#4a7c59';
+
+          // Draw snout based on direction
+          if (direction.x === 1) {
+            // Facing right
+            ctx.beginPath();
+            ctx.ellipse(x + gridSize/2 + 2, y + gridSize/2, gridSize/2 + 2, gridSize/3, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Nostrils
+            ctx.fillStyle = '#2d4a35';
+            ctx.fillRect(x + gridSize - 4, y + 6, 2, 2);
+            ctx.fillRect(x + gridSize - 4, y + gridSize - 8, 2, 2);
+            // Eyes (on top of head)
+            ctx.fillStyle = '#ffcc00';
+            ctx.beginPath();
+            ctx.arc(x + 8, y + 5, 3, 0, Math.PI * 2);
+            ctx.arc(x + 8, y + gridSize - 5, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.fillRect(x + 7, y + 4, 2, 2);
+            ctx.fillRect(x + 7, y + gridSize - 6, 2, 2);
+            // Teeth
+            ctx.fillStyle = '#fff';
+            for (let t = 0; t < 3; t++) {
+              ctx.fillRect(x + gridSize - 6 + t*2, y + gridSize/2 - 1, 1, 2);
+            }
+          } else if (direction.x === -1) {
+            // Facing left
+            ctx.beginPath();
+            ctx.ellipse(x + gridSize/2 - 2, y + gridSize/2, gridSize/2 + 2, gridSize/3, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#2d4a35';
+            ctx.fillRect(x + 2, y + 6, 2, 2);
+            ctx.fillRect(x + 2, y + gridSize - 8, 2, 2);
+            ctx.fillStyle = '#ffcc00';
+            ctx.beginPath();
+            ctx.arc(x + gridSize - 8, y + 5, 3, 0, Math.PI * 2);
+            ctx.arc(x + gridSize - 8, y + gridSize - 5, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.fillRect(x + gridSize - 9, y + 4, 2, 2);
+            ctx.fillRect(x + gridSize - 9, y + gridSize - 6, 2, 2);
+            ctx.fillStyle = '#fff';
+            for (let t = 0; t < 3; t++) {
+              ctx.fillRect(x + 4 - t*2, y + gridSize/2 - 1, 1, 2);
+            }
+          } else if (direction.y === 1) {
+            // Facing down
+            ctx.beginPath();
+            ctx.ellipse(x + gridSize/2, y + gridSize/2 + 2, gridSize/3, gridSize/2 + 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#2d4a35';
+            ctx.fillRect(x + 6, y + gridSize - 4, 2, 2);
+            ctx.fillRect(x + gridSize - 8, y + gridSize - 4, 2, 2);
+            ctx.fillStyle = '#ffcc00';
+            ctx.beginPath();
+            ctx.arc(x + 5, y + 8, 3, 0, Math.PI * 2);
+            ctx.arc(x + gridSize - 5, y + 8, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.fillRect(x + 4, y + 7, 2, 2);
+            ctx.fillRect(x + gridSize - 6, y + 7, 2, 2);
+            ctx.fillStyle = '#fff';
+            for (let t = 0; t < 3; t++) {
+              ctx.fillRect(x + gridSize/2 - 1, y + gridSize - 6 + t*2, 2, 1);
+            }
+          } else {
+            // Facing up
+            ctx.beginPath();
+            ctx.ellipse(x + gridSize/2, y + gridSize/2 - 2, gridSize/3, gridSize/2 + 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#2d4a35';
+            ctx.fillRect(x + 6, y + 2, 2, 2);
+            ctx.fillRect(x + gridSize - 8, y + 2, 2, 2);
+            ctx.fillStyle = '#ffcc00';
+            ctx.beginPath();
+            ctx.arc(x + 5, y + gridSize - 8, 3, 0, Math.PI * 2);
+            ctx.arc(x + gridSize - 5, y + gridSize - 8, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#000';
+            ctx.fillRect(x + 4, y + gridSize - 9, 2, 2);
+            ctx.fillRect(x + gridSize - 6, y + gridSize - 9, 2, 2);
+            ctx.fillStyle = '#fff';
+            for (let t = 0; t < 3; t++) {
+              ctx.fillRect(x + gridSize/2 - 1, y + 4 - t*2, 2, 1);
+            }
+          }
+        } else {
+          // Body segments - scaly texture
+          ctx.fillStyle = i % 2 === 0 ? '#3d6b4a' : '#4a7c59';
+          ctx.beginPath();
+          ctx.roundRect(x + 2, y + 3, gridSize - 4, gridSize - 6, 4);
+          ctx.fill();
+
+          // Scale pattern
+          ctx.fillStyle = '#2d5a3f';
+          ctx.beginPath();
+          ctx.arc(x + gridSize/2, y + gridSize/2, 3, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Ridge spikes on back
+          ctx.fillStyle = '#3d6b4a';
+          ctx.beginPath();
+          ctx.moveTo(x + gridSize/2 - 3, y + 2);
+          ctx.lineTo(x + gridSize/2, y - 1);
+          ctx.lineTo(x + gridSize/2 + 3, y + 2);
+          ctx.fill();
+        }
+      });
+
+      // Draw food (fish)
+      const fx = food.x * gridSize;
+      const fy = food.y * gridSize;
+      // Fish body
+      ctx.fillStyle = '#ff6b6b';
+      ctx.beginPath();
+      ctx.ellipse(fx + gridSize/2, fy + gridSize/2, gridSize/2 - 3, gridSize/3 - 1, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // Fish tail
+      ctx.beginPath();
+      ctx.moveTo(fx + 4, fy + gridSize/2);
+      ctx.lineTo(fx - 2, fy + 4);
+      ctx.lineTo(fx - 2, fy + gridSize - 4);
+      ctx.closePath();
+      ctx.fill();
+      // Fish eye
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(fx + gridSize - 7, fy + gridSize/2 - 1, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(fx + gridSize - 6, fy + gridSize/2 - 1, 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function gameOver() {
+      clearInterval(gameLoop);
+      finalScoreEl.textContent = score;
+      gameOverEl.style.display = 'flex';
+    }
+
+    document.addEventListener('keydown', (e) => {
+      switch(e.key) {
+        case 'ArrowUp':
+        case 'w':
+        case 'W':
+          if (direction.y !== 1) nextDirection = { x: 0, y: -1 };
+          break;
+        case 'ArrowDown':
+        case 's':
+        case 'S':
+          if (direction.y !== -1) nextDirection = { x: 0, y: 1 };
+          break;
+        case 'ArrowLeft':
+        case 'a':
+        case 'A':
+          if (direction.x !== 1) nextDirection = { x: -1, y: 0 };
+          break;
+        case 'ArrowRight':
+        case 'd':
+        case 'D':
+          if (direction.x !== -1) nextDirection = { x: 1, y: 0 };
+          break;
+      }
+    });
+
+    restartBtn.addEventListener('click', init);
+
+    init();
+  </script>
+</body>
+</html>
