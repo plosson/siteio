@@ -29,22 +29,38 @@ src/
 ├── index.ts            # Library exports (SiteioClient, AgentServer, etc.)
 ├── types.ts            # Shared TypeScript types
 ├── config/
-│   └── loader.ts       # Reads/writes ~/.config/siteio/config.json
+│   ├── loader.ts       # Reads/writes ~/.config/siteio/config.json
+│   └── oauth.ts        # OAuth configuration helpers
 ├── commands/
 │   ├── login.ts        # siteio login
-│   ├── sites/          # siteio sites [deploy|list|undeploy]
+│   ├── status.ts       # siteio status
+│   ├── update.ts       # siteio update
+│   ├── groups.ts       # siteio groups
+│   ├── sites/          # siteio sites [deploy|list|undeploy|auth|info]
+│   │   ├── deploy.ts
+│   │   ├── list.ts
+│   │   ├── undeploy.ts
+│   │   ├── auth.ts     # Site authentication settings
+│   │   └── info.ts     # Site info
 │   └── agent/
-│       └── start.ts    # siteio agent start
+│       ├── start.ts    # siteio agent start
+│       ├── stop.ts     # siteio agent stop
+│       ├── restart.ts  # siteio agent restart
+│       ├── status.ts   # siteio agent status
+│       ├── install.ts  # siteio agent install
+│       └── oauth.ts    # siteio agent oauth
 ├── lib/
 │   ├── client.ts       # SiteioClient - API client for talking to agent
 │   └── agent/
 │       ├── server.ts   # AgentServer - Bun.serve HTTP server
 │       ├── storage.ts  # SiteStorage - file extraction and metadata
 │       ├── traefik.ts  # TraefikManager - generates configs, spawns Traefik
-│       └── fileserver.ts # Static file serving for deployed sites
+│       ├── fileserver.ts # Static file serving for deployed sites
+│       └── groups.ts   # Group management for site access control
 └── utils/
     ├── errors.ts       # Error classes (ValidationError, ApiError, ConfigError)
-    └── output.ts       # CLI output formatting helpers
+    ├── output.ts       # CLI output formatting helpers
+    └── token.ts        # Token generation utilities
 ```
 
 ## Key Patterns
