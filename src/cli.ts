@@ -233,4 +233,25 @@ program
     await updateCommand(options)
   })
 
+// Skill commands
+const skill = program
+  .command("skill")
+  .description("Manage Claude Code skill integration")
+
+skill
+  .command("install")
+  .description("Install the siteio skill for Claude Code")
+  .action(async () => {
+    const { installSkillCommand } = await import("./commands/skill.ts")
+    await installSkillCommand({ json: program.opts().json })
+  })
+
+skill
+  .command("uninstall")
+  .description("Remove the siteio skill from Claude Code")
+  .action(async () => {
+    const { uninstallSkillCommand } = await import("./commands/skill.ts")
+    await uninstallSkillCommand({ json: program.opts().json })
+  })
+
 program.parse()
