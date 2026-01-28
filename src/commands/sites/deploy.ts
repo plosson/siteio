@@ -74,7 +74,7 @@ async function collectFiles(dir: string, baseDir: string = dir): Promise<Record<
   return files
 }
 
-export async function deployCommand(folder: string | undefined, options: DeployOptions): Promise<void> {
+export async function deployCommand(folder: string | undefined, options: DeployOptions & { json?: boolean }): Promise<void> {
   const spinner = ora()
 
   try {
@@ -190,25 +190,25 @@ export async function deployCommand(folder: string | undefined, options: DeployO
     spinner.succeed("Uploaded")
 
     // Step 4: Done
-    console.error("")
-    console.error(formatSuccess("Site deployed successfully!"))
-    console.error("")
-    console.error(`  URL: ${chalk.cyan(site.url)}`)
-    console.error(`  Size: ${formatBytes(site.size)}`)
-    if (site.oauth) {
-      console.error(`  Auth: ${chalk.yellow("Google OAuth enabled")}`)
-      if (site.oauth.allowedEmails) {
-        console.error(`    Allowed emails: ${chalk.cyan(site.oauth.allowedEmails.join(", "))}`)
+    if (options.json) {
+      console.log(JSON.stringify({ success: true, data: site }, null, 2))
+    } else {
+      console.log("")
+      console.log(formatSuccess("Site deployed successfully!"))
+      console.log("")
+      console.log(`  URL: ${chalk.cyan(site.url)}`)
+      console.log(`  Size: ${formatBytes(site.size)}`)
+      if (site.oauth) {
+        console.log(`  Auth: ${chalk.yellow("Google OAuth enabled")}`)
+        if (site.oauth.allowedEmails) {
+          console.log(`    Allowed emails: ${chalk.cyan(site.oauth.allowedEmails.join(", "))}`)
+        }
+        if (site.oauth.allowedDomain) {
+          console.log(`    Allowed domain: ${chalk.cyan(site.oauth.allowedDomain)}`)
+        }
       }
-      if (site.oauth.allowedDomain) {
-        console.error(`    Allowed domain: ${chalk.cyan(site.oauth.allowedDomain)}`)
-      }
+      console.log("")
     }
-    console.error("")
-
-    // JSON output to stdout
-    const output: Record<string, unknown> = { success: true, data: site }
-    console.log(JSON.stringify(output, null, 2))
     process.exit(0)
   } catch (err) {
     spinner.stop()

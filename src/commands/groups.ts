@@ -4,7 +4,7 @@ import { SiteioClient } from "../lib/client.ts"
 import { formatSuccess } from "../utils/output.ts"
 import { handleError } from "../utils/errors.ts"
 
-export async function listGroupsCommand(): Promise<void> {
+export async function listGroupsCommand(options: { json?: boolean } = {}): Promise<void> {
   const spinner = ora()
 
   try {
@@ -14,17 +14,17 @@ export async function listGroupsCommand(): Promise<void> {
     const groups = await client.listGroups()
     spinner.stop()
 
-    console.log(JSON.stringify({ success: true, data: groups }, null, 2))
-
-    if (groups.length === 0) {
-      console.error(chalk.gray("No groups defined"))
+    if (options.json) {
+      console.log(JSON.stringify({ success: true, data: groups }, null, 2))
+    } else if (groups.length === 0) {
+      console.log(chalk.gray("No groups defined"))
     } else {
-      console.error("")
-      console.error(chalk.bold("Groups:"))
+      console.log("")
+      console.log(chalk.bold("Groups:"))
       for (const group of groups) {
-        console.error(`  ${chalk.cyan(group.name)} (${group.emails.length} emails)`)
+        console.log(`  ${chalk.cyan(group.name)} (${group.emails.length} emails)`)
       }
-      console.error("")
+      console.log("")
     }
 
     process.exit(0)
@@ -34,7 +34,7 @@ export async function listGroupsCommand(): Promise<void> {
   }
 }
 
-export async function showGroupCommand(name: string): Promise<void> {
+export async function showGroupCommand(name: string, options: { json?: boolean } = {}): Promise<void> {
   const spinner = ora()
 
   try {
@@ -49,19 +49,21 @@ export async function showGroupCommand(name: string): Promise<void> {
       process.exit(1)
     }
 
-    console.log(JSON.stringify({ success: true, data: group }, null, 2))
-
-    console.error("")
-    console.error(chalk.bold(`Group: ${group.name}`))
-    if (group.emails.length === 0) {
-      console.error(chalk.gray("  No emails in this group"))
+    if (options.json) {
+      console.log(JSON.stringify({ success: true, data: group }, null, 2))
     } else {
-      console.error("  Emails:")
-      for (const email of group.emails) {
-        console.error(`    - ${chalk.cyan(email)}`)
+      console.log("")
+      console.log(chalk.bold(`Group: ${group.name}`))
+      if (group.emails.length === 0) {
+        console.log(chalk.gray("  No emails in this group"))
+      } else {
+        console.log("  Emails:")
+        for (const email of group.emails) {
+          console.log(`    - ${chalk.cyan(email)}`)
+        }
       }
+      console.log("")
     }
-    console.error("")
 
     process.exit(0)
   } catch (err) {
@@ -72,6 +74,7 @@ export async function showGroupCommand(name: string): Promise<void> {
 
 export interface CreateGroupOptions {
   emails?: string
+  json?: boolean
 }
 
 export async function createGroupCommand(name: string, options: CreateGroupOptions): Promise<void> {
@@ -86,14 +89,16 @@ export async function createGroupCommand(name: string, options: CreateGroupOptio
     const group = await client.createGroup(name, emails)
     spinner.succeed("Group created")
 
-    console.log(JSON.stringify({ success: true, data: group }, null, 2))
-
-    console.error("")
-    console.error(formatSuccess(`Group '${group.name}' created`))
-    if (group.emails.length > 0) {
-      console.error(`  Emails: ${chalk.cyan(group.emails.join(", "))}`)
+    if (options.json) {
+      console.log(JSON.stringify({ success: true, data: group }, null, 2))
+    } else {
+      console.log("")
+      console.log(formatSuccess(`Group '${group.name}' created`))
+      if (group.emails.length > 0) {
+        console.log(`  Emails: ${chalk.cyan(group.emails.join(", "))}`)
+      }
+      console.log("")
     }
-    console.error("")
 
     process.exit(0)
   } catch (err) {
@@ -102,7 +107,7 @@ export async function createGroupCommand(name: string, options: CreateGroupOptio
   }
 }
 
-export async function deleteGroupCommand(name: string): Promise<void> {
+export async function deleteGroupCommand(name: string, options: { json?: boolean } = {}): Promise<void> {
   const spinner = ora()
 
   try {
@@ -112,11 +117,13 @@ export async function deleteGroupCommand(name: string): Promise<void> {
     await client.deleteGroup(name)
     spinner.succeed("Group deleted")
 
-    console.log(JSON.stringify({ success: true, data: null }, null, 2))
-
-    console.error("")
-    console.error(formatSuccess(`Group '${name}' deleted`))
-    console.error("")
+    if (options.json) {
+      console.log(JSON.stringify({ success: true, data: null }, null, 2))
+    } else {
+      console.log("")
+      console.log(formatSuccess(`Group '${name}' deleted`))
+      console.log("")
+    }
 
     process.exit(0)
   } catch (err) {
@@ -127,6 +134,7 @@ export async function deleteGroupCommand(name: string): Promise<void> {
 
 export interface ModifyGroupOptions {
   email?: string
+  json?: boolean
 }
 
 export async function addToGroupCommand(name: string, options: ModifyGroupOptions): Promise<void> {
@@ -145,12 +153,14 @@ export async function addToGroupCommand(name: string, options: ModifyGroupOption
     const group = await client.addEmailsToGroup(name, emails)
     spinner.succeed("Emails added")
 
-    console.log(JSON.stringify({ success: true, data: group }, null, 2))
-
-    console.error("")
-    console.error(formatSuccess(`Added ${emails.length} email(s) to group '${name}'`))
-    console.error(`  Total emails: ${group.emails.length}`)
-    console.error("")
+    if (options.json) {
+      console.log(JSON.stringify({ success: true, data: group }, null, 2))
+    } else {
+      console.log("")
+      console.log(formatSuccess(`Added ${emails.length} email(s) to group '${name}'`))
+      console.log(`  Total emails: ${group.emails.length}`)
+      console.log("")
+    }
 
     process.exit(0)
   } catch (err) {
@@ -175,12 +185,14 @@ export async function removeFromGroupCommand(name: string, options: ModifyGroupO
     const group = await client.removeEmailsFromGroup(name, emails)
     spinner.succeed("Emails removed")
 
-    console.log(JSON.stringify({ success: true, data: group }, null, 2))
-
-    console.error("")
-    console.error(formatSuccess(`Removed ${emails.length} email(s) from group '${name}'`))
-    console.error(`  Remaining emails: ${group.emails.length}`)
-    console.error("")
+    if (options.json) {
+      console.log(JSON.stringify({ success: true, data: group }, null, 2))
+    } else {
+      console.log("")
+      console.log(formatSuccess(`Removed ${emails.length} email(s) from group '${name}'`))
+      console.log(`  Remaining emails: ${group.emails.length}`)
+      console.log("")
+    }
 
     process.exit(0)
   } catch (err) {

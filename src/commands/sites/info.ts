@@ -3,7 +3,7 @@ import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
 import { handleError } from "../../utils/errors.ts"
 
-export async function infoCommand(subdomain: string): Promise<void> {
+export async function infoCommand(subdomain: string, options: { json?: boolean } = {}): Promise<void> {
   const spinner = ora()
 
   try {
@@ -20,38 +20,40 @@ export async function infoCommand(subdomain: string): Promise<void> {
       process.exit(1)
     }
 
-    // JSON output to stdout
-    console.log(JSON.stringify({ success: true, data: site }, null, 2))
+    if (options.json) {
+      console.log(JSON.stringify({ success: true, data: site }, null, 2))
+      process.exit(0)
+    }
 
-    // Human-readable output to stderr
-    console.error("")
-    console.error(chalk.bold(`Site: ${site.subdomain}`))
-    console.error(`  URL:      ${chalk.cyan(site.url)}`)
-    console.error(`  Size:     ${formatSize(site.size)}`)
-    console.error(`  Deployed: ${new Date(site.deployedAt).toLocaleString()}`)
-    console.error("")
+    // Human-readable output
+    console.log("")
+    console.log(chalk.bold(`Site: ${site.subdomain}`))
+    console.log(`  URL:      ${chalk.cyan(site.url)}`)
+    console.log(`  Size:     ${formatSize(site.size)}`)
+    console.log(`  Deployed: ${new Date(site.deployedAt).toLocaleString()}`)
+    console.log("")
 
     if (site.oauth) {
-      console.error(chalk.bold("Authentication:"))
+      console.log(chalk.bold("Authentication:"))
       if (site.oauth.allowedEmails && site.oauth.allowedEmails.length > 0) {
-        console.error(`  Allowed emails:`)
+        console.log(`  Allowed emails:`)
         for (const email of site.oauth.allowedEmails) {
-          console.error(`    - ${chalk.cyan(email)}`)
+          console.log(`    - ${chalk.cyan(email)}`)
         }
       }
       if (site.oauth.allowedDomain) {
-        console.error(`  Allowed domain: ${chalk.cyan(site.oauth.allowedDomain)}`)
+        console.log(`  Allowed domain: ${chalk.cyan(site.oauth.allowedDomain)}`)
       }
       if (site.oauth.allowedGroups && site.oauth.allowedGroups.length > 0) {
-        console.error(`  Allowed groups:`)
+        console.log(`  Allowed groups:`)
         for (const group of site.oauth.allowedGroups) {
-          console.error(`    - ${chalk.cyan(group)}`)
+          console.log(`    - ${chalk.cyan(group)}`)
         }
       }
     } else {
-      console.error(chalk.gray("Authentication: None (public)"))
+      console.log(chalk.gray("Authentication: None (public)"))
     }
-    console.error("")
+    console.log("")
 
     process.exit(0)
   } catch (err) {

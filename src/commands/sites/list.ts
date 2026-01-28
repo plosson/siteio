@@ -4,7 +4,7 @@ import { SiteioClient } from "../../lib/client.ts"
 import { formatTable, formatBytes, formatInfo } from "../../utils/output.ts"
 import { handleError } from "../../utils/errors.ts"
 
-export async function listCommand(): Promise<void> {
+export async function listCommand(options: { json?: boolean } = {}): Promise<void> {
   const spinner = ora("Fetching sites").start()
 
   try {
@@ -12,9 +12,13 @@ export async function listCommand(): Promise<void> {
     const sites = await client.listSites()
     spinner.stop()
 
+    if (options.json) {
+      console.log(JSON.stringify({ success: true, data: sites }, null, 2))
+      process.exit(0)
+    }
+
     if (sites.length === 0) {
-      console.error(formatInfo("No sites deployed yet."))
-      console.log(JSON.stringify({ success: true, data: [] }, null, 2))
+      console.log(formatInfo("No sites deployed yet."))
       process.exit(0)
     }
 
@@ -27,12 +31,9 @@ export async function listCommand(): Promise<void> {
       return [site.subdomain, site.url, formatBytes(site.size), authStr, dateStr]
     })
 
-    console.error("")
-    console.error(formatTable(headers, rows))
-    console.error("")
-
-    // JSON output to stdout
-    console.log(JSON.stringify({ success: true, data: sites }, null, 2))
+    console.log("")
+    console.log(formatTable(headers, rows))
+    console.log("")
     process.exit(0)
   } catch (err) {
     spinner.stop()
