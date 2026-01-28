@@ -335,6 +335,9 @@ log:
       "OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true",
       "-e",
       `OAUTH2_PROXY_UPSTREAMS=${upstreamUrl}`,
+      // Allow unverified emails (some OIDC providers don't verify emails by default)
+      "-e",
+      "OAUTH2_PROXY_INSECURE_OIDC_ALLOW_UNVERIFIED_EMAIL=true",
       OAUTH_PROXY_IMAGE,
     ]
 
