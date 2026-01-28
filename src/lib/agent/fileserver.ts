@@ -83,9 +83,11 @@ export function createFileServerHandler(
 
       const { allowedEmails, allowedDomain } = metadata.oauth
 
-      // Check allowed emails
+      // Check allowed emails (case-insensitive)
       if (allowedEmails && allowedEmails.length > 0) {
-        if (!allowedEmails.includes(email.toLowerCase())) {
+        const normalizedEmail = email.toLowerCase()
+        const normalizedAllowed = allowedEmails.map(e => e.toLowerCase())
+        if (!normalizedAllowed.includes(normalizedEmail)) {
           return new Response("Forbidden - email not in allowed list", { status: 403 })
         }
       }
