@@ -113,7 +113,7 @@ describe("CLI Integration", () => {
       })
     )
 
-    const result = await runCli(["sites", "list"])
+    const result = await runCli(["--json", "sites", "list"])
     expect(result.exitCode).toBe(0)
 
     // Should have JSON output in stdout
@@ -122,12 +122,9 @@ describe("CLI Integration", () => {
   })
 
   test("should deploy site via CLI", async () => {
-    const result = await runCli(["sites", "deploy", testSiteDir, "--subdomain", "inttest"])
+    const result = await runCli(["--json", "sites", "deploy", testSiteDir, "--subdomain", "inttest"])
 
     expect(result.exitCode).toBe(0)
-    expect(result.stderr).toContain("Zipping files")
-    expect(result.stderr).toContain("Uploading")
-    expect(result.stderr).toContain("deployed successfully")
 
     // Verify JSON output
     const jsonOutput = JSON.parse(result.stdout)
@@ -136,7 +133,7 @@ describe("CLI Integration", () => {
   })
 
   test("should list deployed site via CLI", async () => {
-    const result = await runCli(["sites", "list"])
+    const result = await runCli(["--json", "sites", "list"])
     expect(result.exitCode).toBe(0)
 
     const jsonOutput = JSON.parse(result.stdout)
@@ -147,10 +144,9 @@ describe("CLI Integration", () => {
   test("should undeploy site via CLI", async () => {
     const result = await runCli(["sites", "undeploy", "inttest"])
     expect(result.exitCode).toBe(0)
-    expect(result.stderr).toContain("Undeployed inttest")
 
     // Verify it's gone
-    const listResult = await runCli(["sites", "list"])
+    const listResult = await runCli(["--json", "sites", "list"])
     const jsonOutput = JSON.parse(listResult.stdout)
     expect(jsonOutput.data.length).toBe(0)
   })
@@ -164,7 +160,7 @@ describe("CLI Integration", () => {
     writeFileSync(join(namedDir, "index.html"), "<html><body>Auto-named</body></html>")
 
     try {
-      const result = await runCli(["sites", "deploy", namedDir])
+      const result = await runCli(["--json", "sites", "deploy", namedDir])
       expect(result.exitCode).toBe(0)
 
       const jsonOutput = JSON.parse(result.stdout)

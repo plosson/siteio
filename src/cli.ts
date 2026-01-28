@@ -28,6 +28,7 @@ const program = new Command()
   .name("siteio")
   .description("Deploy static sites with ease")
   .version(getVersion())
+  .option("--json", "Output results as JSON")
 
 // Status command
 program
@@ -64,15 +65,16 @@ sites
   .option("--test", "Deploy a simple test page (no folder required)")
   .action(async (folder, options) => {
     const { deployCommand } = await import("./commands/sites/deploy.ts")
-    await deployCommand(folder, options)
+    await deployCommand(folder, { ...options, json: program.opts().json })
   })
 
 sites
   .command("list")
+  .alias("ls")
   .description("List all deployed sites")
   .action(async () => {
     const { listCommand } = await import("./commands/sites/list.ts")
-    await listCommand()
+    await listCommand({ json: program.opts().json })
   })
 
 sites
@@ -80,7 +82,7 @@ sites
   .description("Show detailed info about a site")
   .action(async (subdomain) => {
     const { infoCommand } = await import("./commands/sites/info.ts")
-    await infoCommand(subdomain)
+    await infoCommand(subdomain, { json: program.opts().json })
   })
 
 sites
@@ -88,7 +90,7 @@ sites
   .description("Remove a deployed site")
   .action(async (subdomain) => {
     const { undeployCommand } = await import("./commands/sites/undeploy.ts")
-    await undeployCommand(subdomain)
+    await undeployCommand(subdomain, { json: program.opts().json })
   })
 
 sites
@@ -106,7 +108,7 @@ sites
   .option("--remove", "Remove all authentication")
   .action(async (subdomain, options) => {
     const { authCommand } = await import("./commands/sites/auth.ts")
-    await authCommand(subdomain, options)
+    await authCommand(subdomain, { ...options, json: program.opts().json })
   })
 
 // Groups command
@@ -116,10 +118,11 @@ const groups = program
 
 groups
   .command("list")
+  .alias("ls")
   .description("List all groups")
   .action(async () => {
     const { listGroupsCommand } = await import("./commands/groups.ts")
-    await listGroupsCommand()
+    await listGroupsCommand({ json: program.opts().json })
   })
 
 groups
@@ -127,7 +130,7 @@ groups
   .description("Show group details")
   .action(async (name) => {
     const { showGroupCommand } = await import("./commands/groups.ts")
-    await showGroupCommand(name)
+    await showGroupCommand(name, { json: program.opts().json })
   })
 
 groups
@@ -136,7 +139,7 @@ groups
   .option("--emails <emails>", "Comma-separated list of email addresses")
   .action(async (name, options) => {
     const { createGroupCommand } = await import("./commands/groups.ts")
-    await createGroupCommand(name, options)
+    await createGroupCommand(name, { ...options, json: program.opts().json })
   })
 
 groups
@@ -144,7 +147,7 @@ groups
   .description("Delete a group")
   .action(async (name) => {
     const { deleteGroupCommand } = await import("./commands/groups.ts")
-    await deleteGroupCommand(name)
+    await deleteGroupCommand(name, { json: program.opts().json })
   })
 
 groups
@@ -153,7 +156,7 @@ groups
   .option("--email <emails>", "Comma-separated list of email addresses to add")
   .action(async (name, options) => {
     const { addToGroupCommand } = await import("./commands/groups.ts")
-    await addToGroupCommand(name, options)
+    await addToGroupCommand(name, { ...options, json: program.opts().json })
   })
 
 groups
@@ -162,7 +165,7 @@ groups
   .option("--email <emails>", "Comma-separated list of email addresses to remove")
   .action(async (name, options) => {
     const { removeFromGroupCommand } = await import("./commands/groups.ts")
-    await removeFromGroupCommand(name, options)
+    await removeFromGroupCommand(name, { ...options, json: program.opts().json })
   })
 
 // Agent command (for running the server)

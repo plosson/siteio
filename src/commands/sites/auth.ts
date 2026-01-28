@@ -5,7 +5,7 @@ import { formatSuccess } from "../../utils/output.ts"
 import { handleError } from "../../utils/errors.ts"
 import type { AuthOptions, SiteOAuth } from "../../types.ts"
 
-export async function authCommand(subdomain: string, options: AuthOptions): Promise<void> {
+export async function authCommand(subdomain: string, options: AuthOptions & { json?: boolean }): Promise<void> {
   const spinner = ora()
 
   try {
@@ -17,11 +17,14 @@ export async function authCommand(subdomain: string, options: AuthOptions): Prom
       await client.updateSiteOAuth(subdomain, null)
       spinner.succeed("Authentication removed")
 
-      console.error("")
-      console.error(formatSuccess(`Site ${subdomain} is now public`))
-      console.error("")
-
-      console.log(JSON.stringify({ success: true, data: { subdomain, oauth: null } }, null, 2))
+      if (options.json) {
+        console.log(JSON.stringify({ success: true, data: { subdomain, oauth: null } }, null, 2))
+      } else {
+        console.log("")
+        console.log(formatSuccess(`Site ${subdomain} is now public`))
+        console.log("")
+      }
+      process.exit(0)
     } else {
       // Check if OAuth is configured on the server
       spinner.start("Checking OAuth status")
@@ -119,11 +122,13 @@ export async function authCommand(subdomain: string, options: AuthOptions): Prom
           await client.updateSiteOAuth(subdomain, null)
           spinner.succeed("Authentication removed (no allowed emails/domains/groups left)")
 
-          console.error("")
-          console.error(formatSuccess(`Site ${subdomain} is now public`))
-          console.error("")
-
-          console.log(JSON.stringify({ success: true, data: { subdomain, oauth: null } }, null, 2))
+          if (options.json) {
+            console.log(JSON.stringify({ success: true, data: { subdomain, oauth: null } }, null, 2))
+          } else {
+            console.log("")
+            console.log(formatSuccess(`Site ${subdomain} is now public`))
+            console.log("")
+          }
           process.exit(0)
         }
       } else {
@@ -163,20 +168,22 @@ export async function authCommand(subdomain: string, options: AuthOptions): Prom
       await client.updateSiteOAuth(subdomain, oauth)
       spinner.succeed("Authentication configured")
 
-      console.error("")
-      console.error(formatSuccess(`Site ${subdomain} now requires Google authentication`))
-      if (oauth.allowedEmails && oauth.allowedEmails.length > 0) {
-        console.error(`  Allowed emails: ${chalk.cyan(oauth.allowedEmails.join(", "))}`)
+      if (options.json) {
+        console.log(JSON.stringify({ success: true, data: { subdomain, oauth } }, null, 2))
+      } else {
+        console.log("")
+        console.log(formatSuccess(`Site ${subdomain} now requires Google authentication`))
+        if (oauth.allowedEmails && oauth.allowedEmails.length > 0) {
+          console.log(`  Allowed emails: ${chalk.cyan(oauth.allowedEmails.join(", "))}`)
+        }
+        if (oauth.allowedDomain) {
+          console.log(`  Allowed domain: ${chalk.cyan(oauth.allowedDomain)}`)
+        }
+        if (oauth.allowedGroups && oauth.allowedGroups.length > 0) {
+          console.log(`  Allowed groups: ${chalk.cyan(oauth.allowedGroups.join(", "))}`)
+        }
+        console.log("")
       }
-      if (oauth.allowedDomain) {
-        console.error(`  Allowed domain: ${chalk.cyan(oauth.allowedDomain)}`)
-      }
-      if (oauth.allowedGroups && oauth.allowedGroups.length > 0) {
-        console.error(`  Allowed groups: ${chalk.cyan(oauth.allowedGroups.join(", "))}`)
-      }
-      console.error("")
-
-      console.log(JSON.stringify({ success: true, data: { subdomain, oauth } }, null, 2))
     }
 
     process.exit(0)
