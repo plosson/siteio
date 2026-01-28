@@ -117,9 +117,24 @@ log:
         },
       }
 
-      // Add router for /oauth2/* paths on API domain (for callback, sign_in, etc.)
-      // This needs higher priority than the general api-router
-      routers["oauth2-router"] = {
+      // Add router for /oauth2/* paths on ALL site subdomains (for callback, sign_in, etc.)
+      // Each protected site needs its own oauth2 endpoint router
+      for (const site of sites) {
+        if (site.oauth) {
+          routers[`${site.subdomain}-oauth2-router`] = {
+            rule: `Host(\`${site.subdomain}.${domain}\`) && PathPrefix(\`/oauth2/\`)`,
+            entryPoints: ["websecure"],
+            service: "oauth2-proxy-service",
+            priority: 100,
+            tls: {
+              certResolver: "letsencrypt",
+            },
+          }
+        }
+      }
+
+      // Also add oauth2 router for API domain (for shared callback)
+      routers["api-oauth2-router"] = {
         rule: `Host(\`api.${domain}\`) && PathPrefix(\`/oauth2/\`)`,
         entryPoints: ["websecure"],
         service: "oauth2-proxy-service",
@@ -329,8 +344,8 @@ log:
       `OAUTH2_PROXY_WHITELIST_DOMAINS=.${domain}`,
       "-e",
       "OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180",
-      "-e",
-      `OAUTH2_PROXY_REDIRECT_URL=https://api.${domain}/oauth2/callback`,
+      // Don't set REDIRECT_URL - let oauth2-proxy auto-generate from request host
+      // This allows callbacks to come to the same subdomain that initiated the flow
       "-e",
       "OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true",
       "-e",
