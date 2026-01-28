@@ -72,7 +72,9 @@ export function createFileServerHandler(
     // Check OAuth restrictions if configured
     const metadata = storage.getMetadata(subdomain)
     if (metadata?.oauth) {
-      const email = req.headers.get("X-Auth-Request-Email")
+      // oauth2-proxy sends X-Forwarded-Email in reverse proxy mode
+      // and X-Auth-Request-Email in forwardAuth mode
+      const email = req.headers.get("X-Forwarded-Email") || req.headers.get("X-Auth-Request-Email")
 
       // If site has OAuth but no email header, user is not authenticated
       if (!email) {
