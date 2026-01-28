@@ -341,6 +341,8 @@ log:
       "-e",
       "OAUTH2_PROXY_PASS_ACCESS_TOKEN=true",
       "-e",
+      "OAUTH2_PROXY_PASS_USER_HEADERS=true",
+      "-e",
       `OAUTH2_PROXY_WHITELIST_DOMAINS=.${domain}`,
       "-e",
       "OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180",
