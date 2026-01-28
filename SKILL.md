@@ -1,6 +1,11 @@
-# Skill: Deploy Static Sites with siteio
+---
+name: siteio
+description: Deploy static sites to a URL using siteio. Use when the user wants to deploy a website, static site, HTML files, or asks to publish/host a site.
+argument-hint: "[folder] [-s subdomain]"
+allowed-tools: Bash(siteio *)
+---
 
-Use this skill when the user asks to deploy a static site, website, or HTML files to a URL.
+# Deploy Static Sites with siteio
 
 ## IMPORTANT
 
