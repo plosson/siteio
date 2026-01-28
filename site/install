@@ -28,11 +28,11 @@ setup_colors() {
 }
 
 info() {
-    printf '%s[info]%s %s\n' "$BLUE" "$RESET" "$1"
+    printf '%s[info]%s %s\n' "$BLUE" "$RESET" "$1" >&2
 }
 
 success() {
-    printf '%s[success]%s %s\n' "$GREEN" "$RESET" "$1"
+    printf '%s[success]%s %s\n' "$GREEN" "$RESET" "$1" >&2
 }
 
 warn() {
@@ -306,6 +306,9 @@ EOF
     else
         warn "siteio installed but not in PATH"
         warn "Add ${install_dir} to your PATH or run: ${install_dir}/siteio"
+        # Output PATH export to stdout for eval support
+        # Usage: eval "$(curl -LsSf https://siteio.me/install | sh)"
+        printf 'export PATH="%s:$PATH"\n' "$install_dir"
     fi
 }
 

@@ -124,9 +124,32 @@ siteio sites auth mysite --remove
 # List all deployed sites
 siteio sites list
 
+# Get info about a specific site
+siteio sites info <subdomain>
+
+# Download a deployed site to a local folder
+siteio sites download <subdomain> <output-folder>
+
 # Remove a deployed site
 siteio sites undeploy <subdomain>
 \`\`\`
+
+## Editing an Existing Site
+
+When a user wants to edit a site by giving its URL (e.g., \`https://mysite.example.com\`):
+
+1. **Extract the subdomain** from the URL (e.g., \`mysite\` from \`https://mysite.example.com\`)
+2. **Download the site** to a temporary folder:
+   \`\`\`sh
+   siteio sites download mysite /tmp/mysite-edit
+   \`\`\`
+3. **Perform the requested edits** on the files in \`/tmp/mysite-edit/\`
+4. **Re-deploy the site** when edits are complete:
+   \`\`\`sh
+   siteio sites deploy /tmp/mysite-edit -s mysite
+   \`\`\`
+
+This workflow preserves all existing files while allowing targeted modifications.
 
 ## Workflow
 
