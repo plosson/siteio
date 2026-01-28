@@ -1,12 +1,14 @@
-import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteOAuth } from "../../types.ts"
+import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteOAuth, Group } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { createFileServerHandler } from "./fileserver.ts"
 import { loadOAuthConfig } from "../../config/oauth.ts"
+import { GroupStorage } from "./groups.ts"
 
 export class AgentServer {
   private config: AgentConfig
   private storage: SiteStorage
+  private groups: GroupStorage
   private traefik: TraefikManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
   private fileServerHandler: (req: Request) => Promise<Response | null>
@@ -15,6 +17,7 @@ export class AgentServer {
   constructor(config: AgentConfig) {
     this.config = config
     this.storage = new SiteStorage(config.dataDir)
+    this.groups = new GroupStorage(config.dataDir)
 
     // Load OAuth config if it exists
     this.oauthConfig = loadOAuthConfig(config.dataDir)
@@ -30,7 +33,7 @@ export class AgentServer {
         oauthConfig: this.oauthConfig || undefined,
       })
     }
-    this.fileServerHandler = createFileServerHandler(this.storage, config.domain)
+    this.fileServerHandler = createFileServerHandler(this.storage, config.domain, this.groups)
   }
 
   hasOAuthEnabled(): boolean {
@@ -107,6 +110,38 @@ export class AgentServer {
     const authMatch = path.match(/^\/sites\/([a-z0-9-]+)\/auth$/)
     if (authMatch && req.method === "PATCH") {
       return this.handleUpdateAuth(authMatch[1]!, req)
+    }
+
+    // GET /groups - list all groups
+    if (path === "/groups" && req.method === "GET") {
+      return this.handleListGroups()
+    }
+
+    // POST /groups - create a group
+    if (path === "/groups" && req.method === "POST") {
+      return this.handleCreateGroup(req)
+    }
+
+    // GET /groups/:name - get a group
+    const groupMatch = path.match(/^\/groups\/([a-z0-9-]+)$/)
+    if (groupMatch && req.method === "GET") {
+      return this.handleGetGroup(groupMatch[1]!)
+    }
+
+    // PUT /groups/:name - update a group
+    if (groupMatch && req.method === "PUT") {
+      return this.handleUpdateGroup(groupMatch[1]!, req)
+    }
+
+    // DELETE /groups/:name - delete a group
+    if (groupMatch && req.method === "DELETE") {
+      return this.handleDeleteGroup(groupMatch[1]!)
+    }
+
+    // PATCH /groups/:name/emails - add/remove emails from a group
+    const groupEmailsMatch = path.match(/^\/groups\/([a-z0-9-]+)\/emails$/)
+    if (groupEmailsMatch && req.method === "PATCH") {
+      return this.handleModifyGroupEmails(groupEmailsMatch[1]!, req)
     }
 
     return this.error("Not found", 404)
@@ -222,6 +257,7 @@ export class AgentServer {
       const body = (await req.json()) as {
         allowedEmails?: string[]
         allowedDomain?: string
+        allowedGroups?: string[]
         remove?: boolean
       }
 
@@ -230,7 +266,7 @@ export class AgentServer {
       if (body.remove) {
         // Remove OAuth
         oauth = null
-      } else if (body.allowedEmails || body.allowedDomain) {
+      } else if (body.allowedEmails || body.allowedDomain || body.allowedGroups) {
         // Reject if OAuth is not configured on the server
         if (!this.hasOAuthEnabled()) {
           return this.error(
@@ -246,8 +282,11 @@ export class AgentServer {
         if (body.allowedDomain) {
           oauth.allowedDomain = body.allowedDomain.toLowerCase()
         }
+        if (body.allowedGroups) {
+          oauth.allowedGroups = body.allowedGroups.map((g) => g.toLowerCase())
+        }
       } else {
-        return this.error("Provide allowedEmails or allowedDomain, or set remove: true")
+        return this.error("Provide allowedEmails, allowedDomain, or allowedGroups, or set remove: true")
       }
 
       const updated = this.storage.updateOAuth(subdomain, oauth)
@@ -262,6 +301,91 @@ export class AgentServer {
       return this.json(null)
     } catch (err) {
       return this.error("Invalid request body")
+    }
+  }
+
+  // Group handlers
+  private handleListGroups(): Response {
+    const groups = this.groups.list()
+    return this.json(groups)
+  }
+
+  private handleGetGroup(name: string): Response {
+    const group = this.groups.get(name)
+    if (!group) {
+      return this.error("Group not found", 404)
+    }
+    return this.json(group)
+  }
+
+  private async handleCreateGroup(req: Request): Promise<Response> {
+    try {
+      const body = (await req.json()) as { name: string; emails?: string[] }
+
+      if (!body.name) {
+        return this.error("Group name is required")
+      }
+
+      if (!/^[a-z0-9-]+$/.test(body.name.toLowerCase())) {
+        return this.error("Group name must contain only lowercase letters, numbers, and hyphens")
+      }
+
+      const group = this.groups.create(body.name, body.emails || [])
+      return this.json(group)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create group"
+      return this.error(message, 400)
+    }
+  }
+
+  private async handleUpdateGroup(name: string, req: Request): Promise<Response> {
+    try {
+      const body = (await req.json()) as { emails: string[] }
+
+      if (!body.emails) {
+        return this.error("emails field is required")
+      }
+
+      const group = this.groups.update(name, body.emails)
+      return this.json(group)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update group"
+      return this.error(message, 400)
+    }
+  }
+
+  private handleDeleteGroup(name: string): Response {
+    try {
+      this.groups.delete(name)
+      return this.json(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to delete group"
+      return this.error(message, 400)
+    }
+  }
+
+  private async handleModifyGroupEmails(name: string, req: Request): Promise<Response> {
+    try {
+      const body = (await req.json()) as { add?: string[]; remove?: string[] }
+
+      if (!body.add && !body.remove) {
+        return this.error("Provide 'add' or 'remove' array of emails")
+      }
+
+      let group: Group | null = null
+
+      if (body.add) {
+        group = this.groups.addEmails(name, body.add)
+      }
+
+      if (body.remove) {
+        group = this.groups.removeEmails(name, body.remove)
+      }
+
+      return this.json(group)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to modify group"
+      return this.error(message, 400)
     }
   }
 

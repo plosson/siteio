@@ -11,6 +11,13 @@ export interface ApiResponse<T> {
 export interface SiteOAuth {
   allowedEmails?: string[]
   allowedDomain?: string
+  allowedGroups?: string[]
+}
+
+// Group of emails for access control
+export interface Group {
+  name: string
+  emails: string[]
 }
 
 // Site information
@@ -66,6 +73,13 @@ export interface DeployOptions {
 export interface AuthOptions {
   allowedEmails?: string
   allowedDomain?: string
+  allowedGroups?: string
+  addEmail?: string
+  removeEmail?: string
+  addDomain?: string
+  removeDomain?: string
+  addGroup?: string
+  removeGroup?: string
   remove?: boolean
 }
 

@@ -76,6 +76,14 @@ sites
   })
 
 sites
+  .command("info <subdomain>")
+  .description("Show detailed info about a site")
+  .action(async (subdomain) => {
+    const { infoCommand } = await import("./commands/sites/info.ts")
+    await infoCommand(subdomain)
+  })
+
+sites
   .command("undeploy <subdomain>")
   .description("Remove a deployed site")
   .action(async (subdomain) => {
@@ -86,12 +94,75 @@ sites
 sites
   .command("auth <subdomain>")
   .description("Set or remove Google OAuth for a site")
-  .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses")
-  .option("--allowed-domain <domain>", "Allow all emails from this domain")
-  .option("--remove", "Remove authentication")
+  .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses (replaces existing)")
+  .option("--allowed-domain <domain>", "Allow all emails from this domain (replaces existing)")
+  .option("--allowed-groups <groups>", "Comma-separated list of allowed groups (replaces existing)")
+  .option("--add-email <email>", "Add email(s) to allowed list")
+  .option("--remove-email <email>", "Remove email(s) from allowed list")
+  .option("--add-domain <domain>", "Set allowed domain")
+  .option("--remove-domain <domain>", "Remove allowed domain")
+  .option("--add-group <group>", "Add group(s) to allowed list")
+  .option("--remove-group <group>", "Remove group(s) from allowed list")
+  .option("--remove", "Remove all authentication")
   .action(async (subdomain, options) => {
     const { authCommand } = await import("./commands/sites/auth.ts")
     await authCommand(subdomain, options)
+  })
+
+// Groups command
+const groups = program
+  .command("groups")
+  .description("Manage email groups for access control")
+
+groups
+  .command("list")
+  .description("List all groups")
+  .action(async () => {
+    const { listGroupsCommand } = await import("./commands/groups.ts")
+    await listGroupsCommand()
+  })
+
+groups
+  .command("show <name>")
+  .description("Show group details")
+  .action(async (name) => {
+    const { showGroupCommand } = await import("./commands/groups.ts")
+    await showGroupCommand(name)
+  })
+
+groups
+  .command("create <name>")
+  .description("Create a new group")
+  .option("--emails <emails>", "Comma-separated list of email addresses")
+  .action(async (name, options) => {
+    const { createGroupCommand } = await import("./commands/groups.ts")
+    await createGroupCommand(name, options)
+  })
+
+groups
+  .command("delete <name>")
+  .description("Delete a group")
+  .action(async (name) => {
+    const { deleteGroupCommand } = await import("./commands/groups.ts")
+    await deleteGroupCommand(name)
+  })
+
+groups
+  .command("add <name>")
+  .description("Add emails to a group")
+  .option("--email <emails>", "Comma-separated list of email addresses to add")
+  .action(async (name, options) => {
+    const { addToGroupCommand } = await import("./commands/groups.ts")
+    await addToGroupCommand(name, options)
+  })
+
+groups
+  .command("remove <name>")
+  .description("Remove emails from a group")
+  .option("--email <emails>", "Comma-separated list of email addresses to remove")
+  .action(async (name, options) => {
+    const { removeFromGroupCommand } = await import("./commands/groups.ts")
+    await removeFromGroupCommand(name, options)
   })
 
 // Agent command (for running the server)

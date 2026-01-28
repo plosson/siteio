@@ -1,6 +1,7 @@
 import { join } from "path"
 import { existsSync } from "fs"
 import type { SiteStorage } from "./storage.ts"
+import type { GroupStorage } from "./groups.ts"
 
 // MIME types for common static files
 const MIME_TYPES: Record<string, string> = {
@@ -38,7 +39,8 @@ function getMimeType(path: string): string {
 
 export function createFileServerHandler(
   storage: SiteStorage,
-  domain: string
+  domain: string,
+  groups?: GroupStorage
 ) {
   return async (req: Request): Promise<Response | null> => {
     const url = new URL(req.url)
@@ -81,23 +83,50 @@ export function createFileServerHandler(
         return new Response("Unauthorized - authentication required", { status: 401 })
       }
 
-      const { allowedEmails, allowedDomain } = metadata.oauth
+      const normalizedEmail = email.toLowerCase()
+      const { allowedEmails, allowedDomain, allowedGroups } = metadata.oauth
 
-      // Check allowed emails (case-insensitive)
-      if (allowedEmails && allowedEmails.length > 0) {
-        const normalizedEmail = email.toLowerCase()
-        const normalizedAllowed = allowedEmails.map(e => e.toLowerCase())
-        if (!normalizedAllowed.includes(normalizedEmail)) {
-          return new Response("Forbidden - email not in allowed list", { status: 403 })
+      // Build a combined list of allowed emails (direct + from groups)
+      const allAllowedEmails = new Set<string>()
+
+      // Add directly allowed emails
+      if (allowedEmails) {
+        for (const e of allowedEmails) {
+          allAllowedEmails.add(e.toLowerCase())
         }
+      }
+
+      // Add emails from allowed groups
+      if (allowedGroups && groups) {
+        const groupEmails = groups.resolveGroups(allowedGroups)
+        for (const e of groupEmails) {
+          allAllowedEmails.add(e.toLowerCase())
+        }
+      }
+
+      // Check if email is allowed
+      let isAllowed = false
+
+      // Check direct emails and group emails
+      if (allAllowedEmails.size > 0 && allAllowedEmails.has(normalizedEmail)) {
+        isAllowed = true
       }
 
       // Check allowed domain
       if (allowedDomain) {
-        const emailDomain = email.split("@")[1]?.toLowerCase()
-        if (emailDomain !== allowedDomain.toLowerCase()) {
-          return new Response("Forbidden - email domain not allowed", { status: 403 })
+        const emailDomain = normalizedEmail.split("@")[1]
+        if (emailDomain === allowedDomain.toLowerCase()) {
+          isAllowed = true
         }
+      }
+
+      // If no restrictions are set, allow all authenticated users
+      if (allAllowedEmails.size === 0 && !allowedDomain) {
+        isAllowed = true
+      }
+
+      if (!isAllowed) {
+        return new Response("Forbidden - email not authorized for this site", { status: 403 })
       }
     }
 

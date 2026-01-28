@@ -1,6 +1,6 @@
 import { loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
-import type { ApiResponse, SiteInfo, SiteOAuth } from "../types.ts"
+import type { ApiResponse, SiteInfo, SiteOAuth, Group } from "../types.ts"
 
 export interface ClientOptions {
   apiUrl?: string
@@ -58,6 +58,11 @@ export class SiteioClient {
   async listSites(): Promise<SiteInfo[]> {
     const response = await this.request<ApiResponse<SiteInfo[]>>("GET", "/sites")
     return response.data || []
+  }
+
+  async getSite(subdomain: string): Promise<SiteInfo | null> {
+    const sites = await this.listSites()
+    return sites.find((s) => s.subdomain === subdomain) || null
   }
 
   async deploySite(
@@ -134,5 +139,76 @@ export class SiteioClient {
     } catch {
       return false
     }
+  }
+
+  // Group methods
+  async listGroups(): Promise<Group[]> {
+    const response = await this.request<ApiResponse<Group[]>>("GET", "/groups")
+    return response.data || []
+  }
+
+  async getGroup(name: string): Promise<Group | null> {
+    try {
+      const response = await this.request<ApiResponse<Group>>("GET", `/groups/${name}`)
+      return response.data || null
+    } catch {
+      return null
+    }
+  }
+
+  async createGroup(name: string, emails: string[] = []): Promise<Group> {
+    const response = await this.request<ApiResponse<Group>>(
+      "POST",
+      "/groups",
+      JSON.stringify({ name, emails }),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  async updateGroup(name: string, emails: string[]): Promise<Group> {
+    const response = await this.request<ApiResponse<Group>>(
+      "PUT",
+      `/groups/${name}`,
+      JSON.stringify({ emails }),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  async deleteGroup(name: string): Promise<void> {
+    await this.request<ApiResponse<null>>("DELETE", `/groups/${name}`)
+  }
+
+  async addEmailsToGroup(name: string, emails: string[]): Promise<Group> {
+    const response = await this.request<ApiResponse<Group>>(
+      "PATCH",
+      `/groups/${name}/emails`,
+      JSON.stringify({ add: emails }),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  async removeEmailsFromGroup(name: string, emails: string[]): Promise<Group> {
+    const response = await this.request<ApiResponse<Group>>(
+      "PATCH",
+      `/groups/${name}/emails`,
+      JSON.stringify({ remove: emails }),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
   }
 }
