@@ -53,36 +53,35 @@ export async function oauthAgentCommand(): Promise<void> {
   }
 
   console.log("")
-  console.log(chalk.cyan("To set up Google OAuth via Clerk:"))
+  console.log(chalk.cyan("Configure an OIDC provider (Auth0, Okta, Google, etc.)"))
   console.log("")
-  console.log("  1. Go to https://clerk.com and create a new application")
-  console.log("  2. Enable Google as a social connection")
-  console.log("  3. Go to Configure > SSO Connections and create an OIDC connection")
-  console.log("  4. Copy the values from the Clerk dashboard:")
-  console.log("     - Issuer URL (e.g., https://your-app.clerk.accounts.dev)")
+  console.log("  You'll need:")
+  console.log("     - Issuer URL (e.g., https://your-tenant.auth0.com)")
   console.log("     - Client ID")
   console.log("     - Client Secret")
+  console.log("")
+  console.log(`  Callback URL: ${chalk.cyan(`https://api.${domain}/oauth2/callback`)}`)
   console.log("")
 
   const answers = await p.group(
     {
-      clerkIssuerUrl: () =>
+      issuerUrl: () =>
         p.text({
-          message: "Clerk Issuer URL:",
-          placeholder: "https://your-app.clerk.accounts.dev",
+          message: "Issuer URL:",
+          placeholder: "https://your-tenant.auth0.com",
           validate: (value) => {
             if (!value) return "Issuer URL is required"
             if (!value.startsWith("https://")) return "Issuer URL must start with https://"
           },
         }),
-      clerkClientId: () =>
+      clientId: () =>
         p.text({
           message: "Client ID:",
           validate: (value) => {
             if (!value) return "Client ID is required"
           },
         }),
-      clerkClientSecret: () =>
+      clientSecret: () =>
         p.password({
           message: "Client Secret:",
           validate: (value) => {
@@ -99,9 +98,9 @@ export async function oauthAgentCommand(): Promise<void> {
   )
 
   const config: AgentOAuthConfig = {
-    clerkIssuerUrl: answers.clerkIssuerUrl as string,
-    clerkClientId: answers.clerkClientId as string,
-    clerkClientSecret: answers.clerkClientSecret as string,
+    issuerUrl: answers.issuerUrl as string,
+    clientId: answers.clientId as string,
+    clientSecret: answers.clientSecret as string,
     cookieSecret: generateCookieSecret(),
     cookieDomain: domain,
   }

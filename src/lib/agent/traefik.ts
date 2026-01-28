@@ -284,7 +284,7 @@ log:
       this.removeContainer(OAUTH_PROXY_CONTAINER_NAME)
     }
 
-    // oauth2-proxy configuration for Clerk as OIDC provider
+    // oauth2-proxy configuration for OIDC provider
     // Using reverse proxy mode: oauth2-proxy handles auth and proxies to fileserver
     const { fileServerPort } = this.config
     const upstreamUrl = `http://host.docker.internal:${fileServerPort}`
@@ -305,11 +305,11 @@ log:
       "-e",
       "OAUTH2_PROXY_PROVIDER=oidc",
       "-e",
-      `OAUTH2_PROXY_OIDC_ISSUER_URL=${oauthConfig.clerkIssuerUrl}`,
+      `OAUTH2_PROXY_OIDC_ISSUER_URL=${oauthConfig.issuerUrl}`,
       "-e",
-      `OAUTH2_PROXY_CLIENT_ID=${oauthConfig.clerkClientId}`,
+      `OAUTH2_PROXY_CLIENT_ID=${oauthConfig.clientId}`,
       "-e",
-      `OAUTH2_PROXY_CLIENT_SECRET=${oauthConfig.clerkClientSecret}`,
+      `OAUTH2_PROXY_CLIENT_SECRET=${oauthConfig.clientSecret}`,
       "-e",
       `OAUTH2_PROXY_COOKIE_SECRET=${oauthConfig.cookieSecret}`,
       "-e",

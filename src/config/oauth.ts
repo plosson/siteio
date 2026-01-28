@@ -17,9 +17,9 @@ export function loadOAuthConfig(dataDir: string): AgentOAuthConfig | null {
 
     // Validate required fields
     if (
-      !config.clerkIssuerUrl ||
-      !config.clerkClientId ||
-      !config.clerkClientSecret ||
+      !config.issuerUrl ||
+      !config.clientId ||
+      !config.clientSecret ||
       !config.cookieSecret ||
       !config.cookieDomain
     ) {
