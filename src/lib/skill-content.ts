@@ -153,10 +153,9 @@ This workflow preserves all existing files while allowing targeted modifications
 
 ## Workflow
 
-1. Ensure you have a folder with static files (HTML, CSS, JS, images)
-2. If using a framework (React, Vue, etc.), build first: \`npm run build\`
-3. Deploy the **output folder** (e.g., \`dist\`, \`build\`, \`out\`): \`siteio sites deploy ./dist -s mysite\`
-4. Access at \`https://<subdomain>.<domain>\`
+1. Ensure you have a folder with ONLY static files (HTML, CSS, JS, images)
+2. Deploy using siteio sites deploy command 
+3. Access at \`https://<subdomain>.<domain>\`
 
 **The entire folder is uploaded** - all files and subfolders within it will be served.
 
@@ -165,5 +164,5 @@ This workflow preserves all existing files while allowing targeted modifications
 - Sites are served over HTTPS with automatic Let's Encrypt certificates
 - Deploying to the same subdomain replaces the existing site
 - The subdomain must be lowercase alphanumeric (hyphens allowed)
-- Maximum upload size is typically 50MB
+- Maximum upload size is typically 100MB
 `
