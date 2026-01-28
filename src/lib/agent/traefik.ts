@@ -302,10 +302,11 @@ log:
       "-p",
       `${this.oauthProxyPort}:4180`,
       // Environment variables for oauth2-proxy
+      // Ensure issuer URL has trailing slash (required by OIDC spec, enforced by oauth2-proxy)
       "-e",
       "OAUTH2_PROXY_PROVIDER=oidc",
       "-e",
-      `OAUTH2_PROXY_OIDC_ISSUER_URL=${oauthConfig.issuerUrl}`,
+      `OAUTH2_PROXY_OIDC_ISSUER_URL=${oauthConfig.issuerUrl.endsWith("/") ? oauthConfig.issuerUrl : oauthConfig.issuerUrl + "/"}`,
       "-e",
       `OAUTH2_PROXY_CLIENT_ID=${oauthConfig.clientId}`,
       "-e",
