@@ -32,18 +32,6 @@ describe("DockerManager", () => {
     })
   })
 
-  describe("parsePortMapping", () => {
-    test("should parse simple port", () => {
-      const result = docker.parsePortMapping("3000")
-      expect(result).toEqual({ containerPort: 3000, hostPort: undefined })
-    })
-
-    test("should parse host:container mapping", () => {
-      const result = docker.parsePortMapping("8080:3000")
-      expect(result).toEqual({ containerPort: 3000, hostPort: 8080 })
-    })
-  })
-
   describe("buildRunArgs", () => {
     test("should build basic run arguments", () => {
       const args = docker.buildRunArgs({

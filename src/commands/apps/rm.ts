@@ -20,10 +20,11 @@ export async function rmAppCommand(
       throw new ValidationError("App name is required")
     }
 
+    const client = new SiteioClient()
+
     // If not forced, check if running and warn
     if (!options.force) {
       spinner.start(`Checking app status`)
-      const client = new SiteioClient()
       const app = await client.getApp(name)
       spinner.stop()
 
@@ -35,8 +36,6 @@ export async function rmAppCommand(
     }
 
     spinner.start(`Removing app ${name}`)
-
-    const client = new SiteioClient()
     await client.deleteApp(name)
 
     spinner.succeed(`Removed app ${name}`)

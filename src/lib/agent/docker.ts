@@ -44,17 +44,6 @@ export class DockerManager {
   }
 
   /**
-   * Parse a port mapping string
-   */
-  parsePortMapping(port: string): { containerPort: number; hostPort?: number } {
-    if (port.includes(":")) {
-      const [host, container] = port.split(":")
-      return { containerPort: parseInt(container!, 10), hostPort: parseInt(host!, 10) }
-    }
-    return { containerPort: parseInt(port, 10) }
-  }
-
-  /**
    * Build docker run arguments from config
    */
   buildRunArgs(config: ContainerRunConfig): string[] {
@@ -294,21 +283,18 @@ export class DockerManager {
     internalPort: number,
     useHttps: boolean = true
   ): Record<string, string> {
+    const hostRules = domains.map((d) => `Host(\`${d}\`)`).join(" || ")
+    const entrypoint = useHttps ? "websecure" : "web"
+
     const labels: Record<string, string> = {
       "traefik.enable": "true",
       [`traefik.http.services.${appName}.loadbalancer.server.port`]: internalPort.toString(),
+      [`traefik.http.routers.${appName}.rule`]: hostRules,
+      [`traefik.http.routers.${appName}.entrypoints`]: entrypoint,
     }
 
-    // Build host rules for all domains
-    const hostRules = domains.map((d) => `Host(\`${d}\`)`).join(" || ")
-
     if (useHttps) {
-      labels[`traefik.http.routers.${appName}.rule`] = hostRules
-      labels[`traefik.http.routers.${appName}.entrypoints`] = "websecure"
       labels[`traefik.http.routers.${appName}.tls.certresolver`] = "letsencrypt"
-    } else {
-      labels[`traefik.http.routers.${appName}.rule`] = hostRules
-      labels[`traefik.http.routers.${appName}.entrypoints`] = "web"
     }
 
     return labels
