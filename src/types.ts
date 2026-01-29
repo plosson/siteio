@@ -25,8 +25,9 @@ export type AppType = "static" | "container"
 
 // Volume mount configuration
 export interface VolumeMount {
-  name: string
-  mountPath: string
+  name: string // Host path or named volume
+  mountPath: string // Container path
+  readonly?: boolean // Optional read-only flag
 }
 
 // Git source configuration for building from repo

@@ -66,8 +66,14 @@ export class DockerManager {
 
     // Add volume mounts
     for (const vol of config.volumes) {
-      const hostPath = join(this.volumesDir, config.name, vol.name)
-      args.push("-v", `${hostPath}:${vol.mountPath}`)
+      // If name is an absolute path, use it directly; otherwise use volumesDir
+      const hostPath = vol.name.startsWith("/")
+        ? vol.name
+        : join(this.volumesDir, config.name, vol.name)
+      const volumeSpec = vol.readonly
+        ? `${hostPath}:${vol.mountPath}:ro`
+        : `${hostPath}:${vol.mountPath}`
+      args.push("-v", volumeSpec)
     }
 
     // Add labels
