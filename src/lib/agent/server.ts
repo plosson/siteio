@@ -61,8 +61,16 @@ export class AgentServer {
 
   private async handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url)
+    const path = url.pathname
     const host = req.headers.get("host") || ""
     const hostWithoutPort = host.split(":")[0]
+
+    // Auth check for Traefik forwardAuth (no auth required - called by Traefik)
+    // This must be checked BEFORE the API/static routing because Traefik
+    // forwards the original Host header of the request being authorized
+    if (path === "/auth/check" && req.method === "GET") {
+      return this.handleAuthCheck(req)
+    }
 
     // Check if this is an API request (api.domain)
     const isApiRequest = hostWithoutPort === `api.${this.config.domain}` ||
@@ -79,7 +87,6 @@ export class AgentServer {
     }
 
     // API routes - require authentication (except health)
-    const path = url.pathname
 
     // Health check (no auth required)
     if (path === "/health" && req.method === "GET") {
@@ -504,6 +511,7 @@ export class AgentServer {
         env?: Record<string, string>
         volumes?: Array<{ name: string; mountPath: string }>
         restartPolicy?: string
+        oauth?: SiteOAuth
       }
 
       if (!body.name) {
@@ -528,6 +536,7 @@ export class AgentServer {
         volumes: body.volumes || [],
         restartPolicy: (body.restartPolicy as "always" | "unless-stopped" | "on-failure" | "no") || "unless-stopped",
         status: "pending",
+        oauth: body.oauth,
       })
 
       return this.json(app)
@@ -694,6 +703,84 @@ export class AgentServer {
       const message = err instanceof Error ? err.message : "Failed to get logs"
       return this.error(message, 500)
     }
+  }
+
+  // Auth check for Traefik forwardAuth middleware
+  private handleAuthCheck(req: Request): Response {
+    const host = req.headers.get("host") || req.headers.get("x-forwarded-host") || ""
+    const hostWithoutPort = host.split(":")[0] || ""
+
+    // Extract app name from host (e.g., "myapp.test.siteio.me" -> "myapp")
+    const domainSuffix = `.${this.config.domain}`
+    if (!hostWithoutPort || !hostWithoutPort.endsWith(domainSuffix)) {
+      // Not a request for our domain, allow passthrough
+      return new Response(null, { status: 200 })
+    }
+
+    const appName = hostWithoutPort.slice(0, -domainSuffix.length)
+    if (!appName || appName === "api") {
+      // API requests or invalid names, allow passthrough
+      return new Response(null, { status: 200 })
+    }
+
+    // Look up the app
+    const app = this.appStorage.get(appName)
+    if (!app) {
+      // App not found, allow passthrough (might be a static site handled differently)
+      return new Response(null, { status: 200 })
+    }
+
+    // Check if OAuth is configured for this app
+    if (!app.oauth) {
+      // No OAuth configured, allow access
+      return new Response(null, { status: 200 })
+    }
+
+    // OAuth is required - check for authenticated user
+    // oauth2-proxy sends X-Forwarded-Email in reverse proxy mode
+    // and X-Auth-Request-Email in forwardAuth mode
+    const email = (req.headers.get("X-Forwarded-Email") || req.headers.get("X-Auth-Request-Email"))?.toLowerCase()
+    if (!email) {
+      // Not authenticated
+      return new Response("Authentication required", { status: 401 })
+    }
+
+    // Check authorization
+    const oauth = app.oauth
+
+    // Check allowedEmails
+    if (oauth.allowedEmails && oauth.allowedEmails.length > 0) {
+      if (oauth.allowedEmails.map((e) => e.toLowerCase()).includes(email)) {
+        return new Response(null, { status: 200 })
+      }
+    }
+
+    // Check allowedDomain
+    if (oauth.allowedDomain) {
+      const emailDomain = email.split("@")[1]
+      if (emailDomain === oauth.allowedDomain.toLowerCase()) {
+        return new Response(null, { status: 200 })
+      }
+    }
+
+    // Check allowedGroups
+    if (oauth.allowedGroups && oauth.allowedGroups.length > 0) {
+      const groupEmails = this.groups.resolveGroups(oauth.allowedGroups)
+      if (groupEmails.includes(email)) {
+        return new Response(null, { status: 200 })
+      }
+    }
+
+    // If no restrictions are set, allow all authenticated users
+    const hasEmailRestrictions = oauth.allowedEmails && oauth.allowedEmails.length > 0
+    const hasDomainRestriction = !!oauth.allowedDomain
+    const hasGroupRestrictions = oauth.allowedGroups && oauth.allowedGroups.length > 0
+    if (!hasEmailRestrictions && !hasDomainRestriction && !hasGroupRestrictions) {
+      return new Response(null, { status: 200 })
+    }
+
+    // None of the checks passed - forbidden
+    return new Response("Access denied", { status: 403 })
   }
 
   async start(): Promise<void> {
