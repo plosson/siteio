@@ -126,6 +126,7 @@ export class AppStorage {
         {
           name: sitePath,
           mountPath: "/usr/share/nginx/html",
+          readonly: true,
         },
       ],
       oauth,

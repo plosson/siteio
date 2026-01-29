@@ -147,4 +147,10 @@ describe("AppStorage", () => {
     expect(app.type).toBe("static")
     expect(app.oauth).toBeUndefined()
   })
+
+  test("creates static site app with read-only volume mount", () => {
+    const app = storage.createStaticSiteApp("mysite", "/data/sites/mysite")
+
+    expect(app.volumes[0]!.readonly).toBe(true)
+  })
 })
