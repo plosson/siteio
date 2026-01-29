@@ -106,5 +106,22 @@ describe("DockerManager", () => {
       expect(args).toContain("-l")
       expect(args).toContain("traefik.enable=true")
     })
+
+    test("should build run args with read-only volume", () => {
+      const args = docker.buildRunArgs({
+        name: "test-app",
+        image: "nginx:alpine",
+        internalPort: 80,
+        env: {},
+        volumes: [{ name: "/data/sites/mysite", mountPath: "/usr/share/nginx/html", readonly: true }],
+        restartPolicy: "unless-stopped",
+        network: "siteio-network",
+        labels: {},
+      })
+
+      expect(args).toContain("-v")
+      const vIndex = args.indexOf("-v")
+      expect(args[vIndex + 1]).toBe("/data/sites/mysite:/usr/share/nginx/html:ro")
+    })
   })
 })
