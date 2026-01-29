@@ -124,4 +124,18 @@ describe("DockerManager", () => {
       expect(args[vIndex + 1]).toBe("/data/sites/mysite:/usr/share/nginx/html:ro")
     })
   })
+
+  describe("buildTraefikLabels", () => {
+    test("builds Traefik labels with forwardAuth for OAuth", () => {
+      const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80, true)
+
+      expect(labels["traefik.http.routers.siteio-myapp.middlewares"]).toBe("siteio-auth@file")
+    })
+
+    test("builds Traefik labels without forwardAuth when no OAuth", () => {
+      const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80, false)
+
+      expect(labels["traefik.http.routers.siteio-myapp.middlewares"]).toBeUndefined()
+    })
+  })
 })
