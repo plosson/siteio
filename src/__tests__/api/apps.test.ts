@@ -2,15 +2,15 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test"
 import { mkdtempSync, rmSync, existsSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { AgentServer } from "../lib/agent/server"
-import type { AgentConfig, ApiResponse, App, AppInfo, ContainerLogs } from "../types"
+import { AgentServer } from "../../lib/agent/server"
+import type { AgentConfig, ApiResponse, App, AppInfo, ContainerLogs } from "../../types"
 
 // Helper to parse JSON responses with proper typing
 async function parseJson<T>(response: Response): Promise<ApiResponse<T>> {
   return response.json() as Promise<ApiResponse<T>>
 }
 
-describe("Apps API", () => {
+describe("API: Apps", () => {
   let testDir: string
   let server: AgentServer
   let baseUrl: string

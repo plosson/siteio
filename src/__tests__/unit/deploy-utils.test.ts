@@ -27,7 +27,7 @@ async function collectFiles(dir: string, baseDir: string = dir): Promise<Record<
   return files
 }
 
-describe("Deploy utilities", () => {
+describe("Unit: Deploy Utils", () => {
   let testDir: string
 
   beforeAll(() => {
