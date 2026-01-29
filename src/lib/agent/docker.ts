@@ -286,21 +286,24 @@ export class DockerManager {
   buildTraefikLabels(
     appName: string,
     domains: string[],
-    internalPort: number,
-    useHttps: boolean = true
+    port: number,
+    requireAuth: boolean = false
   ): Record<string, string> {
-    const hostRules = domains.map((d) => `Host(\`${d}\`)`).join(" || ")
-    const entrypoint = useHttps ? "websecure" : "web"
-
+    const containerName = this.containerName(appName)
     const labels: Record<string, string> = {
       "traefik.enable": "true",
-      [`traefik.http.services.${appName}.loadbalancer.server.port`]: internalPort.toString(),
-      [`traefik.http.routers.${appName}.rule`]: hostRules,
-      [`traefik.http.routers.${appName}.entrypoints`]: entrypoint,
+      [`traefik.http.routers.${containerName}.entrypoints`]: "websecure",
+      [`traefik.http.routers.${containerName}.tls.certresolver`]: "letsencrypt",
+      [`traefik.http.services.${containerName}.loadbalancer.server.port`]: String(port),
     }
 
-    if (useHttps) {
-      labels[`traefik.http.routers.${appName}.tls.certresolver`] = "letsencrypt"
+    if (domains.length > 0) {
+      const hostRules = domains.map((d) => `Host(\`${d}\`)`).join(" || ")
+      labels[`traefik.http.routers.${containerName}.rule`] = hostRules
+    }
+
+    if (requireAuth) {
+      labels[`traefik.http.routers.${containerName}.middlewares`] = "siteio-auth@file"
     }
 
     return labels
