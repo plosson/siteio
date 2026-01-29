@@ -124,4 +124,27 @@ describe("AppStorage", () => {
     storage.create(createTestApp("myapp"))
     expect(() => storage.create(createTestApp("myapp"))).toThrow()
   })
+
+  test("creates static site app with correct defaults", () => {
+    const app = storage.createStaticSiteApp("mysite", "/data/sites/mysite", {
+      allowedEmails: ["user@example.com"],
+    })
+
+    expect(app.name).toBe("mysite")
+    expect(app.type).toBe("static")
+    expect(app.image).toBe("nginx:alpine")
+    expect(app.internalPort).toBe(80)
+    expect(app.volumes).toHaveLength(1)
+    expect(app.volumes[0]!.name).toBe("/data/sites/mysite")
+    expect(app.volumes[0]!.mountPath).toBe("/usr/share/nginx/html")
+    expect(app.oauth?.allowedEmails).toEqual(["user@example.com"])
+  })
+
+  test("creates static site app without oauth", () => {
+    const app = storage.createStaticSiteApp("public-site", "/data/sites/public-site")
+
+    expect(app.name).toBe("public-site")
+    expect(app.type).toBe("static")
+    expect(app.oauth).toBeUndefined()
+  })
 })
