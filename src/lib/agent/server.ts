@@ -1,23 +1,27 @@
-import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteOAuth, Group } from "../../types.ts"
+import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteOAuth, Group, App, AppInfo, ContainerLogs } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
-import { createFileServerHandler } from "./fileserver.ts"
 import { loadOAuthConfig } from "../../config/oauth.ts"
 import { GroupStorage } from "./groups.ts"
+import { AppStorage } from "./app-storage.ts"
+import { DockerManager } from "./docker.ts"
 
 export class AgentServer {
   private config: AgentConfig
   private storage: SiteStorage
   private groups: GroupStorage
+  private appStorage: AppStorage
+  private docker: DockerManager
   private traefik: TraefikManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
-  private fileServerHandler: (req: Request) => Promise<Response | null>
   private oauthConfig: AgentOAuthConfig | null = null
 
   constructor(config: AgentConfig) {
     this.config = config
     this.storage = new SiteStorage(config.dataDir)
     this.groups = new GroupStorage(config.dataDir)
+    this.appStorage = new AppStorage(config.dataDir)
+    this.docker = new DockerManager(config.dataDir)
 
     // Load OAuth config if it exists
     this.oauthConfig = loadOAuthConfig(config.dataDir)
@@ -33,7 +37,6 @@ export class AgentServer {
         oauthConfig: this.oauthConfig || undefined,
       })
     }
-    this.fileServerHandler = createFileServerHandler(this.storage, config.domain, this.groups)
   }
 
   hasOAuthEnabled(): boolean {
@@ -55,8 +58,16 @@ export class AgentServer {
 
   private async handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url)
+    const path = url.pathname
     const host = req.headers.get("host") || ""
     const hostWithoutPort = host.split(":")[0]
+
+    // Auth check for Traefik forwardAuth (no auth required - called by Traefik)
+    // This must be checked BEFORE the API/static routing because Traefik
+    // forwards the original Host header of the request being authorized
+    if (path === "/auth/check" && req.method === "GET") {
+      return this.handleAuthCheck(req)
+    }
 
     // Check if this is an API request (api.domain)
     const isApiRequest = hostWithoutPort === `api.${this.config.domain}` ||
@@ -64,16 +75,12 @@ export class AgentServer {
       hostWithoutPort === "127.0.0.1"
 
     if (!isApiRequest) {
-      // Try to serve static files
-      const fileResponse = await this.fileServerHandler(req)
-      if (fileResponse) {
-        return fileResponse
-      }
-      return this.error("Not found", 404)
+      // Non-API requests are handled by nginx containers via Traefik
+      // In test mode (skipTraefik), return 404
+      return this.error("Not found - requests should go through Traefik", 404)
     }
 
     // API routes - require authentication (except health)
-    const path = url.pathname
 
     // Health check (no auth required)
     if (path === "/health" && req.method === "GET") {
@@ -150,6 +157,58 @@ export class AgentServer {
       return this.handleModifyGroupEmails(groupEmailsMatch[1]!, req)
     }
 
+    // GET /apps - list all apps
+    if (path === "/apps" && req.method === "GET") {
+      return this.handleListApps()
+    }
+
+    // POST /apps - create app
+    if (path === "/apps" && req.method === "POST") {
+      return this.handleCreateApp(req)
+    }
+
+    // App routes with name parameter
+    const appMatch = path.match(/^\/apps\/([a-z0-9-]+)$/)
+    if (appMatch) {
+      const appName = appMatch[1]!
+      // GET /apps/:name - get app details
+      if (req.method === "GET") {
+        return this.handleGetApp(appName)
+      }
+      // PATCH /apps/:name - update app
+      if (req.method === "PATCH") {
+        return this.handleUpdateApp(appName, req)
+      }
+      // DELETE /apps/:name - delete app
+      if (req.method === "DELETE") {
+        return this.handleDeleteApp(appName)
+      }
+    }
+
+    // POST /apps/:name/deploy - deploy app
+    const appDeployMatch = path.match(/^\/apps\/([a-z0-9-]+)\/deploy$/)
+    if (appDeployMatch && req.method === "POST") {
+      return this.handleDeployApp(appDeployMatch[1]!)
+    }
+
+    // POST /apps/:name/stop - stop app
+    const appStopMatch = path.match(/^\/apps\/([a-z0-9-]+)\/stop$/)
+    if (appStopMatch && req.method === "POST") {
+      return this.handleStopApp(appStopMatch[1]!)
+    }
+
+    // POST /apps/:name/restart - restart app
+    const appRestartMatch = path.match(/^\/apps\/([a-z0-9-]+)\/restart$/)
+    if (appRestartMatch && req.method === "POST") {
+      return this.handleRestartApp(appRestartMatch[1]!)
+    }
+
+    // GET /apps/:name/logs - get app logs
+    const appLogsMatch = path.match(/^\/apps\/([a-z0-9-]+)\/logs$/)
+    if (appLogsMatch && req.method === "GET") {
+      return this.handleGetAppLogs(appLogsMatch[1]!, url)
+    }
+
     return this.error("Not found", 404)
   }
 
@@ -215,10 +274,11 @@ export class AgentServer {
         }
       }
 
-      // Extract and store
+      // Extract and store site files
       const metadata = await this.storage.extractAndStore(subdomain, zipData, oauth)
 
-      // Update Traefik config with site metadata (for auth middleware)
+      // Update Traefik dynamic config to add route for this site
+      // Static sites are served by the shared nginx container
       const allSites = this.storage.listSites()
       this.traefik?.updateDynamicConfig(allSites)
 
@@ -242,12 +302,13 @@ export class AgentServer {
       return this.error("Site not found", 404)
     }
 
+    // Delete site files and metadata
     const deleted = this.storage.deleteSite(subdomain)
     if (!deleted) {
       return this.error("Failed to delete site", 500)
     }
 
-    // Update Traefik config with site metadata
+    // Update Traefik config to remove route for this site
     const allSites = this.storage.listSites()
     this.traefik?.updateDynamicConfig(allSites)
 
@@ -325,7 +386,7 @@ export class AgentServer {
         return this.error("Failed to update authentication", 500)
       }
 
-      // Update Traefik config with site metadata
+      // Update Traefik config with new OAuth settings
       const allSites = this.storage.listSites()
       this.traefik?.updateDynamicConfig(allSites)
 
@@ -418,6 +479,304 @@ export class AgentServer {
       const message = err instanceof Error ? err.message : "Failed to modify group"
       return this.error(message, 400)
     }
+  }
+
+  // App handlers
+  private handleListApps(): Response {
+    const apps = this.appStorage.list()
+    const appInfos: AppInfo[] = apps.map((app) => this.appStorage.toInfo(app))
+    return this.json(appInfos)
+  }
+
+  private handleGetApp(name: string): Response {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+    return this.json(app)
+  }
+
+  private async handleCreateApp(req: Request): Promise<Response> {
+    try {
+      const body = (await req.json()) as {
+        name: string
+        type?: string
+        image: string
+        internalPort: number
+        domains?: string[]
+        env?: Record<string, string>
+        volumes?: Array<{ name: string; mountPath: string }>
+        restartPolicy?: string
+        oauth?: SiteOAuth
+      }
+
+      if (!body.name) {
+        return this.error("App name is required")
+      }
+
+      if (!body.image) {
+        return this.error("Image is required")
+      }
+
+      if (!body.internalPort) {
+        return this.error("Internal port is required")
+      }
+
+      const app = this.appStorage.create({
+        name: body.name,
+        type: (body.type as "static" | "container") || "container",
+        image: body.image,
+        internalPort: body.internalPort,
+        domains: body.domains || [],
+        env: body.env || {},
+        volumes: body.volumes || [],
+        restartPolicy: (body.restartPolicy as "always" | "unless-stopped" | "on-failure" | "no") || "unless-stopped",
+        status: "pending",
+        oauth: body.oauth,
+      })
+
+      return this.json(app)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create app"
+      return this.error(message, 400)
+    }
+  }
+
+  private async handleUpdateApp(name: string, req: Request): Promise<Response> {
+    try {
+      const app = this.appStorage.get(name)
+      if (!app) {
+        return this.error("App not found", 404)
+      }
+
+      const body = (await req.json()) as Partial<Omit<App, "name" | "createdAt">>
+      const updated = this.appStorage.update(name, body)
+      if (!updated) {
+        return this.error("Failed to update app", 500)
+      }
+
+      return this.json(updated)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update app"
+      return this.error(message, 400)
+    }
+  }
+
+  private handleDeleteApp(name: string): Response {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+
+    // Stop container if running
+    if (this.docker.containerExists(name)) {
+      try {
+        this.docker.remove(name)
+      } catch {
+        // Ignore errors when removing container
+      }
+    }
+
+    const deleted = this.appStorage.delete(name)
+    if (!deleted) {
+      return this.error("Failed to delete app", 500)
+    }
+
+    return this.json(null)
+  }
+
+  private async handleDeployApp(name: string): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+
+    try {
+      // Check Docker availability
+      if (!this.docker.isAvailable()) {
+        return this.error("Docker is not available", 500)
+      }
+
+      // Ensure network exists
+      this.docker.ensureNetwork()
+
+      // Remove existing container if it exists
+      if (this.docker.containerExists(name)) {
+        await this.docker.remove(name)
+      }
+
+      // Pull image
+      await this.docker.pull(app.image)
+
+      // Build Traefik labels for routing
+      const labels = this.docker.buildTraefikLabels(name, app.domains, app.internalPort)
+
+      // Run container
+      const containerId = await this.docker.run({
+        name: app.name,
+        image: app.image,
+        internalPort: app.internalPort,
+        env: app.env,
+        volumes: app.volumes,
+        restartPolicy: app.restartPolicy,
+        network: "siteio-network",
+        labels,
+      })
+
+      // Update app status
+      const updated = this.appStorage.update(name, {
+        status: "running",
+        containerId,
+        deployedAt: new Date().toISOString(),
+      })
+
+      return this.json(updated)
+    } catch (err) {
+      // Update status to failed
+      this.appStorage.update(name, { status: "failed" })
+      const message = err instanceof Error ? err.message : "Failed to deploy app"
+      return this.error(message, 500)
+    }
+  }
+
+  private async handleStopApp(name: string): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+
+    try {
+      if (this.docker.containerExists(name)) {
+        await this.docker.stop(name)
+      }
+
+      const updated = this.appStorage.update(name, { status: "stopped" })
+      return this.json(updated)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to stop app"
+      return this.error(message, 500)
+    }
+  }
+
+  private async handleRestartApp(name: string): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+
+    try {
+      if (this.docker.containerExists(name)) {
+        await this.docker.restart(name)
+        const updated = this.appStorage.update(name, { status: "running" })
+        return this.json(updated)
+      } else {
+        return this.error("Container does not exist. Deploy the app first.", 400)
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to restart app"
+      return this.error(message, 500)
+    }
+  }
+
+  private async handleGetAppLogs(name: string, url: URL): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+
+    try {
+      const tail = parseInt(url.searchParams.get("tail") || "100", 10)
+      const logs = await this.docker.logs(name, tail)
+
+      const response: ContainerLogs = {
+        name,
+        logs,
+        lines: tail,
+      }
+
+      return this.json(response)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to get logs"
+      return this.error(message, 500)
+    }
+  }
+
+  // Auth check for Traefik forwardAuth middleware
+  private handleAuthCheck(req: Request): Response {
+    const host = req.headers.get("host") || req.headers.get("x-forwarded-host") || ""
+    const hostWithoutPort = host.split(":")[0] || ""
+
+    // Extract app name from host (e.g., "myapp.test.siteio.me" -> "myapp")
+    const domainSuffix = `.${this.config.domain}`
+    if (!hostWithoutPort || !hostWithoutPort.endsWith(domainSuffix)) {
+      // Not a request for our domain, allow passthrough
+      return new Response(null, { status: 200 })
+    }
+
+    const appName = hostWithoutPort.slice(0, -domainSuffix.length)
+    if (!appName || appName === "api") {
+      // API requests or invalid names, allow passthrough
+      return new Response(null, { status: 200 })
+    }
+
+    // Look up the app
+    const app = this.appStorage.get(appName)
+    if (!app) {
+      // App not found, allow passthrough (might be a static site handled differently)
+      return new Response(null, { status: 200 })
+    }
+
+    // Check if OAuth is configured for this app
+    if (!app.oauth) {
+      // No OAuth configured, allow access
+      return new Response(null, { status: 200 })
+    }
+
+    // OAuth is required - check for authenticated user
+    // oauth2-proxy sends X-Forwarded-Email in reverse proxy mode
+    // and X-Auth-Request-Email in forwardAuth mode
+    const email = (req.headers.get("X-Forwarded-Email") || req.headers.get("X-Auth-Request-Email"))?.toLowerCase()
+    if (!email) {
+      // Not authenticated
+      return new Response("Authentication required", { status: 401 })
+    }
+
+    // Check authorization
+    const oauth = app.oauth
+
+    // Check allowedEmails
+    if (oauth.allowedEmails && oauth.allowedEmails.length > 0) {
+      if (oauth.allowedEmails.map((e) => e.toLowerCase()).includes(email)) {
+        return new Response(null, { status: 200 })
+      }
+    }
+
+    // Check allowedDomain
+    if (oauth.allowedDomain) {
+      const emailDomain = email.split("@")[1]
+      if (emailDomain === oauth.allowedDomain.toLowerCase()) {
+        return new Response(null, { status: 200 })
+      }
+    }
+
+    // Check allowedGroups
+    if (oauth.allowedGroups && oauth.allowedGroups.length > 0) {
+      const groupEmails = this.groups.resolveGroups(oauth.allowedGroups)
+      if (groupEmails.includes(email)) {
+        return new Response(null, { status: 200 })
+      }
+    }
+
+    // If no restrictions are set, allow all authenticated users
+    const hasEmailRestrictions = oauth.allowedEmails && oauth.allowedEmails.length > 0
+    const hasDomainRestriction = !!oauth.allowedDomain
+    const hasGroupRestrictions = oauth.allowedGroups && oauth.allowedGroups.length > 0
+    if (!hasEmailRestrictions && !hasDomainRestriction && !hasGroupRestrictions) {
+      return new Response(null, { status: 200 })
+    }
+
+    // None of the checks passed - forbidden
+    return new Response("Access denied", { status: 403 })
   }
 
   async start(): Promise<void> {

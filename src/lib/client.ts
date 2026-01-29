@@ -1,6 +1,6 @@
 import { loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
-import type { ApiResponse, SiteInfo, SiteOAuth, Group } from "../types.ts"
+import type { ApiResponse, SiteInfo, SiteOAuth, Group, App, AppInfo, ContainerLogs } from "../types.ts"
 
 export interface ClientOptions {
   apiUrl?: string
@@ -229,6 +229,104 @@ export class SiteioClient {
       `/groups/${name}/emails`,
       JSON.stringify({ remove: emails }),
       { "Content-Type": "application/json" }
+    )
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  // Apps API
+
+  async createApp(config: {
+    name: string
+    image: string
+    internalPort?: number
+    env?: Record<string, string>
+    volumes?: { name: string; mountPath: string }[]
+    domains?: string[]
+    restartPolicy?: string
+  }): Promise<AppInfo> {
+    const response = await this.request<ApiResponse<AppInfo>>(
+      "POST",
+      "/apps",
+      JSON.stringify(config),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  async listApps(): Promise<AppInfo[]> {
+    const response = await this.request<ApiResponse<AppInfo[]>>("GET", "/apps")
+    return response.data || []
+  }
+
+  async getApp(name: string): Promise<App> {
+    const response = await this.request<ApiResponse<App>>("GET", `/apps/${name}`)
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  async updateApp(
+    name: string,
+    updates: {
+      env?: Record<string, string>
+      volumes?: { name: string; mountPath: string }[]
+      domains?: string[]
+      internalPort?: number
+      restartPolicy?: string
+      image?: string
+    }
+  ): Promise<App> {
+    const response = await this.request<ApiResponse<App>>(
+      "PATCH",
+      `/apps/${name}`,
+      JSON.stringify(updates),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  async deleteApp(name: string): Promise<void> {
+    await this.request<ApiResponse<{ deleted: boolean }>>("DELETE", `/apps/${name}`)
+  }
+
+  async deployApp(name: string): Promise<AppInfo> {
+    const response = await this.request<ApiResponse<AppInfo>>("POST", `/apps/${name}/deploy`)
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  async stopApp(name: string): Promise<AppInfo> {
+    const response = await this.request<ApiResponse<AppInfo>>("POST", `/apps/${name}/stop`)
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  async restartApp(name: string): Promise<AppInfo> {
+    const response = await this.request<ApiResponse<AppInfo>>("POST", `/apps/${name}/restart`)
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  async getAppLogs(name: string, tail: number = 100): Promise<ContainerLogs> {
+    const response = await this.request<ApiResponse<ContainerLogs>>(
+      "GET",
+      `/apps/${name}/logs?tail=${tail}`
     )
     if (!response.data) {
       throw new ApiError("Invalid response from server")
