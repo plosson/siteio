@@ -1,14 +1,18 @@
-import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteOAuth, Group } from "../../types.ts"
+import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteOAuth, Group, App, AppInfo, ContainerLogs } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { createFileServerHandler } from "./fileserver.ts"
 import { loadOAuthConfig } from "../../config/oauth.ts"
 import { GroupStorage } from "./groups.ts"
+import { AppStorage } from "./app-storage.ts"
+import { DockerManager } from "./docker.ts"
 
 export class AgentServer {
   private config: AgentConfig
   private storage: SiteStorage
   private groups: GroupStorage
+  private appStorage: AppStorage
+  private docker: DockerManager
   private traefik: TraefikManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
   private fileServerHandler: (req: Request) => Promise<Response | null>
@@ -18,6 +22,8 @@ export class AgentServer {
     this.config = config
     this.storage = new SiteStorage(config.dataDir)
     this.groups = new GroupStorage(config.dataDir)
+    this.appStorage = new AppStorage(config.dataDir)
+    this.docker = new DockerManager(config.dataDir)
 
     // Load OAuth config if it exists
     this.oauthConfig = loadOAuthConfig(config.dataDir)
@@ -148,6 +154,58 @@ export class AgentServer {
     const groupEmailsMatch = path.match(/^\/groups\/([a-z0-9-]+)\/emails$/)
     if (groupEmailsMatch && req.method === "PATCH") {
       return this.handleModifyGroupEmails(groupEmailsMatch[1]!, req)
+    }
+
+    // GET /apps - list all apps
+    if (path === "/apps" && req.method === "GET") {
+      return this.handleListApps()
+    }
+
+    // POST /apps - create app
+    if (path === "/apps" && req.method === "POST") {
+      return this.handleCreateApp(req)
+    }
+
+    // App routes with name parameter
+    const appMatch = path.match(/^\/apps\/([a-z0-9-]+)$/)
+    if (appMatch) {
+      const appName = appMatch[1]!
+      // GET /apps/:name - get app details
+      if (req.method === "GET") {
+        return this.handleGetApp(appName)
+      }
+      // PATCH /apps/:name - update app
+      if (req.method === "PATCH") {
+        return this.handleUpdateApp(appName, req)
+      }
+      // DELETE /apps/:name - delete app
+      if (req.method === "DELETE") {
+        return this.handleDeleteApp(appName)
+      }
+    }
+
+    // POST /apps/:name/deploy - deploy app
+    const appDeployMatch = path.match(/^\/apps\/([a-z0-9-]+)\/deploy$/)
+    if (appDeployMatch && req.method === "POST") {
+      return this.handleDeployApp(appDeployMatch[1]!)
+    }
+
+    // POST /apps/:name/stop - stop app
+    const appStopMatch = path.match(/^\/apps\/([a-z0-9-]+)\/stop$/)
+    if (appStopMatch && req.method === "POST") {
+      return this.handleStopApp(appStopMatch[1]!)
+    }
+
+    // POST /apps/:name/restart - restart app
+    const appRestartMatch = path.match(/^\/apps\/([a-z0-9-]+)\/restart$/)
+    if (appRestartMatch && req.method === "POST") {
+      return this.handleRestartApp(appRestartMatch[1]!)
+    }
+
+    // GET /apps/:name/logs - get app logs
+    const appLogsMatch = path.match(/^\/apps\/([a-z0-9-]+)\/logs$/)
+    if (appLogsMatch && req.method === "GET") {
+      return this.handleGetAppLogs(appLogsMatch[1]!, url)
     }
 
     return this.error("Not found", 404)
@@ -417,6 +475,224 @@ export class AgentServer {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to modify group"
       return this.error(message, 400)
+    }
+  }
+
+  // App handlers
+  private handleListApps(): Response {
+    const apps = this.appStorage.list()
+    const appInfos: AppInfo[] = apps.map((app) => this.appStorage.toInfo(app))
+    return this.json(appInfos)
+  }
+
+  private handleGetApp(name: string): Response {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+    return this.json(app)
+  }
+
+  private async handleCreateApp(req: Request): Promise<Response> {
+    try {
+      const body = (await req.json()) as {
+        name: string
+        type?: string
+        image: string
+        internalPort: number
+        domains?: string[]
+        env?: Record<string, string>
+        volumes?: Array<{ name: string; mountPath: string }>
+        restartPolicy?: string
+      }
+
+      if (!body.name) {
+        return this.error("App name is required")
+      }
+
+      if (!body.image) {
+        return this.error("Image is required")
+      }
+
+      if (!body.internalPort) {
+        return this.error("Internal port is required")
+      }
+
+      const app = this.appStorage.create({
+        name: body.name,
+        type: (body.type as "static" | "container") || "container",
+        image: body.image,
+        internalPort: body.internalPort,
+        domains: body.domains || [],
+        env: body.env || {},
+        volumes: body.volumes || [],
+        restartPolicy: (body.restartPolicy as "always" | "unless-stopped" | "on-failure" | "no") || "unless-stopped",
+        status: "pending",
+      })
+
+      return this.json(app)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create app"
+      return this.error(message, 400)
+    }
+  }
+
+  private async handleUpdateApp(name: string, req: Request): Promise<Response> {
+    try {
+      const app = this.appStorage.get(name)
+      if (!app) {
+        return this.error("App not found", 404)
+      }
+
+      const body = (await req.json()) as Partial<Omit<App, "name" | "createdAt">>
+      const updated = this.appStorage.update(name, body)
+      if (!updated) {
+        return this.error("Failed to update app", 500)
+      }
+
+      return this.json(updated)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to update app"
+      return this.error(message, 400)
+    }
+  }
+
+  private handleDeleteApp(name: string): Response {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+
+    // Stop container if running
+    if (this.docker.containerExists(name)) {
+      try {
+        this.docker.remove(name)
+      } catch {
+        // Ignore errors when removing container
+      }
+    }
+
+    const deleted = this.appStorage.delete(name)
+    if (!deleted) {
+      return this.error("Failed to delete app", 500)
+    }
+
+    return this.json(null)
+  }
+
+  private async handleDeployApp(name: string): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+
+    try {
+      // Check Docker availability
+      if (!this.docker.isAvailable()) {
+        return this.error("Docker is not available", 500)
+      }
+
+      // Ensure network exists
+      this.docker.ensureNetwork()
+
+      // Remove existing container if it exists
+      if (this.docker.containerExists(name)) {
+        await this.docker.remove(name)
+      }
+
+      // Pull image
+      await this.docker.pull(app.image)
+
+      // Build Traefik labels for routing
+      const labels = this.docker.buildTraefikLabels(name, app.domains, app.internalPort)
+
+      // Run container
+      const containerId = await this.docker.run({
+        name: app.name,
+        image: app.image,
+        internalPort: app.internalPort,
+        env: app.env,
+        volumes: app.volumes,
+        restartPolicy: app.restartPolicy,
+        network: "siteio-network",
+        labels,
+      })
+
+      // Update app status
+      const updated = this.appStorage.update(name, {
+        status: "running",
+        containerId,
+        deployedAt: new Date().toISOString(),
+      })
+
+      return this.json(updated)
+    } catch (err) {
+      // Update status to failed
+      this.appStorage.update(name, { status: "failed" })
+      const message = err instanceof Error ? err.message : "Failed to deploy app"
+      return this.error(message, 500)
+    }
+  }
+
+  private async handleStopApp(name: string): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+
+    try {
+      if (this.docker.containerExists(name)) {
+        await this.docker.stop(name)
+      }
+
+      const updated = this.appStorage.update(name, { status: "stopped" })
+      return this.json(updated)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to stop app"
+      return this.error(message, 500)
+    }
+  }
+
+  private async handleRestartApp(name: string): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+
+    try {
+      if (this.docker.containerExists(name)) {
+        await this.docker.restart(name)
+        const updated = this.appStorage.update(name, { status: "running" })
+        return this.json(updated)
+      } else {
+        return this.error("Container does not exist. Deploy the app first.", 400)
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to restart app"
+      return this.error(message, 500)
+    }
+  }
+
+  private async handleGetAppLogs(name: string, url: URL): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+
+    try {
+      const tail = parseInt(url.searchParams.get("tail") || "100", 10)
+      const logs = await this.docker.logs(name, tail)
+
+      const response: ContainerLogs = {
+        name,
+        logs,
+        lines: tail,
+      }
+
+      return this.json(response)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to get logs"
+      return this.error(message, 500)
     }
   }
 
