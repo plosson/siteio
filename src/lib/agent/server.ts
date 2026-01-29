@@ -323,8 +323,8 @@ export class AgentServer {
         // Pull image
         await this.docker.pull(app.image)
 
-        // Build Traefik labels for routing
-        const labels = this.docker.buildTraefikLabels(subdomain, app.domains, app.internalPort)
+        // Build Traefik labels for routing (with auth if OAuth configured)
+        const labels = this.docker.buildTraefikLabels(subdomain, app.domains, app.internalPort, !!oauth)
 
         // Run container
         const containerId = await this.docker.run({
