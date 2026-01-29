@@ -5,7 +5,11 @@ import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 
 export interface CreateAppOptions {
-  image: string
+  image?: string
+  git?: string
+  dockerfile?: string
+  branch?: string
+  context?: string
   port?: number
   json?: boolean
 }
@@ -27,9 +31,16 @@ export async function createAppCommand(
       )
     }
 
-    if (!options.image) {
-      throw new ValidationError("Image is required (--image)")
+    // Must provide either --image or --git, but not both
+    if (options.image && options.git) {
+      throw new ValidationError("Cannot specify both --image and --git")
     }
+
+    if (!options.image && !options.git) {
+      throw new ValidationError("Either --image or --git is required")
+    }
+
+    const isGitBased = !!options.git
 
     spinner.start(`Creating app ${name}`)
 
@@ -37,6 +48,14 @@ export async function createAppCommand(
     const app = await client.createApp({
       name,
       image: options.image,
+      git: options.git
+        ? {
+            repoUrl: options.git,
+            branch: options.branch,
+            dockerfile: options.dockerfile,
+            context: options.context,
+          }
+        : undefined,
       internalPort: options.port,
     })
 
@@ -49,7 +68,15 @@ export async function createAppCommand(
       console.log(formatSuccess(`App ${chalk.bold(name)} created successfully!`))
       console.log("")
       console.log(`  Name:   ${chalk.cyan(app.name)}`)
-      console.log(`  Image:  ${app.image}`)
+      if (isGitBased) {
+        console.log(`  Source: ${chalk.blue("git")}`)
+        console.log(`  Repo:   ${options.git}`)
+        if (options.branch) console.log(`  Branch: ${options.branch}`)
+        if (options.dockerfile) console.log(`  Dockerfile: ${options.dockerfile}`)
+        if (options.context) console.log(`  Context: ${options.context}`)
+      } else {
+        console.log(`  Image:  ${app.image}`)
+      }
       console.log(`  Port:   ${app.internalPort}`)
       console.log(`  Status: ${chalk.yellow(app.status)}`)
       console.log("")

@@ -31,7 +31,28 @@ export async function infoAppCommand(
     console.log("")
     console.log(chalk.bold(`App: ${app.name}`))
     console.log(`  Type:    ${app.type}`)
-    console.log(`  Image:   ${app.image}`)
+
+    // Source info
+    if (app.git) {
+      console.log(`  Source:  ${chalk.blue("git")}`)
+      console.log(`  Repo:    ${app.git.repoUrl}`)
+      console.log(`  Branch:  ${app.git.branch}`)
+      if (app.git.dockerfile !== "Dockerfile") {
+        console.log(`  Dockerfile: ${app.git.dockerfile}`)
+      }
+      if (app.git.context) {
+        console.log(`  Context: ${app.git.context}`)
+      }
+      if (app.commitHash) {
+        console.log(`  Commit:  ${chalk.dim(app.commitHash.substring(0, 7))}`)
+      }
+      if (app.lastBuildAt) {
+        console.log(`  Built:   ${new Date(app.lastBuildAt).toLocaleString()}`)
+      }
+    } else {
+      console.log(`  Image:   ${app.image}`)
+    }
+
     console.log(`  Status:  ${formatStatus(app.status)}`)
     console.log(`  Port:    ${app.internalPort}`)
     console.log(`  Restart: ${app.restartPolicy}`)
