@@ -378,6 +378,29 @@ log:
     spawnSync({ cmd: ["docker", "rm", "-f", containerName], stdout: "pipe", stderr: "pipe" })
   }
 
+  private ensureNetwork(networkName: string = "siteio-network"): void {
+    // Check if network exists
+    const inspect = spawnSync({
+      cmd: ["docker", "network", "inspect", networkName],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    if (inspect.exitCode !== 0) {
+      // Create network
+      const create = spawnSync({
+        cmd: ["docker", "network", "create", networkName],
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+
+      if (create.exitCode !== 0) {
+        throw new Error(`Failed to create Docker network: ${create.stderr.toString()}`)
+      }
+      console.log(`> Created Docker network: ${networkName}`)
+    }
+  }
+
   async startOAuthProxy(): Promise<void> {
     const { oauthConfig, domain } = this.config
 
@@ -496,6 +519,9 @@ log:
     // Write initial configs
     this.writeStaticConfig()
     this.updateDynamicConfig([])
+
+    // Ensure Docker network exists
+    this.ensureNetwork()
 
     // Remove existing container if it exists
     if (this.containerExists(TRAEFIK_CONTAINER_NAME)) {
