@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test"
 import { AgentServer } from "../lib/agent/server.ts"
-import { mkdirSync, rmSync, existsSync } from "fs"
+import { mkdirSync, rmSync, existsSync, writeFileSync } from "fs"
 import { join } from "path"
 import { zipSync } from "fflate"
 import type { ApiResponse, App } from "../types.ts"
@@ -17,6 +17,16 @@ describe("Static Sites as Containers", () => {
       rmSync(TEST_DATA_DIR, { recursive: true })
     }
     mkdirSync(TEST_DATA_DIR, { recursive: true })
+
+    // Create OAuth config so auth tests work
+    const oauthConfig = {
+      issuerUrl: "https://accounts.google.com",
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+      cookieSecret: "test-cookie-secret-32chars-long!",
+      cookieDomain: TEST_DOMAIN,
+    }
+    writeFileSync(join(TEST_DATA_DIR, "oauth-config.json"), JSON.stringify(oauthConfig))
 
     server = new AgentServer({
       domain: TEST_DOMAIN,
@@ -171,5 +181,70 @@ describe("Static Sites as Containers", () => {
       headers: { "X-API-Key": TEST_API_KEY },
     })
     expect(appRes.status).toBe(404)
+  })
+
+  it("syncs OAuth changes to app record", async () => {
+    const zipData = createTestZip()
+
+    // Deploy without OAuth
+    await fetch(`${baseUrl}/sites/authsync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/zip",
+        "X-API-Key": TEST_API_KEY,
+      },
+      body: zipData,
+    })
+
+    // Add OAuth
+    await fetch(`${baseUrl}/sites/authsync/auth`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": TEST_API_KEY,
+      },
+      body: JSON.stringify({
+        allowedEmails: ["new@example.com"],
+      }),
+    })
+
+    // Check app has OAuth
+    const appRes = await fetch(`${baseUrl}/apps/authsync`, {
+      headers: { "X-API-Key": TEST_API_KEY },
+    })
+    const { data: app } = (await appRes.json()) as ApiResponse<App>
+    expect(app?.oauth?.allowedEmails).toContain("new@example.com")
+  })
+
+  it("removes OAuth from app record when removed from site", async () => {
+    const zipData = createTestZip()
+
+    // Deploy with OAuth
+    await fetch(`${baseUrl}/sites/authremove`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/zip",
+        "X-API-Key": TEST_API_KEY,
+        "X-Site-OAuth-Emails": "user@example.com",
+      },
+      body: zipData,
+    })
+
+    // Remove OAuth
+    await fetch(`${baseUrl}/sites/authremove/auth`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": TEST_API_KEY,
+      },
+      body: JSON.stringify({ remove: true }),
+    })
+
+    // Check app has no OAuth
+    const appRes = await fetch(`${baseUrl}/apps/authremove`, {
+      headers: { "X-API-Key": TEST_API_KEY },
+    })
+    const { data: app } = (await appRes.json()) as ApiResponse<App>
+    expect(app?.oauth).toBeUndefined()
   })
 })

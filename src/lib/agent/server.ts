@@ -462,6 +462,14 @@ export class AgentServer {
         return this.error("Failed to update authentication", 500)
       }
 
+      // Sync to app record if exists
+      if (this.appStorage.exists(subdomain)) {
+        this.appStorage.update(subdomain, { oauth: oauth || undefined })
+
+        // Note: In production, we would also redeploy the container to update labels
+        // But that requires Docker, which isn't available in test mode
+      }
+
       // Update Traefik config with site metadata
       const allSites = this.storage.listSites()
       this.traefik?.updateDynamicConfig(allSites)
