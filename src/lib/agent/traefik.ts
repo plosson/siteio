@@ -4,8 +4,10 @@ import { spawn, spawnSync } from "bun"
 import type { SiteMetadata, AgentOAuthConfig } from "../../types.ts"
 
 const TRAEFIK_CONTAINER_NAME = "siteio-traefik"
+const NGINX_CONTAINER_NAME = "siteio-nginx"
 const OAUTH_PROXY_CONTAINER_NAME = "siteio-oauth2-proxy"
 const TRAEFIK_IMAGE = "traefik:v3.0"
+const NGINX_IMAGE = "nginx:alpine"
 const OAUTH_PROXY_IMAGE = "quay.io/oauth2-proxy/oauth2-proxy:v7.6.0"
 
 export interface TraefikConfig {
@@ -24,6 +26,8 @@ export class TraefikManager {
   private dynamicConfigPath: string
   private staticConfigPath: string
   private certsDir: string
+  private nginxConfigDir: string
+  private sitesDir: string
   private oauthProxyPort = 4180
 
   constructor(config: TraefikConfig) {
@@ -32,6 +36,8 @@ export class TraefikManager {
     this.dynamicConfigPath = join(this.configDir, "dynamic.yml")
     this.staticConfigPath = join(this.configDir, "traefik.yml")
     this.certsDir = join(config.dataDir, "certs")
+    this.nginxConfigDir = join(config.dataDir, "nginx")
+    this.sitesDir = join(config.dataDir, "sites")
 
     // Ensure directories exist
     if (!existsSync(this.configDir)) {
@@ -40,6 +46,12 @@ export class TraefikManager {
     if (!existsSync(this.certsDir)) {
       mkdirSync(this.certsDir, { recursive: true })
     }
+    if (!existsSync(this.nginxConfigDir)) {
+      mkdirSync(this.nginxConfigDir, { recursive: true })
+    }
+    if (!existsSync(this.sitesDir)) {
+      mkdirSync(this.sitesDir, { recursive: true })
+    }
 
     // Ensure acme.json exists with correct permissions
     const acmePath = join(this.certsDir, "acme.json")
@@ -47,6 +59,117 @@ export class TraefikManager {
       writeFileSync(acmePath, "{}")
       // Set permissions to 600 (required by Traefik)
       spawnSync({ cmd: ["chmod", "600", acmePath] })
+    }
+
+    // Write nginx config for subdomain-based routing
+    this.writeNginxConfig()
+  }
+
+  /**
+   * Generate nginx config that routes based on subdomain.
+   * Uses a regex to extract subdomain from Host header and serve from /sites/<subdomain>/
+   */
+  private generateNginxConfig(): string {
+    const { domain } = this.config
+    // Escape dots in domain for regex
+    const escapedDomain = domain.replace(/\./g, "\\.")
+
+    return `
+server {
+    listen 80;
+    server_name ~^(?<subdomain>[a-z0-9-]+)\\.${escapedDomain}$;
+
+    root /sites/$subdomain;
+    index index.html index.htm;
+
+    # Handle SPA routing - try file, then directory, then fall back to index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    # Gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+}
+
+# Default server for unmatched hosts
+server {
+    listen 80 default_server;
+    return 404;
+}
+`.trim()
+  }
+
+  private writeNginxConfig(): void {
+    const configPath = join(this.nginxConfigDir, "default.conf")
+    writeFileSync(configPath, this.generateNginxConfig())
+  }
+
+  async startNginx(): Promise<void> {
+    // Remove existing container if it exists
+    if (this.containerExists(NGINX_CONTAINER_NAME)) {
+      console.log("> Removing existing nginx container...")
+      this.removeContainer(NGINX_CONTAINER_NAME)
+    }
+
+    // Ensure nginx config is up to date
+    this.writeNginxConfig()
+
+    const args = [
+      "docker",
+      "run",
+      "-d",
+      "--name",
+      NGINX_CONTAINER_NAME,
+      "--restart",
+      "unless-stopped",
+      "--network",
+      "siteio-network",
+      // Mount sites directory
+      "-v",
+      `${this.sitesDir}:/sites:ro`,
+      // Mount nginx config
+      "-v",
+      `${this.nginxConfigDir}/default.conf:/etc/nginx/conf.d/default.conf:ro`,
+      // Traefik labels for service discovery
+      "-l",
+      "traefik.enable=true",
+      NGINX_IMAGE,
+    ]
+
+    const result = spawnSync({ cmd: args, stdout: "pipe", stderr: "pipe" })
+
+    if (result.exitCode !== 0) {
+      const stderr = result.stderr.toString()
+      throw new Error(`Failed to start nginx container: ${stderr}`)
+    }
+
+    const containerId = result.stdout.toString().trim().slice(0, 12)
+    console.log(`> nginx container started: ${containerId}`)
+
+    // Wait and verify it's running
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    if (!this.isContainerRunning(NGINX_CONTAINER_NAME)) {
+      const logs = spawnSync({
+        cmd: ["docker", "logs", NGINX_CONTAINER_NAME],
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+      const output = logs.stdout.toString() + logs.stderr.toString()
+      throw new Error(`nginx container failed to start. Logs:\n${output}`)
+    }
+  }
+
+  stopNginx(): void {
+    if (this.containerExists(NGINX_CONTAINER_NAME)) {
+      console.log("> Stopping nginx container...")
+      spawnSync({ cmd: ["docker", "stop", NGINX_CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
+      spawnSync({ cmd: ["docker", "rm", NGINX_CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
     }
   }
 
@@ -100,7 +223,7 @@ log:
 `.trim()
   }
 
-  generateDynamicConfig(_sites: SiteMetadata[]): string {
+  generateDynamicConfig(sites: SiteMetadata[]): string {
     const { domain, fileServerPort, oauthConfig } = this.config
     const routers: Record<string, unknown> = {}
     const services: Record<string, unknown> = {}
@@ -109,8 +232,7 @@ log:
     // Use host.docker.internal to reach the host from container
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
 
-    // Add forwardAuth middleware if OAuth is configured
-    // This middleware is used by containers with oauth-protected labels
+    // Add forwardAuth middleware if OAuth is configured on the server
     if (oauthConfig) {
       middlewares["siteio-auth"] = {
         forwardAuth: {
@@ -121,7 +243,6 @@ log:
     }
 
     // Add API router (reserved subdomain)
-    // Site routers are now handled by container labels via Docker provider
     routers["api-router"] = {
       rule: `Host(\`api.${domain}\`)`,
       entryPoints: ["websecure"],
@@ -135,6 +256,33 @@ log:
       loadBalancer: {
         servers: [{ url: hostUrl }],
       },
+    }
+
+    // Add shared nginx service for all static sites
+    services["nginx-service"] = {
+      loadBalancer: {
+        servers: [{ url: `http://${NGINX_CONTAINER_NAME}:80` }],
+      },
+    }
+
+    // Add a router for each static site
+    for (const site of sites) {
+      const routerName = `site-${site.subdomain}`
+      const router: Record<string, unknown> = {
+        rule: `Host(\`${site.subdomain}.${domain}\`)`,
+        entryPoints: ["websecure"],
+        service: "nginx-service",
+        tls: {
+          certResolver: "letsencrypt",
+        },
+      }
+
+      // Apply OAuth middleware if site has OAuth configured
+      if (site.oauth && oauthConfig) {
+        router.middlewares = ["siteio-auth"]
+      }
+
+      routers[routerName] = router
     }
 
     const config: Record<string, unknown> = {
@@ -416,6 +564,9 @@ log:
       throw new Error(`Traefik container failed to start. Logs:\n${output}`)
     }
 
+    // Start shared nginx container for static sites
+    await this.startNginx()
+
     // Start oauth2-proxy if OAuth is configured
     if (this.config.oauthConfig) {
       await this.startOAuthProxy()
@@ -425,6 +576,9 @@ log:
   stop(): void {
     // Stop oauth2-proxy first
     this.stopOAuthProxy()
+
+    // Stop nginx
+    this.stopNginx()
 
     if (this.containerExists(TRAEFIK_CONTAINER_NAME)) {
       console.log("> Stopping Traefik container...")

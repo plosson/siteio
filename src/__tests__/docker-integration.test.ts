@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, setDefaultTimeout } from "bun:test"
 import { AgentServer } from "../lib/agent/server.ts"
-import { DockerManager } from "../lib/agent/docker.ts"
 import { mkdirSync, rmSync, existsSync } from "fs"
 import { join } from "path"
 import { zipSync } from "fflate"
-import type { ApiResponse, App, ContainerLogs } from "../types.ts"
+import type { ApiResponse, SiteInfo } from "../types.ts"
 
 // Disable TLS certificate verification for self-signed certs
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
@@ -16,6 +15,7 @@ setDefaultTimeout(60000)
  * Docker Integration Tests
  *
  * These tests use REAL Docker containers and Traefik routing.
+ * Static sites are served by a single shared nginx container.
  * They are skipped if Docker is not available.
  *
  * Prerequisites:
@@ -30,6 +30,12 @@ const TEST_HTTP_PORT = 18080
 const TEST_HTTPS_PORT = 18443
 const TEST_API_PORT = 13099
 
+function createTestZip(content: string = "<html><body>Hello from Docker!</body></html>"): Uint8Array {
+  return zipSync({
+    "index.html": new TextEncoder().encode(content),
+  })
+}
+
 function cleanupTestContainers(): void {
   // Remove any leftover test containers from previous runs
   const listResult = Bun.spawnSync({
@@ -38,28 +44,13 @@ function cleanupTestContainers(): void {
   })
   const containers = listResult.stdout.toString().trim().split("\n").filter(Boolean)
   for (const name of containers) {
-    // Only remove test-related containers, not production ones
-    if (name === "siteio-traefik" || name.startsWith("siteio-")) {
-      Bun.spawnSync({ cmd: ["docker", "rm", "-f", name], stdout: "pipe", stderr: "pipe" })
-    }
+    Bun.spawnSync({ cmd: ["docker", "rm", "-f", name], stdout: "pipe", stderr: "pipe" })
   }
 }
 
-function createTestZip(content: string = "<html><body>Hello from Docker!</body></html>"): Uint8Array {
-  return zipSync({
-    "index.html": new TextEncoder().encode(content),
-  })
-}
-
-async function waitForContainer(docker: DockerManager, name: string, timeoutMs = 30000): Promise<boolean> {
-  const start = Date.now()
-  while (Date.now() - start < timeoutMs) {
-    if (docker.isRunning(name)) {
-      return true
-    }
-    await new Promise((r) => setTimeout(r, 500))
-  }
-  return false
+function isDockerAvailable(): boolean {
+  const result = Bun.spawnSync({ cmd: ["docker", "info"], stdout: "pipe", stderr: "pipe" })
+  return result.exitCode === 0
 }
 
 async function waitForTraefik(port: number, timeoutMs = 30000): Promise<boolean> {
@@ -81,16 +72,33 @@ async function waitForTraefik(port: number, timeoutMs = 30000): Promise<boolean>
   return false
 }
 
+async function waitForSite(port: number, host: string, timeoutMs = 15000): Promise<boolean> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`https://localhost:${port}/`, {
+        headers: { Host: host },
+        signal: AbortSignal.timeout(2000),
+      })
+      if (res.ok) {
+        return true
+      }
+    } catch {
+      // Not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  return false
+}
+
 describe("Docker Integration Tests", () => {
   let server: AgentServer
-  let docker: DockerManager
   let baseUrl: string
   let dockerAvailable = false
 
   beforeAll(async () => {
     // Check if Docker is available
-    docker = new DockerManager(TEST_DATA_DIR)
-    dockerAvailable = docker.isAvailable()
+    dockerAvailable = isDockerAvailable()
 
     if (!dockerAvailable) {
       console.log("⚠️  Docker not available - skipping Docker integration tests")
@@ -106,10 +114,7 @@ describe("Docker Integration Tests", () => {
     }
     mkdirSync(TEST_DATA_DIR, { recursive: true })
 
-    // Ensure network exists
-    docker.ensureNetwork()
-
-    // Start AgentServer with real Traefik
+    // Start AgentServer with real Traefik and shared nginx
     server = new AgentServer({
       domain: TEST_DOMAIN,
       apiKey: TEST_API_KEY,
@@ -133,10 +138,10 @@ describe("Docker Integration Tests", () => {
   afterAll(async () => {
     if (!dockerAvailable) return
 
-    // Stop server (this also stops Traefik)
+    // Stop server (this also stops Traefik and nginx)
     server?.stop()
 
-    // Clean up any remaining site containers
+    // Clean up any remaining containers
     cleanupTestContainers()
 
     // Clean up test data
@@ -154,7 +159,7 @@ describe("Docker Integration Tests", () => {
     expect(dockerAvailable).toBe(true)
   })
 
-  it("should deploy static site and route through Traefik", async () => {
+  it("should deploy static site and route through Traefik to shared nginx", async () => {
     if (!dockerAvailable) return
 
     const siteName = "testsite"
@@ -175,21 +180,13 @@ describe("Docker Integration Tests", () => {
     }
     expect(deployRes.ok).toBe(true)
 
-    // Verify app was created
-    const appRes = await fetch(`${baseUrl}/apps/${siteName}`, {
-      headers: { "X-API-Key": TEST_API_KEY },
-    })
-    expect(appRes.ok).toBe(true)
-    const { data: app } = (await appRes.json()) as ApiResponse<App>
-    expect(app?.type).toBe("static")
-    expect(app?.image).toBe("nginx:alpine")
+    const { data: siteInfo } = (await deployRes.json()) as ApiResponse<SiteInfo>
+    expect(siteInfo?.subdomain).toBe(siteName)
+    expect(siteInfo?.url).toBe(`https://${siteName}.${TEST_DOMAIN}`)
 
-    // Wait for container to be running
-    const containerReady = await waitForContainer(docker, siteName)
-    expect(containerReady).toBe(true)
-
-    // Wait for Traefik to pick up the new container
-    await new Promise((r) => setTimeout(r, 3000))
+    // Wait for Traefik to pick up the new route
+    const siteReady = await waitForSite(TEST_HTTPS_PORT, `${siteName}.${TEST_DOMAIN}`)
+    expect(siteReady).toBe(true)
 
     // Make request through Traefik with Host header
     const siteRes = await fetch(`https://localhost:${TEST_HTTPS_PORT}/`, {
@@ -201,7 +198,7 @@ describe("Docker Integration Tests", () => {
     expect(html).toContain("Integration Test Site")
   })
 
-  it("should serve different content for different sites", async () => {
+  it("should serve different content for different sites from shared nginx", async () => {
     if (!dockerAvailable) return
 
     const site1 = "site-one"
@@ -223,10 +220,9 @@ describe("Docker Integration Tests", () => {
       body: zip2,
     })
 
-    // Wait for containers
-    await waitForContainer(docker, site1)
-    await waitForContainer(docker, site2)
-    await new Promise((r) => setTimeout(r, 3000))
+    // Wait for routes to be available
+    await waitForSite(TEST_HTTPS_PORT, `${site1}.${TEST_DOMAIN}`)
+    await waitForSite(TEST_HTTPS_PORT, `${site2}.${TEST_DOMAIN}`)
 
     // Verify each site serves its own content
     const res1 = await fetch(`https://localhost:${TEST_HTTPS_PORT}/`, {
@@ -240,7 +236,7 @@ describe("Docker Integration Tests", () => {
     expect(await res2.text()).toContain("Site Two Content")
   })
 
-  it("should remove container when site is undeployed", async () => {
+  it("should remove route when site is undeployed", async () => {
     if (!dockerAvailable) return
 
     const siteName = "to-undeploy"
@@ -253,8 +249,14 @@ describe("Docker Integration Tests", () => {
       body: zipData,
     })
 
-    await waitForContainer(docker, siteName)
-    expect(docker.containerExists(siteName)).toBe(true)
+    // Wait for route to be available
+    await waitForSite(TEST_HTTPS_PORT, `${siteName}.${TEST_DOMAIN}`)
+
+    // Verify site is accessible
+    const beforeRes = await fetch(`https://localhost:${TEST_HTTPS_PORT}/`, {
+      headers: { Host: `${siteName}.${TEST_DOMAIN}` },
+    })
+    expect(beforeRes.ok).toBe(true)
 
     // Undeploy
     const deleteRes = await fetch(`${baseUrl}/sites/${siteName}`, {
@@ -263,43 +265,17 @@ describe("Docker Integration Tests", () => {
     })
     expect(deleteRes.ok).toBe(true)
 
-    // Container should be removed
-    expect(docker.containerExists(siteName)).toBe(false)
-  })
+    // Wait for Traefik to update routes
+    await new Promise((r) => setTimeout(r, 2000))
 
-  it("should return container logs", async () => {
-    if (!dockerAvailable) return
-
-    const siteName = "logs-test"
-
-    // Deploy and make a request to generate logs
-    const zipData = createTestZip()
-    await fetch(`${baseUrl}/sites/${siteName}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/zip", "X-API-Key": TEST_API_KEY },
-      body: zipData,
-    })
-
-    await waitForContainer(docker, siteName)
-    await new Promise((r) => setTimeout(r, 3000))
-
-    // Make request to generate access log
-    await fetch(`https://localhost:${TEST_HTTPS_PORT}/`, {
+    // Site should no longer be accessible (404 from Traefik)
+    const afterRes = await fetch(`https://localhost:${TEST_HTTPS_PORT}/`, {
       headers: { Host: `${siteName}.${TEST_DOMAIN}` },
     })
-
-    // Get logs via API
-    const logsRes = await fetch(`${baseUrl}/apps/${siteName}/logs?tail=50`, {
-      headers: { "X-API-Key": TEST_API_KEY },
-    })
-    expect(logsRes.ok).toBe(true)
-
-    const { data } = (await logsRes.json()) as ApiResponse<ContainerLogs>
-    // nginx logs should exist (may or may not contain the request depending on timing)
-    expect(data?.logs).toBeDefined()
+    expect(afterRes.status).toBe(404)
   })
 
-  it("should redeploy site by replacing container", async () => {
+  it("should update content on redeploy without container restart", async () => {
     if (!dockerAvailable) return
 
     const siteName = "redeploy-test"
@@ -312,12 +288,13 @@ describe("Docker Integration Tests", () => {
       body: zip1,
     })
 
-    await waitForContainer(docker, siteName)
-    await new Promise((r) => setTimeout(r, 2000))
+    await waitForSite(TEST_HTTPS_PORT, `${siteName}.${TEST_DOMAIN}`)
 
-    // Get initial container ID
-    const inspect1 = await docker.inspect(siteName)
-    const containerId1 = inspect1?.id
+    // Verify initial content
+    const res1 = await fetch(`https://localhost:${TEST_HTTPS_PORT}/`, {
+      headers: { Host: `${siteName}.${TEST_DOMAIN}` },
+    })
+    expect(await res1.text()).toContain("Version 1")
 
     // Redeploy with new content
     const zip2 = createTestZip("<html><body>Version 2</body></html>")
@@ -327,17 +304,28 @@ describe("Docker Integration Tests", () => {
       body: zip2,
     })
 
-    await waitForContainer(docker, siteName)
-    await new Promise((r) => setTimeout(r, 3000))
+    // Small delay for files to be written
+    await new Promise((r) => setTimeout(r, 1000))
 
-    // Container ID should be different (new container)
-    const inspect2 = await docker.inspect(siteName)
-    expect(inspect2?.id).not.toBe(containerId1)
-
-    // New content should be served
-    const res = await fetch(`https://localhost:${TEST_HTTPS_PORT}/`, {
+    // New content should be served immediately (no container restart needed)
+    const res2 = await fetch(`https://localhost:${TEST_HTTPS_PORT}/`, {
       headers: { Host: `${siteName}.${TEST_DOMAIN}` },
     })
-    expect(await res.text()).toContain("Version 2")
+    expect(await res2.text()).toContain("Version 2")
+  })
+
+  it("should list deployed sites", async () => {
+    if (!dockerAvailable) return
+
+    // List sites
+    const listRes = await fetch(`${baseUrl}/sites`, {
+      headers: { "X-API-Key": TEST_API_KEY },
+    })
+    expect(listRes.ok).toBe(true)
+
+    const { data: sites } = (await listRes.json()) as ApiResponse<SiteInfo[]>
+    expect(Array.isArray(sites)).toBe(true)
+    // Should have sites from previous tests
+    expect(sites!.length).toBeGreaterThan(0)
   })
 })
