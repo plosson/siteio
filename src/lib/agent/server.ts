@@ -1,7 +1,6 @@
 import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteOAuth, Group, App, AppInfo, ContainerLogs } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
-import { createFileServerHandler } from "./fileserver.ts"
 import { loadOAuthConfig } from "../../config/oauth.ts"
 import { GroupStorage } from "./groups.ts"
 import { AppStorage } from "./app-storage.ts"
@@ -15,7 +14,6 @@ export class AgentServer {
   private docker: DockerManager
   private traefik: TraefikManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
-  private fileServerHandler: (req: Request) => Promise<Response | null>
   private oauthConfig: AgentOAuthConfig | null = null
 
   constructor(config: AgentConfig) {
@@ -39,7 +37,6 @@ export class AgentServer {
         oauthConfig: this.oauthConfig || undefined,
       })
     }
-    this.fileServerHandler = createFileServerHandler(this.storage, config.domain, this.groups)
   }
 
   hasOAuthEnabled(): boolean {
@@ -78,12 +75,9 @@ export class AgentServer {
       hostWithoutPort === "127.0.0.1"
 
     if (!isApiRequest) {
-      // Try to serve static files
-      const fileResponse = await this.fileServerHandler(req)
-      if (fileResponse) {
-        return fileResponse
-      }
-      return this.error("Not found", 404)
+      // Non-API requests are handled by nginx containers via Traefik
+      // In test mode (skipTraefik), return 404
+      return this.error("Not found - requests should go through Traefik", 404)
     }
 
     // API routes - require authentication (except health)
