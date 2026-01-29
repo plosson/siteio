@@ -119,6 +119,106 @@ sites
     await authCommand(subdomain, { ...options, json: program.opts().json })
   })
 
+// Apps commands
+const apps = program
+  .command("apps")
+  .description("Manage containerized applications")
+
+apps
+  .command("create <name>")
+  .description("Create a new app")
+  .requiredOption("-i, --image <image>", "Docker image to use")
+  .option("-p, --port <port>", "Internal port the container listens on", parseInt)
+  .action(async (name, options) => {
+    const { createAppCommand } = await import("./commands/apps/create.ts")
+    await createAppCommand(name, { ...options, json: program.opts().json })
+  })
+
+apps
+  .command("list")
+  .alias("ls")
+  .description("List all apps")
+  .action(async () => {
+    const { listAppsCommand } = await import("./commands/apps/list.ts")
+    await listAppsCommand({ json: program.opts().json })
+  })
+
+apps
+  .command("info <name>")
+  .description("Show detailed info about an app")
+  .action(async (name) => {
+    const { infoAppCommand } = await import("./commands/apps/info.ts")
+    await infoAppCommand(name, { json: program.opts().json })
+  })
+
+apps
+  .command("deploy <name>")
+  .description("Deploy (start) an app container")
+  .action(async (name) => {
+    const { deployAppCommand } = await import("./commands/apps/deploy.ts")
+    await deployAppCommand(name, { json: program.opts().json })
+  })
+
+apps
+  .command("stop <name>")
+  .description("Stop an app container")
+  .action(async (name) => {
+    const { stopAppCommand } = await import("./commands/apps/stop.ts")
+    await stopAppCommand(name, { json: program.opts().json })
+  })
+
+apps
+  .command("restart <name>")
+  .description("Restart an app container")
+  .action(async (name) => {
+    const { restartAppCommand } = await import("./commands/apps/restart.ts")
+    await restartAppCommand(name, { json: program.opts().json })
+  })
+
+apps
+  .command("rm <name>")
+  .description("Remove an app")
+  .option("-f, --force", "Force remove even if running")
+  .action(async (name, options) => {
+    const { rmAppCommand } = await import("./commands/apps/rm.ts")
+    await rmAppCommand(name, { ...options, json: program.opts().json })
+  })
+
+apps
+  .command("logs <name>")
+  .description("View app container logs")
+  .option("-t, --tail <n>", "Number of lines to show", parseInt)
+  .action(async (name, options) => {
+    const { logsAppCommand } = await import("./commands/apps/logs.ts")
+    await logsAppCommand(name, { ...options, json: program.opts().json })
+  })
+
+apps
+  .command("set <name>")
+  .description("Update app configuration")
+  .option("-e, --env <KEY=value...>", "Set environment variables", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
+  .option("-v, --volume <name:path...>", "Set volume mounts", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
+  .option("-d, --domain <domain...>", "Set custom domains", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
+  .option("-p, --port <port>", "Set internal port", parseInt)
+  .option("-r, --restart <policy>", "Set restart policy (always, unless-stopped, on-failure, no)")
+  .option("--image <image>", "Set Docker image")
+  .action(async (name, options) => {
+    const { setAppCommand } = await import("./commands/apps/set.ts")
+    await setAppCommand(name, { ...options, json: program.opts().json })
+  })
+
 // Groups command
 const groups = program
   .command("groups")

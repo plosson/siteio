@@ -3,14 +3,14 @@ import { mkdtempSync, rmSync, writeFileSync, existsSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { spawn } from "bun"
-import { AgentServer } from "../lib/agent/server.ts"
-import type { AgentConfig } from "../types.ts"
+import { AgentServer } from "../../lib/agent/server.ts"
+import type { AgentConfig } from "../../types.ts"
 
 const TEST_PORT = 4568
 const TEST_API_KEY = "integration-test-key"
 const TEST_DOMAIN = "integration.local"
 
-describe("CLI Integration", () => {
+describe("CLI: Commands", () => {
   let server: AgentServer
   let dataDir: string
   let testSiteDir: string

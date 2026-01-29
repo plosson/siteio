@@ -14,6 +14,92 @@ export interface SiteOAuth {
   allowedGroups?: string[]
 }
 
+// Container restart policies
+export type RestartPolicy = "always" | "unless-stopped" | "on-failure" | "no"
+
+// Container status
+export type ContainerStatus = "pending" | "running" | "stopped" | "failed"
+
+// App types (static sites vs containers)
+export type AppType = "static" | "container"
+
+// Volume mount configuration
+export interface VolumeMount {
+  name: string // Host path or named volume
+  mountPath: string // Container path
+  readonly?: boolean // Optional read-only flag
+}
+
+// Git source configuration for building from repo
+export interface GitSource {
+  repoUrl: string
+  branch: string
+  dockerfile: string
+  credentialId?: string
+}
+
+// Core App interface - unified model for sites and containers
+export interface App {
+  name: string
+  type: AppType
+
+  // Source
+  image: string
+  git?: GitSource
+
+  // Runtime
+  env: Record<string, string>
+  volumes: VolumeMount[]
+  internalPort: number
+  restartPolicy: RestartPolicy
+
+  // Routing
+  domains: string[]
+
+  // OAuth (same as current sites)
+  oauth?: SiteOAuth
+
+  // State
+  containerId?: string
+  status: ContainerStatus
+  deployedAt?: string
+  createdAt: string
+  updatedAt: string
+}
+
+// App info returned to clients (subset of App)
+export interface AppInfo {
+  name: string
+  type: AppType
+  image: string
+  status: ContainerStatus
+  domains: string[]
+  internalPort: number
+  deployedAt?: string
+  createdAt: string
+}
+
+// Container logs response
+export interface ContainerLogs {
+  name: string
+  logs: string
+  lines: number
+}
+
+// Container inspection result
+export interface ContainerInspect {
+  id: string
+  name: string
+  state: {
+    running: boolean
+    status: string
+    startedAt?: string
+    exitCode?: number
+  }
+  image: string
+  ports: Record<string, string>
+}
+
 // Group of emails for access control
 export interface Group {
   name: string

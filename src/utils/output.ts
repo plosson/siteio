@@ -62,3 +62,17 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`
 }
+
+// Format container status with appropriate color
+export function formatStatus(status: string): string {
+  switch (status) {
+    case "running":
+      return chalk.green(status)
+    case "stopped":
+      return chalk.yellow(status)
+    case "failed":
+      return chalk.red(status)
+    default:
+      return chalk.dim(status)
+  }
+}
