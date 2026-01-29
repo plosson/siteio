@@ -1,6 +1,7 @@
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
+import { formatStatus } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import type { App } from "../../types.ts"
 
@@ -27,20 +28,11 @@ export async function infoAppCommand(
     }
 
     // Human-readable output
-    const statusColor =
-      app.status === "running"
-        ? chalk.green
-        : app.status === "stopped"
-          ? chalk.yellow
-          : app.status === "failed"
-            ? chalk.red
-            : chalk.dim
-
     console.log("")
     console.log(chalk.bold(`App: ${app.name}`))
     console.log(`  Type:    ${app.type}`)
     console.log(`  Image:   ${app.image}`)
-    console.log(`  Status:  ${statusColor(app.status)}`)
+    console.log(`  Status:  ${formatStatus(app.status)}`)
     console.log(`  Port:    ${app.internalPort}`)
     console.log(`  Restart: ${app.restartPolicy}`)
     console.log(`  Created: ${new Date(app.createdAt).toLocaleString()}`)
