@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, setDefaultTimeout } from "bun:test"
-import { AgentServer } from "../lib/agent/server.ts"
+import { AgentServer } from "../../lib/agent/server.ts"
 import { mkdirSync, rmSync, existsSync } from "fs"
 import { join } from "path"
 import { zipSync } from "fflate"
-import type { ApiResponse, SiteInfo } from "../types.ts"
+import type { ApiResponse, SiteInfo } from "../../types.ts"
 
 // Disable TLS certificate verification for self-signed certs
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
@@ -91,7 +91,7 @@ async function waitForSite(port: number, host: string, timeoutMs = 15000): Promi
   return false
 }
 
-describe("Docker Integration Tests", () => {
+describe("Integration: Docker", () => {
   let server: AgentServer
   let baseUrl: string
   let dockerAvailable = false

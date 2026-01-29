@@ -2,10 +2,10 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { mkdtempSync, rmSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { AppStorage } from "../lib/agent/app-storage"
-import type { App, AppType, ContainerStatus, RestartPolicy } from "../types"
+import { AppStorage } from "../../lib/agent/app-storage"
+import type { App, AppType, ContainerStatus, RestartPolicy } from "../../types"
 
-describe("AppStorage", () => {
+describe("Unit: AppStorage", () => {
   let testDir: string
   let storage: AppStorage
 

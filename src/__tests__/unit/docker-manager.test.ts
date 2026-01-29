@@ -2,9 +2,9 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { mkdtempSync, rmSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { DockerManager } from "../lib/agent/docker"
+import { DockerManager } from "../../lib/agent/docker"
 
-describe("DockerManager", () => {
+describe("Unit: DockerManager", () => {
   let testDir: string
   let docker: DockerManager
 

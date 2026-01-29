@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
-import { TraefikManager } from "../lib/agent/traefik.ts"
+import { TraefikManager } from "../../lib/agent/traefik.ts"
 import { mkdirSync, rmSync, existsSync } from "fs"
 import { join } from "path"
 
-describe("TraefikManager", () => {
+describe("Unit: TraefikManager", () => {
   const TEST_DATA_DIR = join(import.meta.dir, ".test-data-traefik")
 
   beforeEach(() => {

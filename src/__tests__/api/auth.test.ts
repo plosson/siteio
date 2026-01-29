@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test"
-import { AgentServer } from "../lib/agent/server.ts"
+import { AgentServer } from "../../lib/agent/server.ts"
 import { mkdirSync, rmSync, existsSync } from "fs"
 import { join } from "path"
 
-describe("Auth Check Endpoint", () => {
+describe("API: Auth", () => {
   const TEST_DATA_DIR = join(import.meta.dir, ".test-data-auth-check")
   const TEST_API_KEY = "test-api-key-auth"
   const TEST_DOMAIN = "test.siteio.me"

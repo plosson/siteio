@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
-import { AgentServer } from "../lib/agent/server.ts"
-import { SiteioClient } from "../lib/client.ts"
-import type { AgentConfig, ApiResponse, SiteInfo } from "../types.ts"
+import { AgentServer } from "../../lib/agent/server.ts"
+import { SiteioClient } from "../../lib/client.ts"
+import type { AgentConfig, ApiResponse, SiteInfo } from "../../types.ts"
 
 // Helper to parse JSON responses with proper typing
 async function parseJson<T>(response: Response): Promise<ApiResponse<T>> {
@@ -16,7 +16,7 @@ const TEST_PORT = 4567
 const TEST_API_KEY = "test-api-key-12345"
 const TEST_DOMAIN = "test.local"
 
-describe("siteio e2e", () => {
+describe("API: Sites", () => {
   let server: AgentServer
   let dataDir: string
   let testSiteDir: string
