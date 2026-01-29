@@ -82,6 +82,10 @@ providers:
   file:
     filename: /etc/traefik/dynamic.yml
     watch: true
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: siteio-network
 
 certificatesResolvers:
   letsencrypt:
@@ -96,7 +100,7 @@ log:
 `.trim()
   }
 
-  generateDynamicConfig(sites: SiteMetadata[]): string {
+  generateDynamicConfig(_sites: SiteMetadata[]): string {
     const { domain, fileServerPort, oauthConfig } = this.config
     const routers: Record<string, unknown> = {}
     const services: Record<string, unknown> = {}
@@ -104,80 +108,20 @@ log:
 
     // Use host.docker.internal to reach the host from container
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
-    const oauthProxyUrl = `http://host.docker.internal:${this.oauthProxyPort}`
 
-    // Check if we have protected sites
-    const hasProtectedSites = oauthConfig && sites.some((site) => site.oauth)
-
-    // Add oauth2-proxy service if OAuth is configured
-    if (hasProtectedSites) {
-      services["oauth2-proxy-service"] = {
-        loadBalancer: {
-          servers: [{ url: oauthProxyUrl }],
+    // Add forwardAuth middleware if OAuth is configured
+    // This middleware is used by containers with oauth-protected labels
+    if (oauthConfig) {
+      middlewares["siteio-auth"] = {
+        forwardAuth: {
+          address: `${hostUrl}/auth/check`,
+          authRequestHeaders: ["X-Forwarded-Email", "X-Auth-Request-Email", "Host"],
         },
-      }
-
-      // Add router for /oauth2/* paths on ALL site subdomains (for callback, sign_in, etc.)
-      // Each protected site needs its own oauth2 endpoint router
-      for (const site of sites) {
-        if (site.oauth) {
-          routers[`${site.subdomain}-oauth2-router`] = {
-            rule: `Host(\`${site.subdomain}.${domain}\`) && PathPrefix(\`/oauth2/\`)`,
-            entryPoints: ["websecure"],
-            service: "oauth2-proxy-service",
-            priority: 100,
-            tls: {
-              certResolver: "letsencrypt",
-            },
-          }
-        }
-      }
-
-      // Also add oauth2 router for API domain (for shared callback)
-      routers["api-oauth2-router"] = {
-        rule: `Host(\`api.${domain}\`) && PathPrefix(\`/oauth2/\`)`,
-        entryPoints: ["websecure"],
-        service: "oauth2-proxy-service",
-        priority: 100,
-        tls: {
-          certResolver: "letsencrypt",
-        },
-      }
-    }
-
-    // Add router and service for each site
-    for (const site of sites) {
-      const { subdomain, oauth } = site
-      const routerName = `${subdomain}-router`
-      const serviceName = `${subdomain}-service`
-
-      // Protected sites route through oauth2-proxy (which proxies to fileserver)
-      // Unprotected sites route directly to fileserver
-      const useOAuthProxy = oauth && oauthConfig
-
-      const router: Record<string, unknown> = {
-        rule: `Host(\`${subdomain}.${domain}\`)`,
-        entryPoints: ["websecure"],
-        service: useOAuthProxy ? "oauth2-proxy-service" : serviceName,
-        tls: {
-          certResolver: "letsencrypt",
-        },
-      }
-
-      routers[routerName] = router
-
-      // Only create dedicated service for unprotected sites
-      // Protected sites use the shared oauth2-proxy-service
-      if (!useOAuthProxy) {
-        services[serviceName] = {
-          loadBalancer: {
-            servers: [{ url: hostUrl }],
-          },
-        }
       }
     }
 
     // Add API router (reserved subdomain)
+    // Site routers are now handled by container labels via Docker provider
     routers["api-router"] = {
       rule: `Host(\`api.${domain}\`)`,
       entryPoints: ["websecure"],
@@ -422,6 +366,9 @@ log:
       TRAEFIK_CONTAINER_NAME,
       "--restart",
       "unless-stopped",
+      // Connect to siteio-network to communicate with app containers
+      "--network",
+      "siteio-network",
       // Add host.docker.internal support on Linux
       "--add-host",
       "host.docker.internal:host-gateway",
@@ -430,6 +377,9 @@ log:
       `${httpPort}:${httpPort}`,
       "-p",
       `${httpsPort}:${httpsPort}`,
+      // Mount Docker socket for container discovery
+      "-v",
+      "/var/run/docker.sock:/var/run/docker.sock:ro",
       // Mount config directory
       "-v",
       `${this.configDir}:/etc/traefik:ro`,
