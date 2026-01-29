@@ -274,73 +274,11 @@ export class AgentServer {
         }
       }
 
-      // Extract and store
+      // Extract and store site files
       const metadata = await this.storage.extractAndStore(subdomain, zipData, oauth)
-      const sitePath = this.storage.getSitePath(subdomain)
 
-      // Create or update app record for this static site
-      let app = this.appStorage.get(subdomain)
-      if (app) {
-        // Update existing app (redeploy)
-        app = this.appStorage.update(subdomain, {
-          oauth,
-          volumes: [
-            {
-              name: sitePath,
-              mountPath: "/usr/share/nginx/html",
-              readonly: true,
-            },
-          ],
-        })!
-      } else {
-        // Create new static site app
-        app = this.appStorage.createStaticSiteApp(subdomain, sitePath, oauth)
-      }
-
-      // Set domain for routing
-      const domain = `${subdomain}.${this.config.domain}`
-      if (!app.domains.includes(domain)) {
-        app = this.appStorage.update(subdomain, { domains: [domain] })!
-      }
-
-      // Deploy the container if docker is available and not in test mode
-      // skipTraefik implies test mode, so we skip Docker operations
-      if (!this.config.skipTraefik && this.docker.isAvailable()) {
-        // Ensure network exists
-        this.docker.ensureNetwork()
-
-        // Remove existing container if it exists
-        if (this.docker.containerExists(subdomain)) {
-          await this.docker.remove(subdomain)
-        }
-
-        // Pull image
-        await this.docker.pull(app.image)
-
-        // Build Traefik labels for routing (with auth if OAuth configured)
-        const labels = this.docker.buildTraefikLabels(subdomain, app.domains, app.internalPort, !!oauth)
-
-        // Run container
-        const containerId = await this.docker.run({
-          name: app.name,
-          image: app.image,
-          internalPort: app.internalPort,
-          env: app.env,
-          volumes: app.volumes,
-          restartPolicy: app.restartPolicy,
-          network: "siteio-network",
-          labels,
-        })
-
-        // Update app status
-        app = this.appStorage.update(subdomain, {
-          status: "running",
-          containerId,
-          deployedAt: new Date().toISOString(),
-        })!
-      }
-
-      // Update Traefik config with site metadata (for auth middleware)
+      // Update Traefik dynamic config to add route for this site
+      // Static sites are served by the shared nginx container
       const allSites = this.storage.listSites()
       this.traefik?.updateDynamicConfig(allSites)
 
@@ -364,27 +302,13 @@ export class AgentServer {
       return this.error("Site not found", 404)
     }
 
-    // Stop and remove container if exists
-    if (this.docker.containerExists(subdomain)) {
-      try {
-        this.docker.remove(subdomain)
-      } catch {
-        // Ignore errors
-      }
-    }
-
-    // Delete app record if exists
-    if (this.appStorage.exists(subdomain)) {
-      this.appStorage.delete(subdomain)
-    }
-
     // Delete site files and metadata
     const deleted = this.storage.deleteSite(subdomain)
     if (!deleted) {
       return this.error("Failed to delete site", 500)
     }
 
-    // Update Traefik config
+    // Update Traefik config to remove route for this site
     const allSites = this.storage.listSites()
     this.traefik?.updateDynamicConfig(allSites)
 
@@ -462,15 +386,7 @@ export class AgentServer {
         return this.error("Failed to update authentication", 500)
       }
 
-      // Sync to app record if exists
-      if (this.appStorage.exists(subdomain)) {
-        this.appStorage.update(subdomain, { oauth: oauth || undefined })
-
-        // Note: In production, we would also redeploy the container to update labels
-        // But that requires Docker, which isn't available in test mode
-      }
-
-      // Update Traefik config with site metadata
+      // Update Traefik config with new OAuth settings
       const allSites = this.storage.listSites()
       this.traefik?.updateDynamicConfig(allSites)
 
