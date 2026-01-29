@@ -127,7 +127,11 @@ const apps = program
 apps
   .command("create <name>")
   .description("Create a new app")
-  .requiredOption("-i, --image <image>", "Docker image to use")
+  .option("-i, --image <image>", "Docker image to use")
+  .option("-g, --git <url>", "Git repository URL to build from")
+  .option("--dockerfile <path>", "Path to Dockerfile (default: Dockerfile)")
+  .option("--branch <branch>", "Git branch (default: main)")
+  .option("--context <path>", "Build context subdirectory for monorepos")
   .option("-p, --port <port>", "Internal port the container listens on", parseInt)
   .action(async (name, options) => {
     const { createAppCommand } = await import("./commands/apps/create.ts")
@@ -154,9 +158,10 @@ apps
 apps
   .command("deploy <name>")
   .description("Deploy (start) an app container")
-  .action(async (name) => {
+  .option("--no-cache", "Build without Docker cache (git-based apps only)")
+  .action(async (name, options) => {
     const { deployAppCommand } = await import("./commands/apps/deploy.ts")
-    await deployAppCommand(name, { json: program.opts().json })
+    await deployAppCommand(name, { ...options, json: program.opts().json })
   })
 
 apps
