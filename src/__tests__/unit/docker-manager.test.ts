@@ -134,7 +134,7 @@ describe("Unit: DockerManager", () => {
     test("builds Traefik labels with forwardAuth for OAuth", () => {
       const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80, true)
 
-      expect(labels["traefik.http.routers.siteio-myapp.middlewares"]).toBe("siteio-auth@file")
+      expect(labels["traefik.http.routers.siteio-myapp.middlewares"]).toBe("oauth2-errors@file,oauth2-auth@file,siteio-auth@file")
     })
 
     test("builds Traefik labels without forwardAuth when no OAuth", () => {
