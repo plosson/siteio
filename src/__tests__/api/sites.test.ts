@@ -247,6 +247,96 @@ describe("API: Sites", () => {
     })
   })
 
+  describe("Site OAuth API", () => {
+    // These tests require OAuth to be configured on the server
+    // Since the main server doesn't have OAuth enabled, we'll test the rejection case
+
+    test("should reject setting OAuth when not configured on server", async () => {
+      // First deploy a site
+      const files: Record<string, Uint8Array> = {
+        "index.html": new TextEncoder().encode("<html><body>OAuth Test</body></html>"),
+      }
+      const zipData = zipSync(files, { level: 6 })
+      await fetch(`http://localhost:${TEST_PORT}/sites/oauth-test`, {
+        method: "POST",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/zip",
+        },
+        body: zipData,
+      })
+
+      // Try to set OAuth - should fail because OAuth is not configured
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites/oauth-test/auth`, {
+        method: "PATCH",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ allowedEmails: ["test@example.com"] }),
+      })
+
+      expect(response.status).toBe(400)
+      const data = await parseJson<null>(response)
+      expect(data.error).toContain("not configured")
+
+      // Cleanup
+      await fetch(`http://localhost:${TEST_PORT}/sites/oauth-test`, {
+        method: "DELETE",
+        headers: { "X-API-Key": TEST_API_KEY },
+      })
+    })
+
+    test("should return 404 when setting OAuth on non-existent site", async () => {
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites/nonexistent/auth`, {
+        method: "PATCH",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ allowedEmails: ["test@example.com"] }),
+      })
+
+      expect(response.status).toBe(404)
+    })
+
+    test("should require allowedEmails, allowedDomain, allowedGroups, or remove", async () => {
+      // Deploy a site first
+      const files: Record<string, Uint8Array> = {
+        "index.html": new TextEncoder().encode("<html><body>Test</body></html>"),
+      }
+      const zipData = zipSync(files, { level: 6 })
+      await fetch(`http://localhost:${TEST_PORT}/sites/oauth-empty`, {
+        method: "POST",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/zip",
+        },
+        body: zipData,
+      })
+
+      // Try to set OAuth with empty body
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites/oauth-empty/auth`, {
+        method: "PATCH",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      })
+
+      expect(response.status).toBe(400)
+      const data = await parseJson<null>(response)
+      expect(data.error).toContain("Provide")
+
+      // Cleanup
+      await fetch(`http://localhost:${TEST_PORT}/sites/oauth-empty`, {
+        method: "DELETE",
+        headers: { "X-API-Key": TEST_API_KEY },
+      })
+    })
+  })
+
   describe("SiteioClient", () => {
     test("should work with the client library", async () => {
       const client = new SiteioClient({

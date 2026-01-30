@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "bun:test"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { mkdirSync, rmSync, existsSync } from "fs"
+import { mkdirSync, rmSync, existsSync, writeFileSync } from "fs"
 import { join } from "path"
+import { zipSync } from "fflate"
 
 describe("API: Auth", () => {
   const TEST_DATA_DIR = join(import.meta.dir, ".test-data-auth-check")
@@ -239,5 +240,265 @@ describe("API: Auth", () => {
       },
     })
     expect(authRes.status).toBe(200)
+  })
+})
+
+describe("API: Auth - Static Sites", () => {
+  const TEST_DATA_DIR = join(import.meta.dir, ".test-data-site-auth")
+  const TEST_API_KEY = "test-api-key-site-auth"
+  const TEST_DOMAIN = "test.siteio.me"
+  let server: AgentServer
+  let baseUrl: string
+
+  // Helper to deploy a test site
+  async function deploySite(subdomain: string): Promise<void> {
+    const files: Record<string, Uint8Array> = {
+      "index.html": new TextEncoder().encode("<html><body>Test</body></html>"),
+    }
+    const zipData = zipSync(files, { level: 6 })
+
+    const res = await fetch(`${baseUrl}/sites/${subdomain}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/zip",
+        "X-API-Key": TEST_API_KEY,
+      },
+      body: zipData,
+    })
+    if (!res.ok) {
+      throw new Error(`Failed to deploy site: ${await res.text()}`)
+    }
+  }
+
+  // Helper to set OAuth on a site
+  async function setOAuth(subdomain: string, oauth: Record<string, unknown>): Promise<void> {
+    const res = await fetch(`${baseUrl}/sites/${subdomain}/auth`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": TEST_API_KEY,
+      },
+      body: JSON.stringify(oauth),
+    })
+    if (!res.ok) {
+      throw new Error(`Failed to set OAuth: ${await res.text()}`)
+    }
+  }
+
+  beforeAll(async () => {
+    if (existsSync(TEST_DATA_DIR)) {
+      rmSync(TEST_DATA_DIR, { recursive: true })
+    }
+    mkdirSync(TEST_DATA_DIR, { recursive: true })
+
+    // Create oauth-config.json to enable OAuth
+    writeFileSync(
+      join(TEST_DATA_DIR, "oauth-config.json"),
+      JSON.stringify({
+        issuerUrl: "https://accounts.google.com",
+        clientId: "test-client-id",
+        clientSecret: "test-client-secret",
+        cookieSecret: "test-cookie-secret-32-chars-long!",
+        cookieDomain: ".test.siteio.me",
+      })
+    )
+
+    // Create groups.json for group tests (array of Group objects)
+    writeFileSync(
+      join(TEST_DATA_DIR, "groups.json"),
+      JSON.stringify([
+        { name: "admins", emails: ["admin@example.com", "superadmin@example.com"] },
+        { name: "devs", emails: ["dev1@example.com", "dev2@example.com"] },
+      ])
+    )
+
+    server = new AgentServer({
+      domain: TEST_DOMAIN,
+      apiKey: TEST_API_KEY,
+      dataDir: TEST_DATA_DIR,
+      maxUploadSize: 10 * 1024 * 1024,
+      skipTraefik: true,
+      port: 3099,
+      httpPort: 80,
+      httpsPort: 443,
+    })
+
+    await server.start()
+    baseUrl = "http://localhost:3099"
+  })
+
+  afterAll(() => {
+    server.stop()
+    if (existsSync(TEST_DATA_DIR)) {
+      rmSync(TEST_DATA_DIR, { recursive: true })
+    }
+  })
+
+  beforeEach(() => {
+    // Clean up sites and metadata between tests
+    const sitesDir = join(TEST_DATA_DIR, "sites")
+    const metadataDir = join(TEST_DATA_DIR, "metadata")
+    if (existsSync(sitesDir)) {
+      rmSync(sitesDir, { recursive: true })
+    }
+    if (existsSync(metadataDir)) {
+      rmSync(metadataDir, { recursive: true })
+    }
+    mkdirSync(sitesDir, { recursive: true })
+    mkdirSync(metadataDir, { recursive: true })
+  })
+
+  it("returns 200 for site without OAuth", async () => {
+    await deploySite("public-site")
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `public-site.${TEST_DOMAIN}`,
+      },
+    })
+    expect(checkRes.status).toBe(200)
+  })
+
+  it("returns 401 for site with OAuth but no email header", async () => {
+    await deploySite("protected-site")
+    await setOAuth("protected-site", { allowedEmails: ["allowed@example.com"] })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `protected-site.${TEST_DOMAIN}`,
+      },
+    })
+    expect(checkRes.status).toBe(401)
+  })
+
+  it("returns 200 when email is in allowedEmails", async () => {
+    await deploySite("email-site")
+    await setOAuth("email-site", { allowedEmails: ["allowed@example.com"] })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `email-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "allowed@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(200)
+  })
+
+  it("returns 403 when email not in allowedEmails", async () => {
+    await deploySite("restricted-site")
+    await setOAuth("restricted-site", { allowedEmails: ["allowed@example.com"] })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `restricted-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "notallowed@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(403)
+  })
+
+  it("returns 200 when email matches allowedDomain", async () => {
+    await deploySite("domain-site")
+    await setOAuth("domain-site", { allowedDomain: "company.com" })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `domain-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "employee@company.com",
+      },
+    })
+    expect(checkRes.status).toBe(200)
+  })
+
+  it("returns 403 when email does not match allowedDomain", async () => {
+    await deploySite("domain-restricted-site")
+    await setOAuth("domain-restricted-site", { allowedDomain: "company.com" })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `domain-restricted-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "outsider@other.com",
+      },
+    })
+    expect(checkRes.status).toBe(403)
+  })
+
+  it("returns 200 when email is in allowedGroups", async () => {
+    await deploySite("group-site")
+    await setOAuth("group-site", { allowedGroups: ["admins"] })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `group-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "admin@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(200)
+  })
+
+  it("returns 403 when email not in allowedGroups", async () => {
+    await deploySite("group-restricted-site")
+    await setOAuth("group-restricted-site", { allowedGroups: ["admins"] })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `group-restricted-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "random@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(403)
+  })
+
+  it("allows access when multiple groups are specified and email is in one", async () => {
+    await deploySite("multi-group-site")
+    await setOAuth("multi-group-site", { allowedGroups: ["admins", "devs"] })
+
+    // dev1 is in devs group
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `multi-group-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "dev1@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(200)
+  })
+
+  it("returns 200 when using X-Auth-Request-Email header", async () => {
+    await deploySite("forward-auth-site")
+    await setOAuth("forward-auth-site", { allowedEmails: ["forward@example.com"] })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `forward-auth-site.${TEST_DOMAIN}`,
+        "X-Auth-Request-Email": "forward@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(200)
+  })
+
+  it("handles case-insensitive email matching", async () => {
+    await deploySite("case-site")
+    await setOAuth("case-site", { allowedEmails: ["User@Example.COM"] })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `case-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "USER@EXAMPLE.com",
+      },
+    })
+    expect(checkRes.status).toBe(200)
+  })
+
+  it("handles case-insensitive domain matching", async () => {
+    await deploySite("case-domain-site")
+    await setOAuth("case-domain-site", { allowedDomain: "Company.COM" })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `case-domain-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "user@COMPANY.com",
+      },
+    })
+    expect(checkRes.status).toBe(200)
   })
 })
