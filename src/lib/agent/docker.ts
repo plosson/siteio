@@ -311,7 +311,8 @@ export class DockerManager {
     }
 
     if (requireAuth) {
-      labels[`traefik.http.routers.${containerName}.middlewares`] = "siteio-auth@file"
+      // Chain: oauth2-errors (redirect 401) -> oauth2-auth (authenticate) -> siteio-auth (authorize)
+      labels[`traefik.http.routers.${containerName}.middlewares`] = "oauth2-errors@file,oauth2-auth@file,siteio-auth@file"
     }
 
     return labels

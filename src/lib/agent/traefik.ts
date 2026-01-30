@@ -233,12 +233,53 @@ log:
     // Use host.docker.internal to reach the host from container
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
 
-    // Add forwardAuth middleware if OAuth is configured on the server
+    // Add OAuth middlewares and service if OAuth is configured on the server
     if (oauthConfig) {
+      // oauth2-proxy service for handling OAuth flow
+      services["oauth2-proxy-service"] = {
+        loadBalancer: {
+          servers: [{ url: `http://${OAUTH_PROXY_CONTAINER_NAME}:4180` }],
+        },
+      }
+
+      // oauth2-auth: forwardAuth to oauth2-proxy for authentication
+      // oauth2-proxy returns 202 with X-Auth-Request-Email if authenticated,
+      // or 401 with redirect to start OAuth flow if not
+      middlewares["oauth2-auth"] = {
+        forwardAuth: {
+          address: `http://${OAUTH_PROXY_CONTAINER_NAME}:4180/oauth2/auth`,
+          authResponseHeaders: ["X-Auth-Request-User", "X-Auth-Request-Email"],
+        },
+      }
+
+      // siteio-auth: forwardAuth to siteio agent for authorization
+      // Checks if the authenticated email is allowed to access this resource
       middlewares["siteio-auth"] = {
         forwardAuth: {
           address: `${hostUrl}/auth/check`,
-          authRequestHeaders: ["X-Forwarded-Email", "X-Auth-Request-Email", "Host"],
+          authRequestHeaders: ["X-Auth-Request-Email", "Host"],
+        },
+      }
+
+      // oauth2-errors: Redirect 401 responses to the OAuth sign-in page
+      // When oauth2-auth returns 401, this redirects to start the OAuth flow
+      middlewares["oauth2-errors"] = {
+        errors: {
+          status: ["401"],
+          service: "oauth2-proxy-service",
+          query: "/oauth2/sign_in?rd={url}",
+        },
+      }
+
+      // Catch-all router for /oauth2/* paths on any subdomain
+      // This handles OAuth callbacks and start URLs without auth middleware
+      routers["oauth2-catchall"] = {
+        rule: `HostRegexp(\`{subdomain:[a-z0-9-]+}.${domain}\`) && PathPrefix(\`/oauth2/\`)`,
+        entryPoints: ["websecure"],
+        service: "oauth2-proxy-service",
+        priority: 200, // High priority to match before site/app routers
+        tls: {
+          certResolver: "letsencrypt",
         },
       }
     }
@@ -278,9 +319,11 @@ log:
         },
       }
 
-      // Apply OAuth middleware if site has OAuth configured
+      // Apply OAuth middlewares if site has OAuth configured
+      // Chain: oauth2-errors (redirect 401) -> oauth2-auth (authenticate) -> siteio-auth (authorize)
+      // Note: /oauth2/* paths are handled by the oauth2-catchall router
       if (site.oauth && oauthConfig) {
-        router.middlewares = ["siteio-auth"]
+        router.middlewares = ["oauth2-errors", "oauth2-auth", "siteio-auth"]
       }
 
       routers[routerName] = router
