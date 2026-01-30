@@ -47,7 +47,7 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).toContain("api-service")
   })
 
-  it("does not add OAuth middleware (OAuth enforcement not yet implemented)", () => {
+  it("adds global OAuth middlewares when oauthConfig is present", () => {
     const traefik = new TraefikManager({
       dataDir: TEST_DATA_DIR,
       domain: "test.siteio.me",
@@ -64,9 +64,19 @@ describe("Unit: TraefikManager", () => {
     })
 
     const dynamicConfig = traefik.generateDynamicConfig([])
-    // OAuth enforcement is not yet implemented
-    expect(dynamicConfig).not.toContain("siteio-auth")
-    expect(dynamicConfig).not.toContain("forwardAuth")
+
+    // Should have oauth2-proxy-auth middleware
+    expect(dynamicConfig).toContain("oauth2-proxy-auth")
+    expect(dynamicConfig).toContain("forwardAuth")
+    expect(dynamicConfig).toContain("http://siteio-oauth2-proxy:4180/oauth2/auth")
+    expect(dynamicConfig).toContain("trustForwardHeader")
+    expect(dynamicConfig).toContain("X-Auth-Request-Email")
+    expect(dynamicConfig).toContain("X-Auth-Request-User")
+    expect(dynamicConfig).toContain("X-Auth-Request-Groups")
+
+    // Should have siteio-authz middleware
+    expect(dynamicConfig).toContain("siteio-authz")
+    expect(dynamicConfig).toContain("http://host.docker.internal:3000/auth/check")
   })
 
   it("adds auth router and oauth2-proxy service when oauthConfig is present", () => {
@@ -131,7 +141,7 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).toContain("mysite.test.siteio.me")
   })
 
-  it("stores OAuth settings but does not add middleware (not yet implemented)", () => {
+  it("includes global OAuth middlewares when oauthConfig is present with protected site", () => {
     const traefik = new TraefikManager({
       dataDir: TEST_DATA_DIR,
       domain: "test.siteio.me",
@@ -157,9 +167,12 @@ describe("Unit: TraefikManager", () => {
       },
     ])
 
-    // Site router exists but OAuth enforcement is not yet implemented
+    // Site router exists
     expect(dynamicConfig).toContain("site-protected-site")
-    expect(dynamicConfig).not.toContain("middlewares:")
+    // Global OAuth middlewares are defined
+    expect(dynamicConfig).toContain("middlewares:")
+    expect(dynamicConfig).toContain("oauth2-proxy-auth")
+    expect(dynamicConfig).toContain("siteio-authz")
   })
 
   it("does not add middleware to site router when site has no OAuth", () => {
@@ -259,7 +272,7 @@ describe("Unit: TraefikManager", () => {
     expect(staticConfig).toContain("insecure: true")
   })
 
-  it("correctly handles multiple sites with mixed OAuth settings (no enforcement)", () => {
+  it("correctly handles multiple sites with global OAuth middlewares defined", () => {
     const traefik = new TraefikManager({
       dataDir: TEST_DATA_DIR,
       domain: "test.siteio.me",
@@ -303,8 +316,9 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).toContain("site-public")
     expect(dynamicConfig).toContain("site-also-protected")
 
-    // OAuth enforcement not yet implemented - no middleware
-    expect(dynamicConfig).not.toContain("siteio-auth")
-    expect(dynamicConfig).not.toContain("forwardAuth")
+    // Global OAuth middlewares are defined
+    expect(dynamicConfig).toContain("oauth2-proxy-auth")
+    expect(dynamicConfig).toContain("siteio-authz")
+    expect(dynamicConfig).toContain("forwardAuth")
   })
 })

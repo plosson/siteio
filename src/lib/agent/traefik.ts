@@ -276,6 +276,22 @@ log:
           certResolver: "letsencrypt",
         },
       }
+
+      // Global OAuth middlewares
+      middlewares["oauth2-proxy-auth"] = {
+        forwardAuth: {
+          address: `http://${OAUTH_PROXY_CONTAINER_NAME}:4180/oauth2/auth`,
+          trustForwardHeader: true,
+          authResponseHeaders: ["X-Auth-Request-Email", "X-Auth-Request-User", "X-Auth-Request-Groups"],
+        },
+      }
+
+      middlewares["siteio-authz"] = {
+        forwardAuth: {
+          address: `http://host.docker.internal:${fileServerPort}/auth/check`,
+          trustForwardHeader: true,
+        },
+      }
     }
 
     // Add a router for each static site
