@@ -456,8 +456,9 @@ log:
       `OAUTH2_PROXY_WHITELIST_DOMAINS=.${domain}`,
       "-e",
       "OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180",
-      // Don't set REDIRECT_URL - let oauth2-proxy auto-generate from request host
-      // This allows callbacks to come to the same subdomain that initiated the flow
+      // Set redirect URL to auth subdomain for centralized OAuth callback
+      "-e",
+      `OAUTH2_PROXY_REDIRECT_URL=https://auth.${domain}/oauth2/callback`,
       "-e",
       "OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true",
       "-e",
@@ -591,7 +592,10 @@ log:
     // Start shared nginx container for static sites
     await this.startNginx()
 
-    // OAuth proxy is not started - OAuth enforcement not yet implemented
+    // Start OAuth proxy if configured
+    if (this.hasOAuthConfig()) {
+      await this.startOAuthProxy()
+    }
   }
 
   // Query Traefik API to get TLS status for a router
@@ -723,6 +727,9 @@ log:
   stop(): void {
     // Stop nginx
     this.stopNginx()
+
+    // Stop OAuth proxy
+    this.stopOAuthProxy()
 
     if (this.containerExists(TRAEFIK_CONTAINER_NAME)) {
       console.log("> Stopping Traefik container...")
