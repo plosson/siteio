@@ -290,11 +290,12 @@ log:
       }
 
       // Redirect to OAuth sign-in when unauthenticated (401)
+      // Use /oauth2/start without rd param - oauth2-proxy reads redirect from X-Forwarded-Uri header
       middlewares["oauth-errors"] = {
         errors: {
           status: ["401"],
           service: "oauth2-proxy-service",
-          query: "/oauth2/sign_in?rd={url}",
+          query: "/oauth2/start",
         },
       }
     }
