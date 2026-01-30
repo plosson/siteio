@@ -701,7 +701,9 @@ export class AgentServer {
       }
 
       // Build Traefik labels for routing
-      const labels = this.docker.buildTraefikLabels(name, app.domains, app.internalPort)
+      // Use default subdomain if no custom domains specified
+      const domains = app.domains.length > 0 ? app.domains : [`${name}.${this.config.domain}`]
+      const labels = this.docker.buildTraefikLabels(name, domains, app.internalPort)
 
       // Run container
       const containerId = await this.docker.run({

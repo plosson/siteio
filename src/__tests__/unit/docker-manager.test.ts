@@ -1,8 +1,13 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { DockerManager } from "../../lib/agent/docker"
+
+function isDockerAvailable(): boolean {
+  const result = Bun.spawnSync({ cmd: ["docker", "info"], stdout: "pipe", stderr: "pipe" })
+  return result.exitCode === 0
+}
 
 describe("Unit: DockerManager", () => {
   let testDir: string
@@ -136,6 +141,129 @@ describe("Unit: DockerManager", () => {
       const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80, false)
 
       expect(labels["traefik.http.routers.siteio-myapp.middlewares"]).toBeUndefined()
+    })
+  })
+
+  describe("build", () => {
+    test("should build image from Dockerfile in context subdirectory", async () => {
+      if (!isDockerAvailable()) {
+        console.log("Test skipped: Docker not available")
+        return
+      }
+
+      // Create a context directory structure: repo/services/api/Dockerfile
+      const repoDir = join(testDir, "repo")
+      const contextDir = join(repoDir, "services", "api")
+      mkdirSync(contextDir, { recursive: true })
+
+      // Create a minimal Dockerfile
+      writeFileSync(
+        join(contextDir, "Dockerfile"),
+        `FROM alpine:latest
+CMD ["echo", "hello"]
+`
+      )
+
+      const tag = "siteio-build-test:latest"
+
+      // This should work - the fix ensures dockerfile path is joined with contextPath
+      const result = await docker.build({
+        contextPath: contextDir,
+        dockerfile: "Dockerfile",
+        tag,
+      })
+
+      expect(result).toBe(tag)
+
+      // Verify image was created
+      expect(docker.imageExists(tag)).toBe(true)
+
+      // Cleanup
+      await docker.removeImage(tag)
+    })
+
+    test("should build image with nested Dockerfile path in context", async () => {
+      if (!isDockerAvailable()) {
+        console.log("Test skipped: Docker not available")
+        return
+      }
+
+      // Create context with Dockerfile in a subdirectory: context/docker/Dockerfile.prod
+      const contextDir = join(testDir, "myapp")
+      const dockerDir = join(contextDir, "docker")
+      mkdirSync(dockerDir, { recursive: true })
+
+      writeFileSync(
+        join(dockerDir, "Dockerfile.prod"),
+        `FROM alpine:latest
+CMD ["echo", "production"]
+`
+      )
+
+      const tag = "siteio-nested-dockerfile-test:latest"
+
+      const result = await docker.build({
+        contextPath: contextDir,
+        dockerfile: "docker/Dockerfile.prod",
+        tag,
+      })
+
+      expect(result).toBe(tag)
+      expect(docker.imageExists(tag)).toBe(true)
+
+      // Cleanup
+      await docker.removeImage(tag)
+    })
+
+    test("should fail when Dockerfile does not exist", async () => {
+      if (!isDockerAvailable()) {
+        console.log("Test skipped: Docker not available")
+        return
+      }
+
+      const contextDir = join(testDir, "empty-context")
+      mkdirSync(contextDir, { recursive: true })
+
+      await expect(
+        docker.build({
+          contextPath: contextDir,
+          dockerfile: "Dockerfile",
+          tag: "should-not-exist:latest",
+        })
+      ).rejects.toThrow()
+    })
+
+    test("should pass --no-cache flag when specified", async () => {
+      if (!isDockerAvailable()) {
+        console.log("Test skipped: Docker not available")
+        return
+      }
+
+      const contextDir = join(testDir, "nocache-test")
+      mkdirSync(contextDir, { recursive: true })
+
+      writeFileSync(
+        join(contextDir, "Dockerfile"),
+        `FROM alpine:latest
+CMD ["echo", "no-cache-test"]
+`
+      )
+
+      const tag = "siteio-nocache-test:latest"
+
+      // Build with no-cache
+      const result = await docker.build({
+        contextPath: contextDir,
+        dockerfile: "Dockerfile",
+        tag,
+        noCache: true,
+      })
+
+      expect(result).toBe(tag)
+      expect(docker.imageExists(tag)).toBe(true)
+
+      // Cleanup
+      await docker.removeImage(tag)
     })
   })
 })

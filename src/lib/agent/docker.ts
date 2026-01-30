@@ -328,7 +328,8 @@ export class DockerManager {
    * Build a Docker image from a Dockerfile
    */
   async build(config: BuildConfig): Promise<string> {
-    const args: string[] = ["build", "-t", config.tag, "-f", config.dockerfile]
+    const dockerfilePath = join(config.contextPath, config.dockerfile)
+    const args: string[] = ["build", "-t", config.tag, "-f", dockerfilePath]
 
     if (config.noCache) {
       args.push("--no-cache")
