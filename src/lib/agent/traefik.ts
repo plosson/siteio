@@ -1,6 +1,7 @@
 import { existsSync, writeFileSync, mkdirSync, readFileSync } from "fs"
 import { join } from "path"
 import { spawn, spawnSync } from "bun"
+import { connect as tlsConnect, type PeerCertificate } from "tls"
 import type { SiteMetadata, AgentOAuthConfig } from "../../types.ts"
 
 const TRAEFIK_CONTAINER_NAME = "siteio-traefik"
@@ -629,42 +630,46 @@ log:
     }
   }
 
-  // Get domains that have issued certificates from acme.json
-  private getIssuedCertDomains(): Set<string> {
-    const domains = new Set<string>()
-    const acmePath = join(this.certsDir, "acme.json")
+  // Verify actual certificate being served by making TLS connection
+  private verifyActualCert(domain: string): Promise<"valid" | "pending" | "error"> {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        socket.destroy()
+        resolve("error")
+      }, 5000)
 
-    try {
-      if (!existsSync(acmePath)) {
-        return domains
-      }
-      const acmeData = JSON.parse(readFileSync(acmePath, "utf-8"))
-      const certs = acmeData?.letsencrypt?.Certificates || []
+      const socket = tlsConnect(
+        443,
+        domain,
+        {
+          servername: domain,
+          rejectUnauthorized: false, // Allow self-signed to get cert info
+        },
+        () => {
+          clearTimeout(timeout)
+          const cert = socket.getPeerCertificate() as PeerCertificate & { issuer?: { O?: string } }
+          socket.end()
 
-      for (const cert of certs) {
-        const main = cert?.domain?.main
-        if (main) {
-          domains.add(main)
+          // Check if issuer is Let's Encrypt
+          if (cert?.issuer?.O === "Let's Encrypt") {
+            resolve("valid")
+          } else {
+            // Still serving default/self-signed cert
+            resolve("pending")
+          }
         }
-        // Also add SANs if present
-        const sans = cert?.domain?.sans || []
-        for (const san of sans) {
-          domains.add(san)
-        }
-      }
-    } catch {
-      // Failed to read acme.json
-    }
+      )
 
-    return domains
+      socket.on("error", () => {
+        clearTimeout(timeout)
+        resolve("error")
+      })
+    })
   }
 
   // Get TLS status for all routers
   async getAllRoutersTlsStatus(): Promise<Map<string, "valid" | "pending" | "error" | "none">> {
     const statusMap = new Map<string, "valid" | "pending" | "error" | "none">()
-
-    // Get domains that have actual issued certificates
-    const issuedCerts = this.getIssuedCertDomains()
 
     try {
       const response = await fetch("http://127.0.0.1:8080/api/http/routers")
@@ -677,6 +682,9 @@ log:
         tls?: { certResolver?: string }
         status?: string
       }>
+
+      // Collect domains to verify in parallel
+      const domainsToVerify: Array<{ baseName: string; domain: string }> = []
 
       for (const router of routers) {
         // Extract the base name (e.g., "site-mysite@file" -> "site-mysite")
@@ -691,12 +699,27 @@ log:
           const domainMatch = router.rule.match(/Host\(`([^`]+)`\)/)
           const domain = domainMatch?.[1]
 
-          if (domain && issuedCerts.has(domain)) {
-            statusMap.set(baseName, "valid")
+          if (domain && domain.includes(".")) {
+            // Valid domain - queue for verification
+            domainsToVerify.push({ baseName, domain })
           } else {
-            // TLS configured but cert not yet issued
-            statusMap.set(baseName, "pending")
+            // Invalid domain (e.g., "siteio-nginx-demo" without dots)
+            statusMap.set(baseName, "error")
           }
+        }
+      }
+
+      // Verify actual certs in parallel
+      if (domainsToVerify.length > 0) {
+        const results = await Promise.all(
+          domainsToVerify.map(async ({ baseName, domain }) => {
+            const status = await this.verifyActualCert(domain)
+            return { baseName, status }
+          })
+        )
+
+        for (const { baseName, status } of results) {
+          statusMap.set(baseName, status)
         }
       }
     } catch {
