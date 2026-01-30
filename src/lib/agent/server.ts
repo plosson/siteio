@@ -797,49 +797,8 @@ export class AgentServer {
     }
   }
 
-  // Auth check for Traefik forwardAuth middleware
-  private handleAuthCheck(req: Request): Response {
-    const host = req.headers.get("host") || req.headers.get("x-forwarded-host") || ""
-    const hostWithoutPort = host.split(":")[0] || ""
-
-    // Extract app name from host (e.g., "myapp.test.siteio.me" -> "myapp")
-    const domainSuffix = `.${this.config.domain}`
-    if (!hostWithoutPort || !hostWithoutPort.endsWith(domainSuffix)) {
-      // Not a request for our domain, allow passthrough
-      return new Response(null, { status: 200 })
-    }
-
-    const appName = hostWithoutPort.slice(0, -domainSuffix.length)
-    if (!appName || appName === "api") {
-      // API requests or invalid names, allow passthrough
-      return new Response(null, { status: 200 })
-    }
-
-    // Look up the app
-    const app = this.appStorage.get(appName)
-    if (!app) {
-      // App not found, allow passthrough (might be a static site handled differently)
-      return new Response(null, { status: 200 })
-    }
-
-    // Check if OAuth is configured for this app
-    if (!app.oauth) {
-      // No OAuth configured, allow access
-      return new Response(null, { status: 200 })
-    }
-
-    // OAuth is required - check for authenticated user
-    // oauth2-proxy sends X-Forwarded-Email in reverse proxy mode
-    // and X-Auth-Request-Email in forwardAuth mode
-    const email = (req.headers.get("X-Forwarded-Email") || req.headers.get("X-Auth-Request-Email"))?.toLowerCase()
-    if (!email) {
-      // Not authenticated
-      return new Response("Authentication required", { status: 401 })
-    }
-
-    // Check authorization
-    const oauth = app.oauth
-
+  // Helper to check if an email is authorized for an OAuth config
+  private checkOAuthAuthorization(oauth: SiteOAuth, email: string): Response {
     // Check allowedEmails
     if (oauth.allowedEmails && oauth.allowedEmails.length > 0) {
       if (oauth.allowedEmails.map((e) => e.toLowerCase()).includes(email)) {
@@ -873,6 +832,57 @@ export class AgentServer {
 
     // None of the checks passed - forbidden
     return new Response("Access denied", { status: 403 })
+  }
+
+  // Auth check for Traefik forwardAuth middleware
+  private handleAuthCheck(req: Request): Response {
+    const host = req.headers.get("host") || req.headers.get("x-forwarded-host") || ""
+    const hostWithoutPort = host.split(":")[0] || ""
+
+    // Extract subdomain from host (e.g., "myapp.test.siteio.me" -> "myapp")
+    const domainSuffix = `.${this.config.domain}`
+    if (!hostWithoutPort || !hostWithoutPort.endsWith(domainSuffix)) {
+      // Not a request for our domain, allow passthrough
+      return new Response(null, { status: 200 })
+    }
+
+    const subdomain = hostWithoutPort.slice(0, -domainSuffix.length)
+    if (!subdomain || subdomain === "api") {
+      // API requests or invalid names, allow passthrough
+      return new Response(null, { status: 200 })
+    }
+
+    // Look up OAuth config from app or site
+    let oauth: SiteOAuth | undefined
+
+    // First check if it's a Docker app
+    const app = this.appStorage.get(subdomain)
+    if (app) {
+      oauth = app.oauth
+    } else {
+      // Not an app, check if it's a static site
+      const site = this.storage.getMetadata(subdomain)
+      if (site) {
+        oauth = site.oauth
+      }
+    }
+
+    // No OAuth configured (or resource not found), allow access
+    if (!oauth) {
+      return new Response(null, { status: 200 })
+    }
+
+    // OAuth is required - check for authenticated user
+    // oauth2-proxy sends X-Forwarded-Email in reverse proxy mode
+    // and X-Auth-Request-Email in forwardAuth mode
+    const email = (req.headers.get("X-Forwarded-Email") || req.headers.get("X-Auth-Request-Email"))?.toLowerCase()
+    if (!email) {
+      // Not authenticated
+      return new Response("Authentication required", { status: 401 })
+    }
+
+    // Check authorization against the OAuth config
+    return this.checkOAuthAuthorization(oauth, email)
   }
 
   async start(): Promise<void> {
