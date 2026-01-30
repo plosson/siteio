@@ -288,6 +288,15 @@ log:
           trustForwardHeader: true,
         },
       }
+
+      // Redirect to OAuth sign-in when unauthenticated (401)
+      middlewares["oauth-errors"] = {
+        errors: {
+          status: ["401"],
+          service: "oauth2-proxy-service",
+          query: "/oauth2/sign_in?rd={url}",
+        },
+      }
     }
 
     // Add a router for each static site
@@ -310,7 +319,7 @@ log:
           (site.oauth.allowedGroups && site.oauth.allowedGroups.length > 0)
 
         if (hasRestrictions) {
-          router.middlewares = ["oauth2-proxy-auth", "siteio-authz"]
+          router.middlewares = ["oauth-errors", "oauth2-proxy-auth", "siteio-authz"]
         }
       }
 
