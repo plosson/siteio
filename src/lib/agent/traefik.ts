@@ -273,6 +273,28 @@ log:
         },
       }
 
+      // Logout route - redirects to oauth2-proxy sign_out with Auth0 logout
+      const logoutRedirectUrl = encodeURIComponent(
+        `https://${oauthConfig.issuerUrl.replace(/\/$/, "")}/v2/logout?client_id=${oauthConfig.clientId}&returnTo=https://auth.${domain}/`
+      )
+      routers["logout-router"] = {
+        rule: `Host(\`auth.${domain}\`) && Path(\`/logout\`)`,
+        entryPoints: ["websecure"],
+        service: "oauth2-proxy-service",
+        middlewares: ["logout-redirect"],
+        tls: {
+          certResolver: "letsencrypt",
+        },
+        priority: 100, // Higher priority than auth-router
+      }
+
+      middlewares["logout-redirect"] = {
+        redirectRegex: {
+          regex: ".*",
+          replacement: `https://auth.${domain}/oauth2/sign_out?rd=${logoutRedirectUrl}`,
+        },
+      }
+
       // Global OAuth middlewares
       // Use root path (/) instead of /oauth2/auth - oauth2-proxy handles redirects automatically
       // Requires OAUTH2_PROXY_UPSTREAMS=static://202 to return 202 when authenticated
@@ -504,7 +526,7 @@ log:
       "-e",
       "OAUTH2_PROXY_PASS_USER_HEADERS=true",
       "-e",
-      `OAUTH2_PROXY_WHITELIST_DOMAINS=.${domain}`,
+      `OAUTH2_PROXY_WHITELIST_DOMAINS=.${domain},${new URL(oauthConfig.issuerUrl).hostname}`,
       "-e",
       "OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180",
       // Set redirect URL to auth subdomain for centralized OAuth callback
