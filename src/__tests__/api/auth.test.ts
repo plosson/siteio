@@ -4,7 +4,7 @@ import { mkdirSync, rmSync, existsSync, writeFileSync } from "fs"
 import { join } from "path"
 import { zipSync } from "fflate"
 
-describe("API: Auth", () => {
+describe("API: /auth/check endpoint - Apps", () => {
   const TEST_DATA_DIR = join(import.meta.dir, ".test-data-auth-check")
   const TEST_API_KEY = "test-api-key-auth"
   const TEST_DOMAIN = "test.siteio.me"
@@ -243,7 +243,7 @@ describe("API: Auth", () => {
   })
 })
 
-describe("API: Auth - Static Sites", () => {
+describe("API: /auth/check endpoint - Sites", () => {
   const TEST_DATA_DIR = join(import.meta.dir, ".test-data-site-auth")
   const TEST_API_KEY = "test-api-key-site-auth"
   const TEST_DOMAIN = "test.siteio.me"
