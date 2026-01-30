@@ -148,6 +148,135 @@ describe("API: /auth/check endpoint - Apps", () => {
     expect(checkRes.status).toBe(403)
   })
 
+  it("returns 403 with HTML content type", async () => {
+    await fetch(`${baseUrl}/apps`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": TEST_API_KEY,
+      },
+      body: JSON.stringify({
+        name: "html-type-app",
+        image: "nginx:alpine",
+        internalPort: 80,
+        oauth: {
+          allowedEmails: ["allowed@example.com"],
+        },
+      }),
+    })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        "Host": `html-type-app.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "denied@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(403)
+    expect(checkRes.headers.get("Content-Type")).toBe("text/html; charset=utf-8")
+  })
+
+  it("403 HTML includes user email", async () => {
+    await fetch(`${baseUrl}/apps`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": TEST_API_KEY,
+      },
+      body: JSON.stringify({
+        name: "email-display-app",
+        image: "nginx:alpine",
+        internalPort: 80,
+        oauth: {
+          allowedEmails: ["allowed@example.com"],
+        },
+      }),
+    })
+
+    const testEmail = "userdisplay@test.com"
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        "Host": `email-display-app.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": testEmail,
+      },
+    })
+    expect(checkRes.status).toBe(403)
+    const html = await checkRes.text()
+    expect(html).toContain(testEmail)
+  })
+
+  it("403 HTML includes logout link with correct URL pattern", async () => {
+    await fetch(`${baseUrl}/apps`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": TEST_API_KEY,
+      },
+      body: JSON.stringify({
+        name: "logout-link-app",
+        image: "nginx:alpine",
+        internalPort: 80,
+        oauth: {
+          allowedEmails: ["allowed@example.com"],
+        },
+      }),
+    })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        "Host": `logout-link-app.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "denied@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(403)
+    const html = await checkRes.text()
+    // Check logout link pattern: https://auth.{domain}/oauth2/sign_out?rd=...
+    expect(html).toContain(`https://auth.${TEST_DOMAIN}/oauth2/sign_out?rd=`)
+  })
+
+  it("403 HTML works with different email addresses", async () => {
+    await fetch(`${baseUrl}/apps`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": TEST_API_KEY,
+      },
+      body: JSON.stringify({
+        name: "dynamic-email-app",
+        image: "nginx:alpine",
+        internalPort: 80,
+        oauth: {
+          allowedEmails: ["allowed@example.com"],
+        },
+      }),
+    })
+
+    // Test with first email
+    const email1 = "first.user@company.org"
+    const res1 = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        "Host": `dynamic-email-app.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": email1,
+      },
+    })
+    expect(res1.status).toBe(403)
+    const html1 = await res1.text()
+    expect(html1).toContain(email1)
+    expect(html1).not.toContain("second.user@another.net")
+
+    // Test with second email
+    const email2 = "second.user@another.net"
+    const res2 = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        "Host": `dynamic-email-app.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": email2,
+      },
+    })
+    expect(res2.status).toBe(403)
+    const html2 = await res2.text()
+    expect(html2).toContain(email2)
+    expect(html2).not.toContain(email1)
+  })
+
   it("returns 200 when email matches allowedDomain", async () => {
     await fetch(`${baseUrl}/apps`, {
       method: "POST",
@@ -395,6 +524,83 @@ describe("API: /auth/check endpoint - Sites", () => {
       },
     })
     expect(checkRes.status).toBe(403)
+  })
+
+  it("returns 403 with HTML content type", async () => {
+    await deploySite("html-type-site")
+    await setOAuth("html-type-site", { allowedEmails: ["allowed@example.com"] })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `html-type-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "denied@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(403)
+    expect(checkRes.headers.get("Content-Type")).toBe("text/html; charset=utf-8")
+  })
+
+  it("403 HTML includes user email", async () => {
+    await deploySite("email-display-site")
+    await setOAuth("email-display-site", { allowedEmails: ["allowed@example.com"] })
+
+    const testEmail = "sitedisplay@test.com"
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `email-display-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": testEmail,
+      },
+    })
+    expect(checkRes.status).toBe(403)
+    const html = await checkRes.text()
+    expect(html).toContain(testEmail)
+  })
+
+  it("403 HTML includes logout link with correct URL pattern", async () => {
+    await deploySite("logout-link-site")
+    await setOAuth("logout-link-site", { allowedEmails: ["allowed@example.com"] })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `logout-link-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": "denied@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(403)
+    const html = await checkRes.text()
+    // Check logout link pattern: https://auth.{domain}/oauth2/sign_out?rd=...
+    expect(html).toContain(`https://auth.${TEST_DOMAIN}/oauth2/sign_out?rd=`)
+  })
+
+  it("403 HTML works with different email addresses", async () => {
+    await deploySite("dynamic-email-site")
+    await setOAuth("dynamic-email-site", { allowedEmails: ["allowed@example.com"] })
+
+    // Test with first email
+    const email1 = "first.site.user@company.org"
+    const res1 = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `dynamic-email-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": email1,
+      },
+    })
+    expect(res1.status).toBe(403)
+    const html1 = await res1.text()
+    expect(html1).toContain(email1)
+    expect(html1).not.toContain("second.site.user@another.net")
+
+    // Test with second email
+    const email2 = "second.site.user@another.net"
+    const res2 = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: `dynamic-email-site.${TEST_DOMAIN}`,
+        "X-Forwarded-Email": email2,
+      },
+    })
+    expect(res2.status).toBe(403)
+    const html2 = await res2.text()
+    expect(html2).toContain(email2)
+    expect(html2).not.toContain(email1)
   })
 
   it("returns 200 when email matches allowedDomain", async () => {
