@@ -131,7 +131,7 @@ siteio sites info <subdomain>
 siteio sites download <subdomain> <output-folder>
 
 # Remove a deployed site
-siteio sites undeploy <subdomain>
+siteio sites rm <subdomain>
 \`\`\`
 
 ## Editing an Existing Site
