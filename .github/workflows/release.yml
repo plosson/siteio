@@ -60,8 +60,9 @@ jobs:
             artifact: siteio-linux-x64
           - target: linux-arm64
             artifact: siteio-linux-arm64
-          - target: windows-x64
-            artifact: siteio-windows-x64.exe
+          # Windows build disabled for now
+          # - target: windows-x64
+          #   artifact: siteio-windows-x64.exe
 
     steps:
       - name: Checkout
