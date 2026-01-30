@@ -216,6 +216,20 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).not.toContain("siteio-auth")
   })
 
+  it("generates static config with API enabled", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+    })
+
+    const staticConfig = traefik.generateStaticConfig()
+    expect(staticConfig).toContain("api:")
+    expect(staticConfig).toContain("insecure: true")
+  })
+
   it("correctly handles multiple sites with mixed OAuth settings", () => {
     const traefik = new TraefikManager({
       dataDir: TEST_DATA_DIR,

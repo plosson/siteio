@@ -85,6 +85,7 @@ export interface AppInfo {
   createdAt: string
   commitHash?: string
   lastBuildAt?: string
+  tls?: TlsStatus
 }
 
 // Container logs response
@@ -114,6 +115,9 @@ export interface Group {
   emails: string[]
 }
 
+// TLS certificate status
+export type TlsStatus = "valid" | "pending" | "error" | "none"
+
 // Site information
 export interface SiteInfo {
   subdomain: string
@@ -121,6 +125,7 @@ export interface SiteInfo {
   size: number
   deployedAt: string
   oauth?: SiteOAuth
+  tls?: TlsStatus
 }
 
 // Config stored in ~/.config/siteio/config.json

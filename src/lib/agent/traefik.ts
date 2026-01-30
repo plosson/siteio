@@ -188,7 +188,7 @@ server {
     return `
 api:
   dashboard: false
-  insecure: false
+  insecure: true
 
 entryPoints:
   web:
@@ -551,6 +551,9 @@ log:
       `${httpPort}:${httpPort}`,
       "-p",
       `${httpsPort}:${httpsPort}`,
+      // Traefik API port (localhost only for internal access)
+      "-p",
+      "127.0.0.1:8080:8080",
       // Mount Docker socket for container discovery
       "-v",
       "/var/run/docker.sock:/var/run/docker.sock:ro",
@@ -597,6 +600,67 @@ log:
     if (this.config.oauthConfig) {
       await this.startOAuthProxy()
     }
+  }
+
+  // Query Traefik API to get TLS status for a router
+  async getRouterTlsStatus(routerName: string): Promise<"valid" | "pending" | "error" | "none"> {
+    try {
+      const response = await fetch(`http://127.0.0.1:8080/api/http/routers/${routerName}@file`)
+      if (!response.ok) {
+        return "pending" // Router not found yet
+      }
+      const router = (await response.json()) as {
+        tls?: { certResolver?: string }
+        status?: string
+      }
+
+      if (!router.tls) {
+        return "none" // No TLS configured
+      }
+
+      // Check if router status indicates an error
+      if (router.status === "disabled") {
+        return "error"
+      }
+
+      return "valid"
+    } catch {
+      return "pending" // API not available or error
+    }
+  }
+
+  // Get TLS status for all routers
+  async getAllRoutersTlsStatus(): Promise<Map<string, "valid" | "pending" | "error" | "none">> {
+    const statusMap = new Map<string, "valid" | "pending" | "error" | "none">()
+
+    try {
+      const response = await fetch("http://127.0.0.1:8080/api/http/routers")
+      if (!response.ok) {
+        return statusMap
+      }
+      const routers = (await response.json()) as Array<{
+        name: string
+        tls?: { certResolver?: string }
+        status?: string
+      }>
+
+      for (const router of routers) {
+        // Extract the base name (e.g., "site-mysite@file" -> "site-mysite")
+        const baseName = router.name.split("@")[0] || router.name
+
+        if (!router.tls) {
+          statusMap.set(baseName, "none")
+        } else if (router.status === "disabled") {
+          statusMap.set(baseName, "error")
+        } else {
+          statusMap.set(baseName, "valid")
+        }
+      }
+    } catch {
+      // API not available
+    }
+
+    return statusMap
   }
 
   stop(): void {
