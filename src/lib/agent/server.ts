@@ -498,7 +498,7 @@ export class AgentServer {
 
     const appInfos: AppInfo[] = apps.map((app) => ({
       ...this.appStorage.toInfo(app),
-      tls: tlsStatusMap.get(app.name) || "pending",
+      tls: tlsStatusMap.get(`siteio-${app.name}`) || "pending",
     }))
     return this.json(appInfos)
   }
