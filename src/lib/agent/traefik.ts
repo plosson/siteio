@@ -233,10 +233,6 @@ log:
     // Use host.docker.internal to reach the host from container
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
 
-    // OAuth enforcement is not yet implemented
-    // Site/app OAuth settings are stored but not enforced
-    // TODO: Implement OAuth with proper redirect flow
-
     // Add API router (reserved subdomain)
     routers["api-router"] = {
       rule: `Host(\`api.${domain}\`)`,
@@ -306,8 +302,17 @@ log:
         },
       }
 
-      // OAuth settings are stored but not enforced yet
-      // TODO: Implement OAuth enforcement
+      // Add OAuth middlewares if site has restrictions and global OAuth is configured
+      if (oauthConfig && site.oauth) {
+        const hasRestrictions =
+          (site.oauth.allowedEmails && site.oauth.allowedEmails.length > 0) ||
+          site.oauth.allowedDomain ||
+          (site.oauth.allowedGroups && site.oauth.allowedGroups.length > 0)
+
+        if (hasRestrictions) {
+          router.middlewares = ["oauth2-proxy-auth", "siteio-authz"]
+        }
+      }
 
       routers[routerName] = router
     }
