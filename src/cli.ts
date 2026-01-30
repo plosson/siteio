@@ -94,11 +94,11 @@ sites
   })
 
 sites
-  .command("undeploy <subdomain>")
+  .command("rm <subdomain>")
   .description("Remove a deployed site")
   .action(async (subdomain) => {
-    const { undeployCommand } = await import("./commands/sites/undeploy.ts")
-    await undeployCommand(subdomain, { json: program.opts().json })
+    const { rmCommand } = await import("./commands/sites/rm.ts")
+    await rmCommand(subdomain, { json: program.opts().json })
   })
 
 sites

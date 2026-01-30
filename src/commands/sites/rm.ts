@@ -1,10 +1,9 @@
 import ora from "ora"
-import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 
-export async function undeployCommand(subdomain: string, options: { json?: boolean } = {}): Promise<void> {
+export async function rmCommand(subdomain: string, options: { json?: boolean } = {}): Promise<void> {
   const spinner = ora()
 
   try {
@@ -16,12 +15,12 @@ export async function undeployCommand(subdomain: string, options: { json?: boole
       throw new ValidationError("Invalid subdomain format")
     }
 
-    spinner.start(`Undeploying ${subdomain}`)
+    spinner.start(`Removing ${subdomain}`)
 
     const client = new SiteioClient()
     await client.undeploySite(subdomain)
 
-    spinner.succeed(`Undeployed ${subdomain}`)
+    spinner.succeed(`Removed ${subdomain}`)
 
     if (options.json) {
       console.log(JSON.stringify({ success: true, data: { subdomain } }, null, 2))

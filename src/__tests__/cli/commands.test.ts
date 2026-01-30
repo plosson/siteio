@@ -97,7 +97,7 @@ describe("CLI: Commands", () => {
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain("deploy")
     expect(result.stdout).toContain("list")
-    expect(result.stdout).toContain("undeploy")
+    expect(result.stdout).toContain("rm <subdomain>")
   })
 
   test("should list empty sites via CLI", async () => {
@@ -142,7 +142,7 @@ describe("CLI: Commands", () => {
   })
 
   test("should undeploy site via CLI", async () => {
-    const result = await runCli(["sites", "undeploy", "inttest"])
+    const result = await runCli(["sites", "rm", "inttest"])
     expect(result.exitCode).toBe(0)
 
     // Verify it's gone
@@ -167,7 +167,7 @@ describe("CLI: Commands", () => {
       expect(jsonOutput.data.subdomain).toBe("my-cool-site")
 
       // Cleanup
-      await runCli(["sites", "undeploy", "my-cool-site"])
+      await runCli(["sites", "rm", "my-cool-site"])
     } finally {
       rmSync(namedDir, { recursive: true })
     }
