@@ -171,6 +171,7 @@ describe("Unit: TraefikManager", () => {
     let hasMiddlewares = false
     for (let i = publicSiteIndex + 1; i < lines.length; i++) {
       const line = lines[i]
+      if (!line) continue
       // If we hit another top-level router key (4 spaces), stop
       if (line.match(/^ {4}\w+-[\w-]+:$/)) {
         break
