@@ -470,7 +470,7 @@ log:
       "--name",
       OAUTH_PROXY_CONTAINER_NAME,
       "--network",
-      NETWORK_NAME,
+      "siteio-network",
       "--restart",
       "unless-stopped",
       "--add-host",
