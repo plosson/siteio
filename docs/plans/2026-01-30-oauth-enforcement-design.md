@@ -194,6 +194,89 @@ Implemented as inline HTML string in server.ts (~20 lines).
 | Cookie expires mid-session | oauth2-proxy redirects to login (transparent) |
 | OIDC provider down | Login fails at provider level |
 
+## Testing Strategy
+
+Hybrid approach: mocked unit tests + mock OIDC server for E2E + optional real provider for manual testing.
+
+### Level 1: Unit Tests (Mocked)
+
+Test `/auth/check` authorization logic without oauth2-proxy:
+
+```typescript
+// Mock the email header directly
+const response = await fetch('/auth/check', {
+  headers: {
+    'Host': 'protected-site.example.com',
+    'X-Auth-Request-Email': 'user@allowed.com'
+  }
+});
+expect(response.status).toBe(200);
+```
+
+**What to test:**
+- Allowed email returns 200
+- Disallowed email returns 403 with HTML page
+- Allowed domain matching works
+- Group membership resolves correctly
+- Missing email header returns 401
+- Site without oauth config returns 200 (public)
+
+### Level 2: E2E Tests (Mock OIDC Server)
+
+Use `oauth2-proxy` with a mock OIDC server for full flow testing.
+
+**Mock OIDC Server**: Use `oauth2-proxy/mockoidc` or `navikt/mock-oauth2-server`:
+
+```yaml
+# docker-compose.test.yml
+services:
+  mock-oidc:
+    image: ghcr.io/navikt/mock-oauth2-server:2.1.0
+    ports:
+      - "8080:8080"
+    environment:
+      JSON_CONFIG: |
+        {
+          "interactiveLogin": false,
+          "staticUserinfo": {
+            "email": "testuser@example.com"
+          }
+        }
+```
+
+**Test flow:**
+1. Start mock OIDC server + oauth2-proxy + siteio agent
+2. Request protected site
+3. Follow redirects through mock login (auto-approves)
+4. Verify access granted with correct email
+5. Test 403 flow with wrong email in mock config
+
+### Level 3: Manual Testing (Real Provider)
+
+For real-world validation, use Auth0 or Google:
+
+1. Create Auth0 dev account (free tier)
+2. Configure `http://localhost:3000/oauth2/callback` as allowed callback
+3. Run siteio locally with Auth0 credentials
+4. Test full flow manually in browser
+
+**When to use:**
+- Before release
+- Debugging provider-specific issues
+- Testing cookie/session behavior
+
+### Test File Structure
+
+```
+src/__tests__/
+├── api/
+│   └── auth.test.ts          # Existing - expand for 403 page tests
+├── e2e/
+│   └── oauth-flow.test.ts    # New - E2E with mock OIDC
+└── fixtures/
+    └── docker-compose.oauth-test.yml  # Mock OIDC + oauth2-proxy
+```
+
 ## Out of Scope
 
 - Caching auth decisions (every request checks fresh)
