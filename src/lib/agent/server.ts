@@ -810,7 +810,12 @@ export class AgentServer {
   }
 
   // Helper to check if an email is authorized for an OAuth config
-  private checkOAuthAuthorization(oauth: SiteOAuth, email: string): Response {
+  private checkOAuthAuthorization(
+    oauth: SiteOAuth,
+    email: string,
+    domain: string,
+    originalUrl: string
+  ): Response {
     // Check allowedEmails
     if (oauth.allowedEmails && oauth.allowedEmails.length > 0) {
       if (oauth.allowedEmails.map((e) => e.toLowerCase()).includes(email)) {
@@ -842,8 +847,35 @@ export class AgentServer {
       return new Response(null, { status: 200 })
     }
 
-    // None of the checks passed - forbidden
-    return new Response("Access denied", { status: 403 })
+    // None of the checks passed - return styled 403 page
+    const signOutUrl = `https://auth.${domain}/oauth2/sign_out?rd=${encodeURIComponent(originalUrl)}`
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Access Denied</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #f5f5f5; }
+    .container { text-align: center; padding: 2rem; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 400px; }
+    h1 { color: #dc3545; margin-bottom: 1rem; }
+    .email { color: #666; margin-bottom: 1.5rem; word-break: break-all; }
+    a { color: #007bff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Access Denied</h1>
+    <p class="email">Signed in as: <strong>${email}</strong></p>
+    <p><a href="${signOutUrl}">Sign out and try another account</a></p>
+  </div>
+</body>
+</html>`
+    return new Response(html, {
+      status: 403,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    })
   }
 
   // Auth check for Traefik forwardAuth middleware
@@ -893,8 +925,13 @@ export class AgentServer {
       return new Response("Authentication required", { status: 401 })
     }
 
+    // Construct the original URL for the logout redirect
+    const proto = req.headers.get("X-Forwarded-Proto") || "https"
+    const uri = req.headers.get("X-Forwarded-Uri") || req.headers.get("X-Original-URL") || "/"
+    const originalUrl = `${proto}://${host}${uri}`
+
     // Check authorization against the OAuth config
-    return this.checkOAuthAuthorization(oauth, email)
+    return this.checkOAuthAuthorization(oauth, email, this.config.domain, originalUrl)
   }
 
   async start(): Promise<void> {
