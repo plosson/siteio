@@ -469,6 +469,8 @@ log:
       "-d",
       "--name",
       OAUTH_PROXY_CONTAINER_NAME,
+      "--network",
+      NETWORK_NAME,
       "--restart",
       "unless-stopped",
       "--add-host",
