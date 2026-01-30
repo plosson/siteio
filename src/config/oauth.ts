@@ -43,3 +43,11 @@ export function saveOAuthConfig(dataDir: string, config: AgentOAuthConfig): void
 
   writeFileSync(configPath, JSON.stringify(config, null, 2))
 }
+
+/**
+ * Check if OAuth is fully configured (all required fields present).
+ * Returns true only if config exists and has: issuerUrl, clientId, clientSecret, cookieSecret, cookieDomain.
+ */
+export function isOAuthConfigured(dataDir: string): boolean {
+  return loadOAuthConfig(dataDir) !== null
+}
