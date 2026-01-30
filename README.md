@@ -71,28 +71,67 @@ siteio apps deploy mysite
 
 Available at `https://mysite.yourdomain.com`.
 
-### Example 2: Node.js API with Environment Variables
+### Example 2: Deploy from Git Repository
+
+Build and deploy directly from a Git repository:
+
+```bash
+# Create app from GitHub repo
+siteio apps create myapi --git https://github.com/user/myapi --port 3000
+
+# Deploy (clones repo, builds image, runs container)
+siteio apps deploy myapi
+```
+
+With custom options:
+
+```bash
+# Specify branch and Dockerfile
+siteio apps create myapi --git https://github.com/user/myapi \
+  --branch develop \
+  --dockerfile Dockerfile.prod \
+  --port 3000
+
+# Force rebuild without Docker cache
+siteio apps deploy myapi --no-cache
+```
+
+### Example 3: Monorepo Deployment
+
+Deploy a service from a monorepo by specifying the build context:
+
+```bash
+# Deploy backend service from monorepo
+siteio apps create backend --git https://github.com/user/monorepo \
+  --context services/backend \
+  --dockerfile Dockerfile \
+  --port 8080
+
+siteio apps deploy backend
+```
+
+### Example 4: Node.js API with Environment Variables
 
 Deploy a Node.js application with configuration:
 
 ```bash
 # Create the app
-siteio apps create myapi --image node:20-alpine --port 3000
+siteio apps create nodeapi --image node:20-alpine --port 3000
 
 # Configure environment variables
-siteio apps set myapi \
+siteio apps set nodeapi \
   -e NODE_ENV=production \
   -e DATABASE_URL="postgres://user:pass@db.example.com:5432/mydb" \
   -e JWT_SECRET="your-secret-key"
 
 # Set restart policy
-siteio apps set myapi -r unless-stopped
+siteio apps set nodeapi -r unless-stopped
 
 # Deploy
-siteio apps deploy myapi
+siteio apps deploy nodeapi
 ```
 
-### Example 3: PostgreSQL Database with Persistent Storage
+### Example 5: PostgreSQL Database with Persistent Storage
 
 Deploy PostgreSQL with a persistent volume:
 
@@ -112,7 +151,7 @@ siteio apps set postgres \
 siteio apps deploy postgres
 ```
 
-### Example 4: Redis Cache with Custom Domain
+### Example 6: Redis Cache with Custom Domain
 
 Deploy Redis with a custom domain:
 
@@ -130,7 +169,7 @@ siteio apps set redis \
 siteio apps deploy redis
 ```
 
-### Example 5: Full-Stack Application (Multiple Services)
+### Example 7: Full-Stack Application (Multiple Services)
 
 Deploy a complete application stack:
 
