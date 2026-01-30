@@ -33,6 +33,7 @@ export class GitManager {
       cmd: ["git", "clone", "--depth", "1", "--branch", branch, url, targetDir],
       stdout: "pipe",
       stderr: "pipe",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     })
 
     if (result.exitCode !== 0) {
