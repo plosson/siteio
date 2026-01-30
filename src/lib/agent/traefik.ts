@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, writeFileSync, mkdirSync, readFileSync } from "fs"
 import { join } from "path"
 import { spawn, spawnSync } from "bun"
 import type { SiteMetadata, AgentOAuthConfig } from "../../types.ts"
@@ -629,9 +629,42 @@ log:
     }
   }
 
+  // Get domains that have issued certificates from acme.json
+  private getIssuedCertDomains(): Set<string> {
+    const domains = new Set<string>()
+    const acmePath = join(this.certsDir, "acme.json")
+
+    try {
+      if (!existsSync(acmePath)) {
+        return domains
+      }
+      const acmeData = JSON.parse(readFileSync(acmePath, "utf-8"))
+      const certs = acmeData?.letsencrypt?.Certificates || []
+
+      for (const cert of certs) {
+        const main = cert?.domain?.main
+        if (main) {
+          domains.add(main)
+        }
+        // Also add SANs if present
+        const sans = cert?.domain?.sans || []
+        for (const san of sans) {
+          domains.add(san)
+        }
+      }
+    } catch {
+      // Failed to read acme.json
+    }
+
+    return domains
+  }
+
   // Get TLS status for all routers
   async getAllRoutersTlsStatus(): Promise<Map<string, "valid" | "pending" | "error" | "none">> {
     const statusMap = new Map<string, "valid" | "pending" | "error" | "none">()
+
+    // Get domains that have actual issued certificates
+    const issuedCerts = this.getIssuedCertDomains()
 
     try {
       const response = await fetch("http://127.0.0.1:8080/api/http/routers")
@@ -640,6 +673,7 @@ log:
       }
       const routers = (await response.json()) as Array<{
         name: string
+        rule: string
         tls?: { certResolver?: string }
         status?: string
       }>
@@ -653,7 +687,16 @@ log:
         } else if (router.status === "disabled") {
           statusMap.set(baseName, "error")
         } else {
-          statusMap.set(baseName, "valid")
+          // Extract domain from rule (e.g., "Host(`example.com`)" -> "example.com")
+          const domainMatch = router.rule.match(/Host\(`([^`]+)`\)/)
+          const domain = domainMatch?.[1]
+
+          if (domain && issuedCerts.has(domain)) {
+            statusMap.set(baseName, "valid")
+          } else {
+            // TLS configured but cert not yet issued
+            statusMap.set(baseName, "pending")
+          }
         }
       }
     } catch {
