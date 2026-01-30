@@ -274,9 +274,11 @@ log:
       }
 
       // Global OAuth middlewares
+      // Use root path (/) instead of /oauth2/auth - oauth2-proxy handles redirects automatically
+      // Requires OAUTH2_PROXY_UPSTREAMS=static://202 to return 202 when authenticated
       middlewares["oauth2-proxy-auth"] = {
         forwardAuth: {
-          address: `http://${OAUTH_PROXY_CONTAINER_NAME}:4180/oauth2/auth`,
+          address: `http://${OAUTH_PROXY_CONTAINER_NAME}:4180/`,
           trustForwardHeader: true,
           authResponseHeaders: ["X-Auth-Request-Email", "X-Auth-Request-User", "X-Auth-Request-Groups"],
         },
@@ -510,8 +512,9 @@ log:
       `OAUTH2_PROXY_REDIRECT_URL=https://auth.${domain}/oauth2/callback`,
       "-e",
       "OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true",
+      // Use static://202 for forwardAuth mode - returns 202 when authenticated, no proxying
       "-e",
-      `OAUTH2_PROXY_UPSTREAMS=${upstreamUrl}`,
+      "OAUTH2_PROXY_UPSTREAMS=static://202",
       // Allow unverified emails (some OIDC providers don't verify emails by default)
       "-e",
       "OAUTH2_PROXY_INSECURE_OIDC_ALLOW_UNVERIFIED_EMAIL=true",

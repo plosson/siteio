@@ -68,7 +68,7 @@ describe("Unit: TraefikManager", () => {
     // Should have oauth2-proxy-auth middleware
     expect(dynamicConfig).toContain("oauth2-proxy-auth")
     expect(dynamicConfig).toContain("forwardAuth")
-    expect(dynamicConfig).toContain("http://siteio-oauth2-proxy:4180/oauth2/auth")
+    expect(dynamicConfig).toContain("http://siteio-oauth2-proxy:4180/")
     expect(dynamicConfig).toContain("trustForwardHeader")
     expect(dynamicConfig).toContain("X-Auth-Request-Email")
     expect(dynamicConfig).toContain("X-Auth-Request-User")
