@@ -50,9 +50,19 @@ Optional:
 
 ## Releasing
 
+### Version Bumping (Semver)
+
+- **Patch** (1.0.x): Bug fixes, minor tweaks
+- **Minor** (1.x.0): New features, backward compatible
+- **Major** (x.0.0): Breaking changes
+
+### Release Steps
+
 1. Bump version in `package.json`
 2. Commit: `git commit -am "Bump version to X.Y.Z"`
 3. Push: `git push`
 4. Tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
+5. Share the Actions link so user can follow build progress:
+   https://github.com/plosson/siteio/actions
 
 GitHub Actions builds binaries and creates a release when a tag is pushed.
