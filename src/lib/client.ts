@@ -240,7 +240,13 @@ export class SiteioClient {
 
   async createApp(config: {
     name: string
-    image: string
+    image?: string
+    git?: {
+      repoUrl: string
+      branch?: string
+      dockerfile?: string
+      context?: string
+    }
     internalPort?: number
     env?: Record<string, string>
     volumes?: { name: string; mountPath: string }[]
@@ -299,8 +305,9 @@ export class SiteioClient {
     await this.request<ApiResponse<{ deleted: boolean }>>("DELETE", `/apps/${name}`)
   }
 
-  async deployApp(name: string): Promise<AppInfo> {
-    const response = await this.request<ApiResponse<AppInfo>>("POST", `/apps/${name}/deploy`)
+  async deployApp(name: string, options?: { noCache?: boolean }): Promise<AppInfo> {
+    const queryParams = options?.noCache ? "?noCache=true" : ""
+    const response = await this.request<ApiResponse<AppInfo>>("POST", `/apps/${name}/deploy${queryParams}`)
     if (!response.data) {
       throw new ApiError("Invalid response from server")
     }

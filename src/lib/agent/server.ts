@@ -5,6 +5,7 @@ import { loadOAuthConfig } from "../../config/oauth.ts"
 import { GroupStorage } from "./groups.ts"
 import { AppStorage } from "./app-storage.ts"
 import { DockerManager } from "./docker.ts"
+import { GitManager } from "./git.ts"
 
 export class AgentServer {
   private config: AgentConfig
@@ -12,6 +13,7 @@ export class AgentServer {
   private groups: GroupStorage
   private appStorage: AppStorage
   private docker: DockerManager
+  private git: GitManager
   private traefik: TraefikManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
   private oauthConfig: AgentOAuthConfig | null = null
@@ -22,6 +24,7 @@ export class AgentServer {
     this.groups = new GroupStorage(config.dataDir)
     this.appStorage = new AppStorage(config.dataDir)
     this.docker = new DockerManager(config.dataDir)
+    this.git = new GitManager(config.dataDir)
 
     // Load OAuth config if it exists
     this.oauthConfig = loadOAuthConfig(config.dataDir)
@@ -188,7 +191,7 @@ export class AgentServer {
     // POST /apps/:name/deploy - deploy app
     const appDeployMatch = path.match(/^\/apps\/([a-z0-9-]+)\/deploy$/)
     if (appDeployMatch && req.method === "POST") {
-      return this.handleDeployApp(appDeployMatch[1]!)
+      return this.handleDeployApp(appDeployMatch[1]!, url)
     }
 
     // POST /apps/:name/stop - stop app
@@ -501,8 +504,14 @@ export class AgentServer {
       const body = (await req.json()) as {
         name: string
         type?: string
-        image: string
-        internalPort: number
+        image?: string
+        git?: {
+          repoUrl: string
+          branch?: string
+          dockerfile?: string
+          context?: string
+        }
+        internalPort?: number
         domains?: string[]
         env?: Record<string, string>
         volumes?: Array<{ name: string; mountPath: string }>
@@ -514,19 +523,42 @@ export class AgentServer {
         return this.error("App name is required")
       }
 
-      if (!body.image) {
-        return this.error("Image is required")
+      // Must provide either image or git, but not both
+      if (body.image && body.git) {
+        return this.error("Cannot specify both image and git source")
       }
 
-      if (!body.internalPort) {
-        return this.error("Internal port is required")
+      if (!body.image && !body.git) {
+        return this.error("Either image or git source is required")
+      }
+
+      // For git sources, validate required fields
+      if (body.git && !body.git.repoUrl) {
+        return this.error("Git repository URL is required")
+      }
+
+      // Determine the image name
+      let image: string
+      if (body.git) {
+        // For git-based apps, use a local image tag
+        image = this.docker.imageTag(body.name)
+      } else {
+        image = body.image!
       }
 
       const app = this.appStorage.create({
         name: body.name,
         type: (body.type as "static" | "container") || "container",
-        image: body.image,
-        internalPort: body.internalPort,
+        image,
+        git: body.git
+          ? {
+              repoUrl: body.git.repoUrl,
+              branch: body.git.branch || "main",
+              dockerfile: body.git.dockerfile || "Dockerfile",
+              context: body.git.context,
+            }
+          : undefined,
+        internalPort: body.internalPort || 80,
         domains: body.domains || [],
         env: body.env || {},
         volumes: body.volumes || [],
@@ -562,7 +594,7 @@ export class AgentServer {
     }
   }
 
-  private handleDeleteApp(name: string): Response {
+  private async handleDeleteApp(name: string): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -571,9 +603,28 @@ export class AgentServer {
     // Stop container if running
     if (this.docker.containerExists(name)) {
       try {
-        this.docker.remove(name)
+        await this.docker.remove(name)
       } catch {
         // Ignore errors when removing container
+      }
+    }
+
+    // Clean up git repo if it exists
+    if (app.git && this.git.exists(name)) {
+      try {
+        await this.git.remove(name)
+      } catch {
+        // Ignore errors when removing repo
+      }
+    }
+
+    // Clean up built image if it's a git-based app
+    if (app.git) {
+      try {
+        const imageTag = this.docker.imageTag(name)
+        await this.docker.removeImage(imageTag)
+      } catch {
+        // Ignore errors when removing image
       }
     }
 
@@ -585,11 +636,13 @@ export class AgentServer {
     return this.json(null)
   }
 
-  private async handleDeployApp(name: string): Promise<Response> {
+  private async handleDeployApp(name: string, url: URL): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
     }
+
+    const noCache = url.searchParams.get("noCache") === "true"
 
     try {
       // Check Docker availability
@@ -605,8 +658,47 @@ export class AgentServer {
         await this.docker.remove(name)
       }
 
-      // Pull image
-      await this.docker.pull(app.image)
+      let imageToRun: string
+      let commitHash: string | undefined
+      let lastBuildAt: string | undefined
+
+      if (app.git) {
+        // Git-based app: clone and build
+        const { existsSync } = await import("fs")
+        const { join } = await import("path")
+
+        // Clone repository
+        await this.git.clone(name, app.git.repoUrl, app.git.branch)
+
+        const repoPath = this.git.repoPath(name)
+
+        // Determine build context path
+        const contextPath = app.git.context ? join(repoPath, app.git.context) : repoPath
+
+        // Validate Dockerfile exists
+        const dockerfilePath = join(contextPath, app.git.dockerfile)
+        if (!existsSync(dockerfilePath)) {
+          return this.error(`Dockerfile not found at '${app.git.dockerfile}'`, 400)
+        }
+
+        // Build image
+        const imageTag = this.docker.imageTag(name)
+        await this.docker.build({
+          contextPath,
+          dockerfile: app.git.dockerfile,
+          tag: imageTag,
+          noCache,
+        })
+
+        // Get commit hash
+        commitHash = await this.git.getCommitHash(name)
+        lastBuildAt = new Date().toISOString()
+        imageToRun = imageTag
+      } else {
+        // Image-based app: pull from registry
+        await this.docker.pull(app.image)
+        imageToRun = app.image
+      }
 
       // Build Traefik labels for routing
       const labels = this.docker.buildTraefikLabels(name, app.domains, app.internalPort)
@@ -614,7 +706,7 @@ export class AgentServer {
       // Run container
       const containerId = await this.docker.run({
         name: app.name,
-        image: app.image,
+        image: imageToRun,
         internalPort: app.internalPort,
         env: app.env,
         volumes: app.volumes,
@@ -628,6 +720,8 @@ export class AgentServer {
         status: "running",
         containerId,
         deployedAt: new Date().toISOString(),
+        ...(commitHash && { commitHash }),
+        ...(lastBuildAt && { lastBuildAt }),
       })
 
       return this.json(updated)

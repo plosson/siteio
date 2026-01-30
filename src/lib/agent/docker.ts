@@ -15,6 +15,14 @@ export interface ContainerRunConfig {
   command?: string[]
 }
 
+export interface BuildConfig {
+  contextPath: string
+  dockerfile: string
+  tag: string
+  buildArgs?: Record<string, string>
+  noCache?: boolean
+}
+
 export class DockerManager {
   private dataDir: string
   private volumesDir: string
@@ -307,5 +315,70 @@ export class DockerManager {
     }
 
     return labels
+  }
+
+  /**
+   * Generate image tag for a git-built app
+   */
+  imageTag(appName: string): string {
+    return `siteio-${appName}:latest`
+  }
+
+  /**
+   * Build a Docker image from a Dockerfile
+   */
+  async build(config: BuildConfig): Promise<string> {
+    const args: string[] = ["build", "-t", config.tag, "-f", config.dockerfile]
+
+    if (config.noCache) {
+      args.push("--no-cache")
+    }
+
+    if (config.buildArgs) {
+      for (const [key, value] of Object.entries(config.buildArgs)) {
+        args.push("--build-arg", `${key}=${value}`)
+      }
+    }
+
+    args.push(config.contextPath)
+
+    const result = spawnSync({
+      cmd: ["docker", ...args],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    if (result.exitCode !== 0) {
+      throw new SiteioError(`Docker build failed: ${result.stderr.toString()}`)
+    }
+
+    return config.tag
+  }
+
+  /**
+   * Check if a locally built image exists
+   */
+  imageExists(tag: string): boolean {
+    const result = spawnSync({
+      cmd: ["docker", "image", "inspect", tag],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    return result.exitCode === 0
+  }
+
+  /**
+   * Remove a locally built image
+   */
+  async removeImage(tag: string): Promise<void> {
+    const result = spawnSync({
+      cmd: ["docker", "rmi", "-f", tag],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    if (result.exitCode !== 0 && !result.stderr.toString().includes("No such image")) {
+      throw new SiteioError(`Failed to remove image: ${result.stderr.toString()}`)
+    }
   }
 }

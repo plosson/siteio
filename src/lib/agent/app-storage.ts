@@ -107,11 +107,14 @@ export class AppStorage {
       name: app.name,
       type: app.type,
       image: app.image,
+      git: app.git,
       status: app.status,
       domains: app.domains,
       internalPort: app.internalPort,
       deployedAt: app.deployedAt,
       createdAt: app.createdAt,
+      commitHash: app.commitHash,
+      lastBuildAt: app.lastBuildAt,
     }
   }
 

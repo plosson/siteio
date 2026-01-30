@@ -4,9 +4,14 @@ import { SiteioClient } from "../../lib/client.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 
+export interface DeployAppOptions {
+  noCache?: boolean
+  json?: boolean
+}
+
 export async function deployAppCommand(
   name: string,
-  options: { json?: boolean } = {}
+  options: DeployAppOptions = {}
 ): Promise<void> {
   const spinner = ora()
 
@@ -15,10 +20,11 @@ export async function deployAppCommand(
       throw new ValidationError("App name is required")
     }
 
-    spinner.start(`Deploying app ${name}`)
+    const action = options.noCache ? "Building (no cache) and deploying" : "Deploying"
+    spinner.start(`${action} app ${name}`)
 
     const client = new SiteioClient()
-    const app = await client.deployApp(name)
+    const app = await client.deployApp(name, { noCache: options.noCache })
 
     spinner.succeed(`Deployed app ${name}`)
 
