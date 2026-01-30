@@ -96,9 +96,10 @@ sites
 sites
   .command("rm <subdomain>")
   .description("Remove a deployed site")
-  .action(async (subdomain) => {
+  .option("-y, --yes", "Skip confirmation prompt")
+  .action(async (subdomain, options) => {
     const { rmCommand } = await import("./commands/sites/rm.ts")
-    await rmCommand(subdomain, { json: program.opts().json })
+    await rmCommand(subdomain, { ...options, json: program.opts().json })
   })
 
 sites
@@ -184,6 +185,7 @@ apps
   .command("rm <name>")
   .description("Remove an app")
   .option("-f, --force", "Force remove even if running")
+  .option("-y, --yes", "Skip confirmation prompt")
   .action(async (name, options) => {
     const { rmAppCommand } = await import("./commands/apps/rm.ts")
     await rmAppCommand(name, { ...options, json: program.opts().json })

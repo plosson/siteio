@@ -90,6 +90,8 @@ Optional:
 
 ## Releasing
 
+Follow this when the user asks to "release a new version" or mentions "bump the version"
+
 ### Version Bumping (Semver)
 
 - **Patch** (1.0.x): Bug fixes, minor tweaks

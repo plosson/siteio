@@ -3,9 +3,11 @@ import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
+import { confirm } from "../../utils/prompt.ts"
 
 export interface RemoveAppOptions {
   force?: boolean
+  yes?: boolean
   json?: boolean
 }
 
@@ -32,6 +34,14 @@ export async function rmAppCommand(
         console.error(chalk.yellow(`! App '${name}' is currently running.`))
         console.error(chalk.yellow(`  Use --force (-f) to remove a running app.`))
         process.exit(1)
+      }
+    }
+
+    if (!options.yes) {
+      const confirmed = await confirm(`Remove app ${chalk.bold(name)}?`)
+      if (!confirmed) {
+        console.error("Cancelled")
+        process.exit(0)
       }
     }
 

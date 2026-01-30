@@ -1,9 +1,16 @@
 import ora from "ora"
+import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
+import { confirm } from "../../utils/prompt.ts"
 
-export async function rmCommand(subdomain: string, options: { json?: boolean } = {}): Promise<void> {
+export interface RemoveSiteOptions {
+  yes?: boolean
+  json?: boolean
+}
+
+export async function rmCommand(subdomain: string, options: RemoveSiteOptions = {}): Promise<void> {
   const spinner = ora()
 
   try {
@@ -13,6 +20,14 @@ export async function rmCommand(subdomain: string, options: { json?: boolean } =
 
     if (!/^[a-z0-9-]+$/.test(subdomain)) {
       throw new ValidationError("Invalid subdomain format")
+    }
+
+    if (!options.yes) {
+      const confirmed = await confirm(`Remove site ${chalk.bold(subdomain)}?`)
+      if (!confirmed) {
+        console.error("Cancelled")
+        process.exit(0)
+      }
     }
 
     spinner.start(`Removing ${subdomain}`)

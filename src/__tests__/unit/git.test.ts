@@ -40,19 +40,19 @@ describe("GitManager", () => {
       const repoPath = git.repoPath("test-clone")
       expect(existsSync(join(repoPath, ".git"))).toBe(true)
       expect(existsSync(join(repoPath, "README"))).toBe(true)
-    })
+    }, 15000)
 
     test("throws error for non-existent repository", async () => {
       await expect(
         git.clone("test-fail", "https://github.com/nonexistent/repo-that-does-not-exist-12345.git", "main")
       ).rejects.toThrow()
-    })
+    }, 15000)
 
     test("throws error for non-existent branch", async () => {
       await expect(
         git.clone("test-branch-fail", "https://github.com/octocat/Hello-World.git", "nonexistent-branch-xyz")
       ).rejects.toThrow("Branch")
-    })
+    }, 15000)
 
     test("replaces existing repo on re-clone", async () => {
       // Clone first
@@ -67,7 +67,7 @@ describe("GitManager", () => {
 
       // Should have the same commit hash (same repo)
       expect(hash1).toBe(hash2)
-    })
+    }, 30000)
   })
 
   describe("getCommitHash", () => {
@@ -78,7 +78,7 @@ describe("GitManager", () => {
 
       // Commit hash should be 40 characters
       expect(hash).toMatch(/^[a-f0-9]{40}$/)
-    })
+    }, 15000)
 
     test("throws error for non-existent repo", async () => {
       await expect(git.getCommitHash("nonexistent")).rejects.toThrow()
@@ -92,7 +92,7 @@ describe("GitManager", () => {
 
       await git.remove("test-remove")
       expect(git.exists("test-remove")).toBe(false)
-    })
+    }, 15000)
 
     test("does not throw for non-existent repo", async () => {
       await expect(git.remove("nonexistent")).resolves.toBeUndefined()
