@@ -23,12 +23,20 @@ export async function listCommand(options: { json?: boolean } = {}): Promise<voi
     }
 
     // Format the table
-    const headers = ["SUBDOMAIN", "URL", "SIZE", "AUTH", "DEPLOYED"]
+    const headers = ["SUBDOMAIN", "URL", "SIZE", "TLS", "AUTH", "DEPLOYED"]
     const rows = sites.map((site) => {
       const date = new Date(site.deployedAt)
       const dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       const authStr = site.oauth ? chalk.yellow("oauth") : chalk.dim("-")
-      return [site.subdomain, site.url, formatBytes(site.size), authStr, dateStr]
+      const tlsStr =
+        site.tls === "valid"
+          ? chalk.green("✓")
+          : site.tls === "pending"
+            ? chalk.yellow("…")
+            : site.tls === "error"
+              ? chalk.red("✗")
+              : chalk.dim("-")
+      return [site.subdomain, site.url, formatBytes(site.size), tlsStr, authStr, dateStr]
     })
 
     console.log("")

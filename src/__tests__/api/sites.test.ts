@@ -142,6 +142,17 @@ describe("API: Sites", () => {
       expect(data.data?.[0]?.subdomain).toBe(subdomain)
     })
 
+    test("should include tls status in site listing", async () => {
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites`, {
+        headers: { "X-API-Key": TEST_API_KEY },
+      })
+      expect(response.ok).toBe(true)
+      const data = await parseJson<SiteInfo[]>(response)
+      expect(data.success).toBe(true)
+      // TLS status should be "pending" when Traefik is not running (skipTraefik: true)
+      expect(data.data?.[0]?.tls).toBe("pending")
+    })
+
     test("should reject reserved subdomain 'api'", async () => {
       const zipData = zipSync({ "index.html": new TextEncoder().encode("test") })
 

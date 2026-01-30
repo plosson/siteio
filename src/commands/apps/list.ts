@@ -23,13 +23,21 @@ export async function listAppsCommand(options: { json?: boolean } = {}): Promise
     }
 
     // Format the table
-    const headers = ["NAME", "SOURCE", "STATUS", "PORT", "DOMAINS", "DEPLOYED"]
+    const headers = ["NAME", "SOURCE", "STATUS", "TLS", "PORT", "DOMAINS", "DEPLOYED"]
     const rows = apps.map((app) => {
       const date = app.deployedAt ? new Date(app.deployedAt) : null
       const dateStr = date
         ? date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         : chalk.dim("-")
       const domainsStr = app.domains.length > 0 ? app.domains.join(", ") : chalk.dim("-")
+      const tlsStr =
+        app.tls === "valid"
+          ? chalk.green("✓")
+          : app.tls === "pending"
+            ? chalk.yellow("…")
+            : app.tls === "error"
+              ? chalk.red("✗")
+              : chalk.dim("-")
 
       // Format source: show shortened git URL or image name
       let sourceStr: string
@@ -45,6 +53,7 @@ export async function listAppsCommand(options: { json?: boolean } = {}): Promise
         app.name,
         sourceStr,
         formatStatus(app.status),
+        tlsStr,
         String(app.internalPort),
         domainsStr,
         dateStr,

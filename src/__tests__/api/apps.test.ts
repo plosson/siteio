@@ -203,6 +203,14 @@ describe("API: Apps", () => {
       expect(data.data?.length).toBe(1)
       expect(data.data?.[0]?.name).toBe("myapp")
     })
+
+    test("should include tls status in app listing", async () => {
+      const { response } = await request("GET", "/apps")
+      const data = await parseJson<AppInfo[]>(response)
+      expect(data.success).toBe(true)
+      // TLS status should be "pending" when Traefik is not running (skipTraefik: true)
+      expect(data.data?.[0]?.tls).toBe("pending")
+    })
   })
 
   describe("GET /apps/:name - get app details", () => {

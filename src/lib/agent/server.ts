@@ -102,7 +102,7 @@ export class AgentServer {
 
     // GET /sites - list all sites
     if (path === "/sites" && req.method === "GET") {
-      return this.handleListSites()
+      return await this.handleListSites()
     }
 
     // POST /sites/:subdomain - deploy a site
@@ -162,7 +162,7 @@ export class AgentServer {
 
     // GET /apps - list all apps
     if (path === "/apps" && req.method === "GET") {
-      return this.handleListApps()
+      return await this.handleListApps()
     }
 
     // POST /apps - create app
@@ -215,14 +215,19 @@ export class AgentServer {
     return this.error("Not found", 404)
   }
 
-  private handleListSites(): Response {
+  private async handleListSites(): Promise<Response> {
     const sites = this.storage.listSites()
+
+    // Get TLS status from Traefik if available
+    const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
+
     const siteInfos: SiteInfo[] = sites.map((site) => ({
       subdomain: site.subdomain,
       url: `https://${site.subdomain}.${this.config.domain}`,
       size: site.size,
       deployedAt: site.deployedAt,
       oauth: site.oauth,
+      tls: tlsStatusMap.get(`site-${site.subdomain}`) || "pending",
     }))
     return this.json(siteInfos)
   }
@@ -485,9 +490,16 @@ export class AgentServer {
   }
 
   // App handlers
-  private handleListApps(): Response {
+  private async handleListApps(): Promise<Response> {
     const apps = this.appStorage.list()
-    const appInfos: AppInfo[] = apps.map((app) => this.appStorage.toInfo(app))
+
+    // Get TLS status from Traefik if available
+    const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
+
+    const appInfos: AppInfo[] = apps.map((app) => ({
+      ...this.appStorage.toInfo(app),
+      tls: tlsStatusMap.get(app.name) || "pending",
+    }))
     return this.json(appInfos)
   }
 
