@@ -50,6 +50,15 @@ export class AgentServer {
     return Response.json({ success: true, data } as ApiResponse<T>, { status })
   }
 
+  private escapeHtml(str: string): string {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;")
+  }
+
   private error(message: string, status = 400): Response {
     return Response.json({ success: false, error: message } as ApiResponse<null>, { status })
   }
@@ -849,6 +858,7 @@ export class AgentServer {
 
     // None of the checks passed - return styled 403 page
     const signOutUrl = `https://auth.${domain}/oauth2/sign_out?rd=${encodeURIComponent(originalUrl)}`
+    const safeEmail = this.escapeHtml(email)
     const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -867,7 +877,7 @@ export class AgentServer {
 <body>
   <div class="container">
     <h1>Access Denied</h1>
-    <p class="email">Signed in as: <strong>${email}</strong></p>
+    <p class="email">Signed in as: <strong>${safeEmail}</strong></p>
     <p><a href="${signOutUrl}">Sign out and try another account</a></p>
   </div>
 </body>
