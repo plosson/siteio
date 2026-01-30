@@ -35,6 +35,7 @@ export interface GitSource {
   repoUrl: string
   branch: string
   dockerfile: string
+  context?: string // Subdirectory for monorepo support
   credentialId?: string
 }
 
@@ -65,6 +66,10 @@ export interface App {
   deployedAt?: string
   createdAt: string
   updatedAt: string
+
+  // Git build state
+  commitHash?: string
+  lastBuildAt?: string
 }
 
 // App info returned to clients (subset of App)
@@ -72,11 +77,14 @@ export interface AppInfo {
   name: string
   type: AppType
   image: string
+  git?: GitSource
   status: ContainerStatus
   domains: string[]
   internalPort: number
   deployedAt?: string
   createdAt: string
+  commitHash?: string
+  lastBuildAt?: string
 }
 
 // Container logs response

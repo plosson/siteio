@@ -7,14 +7,14 @@ A self-hosted deployment platform for **static websites** and **Docker container
 ### Features
 - **Static sites**: Deploy folders as websites (`siteio sites deploy ./folder`)
 - **Container apps**: Deploy Docker images (`siteio apps create myapp -i nginx -p 80`)
+- **Git deployments**: Build from Git repos (`siteio apps create myapp --git <url> -p 3000`)
+- **Monorepo support**: Specify build context with `--context <path>`
 - **Automatic HTTPS**: Traefik handles Let's Encrypt certificates
 - **OAuth protection**: Restrict access by email, domain, or groups
 - **Two modes**: CLI client talks to a remote agent server
 
 ### Not Yet Supported
-- Deploy directly from GitHub repos (must clone locally first)
-- Build Docker images from source/Dockerfile
-- Private Git repository credentials
+- Private Git repository credentials (public repos only)
 
 ## Development Commands
 

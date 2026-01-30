@@ -23,16 +23,27 @@ export async function listAppsCommand(options: { json?: boolean } = {}): Promise
     }
 
     // Format the table
-    const headers = ["NAME", "IMAGE", "STATUS", "PORT", "DOMAINS", "DEPLOYED"]
+    const headers = ["NAME", "SOURCE", "STATUS", "PORT", "DOMAINS", "DEPLOYED"]
     const rows = apps.map((app) => {
       const date = app.deployedAt ? new Date(app.deployedAt) : null
       const dateStr = date
         ? date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         : chalk.dim("-")
       const domainsStr = app.domains.length > 0 ? app.domains.join(", ") : chalk.dim("-")
+
+      // Format source: show shortened git URL or image name
+      let sourceStr: string
+      if (app.git) {
+        // Extract repo name from URL (e.g., "github.com/user/repo" -> "user/repo")
+        const match = app.git.repoUrl.match(/(?:github\.com|gitlab\.com|bitbucket\.org)[/:](.+?)(?:\.git)?$/)
+        sourceStr = match ? chalk.blue(match[1]) : chalk.blue(app.git.repoUrl)
+      } else {
+        sourceStr = app.image
+      }
+
       return [
         app.name,
-        app.image,
+        sourceStr,
         formatStatus(app.status),
         String(app.internalPort),
         domainsStr,

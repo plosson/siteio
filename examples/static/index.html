@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to siteio</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+      max-width: 600px;
+    }
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+    }
+    p {
+      font-size: 1.25rem;
+      opacity: 0.9;
+      line-height: 1.6;
+      margin-bottom: 2rem;
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.2);
+      padding: 0.5rem 1rem;
+      border-radius: 2rem;
+      font-size: 0.9rem;
+      backdrop-filter: blur(10px);
+    }
+    code {
+      background: rgba(0,0,0,0.2);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Your site is live!</h1>
+    <p>
+      This static site was deployed with <code>siteio</code> in seconds.
+      Edit the files in <code>examples/static/</code> and redeploy to see changes.
+    </p>
+    <div class="badge">Deployed with siteio</div>
+  </div>
+</body>
+</html>
