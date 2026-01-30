@@ -260,6 +260,24 @@ log:
       },
     }
 
+    // Add oauth2-proxy service and auth router when OAuth is configured
+    if (oauthConfig) {
+      services["oauth2-proxy-service"] = {
+        loadBalancer: {
+          servers: [{ url: `http://${OAUTH_PROXY_CONTAINER_NAME}:4180` }],
+        },
+      }
+
+      routers["auth-router"] = {
+        rule: `Host(\`auth.${domain}\`)`,
+        entryPoints: ["websecure"],
+        service: "oauth2-proxy-service",
+        tls: {
+          certResolver: "letsencrypt",
+        },
+      }
+    }
+
     // Add a router for each static site
     for (const site of sites) {
       const routerName = `site-${site.subdomain}`

@@ -69,6 +69,50 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).not.toContain("forwardAuth")
   })
 
+  it("adds auth router and oauth2-proxy service when oauthConfig is present", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+      oauthConfig: {
+        issuerUrl: "https://auth.example.com",
+        clientId: "test-client",
+        clientSecret: "test-secret",
+        cookieSecret: "test-cookie-secret",
+        cookieDomain: "test.siteio.me",
+      },
+    })
+
+    const dynamicConfig = traefik.generateDynamicConfig([])
+
+    // Should have auth router pointing to auth.{domain}
+    expect(dynamicConfig).toContain("auth-router")
+    expect(dynamicConfig).toContain("auth.test.siteio.me")
+
+    // Should have oauth2-proxy service
+    expect(dynamicConfig).toContain("oauth2-proxy-service")
+    expect(dynamicConfig).toContain("siteio-oauth2-proxy:4180")
+  })
+
+  it("does not add auth router when oauthConfig is not present", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+      // No oauthConfig
+    })
+
+    const dynamicConfig = traefik.generateDynamicConfig([])
+
+    // Should NOT have auth router or oauth2-proxy service
+    expect(dynamicConfig).not.toContain("auth-router")
+    expect(dynamicConfig).not.toContain("oauth2-proxy-service")
+  })
+
   it("includes site routers in dynamic config", () => {
     const traefik = new TraefikManager({
       dataDir: TEST_DATA_DIR,
