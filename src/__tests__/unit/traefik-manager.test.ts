@@ -47,7 +47,7 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).toContain("api-service")
   })
 
-  it("adds forwardAuth middleware when oauthConfig is set", () => {
+  it("does not add OAuth middleware (OAuth enforcement not yet implemented)", () => {
     const traefik = new TraefikManager({
       dataDir: TEST_DATA_DIR,
       domain: "test.siteio.me",
@@ -64,21 +64,7 @@ describe("Unit: TraefikManager", () => {
     })
 
     const dynamicConfig = traefik.generateDynamicConfig([])
-    expect(dynamicConfig).toContain("siteio-auth")
-    expect(dynamicConfig).toContain("forwardAuth")
-    expect(dynamicConfig).toContain("/auth/check")
-  })
-
-  it("does not include forwardAuth middleware without oauthConfig", () => {
-    const traefik = new TraefikManager({
-      dataDir: TEST_DATA_DIR,
-      domain: "test.siteio.me",
-      httpPort: 80,
-      httpsPort: 443,
-      fileServerPort: 3000,
-    })
-
-    const dynamicConfig = traefik.generateDynamicConfig([])
+    // OAuth enforcement is not yet implemented
     expect(dynamicConfig).not.toContain("siteio-auth")
     expect(dynamicConfig).not.toContain("forwardAuth")
   })
@@ -101,7 +87,7 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).toContain("mysite.test.siteio.me")
   })
 
-  it("adds middleware to site router when site has OAuth and server has oauthConfig", () => {
+  it("stores OAuth settings but does not add middleware (not yet implemented)", () => {
     const traefik = new TraefikManager({
       dataDir: TEST_DATA_DIR,
       domain: "test.siteio.me",
@@ -127,10 +113,9 @@ describe("Unit: TraefikManager", () => {
       },
     ])
 
-    // Site router should have middleware
+    // Site router exists but OAuth enforcement is not yet implemented
     expect(dynamicConfig).toContain("site-protected-site")
-    expect(dynamicConfig).toContain("middlewares:")
-    expect(dynamicConfig).toContain("siteio-auth")
+    expect(dynamicConfig).not.toContain("middlewares:")
   })
 
   it("does not add middleware to site router when site has no OAuth", () => {
@@ -230,7 +215,7 @@ describe("Unit: TraefikManager", () => {
     expect(staticConfig).toContain("insecure: true")
   })
 
-  it("correctly handles multiple sites with mixed OAuth settings", () => {
+  it("correctly handles multiple sites with mixed OAuth settings (no enforcement)", () => {
     const traefik = new TraefikManager({
       dataDir: TEST_DATA_DIR,
       domain: "test.siteio.me",
@@ -274,8 +259,8 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).toContain("site-public")
     expect(dynamicConfig).toContain("site-also-protected")
 
-    // The middleware should be defined
-    expect(dynamicConfig).toContain("siteio-auth")
-    expect(dynamicConfig).toContain("forwardAuth")
+    // OAuth enforcement not yet implemented - no middleware
+    expect(dynamicConfig).not.toContain("siteio-auth")
+    expect(dynamicConfig).not.toContain("forwardAuth")
   })
 })

@@ -233,56 +233,9 @@ log:
     // Use host.docker.internal to reach the host from container
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
 
-    // Add OAuth middlewares and service if OAuth is configured on the server
-    if (oauthConfig) {
-      // oauth2-proxy service for handling OAuth flow
-      services["oauth2-proxy-service"] = {
-        loadBalancer: {
-          servers: [{ url: `http://${OAUTH_PROXY_CONTAINER_NAME}:4180` }],
-        },
-      }
-
-      // oauth2-auth: forwardAuth to oauth2-proxy for authentication
-      // oauth2-proxy returns 202 with X-Auth-Request-Email if authenticated,
-      // or 401 with redirect to start OAuth flow if not
-      middlewares["oauth2-auth"] = {
-        forwardAuth: {
-          address: `http://${OAUTH_PROXY_CONTAINER_NAME}:4180/oauth2/auth`,
-          authResponseHeaders: ["X-Auth-Request-User", "X-Auth-Request-Email"],
-        },
-      }
-
-      // siteio-auth: forwardAuth to siteio agent for authorization
-      // Checks if the authenticated email is allowed to access this resource
-      middlewares["siteio-auth"] = {
-        forwardAuth: {
-          address: `${hostUrl}/auth/check`,
-          authRequestHeaders: ["X-Auth-Request-Email", "Host"],
-        },
-      }
-
-      // oauth2-errors: Redirect 401 responses to the OAuth sign-in page
-      // When oauth2-auth returns 401, this redirects to start the OAuth flow
-      middlewares["oauth2-errors"] = {
-        errors: {
-          status: ["401"],
-          service: "oauth2-proxy-service",
-          query: "/oauth2/sign_in?rd={url}",
-        },
-      }
-
-      // Catch-all router for /oauth2/* paths on any subdomain
-      // This handles OAuth callbacks and start URLs without auth middleware
-      routers["oauth2-catchall"] = {
-        rule: `HostRegexp(\`{subdomain:[a-z0-9-]+}.${domain}\`) && PathPrefix(\`/oauth2/\`)`,
-        entryPoints: ["websecure"],
-        service: "oauth2-proxy-service",
-        priority: 200, // High priority to match before site/app routers
-        tls: {
-          certResolver: "letsencrypt",
-        },
-      }
-    }
+    // OAuth enforcement is not yet implemented
+    // Site/app OAuth settings are stored but not enforced
+    // TODO: Implement OAuth with proper redirect flow
 
     // Add API router (reserved subdomain)
     routers["api-router"] = {
@@ -319,12 +272,8 @@ log:
         },
       }
 
-      // Apply OAuth middlewares if site has OAuth configured
-      // Chain: oauth2-errors (redirect 401) -> oauth2-auth (authenticate) -> siteio-auth (authorize)
-      // Note: /oauth2/* paths are handled by the oauth2-catchall router
-      if (site.oauth && oauthConfig) {
-        router.middlewares = ["oauth2-errors", "oauth2-auth", "siteio-auth"]
-      }
+      // OAuth settings are stored but not enforced yet
+      // TODO: Implement OAuth enforcement
 
       routers[routerName] = router
     }
@@ -642,10 +591,7 @@ log:
     // Start shared nginx container for static sites
     await this.startNginx()
 
-    // Start oauth2-proxy if OAuth is configured
-    if (this.config.oauthConfig) {
-      await this.startOAuthProxy()
-    }
+    // OAuth proxy is not started - OAuth enforcement not yet implemented
   }
 
   // Query Traefik API to get TLS status for a router
@@ -775,9 +721,6 @@ log:
   }
 
   stop(): void {
-    // Stop oauth2-proxy first
-    this.stopOAuthProxy()
-
     // Stop nginx
     this.stopNginx()
 

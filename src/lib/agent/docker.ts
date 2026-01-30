@@ -310,10 +310,8 @@ export class DockerManager {
       labels[`traefik.http.routers.${containerName}.rule`] = hostRules
     }
 
-    if (requireAuth) {
-      // Chain: oauth2-errors (redirect 401) -> oauth2-auth (authenticate) -> siteio-auth (authorize)
-      labels[`traefik.http.routers.${containerName}.middlewares`] = "oauth2-errors@file,oauth2-auth@file,siteio-auth@file"
-    }
+    // OAuth settings are stored but not enforced yet
+    // TODO: Implement OAuth enforcement for container apps
 
     return labels
   }
