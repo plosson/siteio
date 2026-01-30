@@ -27,6 +27,33 @@ siteio login --token <connection-token>
 
 ---
 
+## Try It Out
+
+This repo includes working examples you can deploy immediately:
+
+```bash
+# Deploy the example static site
+siteio sites deploy examples/static --subdomain hello
+
+# Deploy a pre-built Docker image
+siteio apps create nginx-demo --image nginx:alpine --port 80
+siteio apps deploy nginx-demo
+
+# Build and deploy from Git (this repo!)
+siteio apps create docker-demo \
+  --git https://github.com/plosson/siteio \
+  --context examples/docker \
+  --port 3000
+siteio apps deploy docker-demo
+```
+
+After deployment:
+- Static site: `https://hello.yourdomain.com`
+- Nginx demo: `https://nginx-demo.yourdomain.com`
+- Docker demo: `https://docker-demo.yourdomain.com`
+
+---
+
 ## Static Site Examples
 
 ### Example 1: Deploy a Public Static Site
