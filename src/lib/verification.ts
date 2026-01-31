@@ -2,6 +2,7 @@
  * DNS and certificate verification utilities
  */
 
+import * as dns from "dns"
 import * as tls from "tls"
 
 export interface VerificationOptions {
@@ -34,32 +35,16 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Check if DNS resolves by attempting a TLS connection
- * This verifies both DNS resolution and network reachability
+ * Check if DNS resolves by performing an A record lookup
  */
-export async function checkDNS(domain: string, timeoutMs: number = 5000): Promise<boolean> {
+export async function checkDNS(domain: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = tls.connect(
-      {
-        host: domain,
-        port: 443,
-        timeout: timeoutMs,
-        rejectUnauthorized: false, // Accept any cert for DNS check
-      },
-      () => {
-        socket.destroy()
+    dns.resolve4(domain, (err, addresses) => {
+      if (err || !addresses || addresses.length === 0) {
+        resolve(false)
+      } else {
         resolve(true)
       }
-    )
-
-    socket.on("error", () => {
-      socket.destroy()
-      resolve(false)
-    })
-
-    socket.on("timeout", () => {
-      socket.destroy()
-      resolve(false)
     })
   })
 }
