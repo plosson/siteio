@@ -135,6 +135,69 @@ _siteio() {
 _siteio "\\$@"
 `.trim()
 
+const FISH_COMPLETION = `
+# siteio fish completion
+
+# Disable file completion by default
+complete -c siteio -f
+
+# Main commands
+complete -c siteio -n "__fish_use_subcommand" -a status -d "Show connection status"
+complete -c siteio -n "__fish_use_subcommand" -a login -d "Configure API credentials"
+complete -c siteio -n "__fish_use_subcommand" -a sites -d "Manage deployed sites"
+complete -c siteio -n "__fish_use_subcommand" -a apps -d "Manage containerized applications"
+complete -c siteio -n "__fish_use_subcommand" -a groups -d "Manage email groups for access control"
+complete -c siteio -n "__fish_use_subcommand" -a agent -d "Run the siteio agent server"
+complete -c siteio -n "__fish_use_subcommand" -a update -d "Update siteio to the latest version"
+complete -c siteio -n "__fish_use_subcommand" -a skill -d "Manage Claude Code skill integration"
+complete -c siteio -n "__fish_use_subcommand" -a completion -d "Output shell completion script"
+
+# Sites subcommands
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a deploy -d "Deploy a folder as a static site"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a list -d "List all deployed sites"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a ls -d "List all deployed sites"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a info -d "Show detailed info about a site"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a download -d "Download a deployed site to a local folder"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a rm -d "Remove a deployed site"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a auth -d "Set or remove Google OAuth for a site"
+
+# Apps subcommands
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a create -d "Create a new app"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a list -d "List all apps"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a ls -d "List all apps"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a info -d "Show detailed info about an app"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a deploy -d "Deploy (start) an app container"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a stop -d "Stop an app container"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a restart -d "Restart an app container"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a rm -d "Remove an app"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a logs -d "View app container logs"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a set -d "Update app configuration"
+
+# Groups subcommands
+complete -c siteio -n "__fish_seen_subcommand_from groups" -a list -d "List all groups"
+complete -c siteio -n "__fish_seen_subcommand_from groups" -a ls -d "List all groups"
+complete -c siteio -n "__fish_seen_subcommand_from groups" -a show -d "Show group details"
+complete -c siteio -n "__fish_seen_subcommand_from groups" -a create -d "Create a new group"
+complete -c siteio -n "__fish_seen_subcommand_from groups" -a delete -d "Delete a group"
+complete -c siteio -n "__fish_seen_subcommand_from groups" -a add -d "Add emails to a group"
+complete -c siteio -n "__fish_seen_subcommand_from groups" -a remove -d "Remove emails from a group"
+
+# Agent subcommands
+complete -c siteio -n "__fish_seen_subcommand_from agent" -a install -d "Install and start the agent as a systemd service"
+complete -c siteio -n "__fish_seen_subcommand_from agent" -a oauth -d "Configure OIDC authentication"
+complete -c siteio -n "__fish_seen_subcommand_from agent" -a start -d "Start the agent server"
+complete -c siteio -n "__fish_seen_subcommand_from agent" -a stop -d "Stop the agent server"
+complete -c siteio -n "__fish_seen_subcommand_from agent" -a restart -d "Restart the agent server"
+complete -c siteio -n "__fish_seen_subcommand_from agent" -a status -d "Check agent server status"
+
+# Skill subcommands
+complete -c siteio -n "__fish_seen_subcommand_from skill" -a install -d "Install the siteio skill for Claude Code"
+complete -c siteio -n "__fish_seen_subcommand_from skill" -a uninstall -d "Remove the siteio skill from Claude Code"
+
+# Completion subcommands
+complete -c siteio -n "__fish_seen_subcommand_from completion" -a "bash zsh fish" -d "Shell type"
+`.trim()
+
 export function completionCommand(shell: string): void {
   const validShells = ["bash", "zsh", "fish"]
 
@@ -151,7 +214,7 @@ export function completionCommand(shell: string): void {
       console.log(ZSH_COMPLETION)
       break
     case "fish":
-      console.log("# fish completion not yet implemented")
+      console.log(FISH_COMPLETION)
       break
   }
 }
