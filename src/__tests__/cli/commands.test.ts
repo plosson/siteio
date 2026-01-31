@@ -172,4 +172,30 @@ describe("CLI: Commands", () => {
       rmSync(namedDir, { recursive: true })
     }
   })
+
+  test("should output bash completion script", async () => {
+    const result = await runCli(["completion", "bash"])
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("_siteio")
+    expect(result.stdout).toContain("complete -F _siteio siteio")
+  })
+
+  test("should output zsh completion script", async () => {
+    const result = await runCli(["completion", "zsh"])
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("#compdef siteio")
+    expect(result.stdout).toContain("_siteio")
+  })
+
+  test("should output fish completion script", async () => {
+    const result = await runCli(["completion", "fish"])
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("complete -c siteio")
+  })
+
+  test("should reject invalid shell for completion", async () => {
+    const result = await runCli(["completion", "powershell"])
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("Invalid shell")
+  })
 })
