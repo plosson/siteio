@@ -304,6 +304,7 @@ agent
   .command("uninstall [target]")
   .description("Uninstall the agent systemd service (locally or on remote server)")
   .option("-i, --identity <keyfile>", "SSH identity file for remote uninstall")
+  .option("--remove-containers", "Also remove Docker containers (apps and Traefik)")
   .option("--remove-data", "Also remove data directory")
   .option("-y, --yes", "Skip confirmation prompts")
   .action(async (target, options) => {
