@@ -198,23 +198,20 @@ complete -c siteio -n "__fish_seen_subcommand_from skill" -a uninstall -d "Remov
 complete -c siteio -n "__fish_seen_subcommand_from completion" -a "bash zsh fish" -d "Shell type"
 `.trim()
 
-export function completionCommand(shell: string): void {
-  const validShells = ["bash", "zsh", "fish"]
+const SHELL_COMPLETIONS: Record<string, string> = {
+  bash: BASH_COMPLETION,
+  zsh: ZSH_COMPLETION,
+  fish: FISH_COMPLETION,
+}
 
-  if (!validShells.includes(shell)) {
-    console.error(`Invalid shell: ${shell}. Must be one of: ${validShells.join(", ")}`)
+export function completionCommand(shell: string): void {
+  const completion = SHELL_COMPLETIONS[shell]
+
+  if (!completion) {
+    const validShells = Object.keys(SHELL_COMPLETIONS).join(", ")
+    console.error(`Invalid shell: ${shell}. Must be one of: ${validShells}`)
     process.exit(1)
   }
 
-  switch (shell) {
-    case "bash":
-      console.log(BASH_COMPLETION)
-      break
-    case "zsh":
-      console.log(ZSH_COMPLETION)
-      break
-    case "fish":
-      console.log(FISH_COMPLETION)
-      break
-  }
+  console.log(completion)
 }

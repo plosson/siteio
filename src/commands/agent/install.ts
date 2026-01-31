@@ -1,11 +1,12 @@
 import * as p from "@clack/prompts"
 import chalk from "chalk"
-import { existsSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, writeFileSync } from "fs"
 import { join } from "path"
-import { spawnSync, spawn } from "bun"
+import { spawnSync } from "bun"
 import { randomBytes } from "crypto"
 import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts"
 import { encodeToken } from "../../utils/token.ts"
+import { isRemoteTarget, sshExec, sshExecStream } from "../../utils/ssh.ts"
 import { setupWildcardDNS, CloudflareError } from "../../lib/cloudflare.ts"
 
 const SERVICE_NAME = "siteio-agent"
@@ -70,50 +71,6 @@ ${envLines.join("\n")}
 [Install]
 WantedBy=multi-user.target
 `
-}
-
-function isRemoteTarget(target: string): boolean {
-  // Check if target looks like user@host
-  return target.includes("@")
-}
-
-async function sshExec(target: string, command: string, identity?: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const sshArgs = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes"]
-  if (identity) {
-    sshArgs.push("-i", identity)
-  }
-  sshArgs.push(target, command)
-
-  const result = spawnSync({
-    cmd: ["ssh", ...sshArgs],
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-
-  return {
-    exitCode: result.exitCode ?? 1,
-    stdout: result.stdout.toString(),
-    stderr: result.stderr.toString(),
-  }
-}
-
-async function sshExecStream(target: string, command: string, identity?: string): Promise<number> {
-  const sshArgs = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes", "-t", "-t"]
-  if (identity) {
-    sshArgs.push("-i", identity)
-  }
-  sshArgs.push(target, command)
-
-  return new Promise((resolve) => {
-    const proc = spawn({
-      cmd: ["ssh", ...sshArgs],
-      stdout: "inherit",
-      stderr: "inherit",
-      stdin: "inherit",
-    })
-
-    proc.exited.then((code) => resolve(code ?? 1))
-  })
 }
 
 async function installRemote(target: string, options: InstallOptions): Promise<void> {

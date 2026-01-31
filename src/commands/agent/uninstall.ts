@@ -1,8 +1,11 @@
 import * as p from "@clack/prompts"
 import chalk from "chalk"
 import { existsSync } from "fs"
-import { spawnSync, spawn } from "bun"
-import { formatSuccess, formatError } from "../../utils/output.ts"
+import { spawnSync } from "bun"
+import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts"
+import { loadAgentConfig } from "../../config/agent.ts"
+import { isRemoteTarget, sshExec, sshExecStream } from "../../utils/ssh.ts"
+import { removeWildcardDNS, CloudflareError } from "../../lib/cloudflare.ts"
 
 const SERVICE_NAME = "siteio-agent"
 const SERVICE_FILE = `/etc/systemd/system/${SERVICE_NAME}.service`
@@ -65,49 +68,6 @@ function stopAndRemoveContainers(containers: string[], isRoot: boolean): { stopp
   }
 
   return { stopped, failed }
-}
-
-function isRemoteTarget(target: string): boolean {
-  return target.includes("@")
-}
-
-async function sshExec(target: string, command: string, identity?: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const sshArgs = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes"]
-  if (identity) {
-    sshArgs.push("-i", identity)
-  }
-  sshArgs.push(target, command)
-
-  const result = spawnSync({
-    cmd: ["ssh", ...sshArgs],
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-
-  return {
-    exitCode: result.exitCode ?? 1,
-    stdout: result.stdout.toString(),
-    stderr: result.stderr.toString(),
-  }
-}
-
-async function sshExecStream(target: string, command: string, identity?: string): Promise<number> {
-  const sshArgs = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes", "-t", "-t"]
-  if (identity) {
-    sshArgs.push("-i", identity)
-  }
-  sshArgs.push(target, command)
-
-  return new Promise((resolve) => {
-    const proc = spawn({
-      cmd: ["ssh", ...sshArgs],
-      stdout: "inherit",
-      stderr: "inherit",
-      stdin: "inherit",
-    })
-
-    proc.exited.then((code) => resolve(code ?? 1))
-  })
 }
 
 async function uninstallRemote(target: string, options: UninstallOptions): Promise<void> {
@@ -195,6 +155,26 @@ async function uninstallLocal(options: UninstallOptions): Promise<void> {
   }
 
   const s = p.spinner()
+
+  // Check for Cloudflare DNS cleanup
+  const agentConfig = loadAgentConfig(DEFAULT_DATA_DIR)
+  if (agentConfig.cloudflareToken && agentConfig.domain) {
+    s.start("Removing Cloudflare DNS record")
+    try {
+      const result = await removeWildcardDNS(agentConfig.cloudflareToken, agentConfig.domain)
+      if (result.skipped) {
+        s.stop(chalk.yellow("Skipped"))
+        console.log(formatWarning(result.message))
+      } else {
+        s.stop(chalk.green("Done"))
+        console.log(formatSuccess(result.message))
+      }
+    } catch (error) {
+      s.stop(chalk.yellow("Skipped"))
+      const message = error instanceof CloudflareError ? error.message : String(error)
+      console.log(formatWarning(`Could not remove DNS record: ${message}`))
+    }
+  }
 
   // Check for Docker containers
   const containers = listSiteioContainers()

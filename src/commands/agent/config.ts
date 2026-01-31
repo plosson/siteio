@@ -8,12 +8,20 @@ import {
   isSensitiveKey,
   type PersistedAgentConfig,
 } from "../../config/agent.ts"
-import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts"
+import { formatSuccess, formatError } from "../../utils/output.ts"
 
 const VALID_KEYS: (keyof PersistedAgentConfig)[] = ["apiKey", "domain", "cloudflareToken"]
 
 function getDataDir(): string {
   return process.env.SITEIO_DATA_DIR || "/data"
+}
+
+function validateKey(key: string): asserts key is keyof PersistedAgentConfig {
+  if (!VALID_KEYS.includes(key as keyof PersistedAgentConfig)) {
+    console.error(formatError(`Unknown config key: ${key}`))
+    console.error(chalk.gray(`Valid keys: ${VALID_KEYS.join(", ")}`))
+    process.exit(1)
+  }
 }
 
 export async function listConfigCommand(options: { json?: boolean }): Promise<void> {
@@ -53,14 +61,10 @@ export async function getConfigCommand(
   key: string,
   options: { json?: boolean }
 ): Promise<void> {
-  if (!VALID_KEYS.includes(key as keyof PersistedAgentConfig)) {
-    console.error(formatError(`Unknown config key: ${key}`))
-    console.error(chalk.gray(`Valid keys: ${VALID_KEYS.join(", ")}`))
-    process.exit(1)
-  }
+  validateKey(key)
 
   const dataDir = getDataDir()
-  const value = getAgentConfigValue(dataDir, key as keyof PersistedAgentConfig)
+  const value = getAgentConfigValue(dataDir, key)
 
   if (options.json) {
     console.log(JSON.stringify({ [key]: value ?? null }))
@@ -79,16 +83,12 @@ export async function setConfigCommand(
   value: string,
   options: { json?: boolean }
 ): Promise<void> {
-  if (!VALID_KEYS.includes(key as keyof PersistedAgentConfig)) {
-    console.error(formatError(`Unknown config key: ${key}`))
-    console.error(chalk.gray(`Valid keys: ${VALID_KEYS.join(", ")}`))
-    process.exit(1)
-  }
+  validateKey(key)
 
   const dataDir = getDataDir()
 
   try {
-    setAgentConfigValue(dataDir, key as keyof PersistedAgentConfig, value)
+    setAgentConfigValue(dataDir, key, value)
 
     if (options.json) {
       console.log(JSON.stringify({ success: true, key, value: isSensitiveKey(key) ? maskSensitiveValue(value) : value }))
@@ -107,13 +107,8 @@ export async function unsetConfigCommand(
   key: string,
   options: { json?: boolean }
 ): Promise<void> {
-  if (!VALID_KEYS.includes(key as keyof PersistedAgentConfig)) {
-    console.error(formatError(`Unknown config key: ${key}`))
-    console.error(chalk.gray(`Valid keys: ${VALID_KEYS.join(", ")}`))
-    process.exit(1)
-  }
+  validateKey(key)
 
-  // Prevent unsetting required keys
   if (key === "apiKey") {
     console.error(formatError("Cannot unset apiKey - it is required"))
     process.exit(1)
@@ -122,7 +117,7 @@ export async function unsetConfigCommand(
   const dataDir = getDataDir()
 
   try {
-    deleteAgentConfigValue(dataDir, key as keyof PersistedAgentConfig)
+    deleteAgentConfigValue(dataDir, key)
 
     if (options.json) {
       console.log(JSON.stringify({ success: true, key }))
