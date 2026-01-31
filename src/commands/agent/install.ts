@@ -8,6 +8,7 @@ import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts
 import { encodeToken } from "../../utils/token.ts"
 import { isRemoteTarget, sshExec, sshExecStream } from "../../utils/ssh.ts"
 import { setupWildcardDNS, CloudflareError } from "../../lib/cloudflare.ts"
+import { waitForDNS, waitForCertificate } from "../../lib/verification.ts"
 
 const SERVICE_NAME = "siteio-agent"
 const SERVICE_FILE = `/etc/systemd/system/${SERVICE_NAME}.service`
@@ -411,6 +412,41 @@ async function installLocal(options: InstallOptions): Promise<void> {
   }
 
   s.stop(chalk.green("Agent started"))
+
+  // Verify DNS propagation and certificate (only when Cloudflare was used)
+  if (cloudflareToken) {
+    const apiDomain = `api.${domain}`
+
+    // DNS verification
+    s.start("Waiting for DNS propagation")
+    const dnsResult = await waitForDNS(apiDomain, { maxAttempts: 5 }, (attempt, max) => {
+      if (attempt > 1) {
+        s.message(`Waiting for DNS propagation (attempt ${attempt}/${max})`)
+      }
+    })
+
+    if (dnsResult.success) {
+      s.stop(chalk.green("DNS verified"))
+
+      // Certificate verification (only if DNS succeeded)
+      s.start("Waiting for HTTPS certificate")
+      const certResult = await waitForCertificate(apiDomain, { maxAttempts: 5 }, (attempt, max) => {
+        if (attempt > 1) {
+          s.message(`Waiting for HTTPS certificate (attempt ${attempt}/${max})`)
+        }
+      })
+
+      if (certResult.success) {
+        s.stop(chalk.green("Certificate ready"))
+      } else {
+        s.stop(chalk.yellow("Certificate pending"))
+        console.log(formatWarning("HTTPS certificate may take a moment to become available."))
+      }
+    } else {
+      s.stop(chalk.yellow("DNS verification timed out"))
+      console.log(formatWarning("DNS may still be propagating. HTTPS may take a minute to become available."))
+    }
+  }
 
   // Generate connection info
   const apiUrl = `https://api.${domain}`
