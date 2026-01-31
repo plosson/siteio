@@ -2,13 +2,21 @@ import * as p from "@clack/prompts"
 import chalk from "chalk"
 import { existsSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
-import { spawnSync } from "bun"
+import { spawnSync, spawn } from "bun"
 import { randomBytes } from "crypto"
 import { formatSuccess, formatError } from "../../utils/output.ts"
 import { encodeToken } from "../../utils/token.ts"
 
 const SERVICE_NAME = "siteio-agent"
 const SERVICE_FILE = `/etc/systemd/system/${SERVICE_NAME}.service`
+const INSTALL_SCRIPT_URL = "https://siteio.me/install"
+
+interface InstallOptions {
+  domain?: string
+  dataDir?: string
+  email?: string
+  identity?: string
+}
 
 function findBinaryPath(): string {
   const candidates = [
@@ -62,7 +70,152 @@ WantedBy=multi-user.target
 `
 }
 
-export async function installAgentCommand(): Promise<void> {
+function isRemoteTarget(target: string): boolean {
+  // Check if target looks like user@host
+  return target.includes("@")
+}
+
+async function sshExec(target: string, command: string, identity?: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const sshArgs = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes"]
+  if (identity) {
+    sshArgs.push("-i", identity)
+  }
+  sshArgs.push(target, command)
+
+  const result = spawnSync({
+    cmd: ["ssh", ...sshArgs],
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+
+  return {
+    exitCode: result.exitCode ?? 1,
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+  }
+}
+
+async function sshExecStream(target: string, command: string, identity?: string): Promise<number> {
+  const sshArgs = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes", "-t", "-t"]
+  if (identity) {
+    sshArgs.push("-i", identity)
+  }
+  sshArgs.push(target, command)
+
+  return new Promise((resolve) => {
+    const proc = spawn({
+      cmd: ["ssh", ...sshArgs],
+      stdout: "inherit",
+      stderr: "inherit",
+      stdin: "inherit",
+    })
+
+    proc.exited.then((code) => resolve(code ?? 1))
+  })
+}
+
+async function installRemote(target: string, options: InstallOptions): Promise<void> {
+  p.intro(chalk.bgCyan(" siteio agent install (remote) "))
+
+  const s = p.spinner()
+
+  // Test SSH connection
+  s.start(`Testing SSH connection to ${target}`)
+  const testResult = await sshExec(target, "echo ok", options.identity)
+  if (testResult.exitCode !== 0) {
+    s.stop(chalk.red("Failed"))
+    console.error(formatError(`Could not connect to ${target}: ${testResult.stderr}`))
+    process.exit(1)
+  }
+  s.stop(chalk.green("SSH connection OK"))
+
+  // Gather configuration if not provided via flags
+  let domain = options.domain
+  let dataDir = options.dataDir || "/data"
+  let email = options.email
+
+  if (!domain) {
+    const answers = await p.group(
+      {
+        domain: () =>
+          p.text({
+            message: "Domain for this agent:",
+            placeholder: "example.siteio.me",
+            validate: (value) => {
+              if (!value) return "Domain is required"
+              if (!value.includes(".")) return "Please enter a valid domain"
+            },
+          }),
+        dataDir: () =>
+          p.text({
+            message: "Data directory:",
+            initialValue: dataDir,
+            validate: (value) => {
+              if (!value) return "Data directory is required"
+            },
+          }),
+        email: () =>
+          p.text({
+            message: "Email for Let's Encrypt (optional):",
+            placeholder: "admin@example.com",
+          }),
+      },
+      {
+        onCancel: () => {
+          p.cancel("Installation cancelled")
+          process.exit(0)
+        },
+      }
+    )
+
+    domain = answers.domain as string
+    dataDir = answers.dataDir as string
+    email = answers.email as string | undefined
+  }
+
+  // Check if siteio is already installed
+  s.start("Checking if siteio is installed on remote")
+  const checkResult = await sshExec(target, "which siteio || echo 'not-found'", options.identity)
+  const siteioInstalled = !checkResult.stdout.includes("not-found")
+  s.stop(siteioInstalled ? chalk.green("siteio found") : chalk.yellow("siteio not found"))
+
+  // Install siteio if needed
+  if (!siteioInstalled) {
+    console.log(chalk.cyan("\nInstalling siteio on remote server..."))
+    const installCode = await sshExecStream(
+      target,
+      `curl -LsSf ${INSTALL_SCRIPT_URL} | sh`,
+      options.identity
+    )
+    if (installCode !== 0) {
+      console.error(formatError("Failed to install siteio on remote server"))
+      process.exit(1)
+    }
+    console.log(chalk.green("siteio installed successfully\n"))
+  }
+
+  // Build the remote install command with flags
+  let remoteCmd = "siteio agent install"
+  remoteCmd += ` --domain ${domain}`
+  remoteCmd += ` --data-dir ${dataDir}`
+  if (email) {
+    remoteCmd += ` --email ${email}`
+  }
+
+  // Run remote install
+  console.log(chalk.cyan("Running agent install on remote server..."))
+  const installCode = await sshExecStream(target, remoteCmd, options.identity)
+
+  if (installCode !== 0) {
+    console.error(formatError("Remote agent installation failed"))
+    process.exit(1)
+  }
+
+  console.log("")
+  p.outro(chalk.green("Remote installation complete!"))
+}
+
+async function installLocal(options: InstallOptions): Promise<void> {
   p.intro(chalk.bgCyan(" siteio agent install "))
 
   // Check if running as root or with sudo capability
@@ -93,43 +246,51 @@ export async function installAgentCommand(): Promise<void> {
     process.exit(1)
   }
 
-  // Gather configuration
-  const answers = await p.group(
-    {
-      domain: () =>
-        p.text({
-          message: "Domain for this agent:",
-          placeholder: "example.siteio.me",
-          validate: (value) => {
-            if (!value) return "Domain is required"
-            if (!value.includes(".")) return "Please enter a valid domain"
-          },
-        }),
-      dataDir: () =>
-        p.text({
-          message: "Data directory:",
-          initialValue: "/data",
-          validate: (value) => {
-            if (!value) return "Data directory is required"
-          },
-        }),
-      email: () =>
-        p.text({
-          message: "Email for Let's Encrypt (optional):",
-          placeholder: "admin@example.com",
-        }),
-    },
-    {
-      onCancel: () => {
-        p.cancel("Installation cancelled")
-        process.exit(0)
-      },
-    }
-  )
+  // Gather configuration - use flags if provided, otherwise prompt
+  let domain = options.domain
+  let dataDir = options.dataDir || "/data"
+  let email = options.email
 
-  const domain = answers.domain as string
-  const dataDir = answers.dataDir as string
-  const email = answers.email as string | undefined
+  if (!domain) {
+    // Interactive mode - prompt for configuration
+    const answers = await p.group(
+      {
+        domain: () =>
+          p.text({
+            message: "Domain for this agent:",
+            placeholder: "example.siteio.me",
+            validate: (value) => {
+              if (!value) return "Domain is required"
+              if (!value.includes(".")) return "Please enter a valid domain"
+            },
+          }),
+        dataDir: () =>
+          p.text({
+            message: "Data directory:",
+            initialValue: dataDir,
+            validate: (value) => {
+              if (!value) return "Data directory is required"
+            },
+          }),
+        email: () =>
+          p.text({
+            message: "Email for Let's Encrypt (optional):",
+            placeholder: "admin@example.com",
+          }),
+      },
+      {
+        onCancel: () => {
+          p.cancel("Installation cancelled")
+          process.exit(0)
+        },
+      }
+    )
+
+    domain = answers.domain as string
+    dataDir = answers.dataDir as string
+    email = answers.email as string | undefined
+  }
+
   const apiKey = generateApiKey()
 
   // Create data directory
@@ -264,4 +425,12 @@ export async function installAgentCommand(): Promise<void> {
   console.log("")
 
   p.outro(chalk.green("Installation complete!"))
+}
+
+export async function installAgentCommand(target?: string, options: InstallOptions = {}): Promise<void> {
+  if (target && isRemoteTarget(target)) {
+    await installRemote(target, options)
+  } else {
+    await installLocal(options)
+  }
 }
