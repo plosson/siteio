@@ -15,6 +15,7 @@ const CONTAINER_PREFIX = "siteio-"
 interface UninstallOptions {
   removeData?: boolean
   removeContainers?: boolean
+  removeCloudflare?: boolean
   yes?: boolean
   identity?: string
 }
@@ -110,6 +111,9 @@ async function uninstallRemote(target: string, options: UninstallOptions): Promi
   if (options.removeData) {
     remoteCmd += " --remove-data"
   }
+  if (options.removeCloudflare) {
+    remoteCmd += " --remove-cloudflare"
+  }
   if (options.yes) {
     remoteCmd += " --yes"
   }
@@ -166,20 +170,41 @@ async function uninstallLocal(options: UninstallOptions): Promise<void> {
   // Check for Cloudflare DNS cleanup
   const agentConfig = loadAgentConfig(DEFAULT_DATA_DIR)
   if (agentConfig.cloudflareToken && agentConfig.domain) {
-    s.start("Removing Cloudflare DNS record")
-    try {
-      const result = await removeWildcardDNS(agentConfig.cloudflareToken, agentConfig.domain)
-      if (result.skipped) {
-        s.stop(chalk.yellow("Skipped"))
-        console.log(formatWarning(result.message))
-      } else {
-        s.stop(chalk.green("Done"))
-        console.log(formatSuccess(result.message))
+    console.log("")
+    console.log(chalk.yellow(`Found Cloudflare DNS record for *.${agentConfig.domain}`))
+    console.log("")
+
+    let shouldRemoveCloudflare = options.removeCloudflare
+
+    if (!shouldRemoveCloudflare && !options.yes) {
+      const removeCloudflare = await p.confirm({
+        message: "Remove Cloudflare DNS record?",
+        initialValue: true,
+      })
+
+      if (!p.isCancel(removeCloudflare)) {
+        shouldRemoveCloudflare = removeCloudflare
       }
-    } catch (error) {
-      s.stop(chalk.yellow("Skipped"))
-      const message = error instanceof CloudflareError ? error.message : String(error)
-      console.log(formatWarning(`Could not remove DNS record: ${message}`))
+    }
+
+    if (shouldRemoveCloudflare) {
+      s.start("Removing Cloudflare DNS record")
+      try {
+        const result = await removeWildcardDNS(agentConfig.cloudflareToken, agentConfig.domain)
+        if (result.skipped) {
+          s.stop(chalk.yellow("Skipped"))
+          console.log(formatWarning(result.message))
+        } else {
+          s.stop(chalk.green("Done"))
+          console.log(formatSuccess(result.message))
+        }
+      } catch (error) {
+        s.stop(chalk.yellow("Skipped"))
+        const message = error instanceof CloudflareError ? error.message : String(error)
+        console.log(formatWarning(`Could not remove DNS record: ${message}`))
+      }
+    } else {
+      console.log(chalk.gray("Cloudflare DNS record preserved"))
     }
   }
 

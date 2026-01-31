@@ -308,6 +308,7 @@ agent
   .option("-i, --identity <keyfile>", "SSH identity file for remote uninstall")
   .option("--remove-containers", "Also remove Docker containers (apps and Traefik)")
   .option("--remove-data", "Also remove data directory")
+  .option("--remove-cloudflare", "Also remove Cloudflare DNS record")
   .option("-y, --yes", "Skip confirmation prompts")
   .action(async (target, options) => {
     const { uninstallAgentCommand } = await import("./commands/agent/uninstall.ts")
