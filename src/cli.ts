@@ -42,13 +42,14 @@ program
 // Login command
 program
   .command("login")
-  .description("Configure API credentials")
+  .argument("[domain]", "Switch to existing server by domain")
+  .description("Configure API credentials or switch servers")
   .option("--api-url <url>", "API URL")
   .option("--api-key <key>", "API key")
   .option("-t, --token <token>", "Connection token (contains URL and API key)")
-  .action(async (options) => {
+  .action(async (domain, options) => {
     const { loginCommand } = await import("./commands/login.ts")
-    await loginCommand(options)
+    await loginCommand({ ...options, domain })
   })
 
 // Sites commands

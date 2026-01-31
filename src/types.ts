@@ -128,8 +128,19 @@ export interface SiteInfo {
   tls?: TlsStatus
 }
 
+// Single server config
+export interface ServerConfig {
+  apiUrl: string
+  apiKey: string
+}
+
 // Config stored in ~/.config/siteio/config.json
 export interface ClientConfig {
+  // Current active server domain
+  current?: string
+  // All stored servers keyed by domain
+  servers?: Record<string, ServerConfig>
+  // Legacy fields for backward compatibility (will be migrated)
   apiUrl?: string
   apiKey?: string
 }
@@ -186,6 +197,7 @@ export interface LoginOptions {
   apiUrl?: string
   apiKey?: string
   token?: string
+  domain?: string // Switch to existing server by domain
 }
 
 export interface AgentStartOptions {

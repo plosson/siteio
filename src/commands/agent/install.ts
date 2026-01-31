@@ -203,7 +203,9 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
   }
 
   // Build the remote install command with flags
-  let remoteCmd = "siteio agent install"
+  // Use full path since PATH update from .bashrc hasn't taken effect yet
+  const sitioBin = siteioInstalled ? "siteio" : "$HOME/.local/bin/siteio"
+  let remoteCmd = `${sitioBin} agent install`
   remoteCmd += ` --domain ${domain}`
   remoteCmd += ` --data-dir ${dataDir}`
   if (email) {

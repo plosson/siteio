@@ -1,6 +1,13 @@
 import * as p from "@clack/prompts"
 import chalk from "chalk"
-import { saveConfig, loadConfig, getConfigPath } from "../config/loader.ts"
+import {
+  addServer,
+  switchServer,
+  listServers,
+  getConfigPath,
+  extractDomain,
+  getCurrentServer,
+} from "../config/loader.ts"
 import { formatSuccess, formatError } from "../utils/output.ts"
 import { decodeToken } from "../utils/token.ts"
 import type { LoginOptions } from "../types.ts"
@@ -11,6 +18,33 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
   // Check for token from env var or CLI option
   const token = options.token || process.env.SITEIO_TOKEN
 
+  // If a domain argument is provided (switch to existing server)
+  if (options.domain) {
+    const targetDomain = options.domain
+    const server = switchServer(targetDomain)
+    if (!server) {
+      // Try partial match
+      const servers = listServers()
+      const matches = servers.filter((s) => s.domain.includes(targetDomain))
+      const singleMatch = matches.length === 1 ? matches[0] : null
+      if (singleMatch) {
+        const matched = switchServer(singleMatch.domain)
+        if (matched) {
+          p.outro(formatSuccess(`Switched to ${singleMatch.domain}`))
+          process.exit(0)
+        }
+      }
+      console.error(formatError(`Server '${targetDomain}' not found`))
+      const available = servers.map((s) => s.domain).join(", ")
+      if (available) {
+        console.error(chalk.gray(`  Available: ${available}`))
+      }
+      process.exit(1)
+    }
+    p.outro(formatSuccess(`Switched to ${targetDomain}`))
+    process.exit(0)
+  }
+
   let apiUrl: string
   let apiKey: string
 
@@ -20,23 +54,52 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
       const decoded = decodeToken(token)
       apiUrl = decoded.url
       apiKey = decoded.apiKey
-      p.log.info(`Using token for ${apiUrl}`)
+      p.log.info(`Using token for ${extractDomain(apiUrl)}`)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Invalid token"
       console.error(formatError(message))
       process.exit(1)
     }
   } else {
-    // Interactive prompts
-    const existingConfig = loadConfig()
+    // No token - show server list if we have multiple, or prompt for new
+    const servers = listServers()
 
+    if (servers.length > 0) {
+      // Show available servers and let user pick or add new
+      const choices = [
+        ...servers.map((s) => ({
+          value: s.domain,
+          label: s.current ? `${s.domain} ${chalk.green("(current)")}` : s.domain,
+        })),
+        { value: "__new__", label: chalk.cyan("+ Add new server") },
+      ]
+
+      const selected = await p.select({
+        message: "Select a server:",
+        options: choices,
+      })
+
+      if (p.isCancel(selected)) {
+        p.cancel("Login cancelled")
+        process.exit(0)
+      }
+
+      if (selected !== "__new__") {
+        const server = switchServer(selected as string)
+        if (server) {
+          p.outro(formatSuccess(`Switched to ${selected}`))
+          process.exit(0)
+        }
+      }
+    }
+
+    // Interactive prompts for new server
     const answers = await p.group(
       {
         apiUrl: () =>
           p.text({
             message: "API URL:",
-            placeholder: "https://api.axel.siteio.me",
-            initialValue: options.apiUrl || existingConfig.apiUrl || "",
+            placeholder: "https://api.example.siteio.me",
             validate: (value) => {
               if (!value) return "API URL is required"
               try {
@@ -91,12 +154,9 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
     process.exit(2)
   }
 
-  // Save config
-  saveConfig({
-    apiUrl,
-    apiKey,
-  })
+  // Save server config
+  const domain = addServer(apiUrl, apiKey)
 
-  p.outro(formatSuccess(`Config saved to ${getConfigPath()}`))
+  p.outro(formatSuccess(`Logged in to ${domain}`))
   process.exit(0)
 }
