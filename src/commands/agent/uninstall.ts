@@ -85,10 +85,15 @@ async function uninstallRemote(target: string, options: UninstallOptions): Promi
   }
   s.stop(chalk.green("SSH connection OK"))
 
-  // Check if siteio is installed
+  // Check if siteio is installed (check both PATH and common install location)
   s.start("Checking if siteio is installed on remote")
-  const checkResult = await sshExec(target, "which siteio || echo 'not-found'", options.identity)
-  if (checkResult.stdout.includes("not-found")) {
+  const checkResult = await sshExec(
+    target,
+    "which siteio 2>/dev/null || (test -f $HOME/.local/bin/siteio && echo $HOME/.local/bin/siteio) || echo 'not-found'",
+    options.identity
+  )
+  const siteioPath = checkResult.stdout.trim()
+  if (siteioPath === "not-found") {
     s.stop(chalk.yellow("siteio not found"))
     console.log(chalk.yellow("siteio is not installed on the remote server."))
     process.exit(0)
@@ -96,7 +101,9 @@ async function uninstallRemote(target: string, options: UninstallOptions): Promi
   s.stop(chalk.green("siteio found"))
 
   // Build the remote uninstall command with flags
-  let remoteCmd = "siteio agent uninstall"
+  // Use full path since PATH may not include ~/.local/bin in non-interactive SSH
+  const sitioBin = siteioPath.includes(".local/bin") ? "$HOME/.local/bin/siteio" : "siteio"
+  let remoteCmd = `${sitioBin} agent uninstall`
   if (options.removeContainers) {
     remoteCmd += " --remove-containers"
   }
