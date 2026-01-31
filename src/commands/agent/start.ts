@@ -68,6 +68,12 @@ export async function startAgentCommand(): Promise<void> {
   const httpsPort = parseInt(process.env.SITEIO_HTTPS_PORT || "443", 10)
   const email = process.env.SITEIO_EMAIL
 
+  if (!email) {
+    console.error(formatError("SITEIO_EMAIL environment variable is required for Let's Encrypt certificates"))
+    console.error(chalk.gray("  Set it in your systemd service file or environment"))
+    process.exit(1)
+  }
+
   // Save config for persistence
   updateAgentConfig(dataDir, { apiKey, domain })
 

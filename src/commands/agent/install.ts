@@ -159,8 +159,14 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
           }),
         email: () =>
           p.text({
-            message: "Email for Let's Encrypt (optional):",
-            placeholder: "admin@example.com",
+            message: "Email for Let's Encrypt:",
+            placeholder: "you@example.com",
+            validate: (value) => {
+              if (!value) return "Email is required for Let's Encrypt certificates"
+              if (!value.includes("@") || value.includes("example.com")) {
+                return "Please enter a valid email address"
+              }
+            },
           }),
         cloudflareToken: () =>
           p.password({
@@ -288,8 +294,14 @@ async function installLocal(options: InstallOptions): Promise<void> {
           }),
         email: () =>
           p.text({
-            message: "Email for Let's Encrypt (optional):",
-            placeholder: "admin@example.com",
+            message: "Email for Let's Encrypt:",
+            placeholder: "you@example.com",
+            validate: (value) => {
+              if (!value) return "Email is required for Let's Encrypt certificates"
+              if (!value.includes("@") || value.includes("example.com")) {
+                return "Please enter a valid email address"
+              }
+            },
           }),
         cloudflareToken: () =>
           p.password({
