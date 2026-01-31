@@ -8,6 +8,7 @@ GITHUB_REPO="${SITEIO_GITHUB_REPO:-plosson/siteio}"
 INSTALL_DIR="${SITEIO_INSTALL_DIR:-}"
 VERSION="${SITEIO_VERSION:-}"
 NO_MODIFY_PATH="${SITEIO_NO_MODIFY_PATH:-}"
+NO_COMPLETIONS="${SITEIO_NO_COMPLETIONS:-}"
 GITHUB_TOKEN="${SITEIO_GITHUB_TOKEN:-}"
 
 # Colors
@@ -210,6 +211,63 @@ add_to_path() {
     fi
 }
 
+install_completions() {
+    local install_dir="$1"
+    local siteio="$install_dir/siteio"
+
+    # Skip if completions already installed (check for siteio completion marker)
+    case "$SHELL" in
+        */zsh)
+            if grep -q "# siteio completion" "$HOME/.zshrc" 2>/dev/null || \
+               grep -q "#compdef siteio" "$HOME/.zshrc" 2>/dev/null; then
+                return 0
+            fi
+            local completion_output
+            if completion_output=$("$siteio" completion zsh 2>/dev/null); then
+                {
+                    printf '\n# siteio completion\n'
+                    printf '%s\n' "$completion_output"
+                } >> "$HOME/.zshrc"
+                info "Added zsh completions to ~/.zshrc"
+            else
+                warn "Failed to generate zsh completions"
+            fi
+            ;;
+        */bash)
+            local bashrc="$HOME/.bashrc"
+            if [ -f "$HOME/.bash_profile" ]; then
+                bashrc="$HOME/.bash_profile"
+            fi
+            if grep -q "# siteio completion" "$bashrc" 2>/dev/null; then
+                return 0
+            fi
+            local completion_output
+            if completion_output=$("$siteio" completion bash 2>/dev/null); then
+                {
+                    printf '\n# siteio completion\n'
+                    printf '%s\n' "$completion_output"
+                } >> "$bashrc"
+                info "Added bash completions to $bashrc"
+            else
+                warn "Failed to generate bash completions"
+            fi
+            ;;
+        */fish)
+            local fish_comp="$HOME/.config/fish/completions/siteio.fish"
+            if [ -f "$fish_comp" ]; then
+                return 0
+            fi
+            mkdir -p "$HOME/.config/fish/completions"
+            if "$siteio" completion fish > "$fish_comp" 2>/dev/null; then
+                info "Added fish completions"
+            else
+                rm -f "$fish_comp"
+                warn "Failed to generate fish completions"
+            fi
+            ;;
+    esac
+}
+
 main() {
     setup_colors
 
@@ -228,6 +286,10 @@ main() {
                 NO_MODIFY_PATH=1
                 shift
                 ;;
+            --no-completions)
+                NO_COMPLETIONS=1
+                shift
+                ;;
             --help|-h)
                 cat <<EOF
 siteio installer
@@ -238,12 +300,14 @@ Options:
   --install-dir DIR    Install to specific directory
   --version VERSION    Install specific version (default: latest)
   --no-modify-path     Don't modify PATH in shell rc file
+  --no-completions     Don't install shell completions
   --help               Show this help
 
 Environment variables:
   SITEIO_INSTALL_DIR      Installation directory
   SITEIO_VERSION          Version to install
   SITEIO_NO_MODIFY_PATH   Set to skip PATH modification
+  SITEIO_NO_COMPLETIONS   Set to skip completion installation
   SITEIO_GITHUB_TOKEN     GitHub token for rate limiting
 EOF
                 exit 0
@@ -298,6 +362,11 @@ EOF
     # Add to PATH if needed
     if [ -z "$NO_MODIFY_PATH" ]; then
         add_to_path "$install_dir"
+    fi
+
+    # Install shell completions if not disabled
+    if [ -z "$NO_COMPLETIONS" ]; then
+        install_completions "$install_dir"
     fi
 
     # Verify installation
