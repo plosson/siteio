@@ -289,11 +289,26 @@ const agent = program
   .description("Run the siteio agent server")
 
 agent
-  .command("install")
-  .description("Install and start the agent as a systemd service")
-  .action(async () => {
+  .command("install [target]")
+  .description("Install and start the agent as a systemd service (locally or on remote server)")
+  .option("--domain <domain>", "Domain for this agent (e.g., example.siteio.me)")
+  .option("--data-dir <path>", "Data directory (default: /data)")
+  .option("--email <email>", "Email for Let's Encrypt")
+  .option("-i, --identity <keyfile>", "SSH identity file for remote install")
+  .action(async (target, options) => {
     const { installAgentCommand } = await import("./commands/agent/install.ts")
-    await installAgentCommand()
+    await installAgentCommand(target, options)
+  })
+
+agent
+  .command("uninstall [target]")
+  .description("Uninstall the agent systemd service (locally or on remote server)")
+  .option("-i, --identity <keyfile>", "SSH identity file for remote uninstall")
+  .option("--remove-data", "Also remove data directory")
+  .option("-y, --yes", "Skip confirmation prompts")
+  .action(async (target, options) => {
+    const { uninstallAgentCommand } = await import("./commands/agent/uninstall.ts")
+    await uninstallAgentCommand(target, options)
   })
 
 agent
