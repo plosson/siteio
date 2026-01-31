@@ -4,8 +4,9 @@ import { existsSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 import { spawnSync, spawn } from "bun"
 import { randomBytes } from "crypto"
-import { formatSuccess, formatError } from "../../utils/output.ts"
+import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts"
 import { encodeToken } from "../../utils/token.ts"
+import { setupWildcardDNS, CloudflareError } from "../../lib/cloudflare.ts"
 
 const SERVICE_NAME = "siteio-agent"
 const SERVICE_FILE = `/etc/systemd/system/${SERVICE_NAME}.service`
@@ -16,6 +17,7 @@ interface InstallOptions {
   dataDir?: string
   email?: string
   identity?: string
+  cloudflareToken?: string
 }
 
 function findBinaryPath(): string {
@@ -133,6 +135,7 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
   let domain = options.domain
   let dataDir = options.dataDir || "/data"
   let email = options.email
+  let cloudflareToken = options.cloudflareToken
 
   if (!domain) {
     const answers = await p.group(
@@ -159,6 +162,10 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
             message: "Email for Let's Encrypt (optional):",
             placeholder: "admin@example.com",
           }),
+        cloudflareToken: () =>
+          p.password({
+            message: "Cloudflare API token (optional, for auto DNS setup):",
+          }),
       },
       {
         onCancel: () => {
@@ -171,6 +178,7 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
     domain = answers.domain as string
     dataDir = answers.dataDir as string
     email = answers.email as string | undefined
+    cloudflareToken = answers.cloudflareToken as string | undefined
   }
 
   // Check if siteio is already installed
@@ -200,6 +208,9 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
   remoteCmd += ` --data-dir ${dataDir}`
   if (email) {
     remoteCmd += ` --email ${email}`
+  }
+  if (cloudflareToken) {
+    remoteCmd += ` --cloudflare-token ${cloudflareToken}`
   }
 
   // Run remote install
@@ -250,6 +261,7 @@ async function installLocal(options: InstallOptions): Promise<void> {
   let domain = options.domain
   let dataDir = options.dataDir || "/data"
   let email = options.email
+  let cloudflareToken = options.cloudflareToken
 
   if (!domain) {
     // Interactive mode - prompt for configuration
@@ -277,6 +289,10 @@ async function installLocal(options: InstallOptions): Promise<void> {
             message: "Email for Let's Encrypt (optional):",
             placeholder: "admin@example.com",
           }),
+        cloudflareToken: () =>
+          p.password({
+            message: "Cloudflare API token (optional, for auto DNS setup):",
+          }),
       },
       {
         onCancel: () => {
@@ -289,9 +305,30 @@ async function installLocal(options: InstallOptions): Promise<void> {
     domain = answers.domain as string
     dataDir = answers.dataDir as string
     email = answers.email as string | undefined
+    cloudflareToken = answers.cloudflareToken as string | undefined
   }
 
   const apiKey = generateApiKey()
+
+  // Setup Cloudflare DNS if token provided
+  if (cloudflareToken) {
+    const s = p.spinner()
+    s.start("Setting up Cloudflare DNS")
+    try {
+      const result = await setupWildcardDNS(cloudflareToken, domain)
+      if (result.skipped) {
+        s.stop(chalk.yellow("Skipped"))
+        console.log(formatWarning(result.message))
+      } else {
+        s.stop(chalk.green("Done"))
+        console.log(formatSuccess(result.message))
+      }
+    } catch (error) {
+      s.stop(chalk.yellow("Skipped"))
+      const message = error instanceof CloudflareError ? error.message : String(error)
+      console.log(formatWarning(`Could not set up DNS: ${message}. Please configure manually.`))
+    }
+  }
 
   // Create data directory
   const s = p.spinner()
@@ -315,7 +352,11 @@ async function installLocal(options: InstallOptions): Promise<void> {
   // Save agent config
   s.start("Saving configuration")
   const configPath = join(dataDir, "agent-config.json")
-  const configContent = JSON.stringify({ apiKey, domain }, null, 2)
+  const configData: Record<string, string> = { apiKey, domain }
+  if (cloudflareToken) {
+    configData.cloudflareToken = cloudflareToken
+  }
+  const configContent = JSON.stringify(configData, null, 2)
 
   const writeConfigCmd = isRoot
     ? ["sh", "-c", `echo '${configContent}' > ${configPath}`]

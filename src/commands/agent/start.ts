@@ -1,11 +1,10 @@
 import * as p from "@clack/prompts"
 import chalk from "chalk"
 import { randomBytes } from "crypto"
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
-import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { formatError } from "../../utils/output.ts"
 import { encodeToken } from "../../utils/token.ts"
+import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import type { AgentConfig } from "../../types.ts"
 
 function generateApiKey(): string {
@@ -31,32 +30,14 @@ function parseSize(size: string): number {
   }
 }
 
-// Load or generate persistent config (API key, domain)
-function loadOrCreateConfig(dataDir: string): { apiKey: string; domain?: string } {
-  const configPath = join(dataDir, "agent-config.json")
-
-  if (existsSync(configPath)) {
-    try {
-      return JSON.parse(readFileSync(configPath, "utf-8"))
-    } catch {
-      // Ignore parse errors, regenerate
-    }
-  }
-
-  return { apiKey: generateApiKey() }
-}
-
-function saveConfig(dataDir: string, config: { apiKey: string; domain: string }): void {
-  const configPath = join(dataDir, "agent-config.json")
-  mkdirSync(dataDir, { recursive: true })
-  writeFileSync(configPath, JSON.stringify(config, null, 2))
-}
-
 export async function startAgentCommand(): Promise<void> {
   const dataDir = process.env.SITEIO_DATA_DIR || "/data"
 
   // Load persistent config
-  const persistedConfig = loadOrCreateConfig(dataDir)
+  const persistedConfig = loadAgentConfig(dataDir)
+  if (!persistedConfig.apiKey) {
+    persistedConfig.apiKey = generateApiKey()
+  }
 
   // Read configuration from environment variables or prompt
   let domain = process.env.SITEIO_DOMAIN || persistedConfig.domain
@@ -88,7 +69,7 @@ export async function startAgentCommand(): Promise<void> {
   const email = process.env.SITEIO_EMAIL
 
   // Save config for persistence
-  saveConfig(dataDir, { apiKey, domain })
+  updateAgentConfig(dataDir, { apiKey, domain })
 
   const config: AgentConfig = {
     apiKey,

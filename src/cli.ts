@@ -294,6 +294,7 @@ agent
   .option("--domain <domain>", "Domain for this agent (e.g., example.siteio.me)")
   .option("--data-dir <path>", "Data directory (default: /data)")
   .option("--email <email>", "Email for Let's Encrypt")
+  .option("--cloudflare-token <token>", "Cloudflare API token for automatic DNS setup")
   .option("-i, --identity <keyfile>", "SSH identity file for remote install")
   .action(async (target, options) => {
     const { installAgentCommand } = await import("./commands/agent/install.ts")
@@ -350,6 +351,44 @@ agent
   .action(async () => {
     const { statusAgentCommand } = await import("./commands/agent/status.ts")
     await statusAgentCommand()
+  })
+
+// Agent config subcommands
+const agentConfig = agent
+  .command("config")
+  .description("Manage agent configuration")
+
+agentConfig
+  .command("list")
+  .alias("ls")
+  .description("List all configuration values")
+  .action(async () => {
+    const { listConfigCommand } = await import("./commands/agent/config.ts")
+    await listConfigCommand({ json: program.opts().json })
+  })
+
+agentConfig
+  .command("get <key>")
+  .description("Get a configuration value")
+  .action(async (key) => {
+    const { getConfigCommand } = await import("./commands/agent/config.ts")
+    await getConfigCommand(key, { json: program.opts().json })
+  })
+
+agentConfig
+  .command("set <key> <value>")
+  .description("Set a configuration value")
+  .action(async (key, value) => {
+    const { setConfigCommand } = await import("./commands/agent/config.ts")
+    await setConfigCommand(key, value, { json: program.opts().json })
+  })
+
+agentConfig
+  .command("unset <key>")
+  .description("Remove a configuration value")
+  .action(async (key) => {
+    const { unsetConfigCommand } = await import("./commands/agent/config.ts")
+    await unsetConfigCommand(key, { json: program.opts().json })
   })
 
 // Update command
