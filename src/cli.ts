@@ -369,4 +369,13 @@ skill
     await uninstallSkillCommand({ json: program.opts().json })
   })
 
+// Completion command
+program
+  .command("completion <shell>")
+  .description("Output shell completion script (bash, zsh, fish)")
+  .action(async (shell) => {
+    const { completionCommand } = await import("./commands/completion.ts")
+    completionCommand(shell)
+  })
+
 program.parse()
