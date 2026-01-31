@@ -214,7 +214,7 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: ${email || "admin@example.com"}
+      email: ${email}
       storage: /certs/acme.json
       httpChallenge:
         entryPoint: web
