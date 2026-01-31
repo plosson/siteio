@@ -4,9 +4,7 @@ import {
   addServer,
   switchServer,
   listServers,
-  getConfigPath,
   extractDomain,
-  getCurrentServer,
 } from "../config/loader.ts"
 import { formatSuccess, formatError } from "../utils/output.ts"
 import { decodeToken } from "../utils/token.ts"

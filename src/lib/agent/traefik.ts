@@ -1,6 +1,6 @@
-import { existsSync, writeFileSync, mkdirSync, readFileSync } from "fs"
+import { existsSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
-import { spawn, spawnSync } from "bun"
+import { spawnSync } from "bun"
 import { connect as tlsConnect, type PeerCertificate } from "tls"
 import type { SiteMetadata, AgentOAuthConfig } from "../../types.ts"
 

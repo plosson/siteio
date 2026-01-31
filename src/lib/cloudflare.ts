@@ -141,6 +141,29 @@ export async function createARecord(
 }
 
 /**
+ * Delete a DNS record by ID
+ */
+export async function deleteRecord(
+  token: string,
+  zoneId: string,
+  recordId: string
+): Promise<void> {
+  const response = await fetch(`${CLOUDFLARE_API}/zones/${zoneId}/dns_records/${recordId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  })
+
+  if (!response.ok) {
+    const data = await response.json() as { errors?: { message: string }[] }
+    const errorMsg = data.errors?.[0]?.message || response.statusText
+    throw new CloudflareError(`Failed to delete DNS record: ${errorMsg}`)
+  }
+}
+
+/**
  * Setup wildcard DNS record for a domain
  * Returns a result object with status and message
  */
@@ -184,5 +207,50 @@ export async function setupWildcardDNS(
   return {
     success: true,
     message: `Created DNS record ${wildcardName} → ${publicIP}`,
+  }
+}
+
+/**
+ * Remove wildcard DNS record for a domain
+ * Returns a result object with status and message
+ */
+export async function removeWildcardDNS(
+  token: string,
+  domain: string
+): Promise<{ success: boolean; message: string; skipped?: boolean }> {
+  // List zones
+  const zones = await listZones(token)
+  if (zones.length === 0) {
+    throw new CloudflareError("No Cloudflare zones accessible with this token")
+  }
+
+  // Find matching zone
+  const zone = findMatchingZone(domain, zones)
+  if (!zone) {
+    return {
+      success: true,
+      skipped: true,
+      message: `No zone found for domain "${domain}", skipping DNS cleanup`,
+    }
+  }
+
+  // Check if wildcard record exists
+  const wildcardName = `*.${domain}`
+  const existingRecord = await getRecord(token, zone.id, wildcardName)
+
+  if (!existingRecord) {
+    return {
+      success: true,
+      skipped: true,
+      message: `DNS record ${wildcardName} does not exist, skipping`,
+    }
+  }
+
+  // Delete the wildcard record
+  await deleteRecord(token, zone.id, existingRecord.id)
+
+  return {
+    success: true,
+    message: `Deleted DNS record ${wildcardName}`,
   }
 }
