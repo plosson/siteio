@@ -7,11 +7,64 @@ import { formatSuccess, formatError } from "../../utils/output.ts"
 const SERVICE_NAME = "siteio-agent"
 const SERVICE_FILE = `/etc/systemd/system/${SERVICE_NAME}.service`
 const DEFAULT_DATA_DIR = "/data"
+const CONTAINER_PREFIX = "siteio-"
 
 interface UninstallOptions {
   removeData?: boolean
+  removeContainers?: boolean
   yes?: boolean
   identity?: string
+}
+
+function listSiteioContainers(): string[] {
+  const result = spawnSync({
+    cmd: ["docker", "ps", "-a", "--filter", `name=${CONTAINER_PREFIX}`, "--format", "{{.Names}}"],
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+
+  if (result.exitCode !== 0) {
+    return []
+  }
+
+  return result.stdout
+    .toString()
+    .trim()
+    .split("\n")
+    .filter((name) => name.length > 0)
+}
+
+function stopAndRemoveContainers(containers: string[], isRoot: boolean): { stopped: number; failed: string[] } {
+  let stopped = 0
+  const failed: string[] = []
+
+  for (const container of containers) {
+    // Stop container
+    const stopResult = spawnSync({
+      cmd: isRoot
+        ? ["docker", "stop", container]
+        : ["sudo", "docker", "stop", container],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    // Remove container (even if stop failed - might already be stopped)
+    const rmResult = spawnSync({
+      cmd: isRoot
+        ? ["docker", "rm", "-f", container]
+        : ["sudo", "docker", "rm", "-f", container],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    if (rmResult.exitCode === 0) {
+      stopped++
+    } else {
+      failed.push(container)
+    }
+  }
+
+  return { stopped, failed }
 }
 
 function isRemoteTarget(target: string): boolean {
@@ -84,6 +137,9 @@ async function uninstallRemote(target: string, options: UninstallOptions): Promi
 
   // Build the remote uninstall command with flags
   let remoteCmd = "siteio agent uninstall"
+  if (options.removeContainers) {
+    remoteCmd += " --remove-containers"
+  }
   if (options.removeData) {
     remoteCmd += " --remove-data"
   }
@@ -139,6 +195,46 @@ async function uninstallLocal(options: UninstallOptions): Promise<void> {
   }
 
   const s = p.spinner()
+
+  // Check for Docker containers
+  const containers = listSiteioContainers()
+  if (containers.length > 0) {
+    console.log("")
+    console.log(chalk.yellow(`Found ${containers.length} siteio container(s):`))
+    for (const container of containers) {
+      console.log(chalk.gray(`  - ${container}`))
+    }
+    console.log("")
+
+    let shouldRemoveContainers = options.removeContainers
+
+    if (!shouldRemoveContainers && !options.yes) {
+      const removeContainers = await p.confirm({
+        message: "Stop and remove these Docker containers?",
+        initialValue: true,
+      })
+
+      if (!p.isCancel(removeContainers)) {
+        shouldRemoveContainers = removeContainers
+      }
+    }
+
+    if (shouldRemoveContainers) {
+      s.start("Stopping and removing Docker containers")
+      const { stopped, failed } = stopAndRemoveContainers(containers, isRoot)
+
+      if (failed.length > 0) {
+        s.stop(chalk.yellow(`Removed ${stopped} container(s), ${failed.length} failed`))
+        for (const name of failed) {
+          console.log(chalk.red(`  Failed to remove: ${name}`))
+        }
+      } else {
+        s.stop(chalk.green(`Removed ${stopped} container(s)`))
+      }
+    } else {
+      console.log(chalk.gray("Docker containers preserved"))
+    }
+  }
 
   // Stop the service
   s.start("Stopping service")
