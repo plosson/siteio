@@ -1,15 +1,19 @@
-import { existsSync, mkdirSync, rmSync, readdirSync, statSync, readFileSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, rmSync, readdirSync, statSync, readFileSync, writeFileSync, cpSync } from "fs"
 import { join } from "path"
 import { zipSync } from "fflate"
-import type { SiteMetadata, SiteOAuth } from "../../types.ts"
+import type { SiteMetadata, SiteOAuth, SiteVersion } from "../../types.ts"
+
+const MAX_HISTORY_VERSIONS = 10
 
 export class SiteStorage {
   private sitesDir: string
   private metadataDir: string
+  private historyDir: string
 
   constructor(dataDir: string) {
     this.sitesDir = join(dataDir, "sites")
     this.metadataDir = join(dataDir, "metadata")
+    this.historyDir = join(dataDir, "history")
 
     // Ensure directories exist with world-readable permissions (for nginx container access)
     if (!existsSync(this.sitesDir)) {
@@ -17,6 +21,9 @@ export class SiteStorage {
     }
     if (!existsSync(this.metadataDir)) {
       mkdirSync(this.metadataDir, { recursive: true })
+    }
+    if (!existsSync(this.historyDir)) {
+      mkdirSync(this.historyDir, { recursive: true })
     }
   }
 
@@ -28,6 +35,71 @@ export class SiteStorage {
     return join(this.metadataDir, `${subdomain}.json`)
   }
 
+  private getHistoryPath(subdomain: string): string {
+    return join(this.historyDir, subdomain)
+  }
+
+  private getNextVersion(subdomain: string): number {
+    const historyPath = this.getHistoryPath(subdomain)
+    if (!existsSync(historyPath)) {
+      return 1
+    }
+    const versions = readdirSync(historyPath)
+      .filter((f) => f.startsWith("v"))
+      .map((f) => parseInt(f.slice(1), 10))
+      .filter((n) => !isNaN(n))
+    return versions.length > 0 ? Math.max(...versions) + 1 : 1
+  }
+
+  private archiveCurrentVersion(subdomain: string): void {
+    const sitePath = this.getSitePath(subdomain)
+    const metadata = this.getMetadata(subdomain)
+    if (!existsSync(sitePath) || !metadata) {
+      return // Nothing to archive
+    }
+
+    const historyPath = this.getHistoryPath(subdomain)
+    if (!existsSync(historyPath)) {
+      mkdirSync(historyPath, { recursive: true })
+    }
+
+    const version = this.getNextVersion(subdomain)
+    const versionPath = join(historyPath, `v${version}`)
+
+    // Copy current site to history
+    cpSync(sitePath, versionPath, { recursive: true })
+
+    // Save version metadata
+    const versionMeta: SiteVersion = {
+      version,
+      deployedAt: metadata.deployedAt,
+      size: metadata.size,
+    }
+    writeFileSync(join(historyPath, `v${version}.json`), JSON.stringify(versionMeta, null, 2))
+
+    // Prune old versions if we exceed MAX_HISTORY_VERSIONS
+    this.pruneHistory(subdomain)
+  }
+
+  private pruneHistory(subdomain: string): void {
+    const historyPath = this.getHistoryPath(subdomain)
+    if (!existsSync(historyPath)) return
+
+    const versions = readdirSync(historyPath)
+      .filter((f) => f.startsWith("v") && !f.endsWith(".json"))
+      .map((f) => parseInt(f.slice(1), 10))
+      .filter((n) => !isNaN(n))
+      .sort((a, b) => a - b)
+
+    while (versions.length > MAX_HISTORY_VERSIONS) {
+      const oldVersion = versions.shift()!
+      const oldPath = join(historyPath, `v${oldVersion}`)
+      const oldMetaPath = join(historyPath, `v${oldVersion}.json`)
+      if (existsSync(oldPath)) rmSync(oldPath, { recursive: true })
+      if (existsSync(oldMetaPath)) rmSync(oldMetaPath)
+    }
+  }
+
   async extractAndStore(
     subdomain: string,
     zipData: Uint8Array,
@@ -35,8 +107,9 @@ export class SiteStorage {
   ): Promise<SiteMetadata> {
     const sitePath = this.getSitePath(subdomain)
 
-    // Remove existing site if it exists
+    // Archive existing site before overwriting
     if (existsSync(sitePath)) {
+      this.archiveCurrentVersion(subdomain)
       rmSync(sitePath, { recursive: true })
     }
 
@@ -178,5 +251,81 @@ export class SiteStorage {
 
     writeFileSync(this.getMetadataPath(subdomain), JSON.stringify(metadata, null, 2))
     return true
+  }
+
+  getHistory(subdomain: string): SiteVersion[] {
+    const historyPath = this.getHistoryPath(subdomain)
+    if (!existsSync(historyPath)) {
+      return []
+    }
+
+    const versions: SiteVersion[] = []
+    const files = readdirSync(historyPath).filter((f) => f.endsWith(".json"))
+
+    for (const file of files) {
+      try {
+        const data = JSON.parse(readFileSync(join(historyPath, file), "utf-8")) as SiteVersion
+        versions.push(data)
+      } catch {
+        // Skip invalid files
+      }
+    }
+
+    // Sort by version descending (newest first)
+    return versions.sort((a, b) => b.version - a.version)
+  }
+
+  rollback(subdomain: string, version: number): SiteMetadata | null {
+    const historyPath = this.getHistoryPath(subdomain)
+    const versionPath = join(historyPath, `v${version}`)
+    const versionMetaPath = join(historyPath, `v${version}.json`)
+
+    if (!existsSync(versionPath) || !existsSync(versionMetaPath)) {
+      return null
+    }
+
+    const sitePath = this.getSitePath(subdomain)
+
+    // Archive current version before rollback
+    if (existsSync(sitePath)) {
+      this.archiveCurrentVersion(subdomain)
+      rmSync(sitePath, { recursive: true })
+    }
+
+    // Copy version back to live site
+    cpSync(versionPath, sitePath, { recursive: true })
+
+    // Read version metadata
+    const versionMeta = JSON.parse(readFileSync(versionMetaPath, "utf-8")) as SiteVersion
+
+    // Update site metadata
+    const metadata = this.getMetadata(subdomain)
+    const files = this.collectFileList(sitePath)
+    const newMetadata: SiteMetadata = {
+      subdomain,
+      size: versionMeta.size,
+      deployedAt: new Date().toISOString(),
+      files,
+      oauth: metadata?.oauth,
+    }
+
+    writeFileSync(this.getMetadataPath(subdomain), JSON.stringify(newMetadata, null, 2))
+    return newMetadata
+  }
+
+  private collectFileList(dir: string, baseDir: string = dir): string[] {
+    const files: string[] = []
+    const entries = readdirSync(dir)
+    for (const entry of entries) {
+      const fullPath = join(dir, entry)
+      const relativePath = fullPath.slice(baseDir.length + 1)
+      const stat = statSync(fullPath)
+      if (stat.isDirectory()) {
+        files.push(...this.collectFileList(fullPath, baseDir))
+      } else {
+        files.push(relativePath)
+      }
+    }
+    return files
   }
 }
