@@ -1,6 +1,7 @@
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
 import { handleError } from "../../utils/errors.ts"
+import { formatBytes } from "../../utils/output.ts"
 
 export async function historyCommand(
   subdomain: string,
@@ -30,10 +31,4 @@ export async function historyCommand(
   } catch (err) {
     handleError(err)
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
