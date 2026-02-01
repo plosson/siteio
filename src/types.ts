@@ -140,6 +140,8 @@ export interface ClientConfig {
   current?: string
   // All stored servers keyed by domain
   servers?: Record<string, ServerConfig>
+  // Username for deploy attribution
+  username?: string
   // Legacy fields for backward compatibility (will be migrated)
   apiUrl?: string
   apiKey?: string
@@ -168,6 +170,7 @@ export interface SiteMetadata {
   subdomain: string
   size: number
   deployedAt: string
+  deployedBy?: string
   files: string[]
   oauth?: SiteOAuth
 }
@@ -182,6 +185,7 @@ export interface SiteConfig {
 export interface SiteVersion {
   version: number
   deployedAt: string
+  deployedBy?: string
   size: number
 }
 

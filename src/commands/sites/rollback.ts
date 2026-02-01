@@ -26,7 +26,8 @@ export async function rollbackCommand(
       console.error("")
       for (const v of history) {
         const date = new Date(v.deployedAt).toLocaleString()
-        console.error(`  ${chalk.bold(`v${v.version}`)}  ${date}  ${formatBytes(v.size)}`)
+        const user = v.deployedBy ? chalk.blue(v.deployedBy.padEnd(12)) : chalk.dim("unknown".padEnd(12))
+        console.error(`  ${chalk.bold(`v${v.version}`)}  ${user}  ${date}  ${formatBytes(v.size)}`)
       }
       console.error("")
       throw new ValidationError(`Please specify a version: siteio sites rollback ${subdomain} <version>`)

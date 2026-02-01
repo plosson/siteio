@@ -280,6 +280,9 @@ export class AgentServer {
       // Read the zip data
       const zipData = new Uint8Array(await req.arrayBuffer())
 
+      // Check for deployer identity
+      const deployedBy = req.headers.get("X-Deployed-By") || undefined
+
       // Check for OAuth headers
       const allowedEmails = req.headers.get("X-Site-OAuth-Emails")
       const allowedDomain = req.headers.get("X-Site-OAuth-Domain")
@@ -304,7 +307,7 @@ export class AgentServer {
       }
 
       // Extract and store site files
-      const metadata = await this.storage.extractAndStore(subdomain, zipData, oauth)
+      const metadata = await this.storage.extractAndStore(subdomain, zipData, oauth, deployedBy)
 
       // Update Traefik dynamic config to add route for this site
       // Static sites are served by the shared nginx container

@@ -96,6 +96,7 @@ export function saveConfig(config: ClientConfig): void {
     const toSave: ClientConfig = {
       current: config.current,
       servers: config.servers,
+      username: config.username,
     }
     writeFileSync(CONFIG_FILE, JSON.stringify(toSave, null, 2))
   } catch {
@@ -209,4 +210,15 @@ export function getConfigPath(): string {
 
 export function isConfigured(): boolean {
   return getCurrentServer() !== null
+}
+
+export function getUsername(): string | undefined {
+  const config = loadRawConfig()
+  return config.username
+}
+
+export function setUsername(username: string): void {
+  const config = migrateConfig(loadRawConfig())
+  config.username = username
+  saveConfig(config)
 }
