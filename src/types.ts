@@ -172,12 +172,20 @@ export interface SiteMetadata {
   oauth?: SiteOAuth
 }
 
+// Site config stored in .siteio/config.json for versioning
+export interface SiteConfig {
+  site: string
+  domain: string
+  version: number
+}
+
 // Command options
 export interface DeployOptions {
   subdomain?: string
   allowedEmails?: string
   allowedDomain?: string
   test?: boolean
+  force?: boolean
 }
 
 export interface AuthOptions {

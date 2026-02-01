@@ -1,5 +1,19 @@
 import * as readline from "readline"
 
+export async function text(message: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stderr,
+  })
+
+  const answer = await new Promise<string>((resolve) => {
+    rl.question(`${message}: `, resolve)
+  })
+  rl.close()
+
+  return answer.trim()
+}
+
 export async function confirm(message: string): Promise<boolean> {
   const rl = readline.createInterface({
     input: process.stdin,
