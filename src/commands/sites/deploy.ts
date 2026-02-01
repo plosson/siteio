@@ -1,12 +1,47 @@
-import { existsSync, readdirSync, statSync } from "fs"
+import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { join, basename, resolve } from "path"
 import ora from "ora"
 import chalk from "chalk"
 import { zipSync } from "fflate"
 import { SiteioClient } from "../../lib/client.ts"
+import { getCurrentServer } from "../../config/loader.ts"
+import { text, confirm } from "../../utils/prompt.ts"
 import { formatSuccess, formatBytes } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
-import type { DeployOptions, SiteOAuth } from "../../types.ts"
+import type { DeployOptions, SiteOAuth, SiteConfig } from "../../types.ts"
+
+const SITEIO_CONFIG_DIR = ".siteio"
+const SITEIO_CONFIG_FILE = "config.json"
+
+function loadSiteConfig(folderPath: string): SiteConfig | null {
+  const configPath = join(folderPath, SITEIO_CONFIG_DIR, SITEIO_CONFIG_FILE)
+  if (!existsSync(configPath)) return null
+  try {
+    return JSON.parse(readFileSync(configPath, "utf-8"))
+  } catch {
+    return null
+  }
+}
+
+function saveSiteConfig(folderPath: string, config: SiteConfig): void {
+  const configDir = join(folderPath, SITEIO_CONFIG_DIR)
+  if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true })
+  writeFileSync(
+    join(configDir, SITEIO_CONFIG_FILE),
+    JSON.stringify(config, null, 2) + "\n"
+  )
+}
+
+async function fetchRemoteConfig(site: string, domain: string): Promise<SiteConfig | null> {
+  const url = `https://${site}.${domain}/${SITEIO_CONFIG_DIR}/${SITEIO_CONFIG_FILE}`
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+    if (!response.ok) return null
+    return (await response.json()) as SiteConfig
+  } catch {
+    return null
+  }
+}
 
 function sanitizeSubdomain(name: string): string {
   return name
@@ -105,11 +140,14 @@ export async function deployCommand(folder: string | undefined, options: DeployO
       spinner.succeed("Generated test site")
     } else {
       // Normal mode: deploy from folder
-      if (!folder) {
-        throw new ValidationError("Folder is required. Use --test to deploy a test site without a folder.")
+      // Get server info first
+      const server = getCurrentServer()
+      if (!server) {
+        throw new ValidationError("Not logged in. Run 'siteio login' first.")
       }
 
-      const folderPath = resolve(folder)
+      // Default to current directory if no folder provided
+      const folderPath = resolve(folder || ".")
       if (!existsSync(folderPath)) {
         throw new ValidationError(`Folder not found: ${folderPath}`)
       }
@@ -119,7 +157,35 @@ export async function deployCommand(folder: string | undefined, options: DeployO
         throw new ValidationError(`Not a directory: ${folderPath}`)
       }
 
-      subdomain = options.subdomain || sanitizeSubdomain(basename(folderPath))
+      // Load or create site config
+      let localConfig = loadSiteConfig(folderPath)
+      let version: number
+
+      if (localConfig) {
+        subdomain = localConfig.site
+        version = localConfig.version
+
+        // Warn if domain mismatch
+        if (localConfig.domain !== server.domain) {
+          console.error(chalk.yellow(`Warning: Config is for ${localConfig.domain}, current server is ${server.domain}`))
+          const proceed = await confirm(`Deploy to ${server.domain} instead?`)
+          if (!proceed) process.exit(0)
+          localConfig = null
+          version = 1
+        }
+      } else {
+        subdomain = options.subdomain || sanitizeSubdomain(basename(folderPath))
+        if (!subdomain) {
+          subdomain = sanitizeSubdomain(await text("Site name"))
+        }
+        version = 1
+      }
+
+      // --subdomain overrides config
+      if (options.subdomain) {
+        subdomain = options.subdomain
+      }
+
       if (!subdomain) {
         throw new ValidationError("Could not determine subdomain. Please specify one with --subdomain")
       }
@@ -132,7 +198,35 @@ export async function deployCommand(folder: string | undefined, options: DeployO
         throw new ValidationError("'api' is a reserved subdomain")
       }
 
-      console.error(chalk.cyan(`> Deploying ${folder} to ${subdomain}`))
+      // Version check (before zipping)
+      if (localConfig) {
+        spinner.start("Checking version")
+        const remoteConfig = await fetchRemoteConfig(subdomain, server.domain)
+        spinner.stop()
+
+        if (remoteConfig) {
+          if (remoteConfig.version !== localConfig.version) {
+            if (options.force) {
+              version = remoteConfig.version + 1
+              console.error(chalk.yellow(`  Version mismatch (local: ${localConfig.version}, remote: ${remoteConfig.version})`))
+              console.error(chalk.yellow(`  Forcing deploy with version ${version}`))
+            } else {
+              throw new ValidationError(
+                `Version conflict: local is ${localConfig.version}, remote is ${remoteConfig.version}. ` +
+                `Someone else may have deployed. Use --force to override.`
+              )
+            }
+          } else {
+            version = localConfig.version + 1
+          }
+        }
+      }
+
+      console.error(chalk.cyan(`> Deploying ${folder || "."} to ${subdomain}`))
+
+      // Save config before zipping (so it's included in the zip)
+      saveSiteConfig(folderPath, { site: subdomain, domain: server.domain, version })
+      console.error(chalk.dim(`  Version: ${version}`))
 
       spinner.start("Zipping files")
       files = await collectFiles(folderPath)

@@ -74,6 +74,7 @@ sites
   .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses for Google OAuth")
   .option("--allowed-domain <domain>", "Allow all emails from this domain for Google OAuth")
   .option("--test", "Deploy a simple test page (no folder required)")
+  .option("-f, --force", "Force deploy even if version conflict")
   .action(async (folder, options) => {
     const { deployCommand } = await import("./commands/sites/deploy.ts")
     await deployCommand(folder, { ...options, json: program.opts().json })
