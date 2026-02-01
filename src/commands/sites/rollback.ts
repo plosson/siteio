@@ -3,7 +3,7 @@ import ora from "ora"
 import { SiteioClient } from "../../lib/client.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { confirm } from "../../utils/prompt.ts"
-import { formatBytes } from "../../utils/output.ts"
+import { formatBytes, formatVersionEntry } from "../../utils/output.ts"
 
 export async function rollbackCommand(
   subdomain: string,
@@ -25,9 +25,7 @@ export async function rollbackCommand(
       console.error(chalk.cyan(`Available versions for ${subdomain}:`))
       console.error("")
       for (const v of history) {
-        const date = new Date(v.deployedAt).toLocaleString()
-        const user = v.deployedBy ? chalk.blue(v.deployedBy.padEnd(12)) : chalk.dim("unknown".padEnd(12))
-        console.error(`  ${chalk.bold(`v${v.version}`)}  ${user}  ${date}  ${formatBytes(v.size)}`)
+        console.error(formatVersionEntry(v))
       }
       console.error("")
       throw new ValidationError(`Please specify a version: siteio sites rollback ${subdomain} <version>`)
