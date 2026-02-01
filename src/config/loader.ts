@@ -156,6 +156,33 @@ export function listServers(): { domain: string; current: boolean }[] {
 }
 
 /**
+ * Remove a server from config
+ */
+export function removeServer(domain: string): boolean {
+  const config = migrateConfig(loadRawConfig())
+
+  if (!config.servers?.[domain]) {
+    return false
+  }
+
+  delete config.servers[domain]
+
+  // If we removed the current server, switch to another or clear
+  let newCurrent = config.current
+  if (config.current === domain) {
+    const remaining = Object.keys(config.servers)
+    newCurrent = remaining.length > 0 ? remaining[0] : undefined
+  }
+
+  saveConfig({
+    current: newCurrent,
+    servers: config.servers,
+  })
+
+  return true
+}
+
+/**
  * Get current server config
  */
 export function getCurrentServer(): (ServerConfig & { domain: string }) | null {

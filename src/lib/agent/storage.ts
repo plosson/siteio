@@ -11,9 +11,9 @@ export class SiteStorage {
     this.sitesDir = join(dataDir, "sites")
     this.metadataDir = join(dataDir, "metadata")
 
-    // Ensure directories exist
+    // Ensure directories exist with world-readable permissions (for nginx container access)
     if (!existsSync(this.sitesDir)) {
-      mkdirSync(this.sitesDir, { recursive: true })
+      mkdirSync(this.sitesDir, { recursive: true, mode: 0o755 })
     }
     if (!existsSync(this.metadataDir)) {
       mkdirSync(this.metadataDir, { recursive: true })
@@ -40,8 +40,8 @@ export class SiteStorage {
       rmSync(sitePath, { recursive: true })
     }
 
-    // Create site directory
-    mkdirSync(sitePath, { recursive: true })
+    // Create site directory with world-readable permissions
+    mkdirSync(sitePath, { recursive: true, mode: 0o755 })
 
     // Extract zip using fflate
     const { unzipSync } = await import("fflate")
@@ -57,13 +57,13 @@ export class SiteStorage {
       const filePath = join(sitePath, filename)
       const dirPath = join(sitePath, filename.split("/").slice(0, -1).join("/"))
 
-      // Ensure parent directory exists
+      // Ensure parent directory exists with world-readable permissions
       if (dirPath !== sitePath && !existsSync(dirPath)) {
-        mkdirSync(dirPath, { recursive: true })
+        mkdirSync(dirPath, { recursive: true, mode: 0o755 })
       }
 
-      // Write file
-      await Bun.write(filePath, data)
+      // Write file with world-readable permissions (0o644)
+      await Bun.write(filePath, data, { mode: 0o644 })
       files.push(filename)
       totalSize += data.length
     }
