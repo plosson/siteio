@@ -32,17 +32,6 @@ function saveSiteConfig(folderPath: string, config: SiteConfig): void {
   )
 }
 
-async function fetchRemoteConfig(site: string, domain: string): Promise<SiteConfig | null> {
-  const url = `https://${site}.${domain}/${SITEIO_CONFIG_DIR}/${SITEIO_CONFIG_FILE}`
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
-    if (!response.ok) return null
-    return (await response.json()) as SiteConfig
-  } catch {
-    return null
-  }
-}
-
 function sanitizeSubdomain(name: string): string {
   return name
     .toLowerCase()
@@ -159,11 +148,9 @@ export async function deployCommand(folder: string | undefined, options: DeployO
 
       // Load or create site config
       let localConfig = loadSiteConfig(folderPath)
-      let version: number
 
       if (localConfig) {
         subdomain = localConfig.site
-        version = localConfig.version
 
         // Warn if domain mismatch
         if (localConfig.domain !== server.domain) {
@@ -171,14 +158,12 @@ export async function deployCommand(folder: string | undefined, options: DeployO
           const proceed = await confirm(`Deploy to ${server.domain} instead?`)
           if (!proceed) process.exit(0)
           localConfig = null
-          version = 1
         }
       } else {
         subdomain = options.subdomain || sanitizeSubdomain(basename(folderPath))
         if (!subdomain) {
           subdomain = sanitizeSubdomain(await text("Site name"))
         }
-        version = 1
       }
 
       // --subdomain overrides config
@@ -198,35 +183,10 @@ export async function deployCommand(folder: string | undefined, options: DeployO
         throw new ValidationError("'api' is a reserved subdomain")
       }
 
-      // Version check (before zipping)
-      if (localConfig) {
-        spinner.start("Checking version")
-        const remoteConfig = await fetchRemoteConfig(subdomain, server.domain)
-        spinner.stop()
-
-        if (remoteConfig) {
-          if (remoteConfig.version !== localConfig.version) {
-            if (options.force) {
-              version = remoteConfig.version + 1
-              console.error(chalk.yellow(`  Version mismatch (local: ${localConfig.version}, remote: ${remoteConfig.version})`))
-              console.error(chalk.yellow(`  Forcing deploy with version ${version}`))
-            } else {
-              throw new ValidationError(
-                `Version conflict: local is ${localConfig.version}, remote is ${remoteConfig.version}. ` +
-                `Someone else may have deployed. Use --force to override.`
-              )
-            }
-          } else {
-            version = localConfig.version + 1
-          }
-        }
-      }
-
       console.error(chalk.cyan(`> Deploying ${folder || "."} to ${subdomain}`))
 
-      // Save config before zipping (so it's included in the zip)
-      saveSiteConfig(folderPath, { site: subdomain, domain: server.domain, version })
-      console.error(chalk.dim(`  Version: ${version}`))
+      // Save config (remembers site name and server for next time)
+      saveSiteConfig(folderPath, { site: subdomain, domain: server.domain })
 
       spinner.start("Zipping files")
       files = await collectFiles(folderPath)

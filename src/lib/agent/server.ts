@@ -137,6 +137,18 @@ export class AgentServer {
       return this.handleUpdateAuth(authMatch[1]!, req)
     }
 
+    // GET /sites/:subdomain/history - get site version history
+    const historyMatch = path.match(/^\/sites\/([a-z0-9-]+)\/history$/)
+    if (historyMatch && req.method === "GET") {
+      return this.handleGetHistory(historyMatch[1]!)
+    }
+
+    // POST /sites/:subdomain/rollback - rollback to a previous version
+    const rollbackMatch = path.match(/^\/sites\/([a-z0-9-]+)\/rollback$/)
+    if (rollbackMatch && req.method === "POST") {
+      return this.handleRollback(rollbackMatch[1]!, req)
+    }
+
     // GET /groups - list all groups
     if (path === "/groups" && req.method === "GET") {
       return this.handleListGroups()
@@ -408,6 +420,50 @@ export class AgentServer {
       this.traefik?.updateDynamicConfig(allSites)
 
       return this.json(null)
+    } catch (err) {
+      return this.error("Invalid request body")
+    }
+  }
+
+  private handleGetHistory(subdomain: string): Response {
+    if (!this.storage.siteExists(subdomain)) {
+      return this.error("Site not found", 404)
+    }
+
+    const history = this.storage.getHistory(subdomain)
+    return this.json(history)
+  }
+
+  private async handleRollback(subdomain: string, req: Request): Promise<Response> {
+    if (!this.storage.siteExists(subdomain)) {
+      return this.error("Site not found", 404)
+    }
+
+    try {
+      const body = (await req.json()) as { version: number }
+
+      if (!body.version || typeof body.version !== "number") {
+        return this.error("Version number is required")
+      }
+
+      const metadata = this.storage.rollback(subdomain, body.version)
+      if (!metadata) {
+        return this.error(`Version ${body.version} not found in history`, 404)
+      }
+
+      // Update Traefik config
+      const allSites = this.storage.listSites()
+      this.traefik?.updateDynamicConfig(allSites)
+
+      const siteInfo: SiteInfo = {
+        subdomain: metadata.subdomain,
+        url: `https://${metadata.subdomain}.${this.config.domain}`,
+        size: metadata.size,
+        deployedAt: metadata.deployedAt,
+        oauth: metadata.oauth,
+      }
+
+      return this.json(siteInfo)
     } catch (err) {
       return this.error("Invalid request body")
     }
