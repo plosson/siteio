@@ -114,6 +114,23 @@ sites
   })
 
 sites
+  .command("history <subdomain>")
+  .description("Show version history for a site")
+  .action(async (subdomain) => {
+    const { historyCommand } = await import("./commands/sites/history.ts")
+    await historyCommand(subdomain, { json: program.opts().json })
+  })
+
+sites
+  .command("rollback <subdomain> [version]")
+  .description("Rollback a site to a previous version")
+  .option("-y, --yes", "Skip confirmation prompt")
+  .action(async (subdomain, version, options) => {
+    const { rollbackCommand } = await import("./commands/sites/rollback.ts")
+    await rollbackCommand(subdomain, version, { ...options, json: program.opts().json })
+  })
+
+sites
   .command("auth <subdomain>")
   .description("Set or remove Google OAuth for a site")
   .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses (replaces existing)")

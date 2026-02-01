@@ -1,6 +1,6 @@
 import { loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
-import type { ApiResponse, SiteInfo, SiteOAuth, Group, App, AppInfo, ContainerLogs } from "../types.ts"
+import type { ApiResponse, SiteInfo, SiteOAuth, SiteVersion, Group, App, AppInfo, ContainerLogs } from "../types.ts"
 
 export interface ClientOptions {
   apiUrl?: string
@@ -145,6 +145,24 @@ export class SiteioClient {
       JSON.stringify(oauth ? oauth : { remove: true }),
       headers
     )
+  }
+
+  async getSiteHistory(subdomain: string): Promise<SiteVersion[]> {
+    const response = await this.request<ApiResponse<SiteVersion[]>>("GET", `/sites/${subdomain}/history`)
+    return response.data || []
+  }
+
+  async rollbackSite(subdomain: string, version: number): Promise<SiteInfo> {
+    const response = await this.request<ApiResponse<SiteInfo>>(
+      "POST",
+      `/sites/${subdomain}/rollback`,
+      JSON.stringify({ version }),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
   }
 
   async getOAuthStatus(): Promise<boolean> {
