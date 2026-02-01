@@ -172,11 +172,17 @@ export interface SiteMetadata {
   oauth?: SiteOAuth
 }
 
-// Site config stored in .siteio/config.json for versioning
+// Site config stored in .siteio/config.json (remembers site name and server)
 export interface SiteConfig {
   site: string
   domain: string
+}
+
+// Site version info for history
+export interface SiteVersion {
   version: number
+  deployedAt: string
+  size: number
 }
 
 // Command options
@@ -185,7 +191,6 @@ export interface DeployOptions {
   allowedEmails?: string
   allowedDomain?: string
   test?: boolean
-  force?: boolean
 }
 
 export interface AuthOptions {

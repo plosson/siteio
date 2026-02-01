@@ -74,7 +74,6 @@ sites
   .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses for Google OAuth")
   .option("--allowed-domain <domain>", "Allow all emails from this domain for Google OAuth")
   .option("--test", "Deploy a simple test page (no folder required)")
-  .option("-f, --force", "Force deploy even if version conflict")
   .action(async (folder, options) => {
     const { deployCommand } = await import("./commands/sites/deploy.ts")
     await deployCommand(folder, { ...options, json: program.opts().json })
@@ -112,6 +111,23 @@ sites
   .action(async (subdomain, options) => {
     const { rmCommand } = await import("./commands/sites/rm.ts")
     await rmCommand(subdomain, { ...options, json: program.opts().json })
+  })
+
+sites
+  .command("history <subdomain>")
+  .description("Show version history for a site")
+  .action(async (subdomain) => {
+    const { historyCommand } = await import("./commands/sites/history.ts")
+    await historyCommand(subdomain, { json: program.opts().json })
+  })
+
+sites
+  .command("rollback <subdomain> [version]")
+  .description("Rollback a site to a previous version")
+  .option("-y, --yes", "Skip confirmation prompt")
+  .action(async (subdomain, version, options) => {
+    const { rollbackCommand } = await import("./commands/sites/rollback.ts")
+    await rollbackCommand(subdomain, version, { ...options, json: program.opts().json })
   })
 
 sites
