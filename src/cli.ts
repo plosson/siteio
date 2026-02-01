@@ -39,6 +39,27 @@ program
     await statusCommand()
   })
 
+// Config command (client-side settings)
+const config = program
+  .command("config")
+  .description("Manage client configuration")
+
+config
+  .command("set <key> <value>")
+  .description("Set a config value (e.g., username)")
+  .action(async (key, value) => {
+    const { configSetCommand } = await import("./commands/config.ts")
+    await configSetCommand(key, value, { json: program.opts().json })
+  })
+
+config
+  .command("get <key>")
+  .description("Get a config value")
+  .action(async (key) => {
+    const { configGetCommand } = await import("./commands/config.ts")
+    await configGetCommand(key, { json: program.opts().json })
+  })
+
 // Login command
 program
   .command("login")

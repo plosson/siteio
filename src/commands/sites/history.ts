@@ -22,7 +22,8 @@ export async function historyCommand(
         console.error("")
         for (const version of history) {
           const date = new Date(version.deployedAt).toLocaleString()
-          console.error(`  ${chalk.bold(`v${version.version}`)}  ${date}  ${formatBytes(version.size)}`)
+          const user = version.deployedBy ? chalk.blue(version.deployedBy.padEnd(12)) : chalk.dim("unknown".padEnd(12))
+          console.error(`  ${chalk.bold(`v${version.version}`)}  ${user}  ${date}  ${formatBytes(version.size)}`)
         }
         console.error("")
         console.error(chalk.dim(`Use 'siteio sites rollback ${subdomain} <version>' to restore a version.`))
