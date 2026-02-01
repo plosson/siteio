@@ -30,6 +30,24 @@ export function formatDim(message: string): string {
   return chalk.gray(message)
 }
 
+// Strip ANSI escape codes for accurate string length measurement
+function stripAnsi(str: string): string {
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*m/g, "")
+}
+
+// Get visual width of a string (excluding ANSI codes)
+function visualWidth(str: string): number {
+  return stripAnsi(str).length
+}
+
+// Pad a string to a visual width (accounting for ANSI codes)
+function padEndVisual(str: string, targetWidth: number): string {
+  const currentWidth = visualWidth(str)
+  if (currentWidth >= targetWidth) return str
+  return str + " ".repeat(targetWidth - currentWidth)
+}
+
 // Table formatting for sites list
 export function formatTable(
   headers: string[],
@@ -39,7 +57,7 @@ export function formatTable(
   const widths =
     columnWidths ||
     headers.map((h, i) =>
-      Math.max(h.length, ...rows.map((r) => (r[i] || "").length))
+      Math.max(h.length, ...rows.map((r) => visualWidth(r[i] || "")))
     )
 
   const headerRow = headers
@@ -48,7 +66,7 @@ export function formatTable(
   const separator = widths.map((w) => "-".repeat(w)).join("  ")
   const dataRows = rows
     .map((row) =>
-      row.map((cell, i) => (cell || "").padEnd(widths[i] || cell.length)).join("  ")
+      row.map((cell, i) => padEndVisual(cell || "", widths[i] || visualWidth(cell || ""))).join("  ")
     )
     .join("\n")
 

@@ -52,6 +52,16 @@ program
     await loginCommand({ ...options, domain })
   })
 
+// Logout command
+program
+  .command("logout")
+  .argument("[domain]", "Server domain to remove")
+  .description("Remove a saved server")
+  .action(async (domain) => {
+    const { logoutCommand } = await import("./commands/logout.ts")
+    await logoutCommand(domain)
+  })
+
 // Sites commands
 const sites = program
   .command("sites")
@@ -428,11 +438,22 @@ skill
 
 // Completion command
 program
-  .command("completion <shell>")
-  .description("Output shell completion script (bash, zsh, fish)")
+  .command("completion [shell]")
+  .description("Set up shell completion (interactive) or output script (bash, zsh, fish)")
+  .addHelpText("after", `
+Examples:
+
+  Interactive setup (recommended):
+    siteio completion
+
+  Manual setup:
+    Bash: source <(siteio completion bash)
+    Zsh:  source <(siteio completion zsh)
+    Fish: siteio completion fish > ~/.config/fish/completions/siteio.fish
+`)
   .action(async (shell) => {
     const { completionCommand } = await import("./commands/completion.ts")
-    completionCommand(shell)
+    await completionCommand(shell)
   })
 
 program.parse()

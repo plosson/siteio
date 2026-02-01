@@ -198,20 +198,119 @@ complete -c siteio -n "__fish_seen_subcommand_from skill" -a uninstall -d "Remov
 complete -c siteio -n "__fish_seen_subcommand_from completion" -a "bash zsh fish" -d "Shell type"
 `.trim()
 
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
+import { homedir } from "os"
+import { dirname, join } from "path"
+import { confirm, select } from "../utils/prompt.ts"
+
 const SHELL_COMPLETIONS: Record<string, string> = {
   bash: BASH_COMPLETION,
   zsh: ZSH_COMPLETION,
   fish: FISH_COMPLETION,
 }
 
-export function completionCommand(shell: string): void {
-  const completion = SHELL_COMPLETIONS[shell]
+type Shell = "bash" | "zsh" | "fish"
 
-  if (!completion) {
-    const validShells = Object.keys(SHELL_COMPLETIONS).join(", ")
-    console.error(`Invalid shell: ${shell}. Must be one of: ${validShells}`)
-    process.exit(1)
+const SHELL_CONFIG: Record<Shell, { rcFile: string; sourceLine: string; writeFile?: string }> = {
+  bash: {
+    rcFile: join(homedir(), ".bashrc"),
+    sourceLine: 'source <(siteio completion bash)',
+  },
+  zsh: {
+    rcFile: join(homedir(), ".zshrc"),
+    sourceLine: 'source <(siteio completion zsh)',
+  },
+  fish: {
+    rcFile: join(homedir(), ".config/fish/completions/siteio.fish"),
+    sourceLine: "", // Fish uses a file, not a source line
+    writeFile: join(homedir(), ".config/fish/completions/siteio.fish"),
+  },
+}
+
+function detectShell(): Shell | null {
+  const shell = process.env.SHELL || ""
+  if (shell.endsWith("/bash")) return "bash"
+  if (shell.endsWith("/zsh")) return "zsh"
+  if (shell.endsWith("/fish")) return "fish"
+  return null
+}
+
+function isCompletionInstalled(shell: Shell): boolean {
+  const config = SHELL_CONFIG[shell]
+
+  if (shell === "fish") {
+    return existsSync(config.writeFile!)
   }
 
-  console.log(completion)
+  if (!existsSync(config.rcFile)) return false
+  const content = readFileSync(config.rcFile, "utf-8")
+  return content.includes("siteio completion")
+}
+
+async function installCompletion(shell: Shell): Promise<void> {
+  const config = SHELL_CONFIG[shell]
+
+  if (shell === "fish") {
+    const writeFile = config.writeFile!
+    const dir = dirname(writeFile)
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true })
+    }
+    writeFileSync(writeFile, FISH_COMPLETION)
+    console.error(`✓ Installed fish completions to ${writeFile}`)
+  } else {
+    const line = `\n# siteio shell completion\n${config.sourceLine}\n`
+    appendFileSync(config.rcFile, line)
+    console.error(`✓ Added completion to ${config.rcFile}`)
+    console.error(`  Run 'source ${config.rcFile}' or restart your shell to enable`)
+  }
+}
+
+export async function completionCommand(shell?: string): Promise<void> {
+  // If shell specified, just output the script (for piping)
+  if (shell) {
+    const completion = SHELL_COMPLETIONS[shell]
+    if (!completion) {
+      const validShells = Object.keys(SHELL_COMPLETIONS).join(", ")
+      console.error(`Invalid shell: ${shell}. Must be one of: ${validShells}`)
+      process.exit(1)
+    }
+    console.log(completion)
+    return
+  }
+
+  // Interactive mode
+  let detectedShell = detectShell()
+
+  if (detectedShell) {
+    console.error(`Detected shell: ${detectedShell}`)
+
+    if (isCompletionInstalled(detectedShell)) {
+      console.error(`✓ Shell completion is already installed for ${detectedShell}`)
+      return
+    }
+
+    const install = await confirm(`Install shell completion for ${detectedShell}?`)
+    if (install) {
+      await installCompletion(detectedShell)
+    }
+    return
+  }
+
+  // Could not detect, ask user
+  const selectedShell = await select<Shell>("Select your shell:", [
+    { value: "zsh", label: "zsh" },
+    { value: "bash", label: "bash" },
+    { value: "fish", label: "fish" },
+  ])
+
+  if (isCompletionInstalled(selectedShell)) {
+    console.error(`✓ Shell completion is already installed for ${selectedShell}`)
+    return
+  }
+
+  const install = await confirm(`Install shell completion for ${selectedShell}?`)
+  if (install) {
+    await installCompletion(selectedShell)
+  }
 }
