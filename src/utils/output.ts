@@ -94,3 +94,15 @@ export function formatStatus(status: string): string {
       return chalk.dim(status)
   }
 }
+
+// Format a site version entry for history display
+export function formatVersionEntry(version: {
+  version: number
+  deployedAt: string
+  deployedBy?: string
+  size: number
+}): string {
+  const date = new Date(version.deployedAt).toLocaleString()
+  const user = version.deployedBy ? chalk.blue(version.deployedBy.padEnd(12)) : chalk.dim("unknown".padEnd(12))
+  return `  ${chalk.bold(`v${version.version}`)}  ${user}  ${date}  ${formatBytes(version.size)}`
+}
