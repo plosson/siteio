@@ -73,6 +73,7 @@ export class SiteStorage {
     const versionMeta: SiteVersion = {
       version,
       deployedAt: metadata.deployedAt,
+      deployedBy: metadata.deployedBy,
       size: metadata.size,
     }
     writeFileSync(join(historyPath, `v${version}.json`), JSON.stringify(versionMeta, null, 2))
@@ -103,7 +104,8 @@ export class SiteStorage {
   async extractAndStore(
     subdomain: string,
     zipData: Uint8Array,
-    oauth?: SiteOAuth
+    oauth?: SiteOAuth,
+    deployedBy?: string
   ): Promise<SiteMetadata> {
     const sitePath = this.getSitePath(subdomain)
 
@@ -146,6 +148,7 @@ export class SiteStorage {
       subdomain,
       size: totalSize,
       deployedAt: new Date().toISOString(),
+      deployedBy,
       files,
       oauth,
     }

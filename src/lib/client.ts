@@ -1,4 +1,4 @@
-import { loadConfig } from "../config/loader.ts"
+import { loadConfig, getUsername } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
 import type { ApiResponse, SiteInfo, SiteOAuth, SiteVersion, Group, App, AppInfo, ContainerLogs } from "../types.ts"
 
@@ -78,6 +78,12 @@ export class SiteioClient {
     const headers: Record<string, string> = {
       "Content-Type": "application/zip",
       "Content-Length": String(zipData.length),
+    }
+
+    // Add username for attribution
+    const username = getUsername()
+    if (username) {
+      headers["X-Deployed-By"] = username
     }
 
     // Add OAuth headers if provided
