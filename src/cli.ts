@@ -118,11 +118,13 @@ sites
   })
 
 sites
-  .command("download <subdomain> <output-folder>")
+  .command("download [output-folder]")
   .description("Download a deployed site to a local folder")
-  .action(async (subdomain, outputFolder) => {
+  .option("-s, --subdomain <name>", "Subdomain to download (required)")
+  .option("-y, --yes", "Overwrite existing folder contents")
+  .action(async (outputFolder, options) => {
     const { downloadCommand } = await import("./commands/sites/download.ts")
-    await downloadCommand(subdomain, outputFolder, { json: program.opts().json })
+    await downloadCommand(outputFolder ?? ".", { ...options, json: program.opts().json })
   })
 
 sites
