@@ -5,6 +5,8 @@ import {
   switchServer,
   listServers,
   extractDomain,
+  getUsername,
+  setUsername,
 } from "../config/loader.ts"
 import { formatSuccess, formatError } from "../utils/output.ts"
 import { decodeToken } from "../utils/token.ts"
@@ -154,6 +156,20 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
 
   // Save server config
   const domain = addServer(apiUrl, apiKey)
+
+  // Prompt for username if not already set
+  const existingUsername = getUsername()
+  if (!existingUsername) {
+    const username = await p.text({
+      message: "Your name (for deploy attribution):",
+      placeholder: "e.g., alice (press Enter to skip)",
+    })
+
+    if (!p.isCancel(username) && username && username.trim()) {
+      setUsername(username.trim())
+      p.log.success(`Username set to "${username.trim()}"`)
+    }
+  }
 
   p.outro(formatSuccess(`Logged in to ${domain}`))
   process.exit(0)
