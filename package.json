@@ -1,6 +1,6 @@
 {
   "name": "siteio",
-  "version": "1.5.9",
+  "version": "1.5.10",
   "type": "module",
   "private": true,
   "bin": {
@@ -25,6 +25,7 @@
     "commander": "^14.0.2",
     "fflate": "^0.8.2",
     "ora": "^9.1.0",
+    "sync-directory": "^6.0.5",
     "valibot": "^1.2.0"
   }
 }
