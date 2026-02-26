@@ -272,6 +272,7 @@ apps
   .option("-p, --port <port>", "Set internal port", parseInt)
   .option("-r, --restart <policy>", "Set restart policy (always, unless-stopped, on-failure, no)")
   .option("--image <image>", "Set Docker image")
+  .option("--dockerfile <path>", "Set Dockerfile path (git-based apps only)")
   .action(async (name, options) => {
     const { setAppCommand } = await import("./commands/apps/set.ts")
     await setAppCommand(name, { ...options, json: program.opts().json })

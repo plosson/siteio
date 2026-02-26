@@ -311,6 +311,7 @@ export class SiteioClient {
       internalPort?: number
       restartPolicy?: string
       image?: string
+      git?: { repoUrl: string; branch: string; dockerfile: string; context?: string; credentialId?: string }
     }
   ): Promise<App> {
     const response = await this.request<ApiResponse<App>>(

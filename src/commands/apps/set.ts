@@ -12,6 +12,7 @@ export interface SetAppOptions {
   port?: number
   restart?: string
   image?: string
+  dockerfile?: string
   json?: boolean
 }
 
@@ -62,6 +63,8 @@ export async function setAppCommand(
       throw new ValidationError("App name is required")
     }
 
+    const client = new SiteioClient()
+
     // Build updates object
     const updates: {
       env?: Record<string, string>
@@ -70,6 +73,7 @@ export async function setAppCommand(
       internalPort?: number
       restartPolicy?: RestartPolicy
       image?: string
+      git?: { repoUrl: string; branch: string; dockerfile: string; context?: string; credentialId?: string }
     } = {}
 
     if (options.env && options.env.length > 0) {
@@ -96,15 +100,23 @@ export async function setAppCommand(
       updates.image = options.image
     }
 
+    if (options.dockerfile) {
+      // Fetch current app to merge git config
+      const current = await client.getApp(name)
+      if (!current.git) {
+        throw new ValidationError("Cannot set --dockerfile on a non-git app")
+      }
+      updates.git = { ...current.git, dockerfile: options.dockerfile }
+    }
+
     if (Object.keys(updates).length === 0) {
       throw new ValidationError(
-        "No updates specified. Use --env, --volume, --domain, --port, --restart, or --image"
+        "No updates specified. Use --env, --volume, --domain, --port, --restart, --image, or --dockerfile"
       )
     }
 
     spinner.start(`Updating app ${name}`)
 
-    const client = new SiteioClient()
     const app = await client.updateApp(name, updates)
 
     spinner.succeed(`Updated app ${name}`)
@@ -148,6 +160,10 @@ export async function setAppCommand(
 
       if (updates.image) {
         console.log(`Image: ${updates.image}`)
+      }
+
+      if (updates.git) {
+        console.log(`Dockerfile: ${updates.git.dockerfile}`)
       }
 
       console.log("")
