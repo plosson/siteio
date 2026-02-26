@@ -755,6 +755,11 @@ export class AgentServer {
         // Determine build context path
         const contextPath = app.git.context ? join(repoPath, app.git.context) : repoPath
 
+        // Validate context directory exists
+        if (app.git.context && !existsSync(contextPath)) {
+          return this.error(`Context directory not found at '${app.git.context}'`, 400)
+        }
+
         // Validate Dockerfile exists (path is relative to repo root, like docker -f)
         const dockerfilePath = join(repoPath, app.git.dockerfile)
         if (!existsSync(dockerfilePath)) {

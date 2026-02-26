@@ -198,11 +198,12 @@ describe("Integration: Git Deploy", () => {
     const appName = "git-context-test"
 
     // Create app with git source and context subdirectory
+    // dockerfile path is relative to repo root (like docker -f)
     const createResult = await createApp(appName, {
       git: {
         repoUrl: TEST_GIT_REPO,
         branch: "main",
-        dockerfile: "Dockerfile",
+        dockerfile: `${TEST_GIT_CONTEXT}/Dockerfile`,
         context: TEST_GIT_CONTEXT,
       },
       internalPort: TEST_APP_PORT,
@@ -254,11 +255,11 @@ describe("Integration: Git Deploy", () => {
 
     expect(createResult.success).toBe(true)
 
-    // Deploy should fail because Dockerfile doesn't exist in that context
+    // Deploy should fail because context directory doesn't exist
     const deployResult = await deployApp(appName)
 
     expect(deployResult.success).toBe(false)
-    expect(deployResult.error).toContain("Dockerfile not found")
+    expect(deployResult.error).toContain("Context directory not found")
 
     // Cleanup
     await deleteApp(appName)
@@ -269,12 +270,12 @@ describe("Integration: Git Deploy", () => {
 
     const appName = "git-rebuild-test"
 
-    // Create and deploy
+    // Create and deploy (dockerfile path relative to repo root)
     await createApp(appName, {
       git: {
         repoUrl: TEST_GIT_REPO,
         branch: "main",
-        dockerfile: "Dockerfile",
+        dockerfile: `${TEST_GIT_CONTEXT}/Dockerfile`,
         context: TEST_GIT_CONTEXT,
       },
       internalPort: TEST_APP_PORT,
@@ -301,7 +302,7 @@ describe("Integration: Git Deploy", () => {
       git: {
         repoUrl: TEST_GIT_REPO,
         branch: "main",
-        dockerfile: "Dockerfile",
+        dockerfile: `${TEST_GIT_CONTEXT}/Dockerfile`,
         context: TEST_GIT_CONTEXT,
       },
       internalPort: TEST_APP_PORT,
