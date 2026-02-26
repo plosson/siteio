@@ -17,7 +17,7 @@ export interface ContainerRunConfig {
 
 export interface BuildConfig {
   contextPath: string
-  dockerfile: string
+  dockerfilePath: string
   tag: string
   buildArgs?: Record<string, string>
   noCache?: boolean
@@ -327,8 +327,7 @@ export class DockerManager {
    * Build a Docker image from a Dockerfile
    */
   async build(config: BuildConfig): Promise<string> {
-    const dockerfilePath = join(config.contextPath, config.dockerfile)
-    const args: string[] = ["build", "-t", config.tag, "-f", dockerfilePath]
+    const args: string[] = ["build", "-t", config.tag, "-f", config.dockerfilePath]
 
     if (config.noCache) {
       args.push("--no-cache")
