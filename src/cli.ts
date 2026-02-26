@@ -254,17 +254,17 @@ apps
 apps
   .command("set <name>")
   .description("Update app configuration")
-  .option("-e, --env <KEY=value...>", "Set environment variables", (val: string, prev: string[]) => {
+  .option("-e, --env <KEY=value>", "Set environment variables (repeatable)", (val: string, prev: string[]) => {
     prev = prev || []
     prev.push(val)
     return prev
   }, [])
-  .option("-v, --volume <name:path...>", "Set volume mounts", (val: string, prev: string[]) => {
+  .option("-v, --volume <name:path>", "Set volume mounts (repeatable)", (val: string, prev: string[]) => {
     prev = prev || []
     prev.push(val)
     return prev
   }, [])
-  .option("-d, --domain <domain...>", "Set custom domains", (val: string, prev: string[]) => {
+  .option("-d, --domain <domain>", "Set custom domains (repeatable)", (val: string, prev: string[]) => {
     prev = prev || []
     prev.push(val)
     return prev
