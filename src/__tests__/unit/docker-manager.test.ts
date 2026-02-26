@@ -170,7 +170,7 @@ CMD ["echo", "hello"]
       // This should work - the fix ensures dockerfile path is joined with contextPath
       const result = await docker.build({
         contextPath: contextDir,
-        dockerfile: "Dockerfile",
+        dockerfilePath: join(contextDir, "Dockerfile"),
         tag,
       })
 
@@ -205,7 +205,7 @@ CMD ["echo", "production"]
 
       const result = await docker.build({
         contextPath: contextDir,
-        dockerfile: "docker/Dockerfile.prod",
+        dockerfilePath: join(contextDir, "docker/Dockerfile.prod"),
         tag,
       })
 
@@ -228,7 +228,7 @@ CMD ["echo", "production"]
       await expect(
         docker.build({
           contextPath: contextDir,
-          dockerfile: "Dockerfile",
+          dockerfilePath: join(contextDir, "Dockerfile"),
           tag: "should-not-exist:latest",
         })
       ).rejects.toThrow()
@@ -255,7 +255,7 @@ CMD ["echo", "no-cache-test"]
       // Build with no-cache
       const result = await docker.build({
         contextPath: contextDir,
-        dockerfile: "Dockerfile",
+        dockerfilePath: join(contextDir, "Dockerfile"),
         tag,
         noCache: true,
       })

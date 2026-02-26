@@ -755,8 +755,8 @@ export class AgentServer {
         // Determine build context path
         const contextPath = app.git.context ? join(repoPath, app.git.context) : repoPath
 
-        // Validate Dockerfile exists
-        const dockerfilePath = join(contextPath, app.git.dockerfile)
+        // Validate Dockerfile exists (path is relative to repo root, like docker -f)
+        const dockerfilePath = join(repoPath, app.git.dockerfile)
         if (!existsSync(dockerfilePath)) {
           return this.error(`Dockerfile not found at '${app.git.dockerfile}'`, 400)
         }
@@ -765,7 +765,7 @@ export class AgentServer {
         const imageTag = this.docker.imageTag(name)
         await this.docker.build({
           contextPath,
-          dockerfile: app.git.dockerfile,
+          dockerfilePath,
           tag: imageTag,
           noCache,
         })
