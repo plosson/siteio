@@ -122,6 +122,7 @@ export type TlsStatus = "valid" | "pending" | "error" | "none"
 export interface SiteInfo {
   subdomain: string
   url: string
+  domains?: string[]
   size: number
   deployedAt: string
   oauth?: SiteOAuth
@@ -168,6 +169,7 @@ export interface DeployRequest {
 // Internal site metadata stored by agent
 export interface SiteMetadata {
   subdomain: string
+  domains?: string[]
   size: number
   deployedAt: string
   deployedBy?: string
