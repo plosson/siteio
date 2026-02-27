@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { TraefikManager } from "../../lib/agent/traefik.ts"
-import { mkdirSync, rmSync, existsSync } from "fs"
+import { mkdirSync, rmSync, existsSync, readFileSync } from "fs"
 import { join } from "path"
 
 describe("Unit: TraefikManager", () => {
@@ -320,5 +320,132 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).toContain("oauth2-proxy-auth")
     expect(dynamicConfig).toContain("siteio-authz")
     expect(dynamicConfig).toContain("forwardAuth")
+  })
+
+  it("generates nginx server blocks for sites with custom domains", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+    })
+
+    traefik.updateNginxConfig([
+      {
+        subdomain: "my-blog",
+        domains: ["mycoolsite.com", "www.mycoolsite.com"],
+        size: 1024,
+        deployedAt: "2024-01-01T00:00:00Z",
+        files: ["index.html"],
+      },
+    ])
+
+    const nginxConfig = readFileSync(join(TEST_DATA_DIR, "nginx", "default.conf"), "utf-8")
+    expect(nginxConfig).toContain("server_name mycoolsite.com;")
+    expect(nginxConfig).toContain("server_name www.mycoolsite.com;")
+    expect(nginxConfig).toContain("root /sites/my-blog;")
+  })
+
+  it("does not generate extra server blocks for sites without custom domains", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+    })
+
+    traefik.updateNginxConfig([
+      {
+        subdomain: "plain-site",
+        size: 1024,
+        deployedAt: "2024-01-01T00:00:00Z",
+        files: ["index.html"],
+      },
+    ])
+
+    const nginxConfig = readFileSync(join(TEST_DATA_DIR, "nginx", "default.conf"), "utf-8")
+    // Should have the regex catch-all but no explicit server_name for custom domains
+    expect(nginxConfig).toContain("server_name ~^")
+    expect(nginxConfig).not.toContain("server_name plain-site")
+  })
+
+  it("generates Traefik routers for custom domains", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+    })
+
+    const dynamicConfig = traefik.generateDynamicConfig([
+      {
+        subdomain: "my-blog",
+        domains: ["mycoolsite.com", "www.mycoolsite.com"],
+        size: 1024,
+        deployedAt: "2024-01-01T00:00:00Z",
+        files: ["index.html"],
+      },
+    ])
+
+    expect(dynamicConfig).toContain("site-my-blog-cd-0")
+    expect(dynamicConfig).toContain("mycoolsite.com")
+    expect(dynamicConfig).toContain("site-my-blog-cd-1")
+    expect(dynamicConfig).toContain("www.mycoolsite.com")
+  })
+
+  it("applies OAuth middlewares to custom domain routers", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+      oauthConfig: {
+        issuerUrl: "https://auth.example.com",
+        clientId: "test-client",
+        clientSecret: "test-secret",
+        cookieSecret: "test-cookie-secret",
+        cookieDomain: "test.siteio.me",
+      },
+    })
+
+    const dynamicConfig = traefik.generateDynamicConfig([
+      {
+        subdomain: "my-blog",
+        domains: ["mycoolsite.com"],
+        size: 1024,
+        deployedAt: "2024-01-01T00:00:00Z",
+        files: ["index.html"],
+        oauth: { allowedEmails: ["user@example.com"] },
+      },
+    ])
+
+    // Custom domain router should exist
+    expect(dynamicConfig).toContain("site-my-blog-cd-0")
+    expect(dynamicConfig).toContain("mycoolsite.com")
+
+    // Parse to verify the custom domain router has middlewares
+    const lines = dynamicConfig.split("\n")
+    const cdRouterIndex = lines.findIndex((l) => l.includes("site-my-blog-cd-0:"))
+    expect(cdRouterIndex).toBeGreaterThan(-1)
+
+    // Check that middlewares appear within this router's section
+    let hasMiddlewares = false
+    for (let i = cdRouterIndex + 1; i < lines.length; i++) {
+      const line = lines[i]
+      if (!line) continue
+      // If we hit another top-level router key (4 spaces), stop
+      if (line.match(/^ {4}\w+-[\w-]+:$/)) break
+      // If we hit services section (2 spaces), stop
+      if (line.match(/^ {2}services:/)) break
+      if (line.match(/^ {6}middlewares:/)) {
+        hasMiddlewares = true
+        break
+      }
+    }
+    expect(hasMiddlewares).toBe(true)
   })
 })
