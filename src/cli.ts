@@ -171,6 +171,19 @@ sites
     await authCommand(subdomain, { ...options, json: program.opts().json })
   })
 
+sites
+  .command("set <subdomain>")
+  .description("Update site configuration")
+  .option("-d, --domain <domain>", "Set custom domains (repeatable)", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
+  .action(async (subdomain, options) => {
+    const { setSiteCommand } = await import("./commands/sites/set.ts")
+    await setSiteCommand(subdomain, { ...options, json: program.opts().json })
+  })
+
 // Apps commands
 const apps = program
   .command("apps")
