@@ -517,6 +517,66 @@ describe("API: Sites", () => {
       const data = await parseJson<null>(response)
       expect(data.error).toContain("Invalid domain format")
     })
+
+    test("should reject domains within the base domain space", async () => {
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
+        method: "PATCH",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ domains: [`something.${TEST_DOMAIN}`] }),
+      })
+
+      expect(response.status).toBe(400)
+      const data = await parseJson<null>(response)
+      expect(data.error).toContain("base domain")
+    })
+
+    test("should reject domain already in use by another site", async () => {
+      // Deploy a second site and give it a domain
+      const files2 = { "index.html": new TextEncoder().encode("<html>other</html>") }
+      const zipData2 = zipSync(files2, { level: 6 })
+      await fetch(`http://localhost:${TEST_PORT}/sites/other-site`, {
+        method: "POST",
+        headers: { "X-API-Key": TEST_API_KEY, "Content-Type": "application/zip" },
+        body: zipData2,
+      })
+      await fetch(`http://localhost:${TEST_PORT}/sites/other-site/domains`, {
+        method: "PATCH",
+        headers: { "X-API-Key": TEST_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ domains: ["taken.example.com"] }),
+      })
+
+      // Try to set the same domain on first site
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
+        method: "PATCH",
+        headers: { "X-API-Key": TEST_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ domains: ["taken.example.com"] }),
+      })
+
+      expect(response.status).toBe(400)
+      const data = await parseJson<null>(response)
+      expect(data.error).toContain("already in use")
+
+      // Cleanup
+      await fetch(`http://localhost:${TEST_PORT}/sites/other-site`, {
+        method: "DELETE",
+        headers: { "X-API-Key": TEST_API_KEY },
+      })
+    })
+
+    test("should normalize domains to lowercase", async () => {
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
+        method: "PATCH",
+        headers: { "X-API-Key": TEST_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ domains: ["MyCoolSite.COM"] }),
+      })
+
+      expect(response.ok).toBe(true)
+      const data = await parseJson<SiteInfo>(response)
+      expect(data.data?.domains).toEqual(["mycoolsite.com"])
+    })
   })
 
   describe("SiteioClient", () => {

@@ -456,11 +456,22 @@ export class AgentServer {
         return this.error("'domains' array is required")
       }
 
+      // Normalize domains to lowercase
+      const domains = body.domains.map(d => d.toLowerCase())
+
       // Validate domain format
       const domainRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/
-      for (const domain of body.domains) {
-        if (!domainRegex.test(domain.toLowerCase())) {
+      for (const domain of domains) {
+        if (!domainRegex.test(domain)) {
           return this.error(`Invalid domain format: ${domain}`)
+        }
+      }
+
+      // Reject domains within the base domain space
+      const baseDomainSuffix = `.${this.config.domain}`
+      for (const domain of domains) {
+        if (domain.endsWith(baseDomainSuffix) || domain === this.config.domain) {
+          return this.error(`Cannot use '${domain}' as a custom domain — it conflicts with the base domain`)
         }
       }
 
@@ -469,14 +480,23 @@ export class AgentServer {
       for (const site of allSites) {
         if (site.subdomain === subdomain) continue
         if (site.domains) {
-          const overlap = body.domains.filter(d => site.domains!.includes(d))
+          const overlap = domains.filter(d => site.domains!.includes(d))
           if (overlap.length > 0) {
             return this.error(`Domain(s) already in use by site '${site.subdomain}': ${overlap.join(", ")}`)
           }
         }
       }
 
-      const updated = this.storage.updateDomains(subdomain, body.domains)
+      // Check for conflicts with apps
+      const allApps = this.appStorage.list()
+      for (const app of allApps) {
+        const overlap = domains.filter(d => app.domains.includes(d))
+        if (overlap.length > 0) {
+          return this.error(`Domain(s) already in use by app '${app.name}': ${overlap.join(", ")}`)
+        }
+      }
+
+      const updated = this.storage.updateDomains(subdomain, domains)
       if (!updated) {
         return this.error("Failed to update domains", 500)
       }
