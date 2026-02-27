@@ -707,4 +707,25 @@ describe("API: /auth/check endpoint - Sites", () => {
     })
     expect(checkRes.status).toBe(200)
   })
+
+  it("should look up site by custom domain for auth check", async () => {
+    await deploySite("auth-custom")
+
+    // Set custom domain
+    const domainRes = await fetch(`${baseUrl}/sites/auth-custom/domains`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": TEST_API_KEY,
+      },
+      body: JSON.stringify({ domains: ["custom.example.org"] }),
+    })
+    expect(domainRes.ok).toBe(true)
+
+    // Auth check for custom domain — no OAuth set on the site, should allow (200)
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: { Host: "custom.example.org" },
+    })
+    expect(checkRes.status).toBe(200)
+  })
 })
