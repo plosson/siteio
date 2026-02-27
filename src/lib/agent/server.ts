@@ -1,4 +1,4 @@
-import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteOAuth, Group, App, AppInfo, ContainerLogs } from "../../types.ts"
+import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteMetadata, SiteOAuth, Group, App, AppInfo, ContainerLogs } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { loadOAuthConfig } from "../../config/oauth.ts"
@@ -44,6 +44,14 @@ export class AgentServer {
 
   hasOAuthEnabled(): boolean {
     return this.oauthConfig !== null
+  }
+
+  private updateRoutingConfig(sites: SiteMetadata[]): void {
+    if (this.traefik) {
+      this.traefik.updateDynamicConfig(sites)
+      this.traefik.updateNginxConfig(sites)
+      this.traefik.reloadNginx()
+    }
   }
 
   private json<T>(data: T, status = 200): Response {
@@ -316,10 +324,10 @@ export class AgentServer {
       // Extract and store site files
       const metadata = await this.storage.extractAndStore(subdomain, zipData, oauth, deployedBy)
 
-      // Update Traefik dynamic config to add route for this site
+      // Update routing config (Traefik dynamic config + nginx) for this site
       // Static sites are served by the shared nginx container
       const allSites = this.storage.listSites()
-      this.traefik?.updateDynamicConfig(allSites)
+      this.updateRoutingConfig(allSites)
 
       const siteInfo: SiteInfo = {
         subdomain: metadata.subdomain,
@@ -348,9 +356,9 @@ export class AgentServer {
       return this.error("Failed to delete site", 500)
     }
 
-    // Update Traefik config to remove route for this site
+    // Update routing config to remove route for this site
     const allSites = this.storage.listSites()
-    this.traefik?.updateDynamicConfig(allSites)
+    this.updateRoutingConfig(allSites)
 
     return this.json(null)
   }
@@ -426,9 +434,9 @@ export class AgentServer {
         return this.error("Failed to update authentication", 500)
       }
 
-      // Update Traefik config with new OAuth settings
+      // Update routing config with new OAuth settings
       const allSites = this.storage.listSites()
-      this.traefik?.updateDynamicConfig(allSites)
+      this.updateRoutingConfig(allSites)
 
       return this.json(null)
     } catch (err) {
@@ -473,9 +481,9 @@ export class AgentServer {
         return this.error("Failed to update domains", 500)
       }
 
-      // Update Traefik config
+      // Update routing config
       const updatedSites = this.storage.listSites()
-      this.traefik?.updateDynamicConfig(updatedSites)
+      this.updateRoutingConfig(updatedSites)
 
       const metadata = this.storage.getMetadata(subdomain)!
       const siteInfo: SiteInfo = {
@@ -519,9 +527,9 @@ export class AgentServer {
         return this.error(`Version ${body.version} not found in history`, 404)
       }
 
-      // Update Traefik config
+      // Update routing config
       const allSites = this.storage.listSites()
-      this.traefik?.updateDynamicConfig(allSites)
+      this.updateRoutingConfig(allSites)
 
       const siteInfo: SiteInfo = {
         subdomain: metadata.subdomain,
@@ -1080,6 +1088,7 @@ export class AgentServer {
       await this.traefik.start()
       const existingSites = this.storage.listSites()
       this.traefik.updateDynamicConfig(existingSites)
+      this.traefik.updateNginxConfig(existingSites)
     }
 
     const port = this.config.port || 3000
