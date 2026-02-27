@@ -23,7 +23,7 @@ export async function listCommand(options: { json?: boolean } = {}): Promise<voi
     }
 
     // Format the table
-    const headers = ["SUBDOMAIN", "URL", "SIZE", "TLS", "AUTH", "DEPLOYED"]
+    const headers = ["SUBDOMAIN", "URL", "SIZE", "TLS", "DOMAINS", "AUTH", "DEPLOYED"]
     const rows = sites.map((site) => {
       const date = new Date(site.deployedAt)
       const dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -36,7 +36,10 @@ export async function listCommand(options: { json?: boolean } = {}): Promise<voi
             : site.tls === "error"
               ? chalk.red("✗")
               : chalk.dim("-")
-      return [site.subdomain, site.url, formatBytes(site.size), tlsStr, authStr, dateStr]
+      const domainsStr = site.domains && site.domains.length > 0
+        ? chalk.cyan(`${site.domains.length}`)
+        : chalk.dim("-")
+      return [site.subdomain, site.url, formatBytes(site.size), tlsStr, domainsStr, authStr, dateStr]
     })
 
     console.log("")

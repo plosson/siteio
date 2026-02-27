@@ -153,6 +153,19 @@ export class SiteioClient {
     )
   }
 
+  async updateSiteDomains(subdomain: string, domains: string[]): Promise<SiteInfo> {
+    const response = await this.request<ApiResponse<SiteInfo>>(
+      "PATCH",
+      `/sites/${subdomain}/domains`,
+      JSON.stringify({ domains }),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
   async getSiteHistory(subdomain: string): Promise<SiteVersion[]> {
     const response = await this.request<ApiResponse<SiteVersion[]>>("GET", `/sites/${subdomain}/history`)
     return response.data || []

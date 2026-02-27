@@ -29,6 +29,12 @@ export async function infoCommand(subdomain: string, options: { json?: boolean }
     console.log("")
     console.log(chalk.bold(`Site: ${site.subdomain}`))
     console.log(`  URL:      ${chalk.cyan(site.url)}`)
+    if (site.domains && site.domains.length > 0) {
+      console.log(`  Domains:`)
+      for (const d of site.domains) {
+        console.log(`            ${chalk.cyan(`https://${d}`)}`)
+      }
+    }
     console.log(`  Size:     ${formatSize(site.size)}`)
     console.log(`  Deployed: ${new Date(site.deployedAt).toLocaleString()}`)
     console.log("")
