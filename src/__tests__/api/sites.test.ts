@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test"
+import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test"
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
@@ -256,6 +256,57 @@ describe("API: Sites", () => {
       const data = await parseJson<SiteInfo[]>(response)
       expect(data.data).toEqual([])
     })
+
+    test("should preserve domains on redeploy", async () => {
+      const deployZip = () => {
+        const files: Record<string, Uint8Array> = {
+          "index.html": new TextEncoder().encode("<html><body>Domains Test</body></html>"),
+        }
+        return zipSync(files, { level: 6 })
+      }
+
+      // Deploy initial site
+      const zipData = deployZip()
+      await fetch(`http://localhost:${TEST_PORT}/sites/domains-redeploy`, {
+        method: "POST",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/zip",
+        },
+        body: zipData,
+      })
+
+      // Set domains
+      await fetch(`http://localhost:${TEST_PORT}/sites/domains-redeploy/domains`, {
+        method: "PATCH",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ domains: ["example.com"] }),
+      })
+
+      // Redeploy
+      const zipData2 = deployZip()
+      const redeployResponse = await fetch(`http://localhost:${TEST_PORT}/sites/domains-redeploy`, {
+        method: "POST",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/zip",
+        },
+        body: zipData2,
+      })
+
+      expect(redeployResponse.ok).toBe(true)
+      const data = await parseJson<SiteInfo>(redeployResponse)
+      expect(data.data?.domains).toEqual(["example.com"])
+
+      // Cleanup
+      await fetch(`http://localhost:${TEST_PORT}/sites/domains-redeploy`, {
+        method: "DELETE",
+        headers: { "X-API-Key": TEST_API_KEY },
+      })
+    })
   })
 
   describe("Site OAuth API", () => {
@@ -345,6 +396,126 @@ describe("API: Sites", () => {
         method: "DELETE",
         headers: { "X-API-Key": TEST_API_KEY },
       })
+    })
+  })
+
+  describe("Site Domains API", () => {
+    const subdomain = "domains-test"
+
+    beforeEach(async () => {
+      const files: Record<string, Uint8Array> = {
+        "index.html": new TextEncoder().encode("<html><body>Domains Test</body></html>"),
+      }
+      const zipData = zipSync(files, { level: 6 })
+      await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}`, {
+        method: "POST",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/zip",
+        },
+        body: zipData,
+      })
+    })
+
+    afterEach(async () => {
+      await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}`, {
+        method: "DELETE",
+        headers: { "X-API-Key": TEST_API_KEY },
+      })
+    })
+
+    test("should set custom domains", async () => {
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
+        method: "PATCH",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ domains: ["example.com", "www.example.com"] }),
+      })
+
+      expect(response.ok).toBe(true)
+      const data = await parseJson<SiteInfo>(response)
+      expect(data.success).toBe(true)
+      expect(data.data?.domains).toEqual(["example.com", "www.example.com"])
+      expect(data.data?.subdomain).toBe(subdomain)
+    })
+
+    test("should include domains in site listing", async () => {
+      // Set domains first
+      await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
+        method: "PATCH",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ domains: ["listed.example.com"] }),
+      })
+
+      // List sites
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites`, {
+        headers: { "X-API-Key": TEST_API_KEY },
+      })
+
+      expect(response.ok).toBe(true)
+      const data = await parseJson<SiteInfo[]>(response)
+      const site = data.data?.find(s => s.subdomain === subdomain)
+      expect(site).toBeDefined()
+      expect(site?.domains).toEqual(["listed.example.com"])
+    })
+
+    test("should clear domains with empty array", async () => {
+      // Set domains first
+      await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
+        method: "PATCH",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ domains: ["example.com"] }),
+      })
+
+      // Clear domains
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
+        method: "PATCH",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ domains: [] }),
+      })
+
+      expect(response.ok).toBe(true)
+      const data = await parseJson<SiteInfo>(response)
+      expect(data.data?.domains).toBeUndefined()
+    })
+
+    test("should return 404 for non-existent site", async () => {
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites/nonexistent/domains`, {
+        method: "PATCH",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ domains: ["example.com"] }),
+      })
+
+      expect(response.status).toBe(404)
+    })
+
+    test("should reject invalid domain format", async () => {
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
+        method: "PATCH",
+        headers: {
+          "X-API-Key": TEST_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ domains: ["not a domain!"] }),
+      })
+
+      expect(response.status).toBe(400)
+      const data = await parseJson<null>(response)
+      expect(data.error).toContain("Invalid domain format")
     })
   })
 
