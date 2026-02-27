@@ -109,6 +109,9 @@ export class SiteStorage {
   ): Promise<SiteMetadata> {
     const sitePath = this.getSitePath(subdomain)
 
+    // Read existing metadata before archiving to preserve domains
+    const existingMetadata = this.getMetadata(subdomain)
+
     // Archive existing site before overwriting
     if (existsSync(sitePath)) {
       this.archiveCurrentVersion(subdomain)
@@ -143,9 +146,10 @@ export class SiteStorage {
       totalSize += data.length
     }
 
-    // Save metadata
+    // Save metadata (preserve domains from previous deploy)
     const metadata: SiteMetadata = {
       subdomain,
+      domains: existingMetadata?.domains,
       size: totalSize,
       deployedAt: new Date().toISOString(),
       deployedBy,
@@ -256,6 +260,18 @@ export class SiteStorage {
     return true
   }
 
+  updateDomains(subdomain: string, domains: string[]): boolean {
+    const metadata = this.getMetadata(subdomain)
+    if (!metadata) {
+      return false
+    }
+
+    metadata.domains = domains.length > 0 ? domains : undefined
+
+    writeFileSync(this.getMetadataPath(subdomain), JSON.stringify(metadata, null, 2))
+    return true
+  }
+
   getHistory(subdomain: string): SiteVersion[] {
     const historyPath = this.getHistoryPath(subdomain)
     if (!existsSync(historyPath)) {
@@ -306,6 +322,7 @@ export class SiteStorage {
     const files = this.collectFileList(sitePath)
     const newMetadata: SiteMetadata = {
       subdomain,
+      domains: metadata?.domains,
       size: versionMeta.size,
       deployedAt: new Date().toISOString(),
       files,
