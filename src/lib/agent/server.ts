@@ -137,6 +137,12 @@ export class AgentServer {
       return this.handleUpdateAuth(authMatch[1]!, req)
     }
 
+    // PATCH /sites/:subdomain/domains - update site custom domains
+    const domainsMatch = path.match(/^\/sites\/([a-z0-9-]+)\/domains$/)
+    if (domainsMatch && req.method === "PATCH") {
+      return this.handleUpdateDomains(domainsMatch[1]!, req)
+    }
+
     // GET /sites/:subdomain/history - get site version history
     const historyMatch = path.match(/^\/sites\/([a-z0-9-]+)\/history$/)
     if (historyMatch && req.method === "GET") {
@@ -245,6 +251,7 @@ export class AgentServer {
     const siteInfos: SiteInfo[] = sites.map((site) => ({
       subdomain: site.subdomain,
       url: `https://${site.subdomain}.${this.config.domain}`,
+      domains: site.domains,
       size: site.size,
       deployedAt: site.deployedAt,
       oauth: site.oauth,
@@ -317,6 +324,7 @@ export class AgentServer {
       const siteInfo: SiteInfo = {
         subdomain: metadata.subdomain,
         url: `https://${metadata.subdomain}.${this.config.domain}`,
+        domains: metadata.domains,
         size: metadata.size,
         deployedAt: metadata.deployedAt,
         oauth: metadata.oauth,
@@ -428,6 +436,63 @@ export class AgentServer {
     }
   }
 
+  private async handleUpdateDomains(subdomain: string, req: Request): Promise<Response> {
+    if (!this.storage.siteExists(subdomain)) {
+      return this.error("Site not found", 404)
+    }
+
+    try {
+      const body = (await req.json()) as { domains?: string[] }
+
+      if (!body.domains || !Array.isArray(body.domains)) {
+        return this.error("'domains' array is required")
+      }
+
+      // Validate domain format
+      const domainRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/
+      for (const domain of body.domains) {
+        if (!domainRegex.test(domain.toLowerCase())) {
+          return this.error(`Invalid domain format: ${domain}`)
+        }
+      }
+
+      // Check for conflicts with other sites
+      const allSites = this.storage.listSites()
+      for (const site of allSites) {
+        if (site.subdomain === subdomain) continue
+        if (site.domains) {
+          const overlap = body.domains.filter(d => site.domains!.includes(d))
+          if (overlap.length > 0) {
+            return this.error(`Domain(s) already in use by site '${site.subdomain}': ${overlap.join(", ")}`)
+          }
+        }
+      }
+
+      const updated = this.storage.updateDomains(subdomain, body.domains)
+      if (!updated) {
+        return this.error("Failed to update domains", 500)
+      }
+
+      // Update Traefik config
+      const updatedSites = this.storage.listSites()
+      this.traefik?.updateDynamicConfig(updatedSites)
+
+      const metadata = this.storage.getMetadata(subdomain)!
+      const siteInfo: SiteInfo = {
+        subdomain: metadata.subdomain,
+        url: `https://${metadata.subdomain}.${this.config.domain}`,
+        domains: metadata.domains,
+        size: metadata.size,
+        deployedAt: metadata.deployedAt,
+        oauth: metadata.oauth,
+      }
+
+      return this.json(siteInfo)
+    } catch (err) {
+      return this.error("Invalid request body")
+    }
+  }
+
   private handleGetHistory(subdomain: string): Response {
     if (!this.storage.siteExists(subdomain)) {
       return this.error("Site not found", 404)
@@ -461,6 +526,7 @@ export class AgentServer {
       const siteInfo: SiteInfo = {
         subdomain: metadata.subdomain,
         url: `https://${metadata.subdomain}.${this.config.domain}`,
+        domains: metadata.domains,
         size: metadata.size,
         deployedAt: metadata.deployedAt,
         oauth: metadata.oauth,
