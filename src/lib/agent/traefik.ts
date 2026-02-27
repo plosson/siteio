@@ -63,19 +63,19 @@ export class TraefikManager {
     }
 
     // Write nginx config for subdomain-based routing
-    this.writeNginxConfig()
+    this.updateNginxConfig()
   }
 
   /**
    * Generate nginx config that routes based on subdomain.
    * Uses a regex to extract subdomain from Host header and serve from /sites/<subdomain>/
    */
-  private generateNginxConfig(): string {
+  private generateNginxConfig(sites: SiteMetadata[] = []): string {
     const { domain } = this.config
     // Escape dots in domain for regex
     const escapedDomain = domain.replace(/\./g, "\\.")
 
-    return `
+    let config = `
 server {
     listen 80;
     server_name ~^(?<subdomain>[a-z0-9-]+)\\.${escapedDomain}$;
@@ -96,18 +96,56 @@ server {
     gzip on;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
 }
+`
 
+    // Add explicit server blocks for sites with custom domains
+    for (const site of sites) {
+      if (site.domains) {
+        for (const customDomain of site.domains) {
+          config += `
+server {
+    listen 80;
+    server_name ${customDomain};
+
+    root /sites/${site.subdomain};
+    index index.html index.htm;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+}
+`
+        }
+      }
+    }
+
+    config += `
 # Default server for unmatched hosts
 server {
     listen 80 default_server;
     return 404;
 }
-`.trim()
+`
+    return config.trim()
   }
 
-  private writeNginxConfig(): void {
+  updateNginxConfig(sites: SiteMetadata[] = []): void {
     const configPath = join(this.nginxConfigDir, "default.conf")
-    writeFileSync(configPath, this.generateNginxConfig())
+    writeFileSync(configPath, this.generateNginxConfig(sites))
+  }
+
+  reloadNginx(): void {
+    spawnSync({
+      cmd: ["docker", "exec", NGINX_CONTAINER_NAME, "nginx", "-s", "reload"],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
   }
 
   async startNginx(): Promise<void> {
@@ -118,7 +156,7 @@ server {
     }
 
     // Ensure nginx config is up to date
-    this.writeNginxConfig()
+    this.updateNginxConfig()
 
     const args = [
       "docker",
@@ -349,6 +387,36 @@ log:
       }
 
       routers[routerName] = router
+
+      // Add routers for custom domains
+      if (site.domains) {
+        for (let i = 0; i < site.domains.length; i++) {
+          const customDomain = site.domains[i]!
+          const cdRouterName = `site-${site.subdomain}-cd-${i}`
+          const cdRouter: Record<string, unknown> = {
+            rule: `Host(\`${customDomain}\`)`,
+            entryPoints: ["websecure"],
+            service: "nginx-service",
+            tls: {
+              certResolver: "letsencrypt",
+            },
+          }
+
+          // Apply same OAuth middlewares as subdomain router
+          if (oauthConfig && site.oauth) {
+            const hasRestrictions =
+              (site.oauth.allowedEmails && site.oauth.allowedEmails.length > 0) ||
+              site.oauth.allowedDomain ||
+              (site.oauth.allowedGroups && site.oauth.allowedGroups.length > 0)
+
+            if (hasRestrictions) {
+              cdRouter.middlewares = ["oauth-errors", "oauth2-proxy-auth", "siteio-authz"]
+            }
+          }
+
+          routers[cdRouterName] = cdRouter
+        }
+      }
     }
 
     const config: Record<string, unknown> = {
