@@ -1031,31 +1031,41 @@ export class AgentServer {
     const host = req.headers.get("host") || req.headers.get("x-forwarded-host") || ""
     const hostWithoutPort = host.split(":")[0] || ""
 
-    // Extract subdomain from host (e.g., "myapp.test.siteio.me" -> "myapp")
     const domainSuffix = `.${this.config.domain}`
-    if (!hostWithoutPort || !hostWithoutPort.endsWith(domainSuffix)) {
-      // Not a request for our domain, allow passthrough
-      return new Response(null, { status: 200 })
-    }
 
-    const subdomain = hostWithoutPort.slice(0, -domainSuffix.length)
-    if (!subdomain || subdomain === "api") {
-      // API requests or invalid names, allow passthrough
-      return new Response(null, { status: 200 })
-    }
-
-    // Look up OAuth config from app or site
     let oauth: SiteOAuth | undefined
 
-    // First check if it's a Docker app
-    const app = this.appStorage.get(subdomain)
-    if (app) {
-      oauth = app.oauth
+    if (hostWithoutPort.endsWith(domainSuffix)) {
+      // Standard subdomain match (e.g., "myapp.test.siteio.me" -> "myapp")
+      const subdomain = hostWithoutPort.slice(0, -domainSuffix.length)
+      if (!subdomain || subdomain === "api") {
+        return new Response(null, { status: 200 })
+      }
+
+      // Look up OAuth config from app or site
+      const app = this.appStorage.get(subdomain)
+      if (app) {
+        oauth = app.oauth
+      } else {
+        const site = this.storage.getMetadata(subdomain)
+        if (site) {
+          oauth = site.oauth
+        }
+      }
     } else {
-      // Not an app, check if it's a static site
-      const site = this.storage.getMetadata(subdomain)
-      if (site) {
-        oauth = site.oauth
+      // Custom domain — reverse lookup across sites
+      const allSites = this.storage.listSites()
+      const matchingSite = allSites.find(s => s.domains?.includes(hostWithoutPort))
+      if (matchingSite) {
+        oauth = matchingSite.oauth
+      }
+      // Also check apps (they already support custom domains)
+      if (!oauth) {
+        const allApps = this.appStorage.list()
+        const matchingApp = allApps.find(a => a.domains.includes(hostWithoutPort))
+        if (matchingApp) {
+          oauth = matchingApp.oauth
+        }
       }
     }
 
@@ -1069,7 +1079,6 @@ export class AgentServer {
     // and X-Auth-Request-Email in forwardAuth mode
     const email = (req.headers.get("X-Forwarded-Email") || req.headers.get("X-Auth-Request-Email"))?.toLowerCase()
     if (!email) {
-      // Not authenticated
       return new Response("Authentication required", { status: 401 })
     }
 
@@ -1078,7 +1087,6 @@ export class AgentServer {
     const uri = req.headers.get("X-Forwarded-Uri") || req.headers.get("X-Original-URL") || "/"
     const originalUrl = `${proto}://${host}${uri}`
 
-    // Check authorization against the OAuth config
     return this.checkOAuthAuthorization(oauth, email, this.config.domain, originalUrl)
   }
 
