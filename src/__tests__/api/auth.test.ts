@@ -728,4 +728,68 @@ describe("API: /auth/check endpoint - Sites", () => {
     })
     expect(checkRes.status).toBe(200)
   })
+
+  it("returns 401 for custom domain when site has OAuth but no email", async () => {
+    await deploySite("cd-protected")
+    await setOAuth("cd-protected", { allowedEmails: ["allowed@example.com"] })
+
+    // Set custom domain
+    await fetch(`${baseUrl}/sites/cd-protected/domains`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-API-Key": TEST_API_KEY },
+      body: JSON.stringify({ domains: ["protected.custom.org"] }),
+    })
+
+    // Auth check via custom domain — OAuth required, no email header → 401
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: { Host: "protected.custom.org" },
+    })
+    expect(checkRes.status).toBe(401)
+  })
+
+  it("returns 200 for custom domain when email matches allowed list", async () => {
+    await deploySite("cd-allowed")
+    await setOAuth("cd-allowed", { allowedEmails: ["good@example.com"] })
+
+    await fetch(`${baseUrl}/sites/cd-allowed/domains`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-API-Key": TEST_API_KEY },
+      body: JSON.stringify({ domains: ["allowed.custom.org"] }),
+    })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: "allowed.custom.org",
+        "X-Forwarded-Email": "good@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(200)
+  })
+
+  it("returns 403 for custom domain when email not in allowed list", async () => {
+    await deploySite("cd-denied")
+    await setOAuth("cd-denied", { allowedEmails: ["good@example.com"] })
+
+    await fetch(`${baseUrl}/sites/cd-denied/domains`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-API-Key": TEST_API_KEY },
+      body: JSON.stringify({ domains: ["denied.custom.org"] }),
+    })
+
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: {
+        Host: "denied.custom.org",
+        "X-Forwarded-Email": "bad@example.com",
+      },
+    })
+    expect(checkRes.status).toBe(403)
+  })
+
+  it("returns 200 for unknown custom domain (passthrough)", async () => {
+    // No site owns this domain — should allow passthrough
+    const checkRes = await fetch(`${baseUrl}/auth/check`, {
+      headers: { Host: "nobody-owns-this.example.net" },
+    })
+    expect(checkRes.status).toBe(200)
+  })
 })
