@@ -91,6 +91,28 @@ async function waitForSite(port: number, host: string, timeoutMs = 15000): Promi
   return false
 }
 
+async function waitForSiteRemoval(port: number, host: string, timeoutMs = 15000): Promise<number> {
+  const start = Date.now()
+  let lastStatus = 200
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(`https://localhost:${port}/`, {
+        headers: { Host: host },
+        signal: AbortSignal.timeout(2000),
+      })
+      lastStatus = res.status
+      if (res.status === 404) {
+        return res.status
+      }
+    } catch {
+      // Connection error means route is gone
+      return 0
+    }
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  return lastStatus
+}
+
 describe("Integration: Docker", () => {
   let server: AgentServer
   let baseUrl: string
@@ -265,14 +287,9 @@ describe("Integration: Docker", () => {
     })
     expect(deleteRes.ok).toBe(true)
 
-    // Wait for Traefik to update routes
-    await new Promise((r) => setTimeout(r, 2000))
-
-    // Site should no longer be accessible (404 from Traefik)
-    const afterRes = await fetch(`https://localhost:${TEST_HTTPS_PORT}/`, {
-      headers: { Host: `${siteName}.${TEST_DOMAIN}` },
-    })
-    expect(afterRes.status).toBe(404)
+    // Wait for Traefik to remove the route (file watcher reload can be slow in CI)
+    const status = await waitForSiteRemoval(TEST_HTTPS_PORT, `${siteName}.${TEST_DOMAIN}`)
+    expect(status).toBe(404)
   })
 
   it("should update content on redeploy without container restart", async () => {
