@@ -1,18 +1,30 @@
 import chalk from "chalk"
 import ora from "ora"
 import { SiteioClient } from "../../lib/client.ts"
+import { getCurrentServer } from "../../config/loader.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { confirm } from "../../utils/prompt.ts"
 import { formatBytes, formatVersionEntry } from "../../utils/output.ts"
+import { resolveSubdomain } from "../../utils/site-config.ts"
 
 export async function rollbackCommand(
-  subdomain: string,
+  subdomain: string | undefined,
   version: string | undefined,
   options: { json?: boolean; yes?: boolean }
 ): Promise<void> {
   const spinner = ora()
 
   try {
+    const server = getCurrentServer()
+    const resolved = resolveSubdomain(subdomain, server?.domain ?? "")
+    if (!resolved) {
+      throw new ValidationError("Subdomain required. Provide as argument or run from a directory with .siteio/config.json")
+    }
+    if (!subdomain) {
+      console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))
+    }
+    subdomain = resolved
+
     const client = new SiteioClient()
 
     // If no version specified, show history and let user choose

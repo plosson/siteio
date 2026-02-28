@@ -1,14 +1,26 @@
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
+import { getCurrentServer } from "../../config/loader.ts"
 import { formatSuccess } from "../../utils/output.ts"
-import { handleError } from "../../utils/errors.ts"
+import { handleError, ValidationError } from "../../utils/errors.ts"
+import { resolveSubdomain } from "../../utils/site-config.ts"
 import type { AuthOptions, SiteOAuth } from "../../types.ts"
 
-export async function authCommand(subdomain: string, options: AuthOptions & { json?: boolean }): Promise<void> {
+export async function authCommand(subdomain: string | undefined, options: AuthOptions & { json?: boolean }): Promise<void> {
   const spinner = ora()
 
   try {
+    const server = getCurrentServer()
+    const resolved = resolveSubdomain(subdomain, server?.domain ?? "")
+    if (!resolved) {
+      throw new ValidationError("Subdomain required. Provide as argument or run from a directory with .siteio/config.json")
+    }
+    if (!subdomain) {
+      console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))
+    }
+    subdomain = resolved
+
     const client = new SiteioClient()
 
     if (options.remove) {

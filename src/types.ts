@@ -177,9 +177,10 @@ export interface SiteMetadata {
   oauth?: SiteOAuth
 }
 
-// Site config stored in .siteio/config.json (remembers site name and server)
+// Site config stored in .siteio/config.json (remembers site/app name and server)
 export interface SiteConfig {
-  site: string
+  site?: string   // for static sites
+  app?: string    // for container apps
   domain: string
 }
 

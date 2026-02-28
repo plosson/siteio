@@ -1,8 +1,10 @@
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
+import { getCurrentServer } from "../../config/loader.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
+import { saveProjectConfig } from "../../utils/site-config.ts"
 
 export interface CreateAppOptions {
   image?: string
@@ -60,6 +62,14 @@ export async function createAppCommand(
     })
 
     spinner.succeed(`Created app ${name}`)
+
+    // Save config for git-based apps (folder context is meaningful)
+    if (isGitBased) {
+      const server = getCurrentServer()
+      if (server) {
+        saveProjectConfig({ app: name, domain: server.domain })
+      }
+    }
 
     if (options.json) {
       console.log(JSON.stringify({ success: true, data: app }, null, 2))
