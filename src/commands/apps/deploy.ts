@@ -4,7 +4,7 @@ import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
-import { resolveAppName } from "../../utils/site-config.ts"
+import { resolveAppName, saveProjectConfig } from "../../utils/site-config.ts"
 
 export interface DeployAppOptions {
   noCache?: boolean
@@ -35,6 +35,11 @@ export async function deployAppCommand(
     const app = await client.deployApp(name, { noCache: options.noCache })
 
     spinner.succeed(`Deployed app ${name}`)
+
+    // Save config so future commands don't need the app name
+    if (server) {
+      saveProjectConfig({ app: name, domain: server.domain })
+    }
 
     if (options.json) {
       console.log(JSON.stringify({ success: true, data: app }, null, 2))
