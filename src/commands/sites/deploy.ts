@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, readdirSync, statSync } from "fs"
 import { join, basename, resolve } from "path"
 import ora from "ora"
 import chalk from "chalk"
@@ -8,29 +8,8 @@ import { getCurrentServer } from "../../config/loader.ts"
 import { text, confirm } from "../../utils/prompt.ts"
 import { formatSuccess, formatBytes } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
-import type { DeployOptions, SiteOAuth, SiteConfig } from "../../types.ts"
-
-const SITEIO_CONFIG_DIR = ".siteio"
-const SITEIO_CONFIG_FILE = "config.json"
-
-function loadSiteConfig(folderPath: string): SiteConfig | null {
-  const configPath = join(folderPath, SITEIO_CONFIG_DIR, SITEIO_CONFIG_FILE)
-  if (!existsSync(configPath)) return null
-  try {
-    return JSON.parse(readFileSync(configPath, "utf-8"))
-  } catch {
-    return null
-  }
-}
-
-function saveSiteConfig(folderPath: string, config: SiteConfig): void {
-  const configDir = join(folderPath, SITEIO_CONFIG_DIR)
-  if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true })
-  writeFileSync(
-    join(configDir, SITEIO_CONFIG_FILE),
-    JSON.stringify(config, null, 2) + "\n"
-  )
-}
+import { loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts"
+import type { DeployOptions, SiteOAuth } from "../../types.ts"
 
 function sanitizeSubdomain(name: string): string {
   return name
@@ -147,9 +126,9 @@ export async function deployCommand(folder: string | undefined, options: DeployO
       }
 
       // Load or create site config
-      let localConfig = loadSiteConfig(folderPath)
+      let localConfig = loadProjectConfig(folderPath)
 
-      if (localConfig) {
+      if (localConfig?.site) {
         subdomain = localConfig.site
 
         // Warn if domain mismatch
@@ -186,7 +165,7 @@ export async function deployCommand(folder: string | undefined, options: DeployO
       console.error(chalk.cyan(`> Deploying ${folder || "."} to ${subdomain}`))
 
       // Save config (remembers site name and server for next time)
-      saveSiteConfig(folderPath, { site: subdomain, domain: server.domain })
+      saveProjectConfig({ site: subdomain, domain: server.domain }, folderPath)
 
       spinner.start("Zipping files")
       files = await collectFiles(folderPath)

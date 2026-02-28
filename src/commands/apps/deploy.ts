@@ -1,8 +1,10 @@
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
+import { getCurrentServer } from "../../config/loader.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
+import { resolveAppName } from "../../utils/site-config.ts"
 
 export interface DeployAppOptions {
   noCache?: boolean
@@ -10,15 +12,21 @@ export interface DeployAppOptions {
 }
 
 export async function deployAppCommand(
-  name: string,
+  name: string | undefined,
   options: DeployAppOptions = {}
 ): Promise<void> {
   const spinner = ora()
 
   try {
-    if (!name) {
-      throw new ValidationError("App name is required")
+    const server = getCurrentServer()
+    const resolved = resolveAppName(name, server?.domain ?? "")
+    if (!resolved) {
+      throw new ValidationError("App name required. Provide as argument or run from a directory with .siteio/config.json")
     }
+    if (!name) {
+      console.error(chalk.dim(`Using app '${resolved}' from .siteio/config.json`))
+    }
+    name = resolved
 
     const action = options.noCache ? "Building (no cache) and deploying" : "Deploying"
     spinner.start(`${action} app ${name}`)

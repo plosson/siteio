@@ -6,8 +6,10 @@ import chalk from "chalk"
 import { unzipSync } from "fflate"
 import syncDirectory from "sync-directory"
 import { SiteioClient } from "../../lib/client.ts"
+import { getCurrentServer } from "../../config/loader.ts"
 import { formatSuccess, formatBytes } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
+import { resolveSubdomain } from "../../utils/site-config.ts"
 
 export async function downloadCommand(
   outputFolder: string,
@@ -17,9 +19,13 @@ export async function downloadCommand(
   const tempDir = join(tmpdir(), `siteio-download-${Date.now()}`)
 
   try {
-    const subdomain = options.subdomain
+    const server = getCurrentServer()
+    const subdomain = resolveSubdomain(options.subdomain, server?.domain ?? "")
     if (!subdomain) {
-      throw new ValidationError("Subdomain is required. Use -s or --subdomain to specify.")
+      throw new ValidationError("Subdomain required. Use -s/--subdomain or run from a directory with .siteio/config.json")
+    }
+    if (!options.subdomain) {
+      console.error(chalk.dim(`Using site '${subdomain}' from .siteio/config.json`))
     }
 
     const outputPath = resolve(outputFolder)

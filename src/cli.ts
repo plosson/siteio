@@ -110,7 +110,7 @@ sites
   })
 
 sites
-  .command("info <subdomain>")
+  .command("info [subdomain]")
   .description("Show detailed info about a site")
   .action(async (subdomain) => {
     const { infoCommand } = await import("./commands/sites/info.ts")
@@ -128,7 +128,7 @@ sites
   })
 
 sites
-  .command("rm <subdomain>")
+  .command("rm [subdomain]")
   .description("Remove a deployed site")
   .option("-y, --yes", "Skip confirmation prompt")
   .action(async (subdomain, options) => {
@@ -137,7 +137,7 @@ sites
   })
 
 sites
-  .command("history <subdomain>")
+  .command("history [subdomain]")
   .description("Show version history for a site")
   .action(async (subdomain) => {
     const { historyCommand } = await import("./commands/sites/history.ts")
@@ -145,7 +145,7 @@ sites
   })
 
 sites
-  .command("rollback <subdomain> [version]")
+  .command("rollback [subdomain] [version]")
   .description("Rollback a site to a previous version")
   .option("-y, --yes", "Skip confirmation prompt")
   .action(async (subdomain, version, options) => {
@@ -154,7 +154,7 @@ sites
   })
 
 sites
-  .command("auth <subdomain>")
+  .command("auth [subdomain]")
   .description("Set or remove Google OAuth for a site")
   .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses (replaces existing)")
   .option("--allowed-domain <domain>", "Allow all emails from this domain (replaces existing)")
@@ -172,7 +172,7 @@ sites
   })
 
 sites
-  .command("set <subdomain>")
+  .command("set [subdomain]")
   .description("Update site configuration (e.g. siteio sites set mysite -d example.com)")
   .option("-d, --domain <domain>", "Set custom domains, e.g. -d example.com -d www.example.com (repeatable)", (val: string, prev: string[]) => {
     prev = prev || []
@@ -213,7 +213,7 @@ apps
   })
 
 apps
-  .command("info <name>")
+  .command("info [name]")
   .description("Show detailed info about an app")
   .action(async (name) => {
     const { infoAppCommand } = await import("./commands/apps/info.ts")
@@ -221,7 +221,7 @@ apps
   })
 
 apps
-  .command("deploy <name>")
+  .command("deploy [name]")
   .description("Deploy (start) an app container")
   .option("--no-cache", "Build without Docker cache (git-based apps only)")
   .action(async (name, options) => {
@@ -230,7 +230,7 @@ apps
   })
 
 apps
-  .command("stop <name>")
+  .command("stop [name]")
   .description("Stop an app container")
   .action(async (name) => {
     const { stopAppCommand } = await import("./commands/apps/stop.ts")
@@ -238,7 +238,7 @@ apps
   })
 
 apps
-  .command("restart <name>")
+  .command("restart [name]")
   .description("Restart an app container")
   .action(async (name) => {
     const { restartAppCommand } = await import("./commands/apps/restart.ts")
@@ -246,7 +246,7 @@ apps
   })
 
 apps
-  .command("rm <name>")
+  .command("rm [name]")
   .description("Remove an app")
   .option("-f, --force", "Force remove even if running")
   .option("-y, --yes", "Skip confirmation prompt")
@@ -256,7 +256,7 @@ apps
   })
 
 apps
-  .command("logs <name>")
+  .command("logs [name]")
   .description("View app container logs")
   .option("-t, --tail <n>", "Number of lines to show", parseInt)
   .action(async (name, options) => {
@@ -265,7 +265,7 @@ apps
   })
 
 apps
-  .command("set <name>")
+  .command("set [name]")
   .description("Update app configuration")
   .option("-e, --env <KEY=value>", "Set environment variables (repeatable)", (val: string, prev: string[]) => {
     prev = prev || []

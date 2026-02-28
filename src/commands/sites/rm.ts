@@ -1,22 +1,30 @@
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
+import { getCurrentServer } from "../../config/loader.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { confirm } from "../../utils/prompt.ts"
+import { resolveSubdomain } from "../../utils/site-config.ts"
 
 export interface RemoveSiteOptions {
   yes?: boolean
   json?: boolean
 }
 
-export async function rmCommand(subdomain: string, options: RemoveSiteOptions = {}): Promise<void> {
+export async function rmCommand(subdomain: string | undefined, options: RemoveSiteOptions = {}): Promise<void> {
   const spinner = ora()
 
   try {
-    if (!subdomain) {
-      throw new ValidationError("Subdomain is required")
+    const server = getCurrentServer()
+    const resolved = resolveSubdomain(subdomain, server?.domain ?? "")
+    if (!resolved) {
+      throw new ValidationError("Subdomain required. Provide as argument or run from a directory with .siteio/config.json")
     }
+    if (!subdomain) {
+      console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))
+    }
+    subdomain = resolved
 
     if (!/^[a-z0-9-]+$/.test(subdomain)) {
       throw new ValidationError("Invalid subdomain format")
