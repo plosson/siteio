@@ -173,8 +173,8 @@ sites
 
 sites
   .command("set <subdomain>")
-  .description("Update site configuration")
-  .option("-d, --domain <domain>", "Set custom domains (repeatable)", (val: string, prev: string[]) => {
+  .description("Update site configuration (e.g. siteio sites set mysite -d example.com)")
+  .option("-d, --domain <domain>", "Set custom domains, e.g. -d example.com -d www.example.com (repeatable)", (val: string, prev: string[]) => {
     prev = prev || []
     prev.push(val)
     return prev
