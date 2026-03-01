@@ -1117,6 +1117,7 @@ export class AgentServer {
       const existingSites = this.storage.listSites()
       this.traefik.updateDynamicConfig(existingSites)
       this.traefik.updateNginxConfig(existingSites)
+      this.traefik.reloadNginx()
     }
 
     const port = this.config.port || 3000
