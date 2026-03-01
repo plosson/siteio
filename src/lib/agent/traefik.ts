@@ -70,22 +70,25 @@ export class TraefikManager {
    * Generate nginx config that routes based on subdomain.
    * Uses a regex to extract subdomain from Host header and serve from /sites/<subdomain>/
    */
-  private generateNginxConfig(sites: SiteMetadata[] = []): string {
-    const { domain } = this.config
-    // Escape dots in domain for regex
-    const escapedDomain = domain.replace(/\./g, "\\.")
-
-    let config = `
+  private generateServerBlock(serverName: string, root: string, extra = ""): string {
+    return `
 server {
     listen 80;
-    server_name ~^(?<subdomain>[a-z0-9-]+)\\.${escapedDomain}$;
+    server_name ${serverName};
 
-    root /sites/$subdomain;
+    root ${root};
     index index.html index.htm;
 
-    # Handle SPA routing - try file, then directory, then fall back to index.html
+    # Static assets - cache for 1 hour
+    location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|map)$ {
+        try_files $uri =404;
+        add_header Cache-Control "public, max-age=3600" always;
+    }
+
+    # Handle SPA routing - always revalidate HTML
     location / {
         try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache" always;
     }
 
     # Security headers
@@ -95,32 +98,25 @@ server {
     # Gzip compression
     gzip on;
     gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
-}
+${extra}}
 `
+  }
+
+  private generateNginxConfig(sites: SiteMetadata[] = []): string {
+    const { domain } = this.config
+    // Escape dots in domain for regex
+    const escapedDomain = domain.replace(/\./g, "\\.")
+
+    let config = this.generateServerBlock(
+      `~^(?<subdomain>[a-z0-9-]+)\\.${escapedDomain}$`,
+      "/sites/$subdomain"
+    )
 
     // Add explicit server blocks for sites with custom domains
     for (const site of sites) {
       if (site.domains) {
         for (const customDomain of site.domains) {
-          config += `
-server {
-    listen 80;
-    server_name ${customDomain};
-
-    root /sites/${site.subdomain};
-    index index.html index.htm;
-
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
-}
-`
+          config += this.generateServerBlock(customDomain, `/sites/${site.subdomain}`)
         }
       }
     }
