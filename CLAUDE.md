@@ -108,3 +108,10 @@ Follow this when the user asks to "release a new version" or mentions "bump the 
    https://github.com/plosson/siteio/actions
 
 GitHub Actions builds binaries and creates a release when a tag is pushed.
+
+### Update SiteIO.me server
+
+1. Run on the remote server accessible through `ssh siteio`:
+   ```bash
+   ssh siteio "/root/.local/bin/siteio update -y && /root/.local/bin/siteio agent restart"
+   ```
