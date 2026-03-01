@@ -230,6 +230,12 @@ export async function deployCommand(folder: string | undefined, options: DeployO
       console.log(formatSuccess("Site deployed successfully!"))
       console.log("")
       console.log(`  URL: ${chalk.cyan(site.url)}`)
+      if (site.domains && site.domains.length > 0) {
+        console.log(`  Domains:`)
+        for (const d of site.domains) {
+          console.log(`    ${chalk.cyan(`https://${d}`)}`)
+        }
+      }
       console.log(`  Size: ${formatBytes(site.size)}`)
       if (site.oauth) {
         console.log(`  Auth: ${chalk.yellow("Google OAuth enabled")}`)

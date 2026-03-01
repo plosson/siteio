@@ -52,6 +52,12 @@ export async function deployAppCommand(
       console.log(`  Status: ${statusColor(app.status)}`)
       if (app.domains.length > 0) {
         console.log(`  URL:    ${chalk.cyan(`https://${app.domains[0]}`)}`)
+        if (app.domains.length > 1) {
+          console.log(`  Domains:`)
+          for (const d of app.domains) {
+            console.log(`    ${chalk.cyan(`https://${d}`)}`)
+          }
+        }
       }
       console.log("")
     }
