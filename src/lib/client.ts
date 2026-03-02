@@ -319,6 +319,7 @@ export class SiteioClient {
     name: string,
     updates: {
       env?: Record<string, string>
+      unsetEnv?: string[]
       volumes?: { name: string; mountPath: string }[]
       domains?: string[]
       internalPort?: number

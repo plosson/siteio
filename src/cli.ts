@@ -291,6 +291,19 @@ apps
     await setAppCommand(name, { ...options, json: program.opts().json })
   })
 
+apps
+  .command("unset [name]")
+  .description("Remove app configuration values")
+  .option("-e, --env <KEY>", "Remove environment variables (repeatable)", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
+  .action(async (name, options) => {
+    const { unsetAppCommand } = await import("./commands/apps/unset.ts")
+    await unsetAppCommand(name, { ...options, json: program.opts().json })
+  })
+
 // Groups command
 const groups = program
   .command("groups")
