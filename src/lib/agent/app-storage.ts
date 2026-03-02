@@ -65,9 +65,15 @@ export class AppStorage {
       return null
     }
 
+    // Merge env vars additively instead of replacing
+    const mergedEnv = updates.env
+      ? { ...(app.env || {}), ...updates.env }
+      : app.env
+
     const updated: App = {
       ...app,
       ...updates,
+      env: mergedEnv,
       name: app.name, // Prevent name changes
       createdAt: app.createdAt, // Preserve creation date
       updatedAt: new Date().toISOString(),
