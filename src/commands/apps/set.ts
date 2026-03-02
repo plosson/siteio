@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "fs"
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
@@ -18,16 +19,41 @@ export interface SetAppOptions {
   json?: boolean
 }
 
+function parseEnvFile(filePath: string): Record<string, string> {
+  const content = readFileSync(filePath, "utf-8")
+  const env: Record<string, string> = {}
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith("#")) continue
+    const idx = trimmed.indexOf("=")
+    if (idx === -1) continue
+    const key = trimmed.slice(0, idx).trim()
+    let value = trimmed.slice(idx + 1).trim()
+    // Strip surrounding quotes
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    if (key) env[key] = value
+  }
+  return env
+}
+
 function parseEnvVars(envArgs: string[]): Record<string, string> {
   const env: Record<string, string> = {}
   for (const e of envArgs) {
     const idx = e.indexOf("=")
     if (idx === -1) {
-      throw new ValidationError(`Invalid env format: ${e}. Use KEY=value`)
+      // No '=' found — check if it's a file path
+      if (existsSync(e)) {
+        Object.assign(env, parseEnvFile(e))
+      } else {
+        throw new ValidationError(`Invalid env format: ${e}. Use KEY=value or provide a path to an env file`)
+      }
+    } else {
+      const key = e.slice(0, idx)
+      const value = e.slice(idx + 1)
+      env[key] = value
     }
-    const key = e.slice(0, idx)
-    const value = e.slice(idx + 1)
-    env[key] = value
   }
   return env
 }
