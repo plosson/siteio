@@ -59,20 +59,27 @@ export class AppStorage {
     return JSON.parse(readFileSync(path, "utf-8"))
   }
 
-  update(name: string, updates: Partial<Omit<App, "name" | "createdAt">>): App | null {
+  update(name: string, updates: Partial<Omit<App, "name" | "createdAt">> & { unsetEnv?: string[] }): App | null {
     const app = this.get(name)
     if (!app) {
       return null
     }
 
+    const { unsetEnv, ...appUpdates } = updates
+
     // Merge env vars additively instead of replacing
-    const mergedEnv = updates.env
-      ? { ...(app.env || {}), ...updates.env }
-      : app.env
+    const mergedEnv = { ...(app.env || {}), ...(appUpdates.env || {}) }
+
+    // Remove unset keys
+    if (unsetEnv) {
+      for (const key of unsetEnv) {
+        delete mergedEnv[key]
+      }
+    }
 
     const updated: App = {
       ...app,
-      ...updates,
+      ...appUpdates,
       env: mergedEnv,
       name: app.name, // Prevent name changes
       createdAt: app.createdAt, // Preserve creation date
