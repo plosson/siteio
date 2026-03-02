@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 import type { SiteConfig } from "../types.ts"
+import { ValidationError } from "./errors.ts"
 
 const SITEIO_CONFIG_DIR = ".siteio"
 const SITEIO_CONFIG_FILE = "config.json"
@@ -31,8 +32,13 @@ export function saveProjectConfig(config: SiteConfig, dir: string = process.cwd(
 export function resolveSubdomain(explicit: string | undefined, serverDomain: string, dir?: string): string | null {
   if (explicit) return explicit
   const config = loadProjectConfig(dir)
-  if (config && config.site && config.domain === serverDomain) {
-    return config.site
+  if (config) {
+    if (config.app && !config.site) {
+      throw new ValidationError(`This directory is configured as an app ('${config.app}'), not a site. Use 'siteio apps' commands instead.`)
+    }
+    if (config.site && config.domain === serverDomain) {
+      return config.site
+    }
   }
   return null
 }
@@ -44,8 +50,13 @@ export function resolveSubdomain(explicit: string | undefined, serverDomain: str
 export function resolveAppName(explicit: string | undefined, serverDomain: string, dir?: string): string | null {
   if (explicit) return explicit
   const config = loadProjectConfig(dir)
-  if (config && config.app && config.domain === serverDomain) {
-    return config.app
+  if (config) {
+    if (config.site && !config.app) {
+      throw new ValidationError(`This directory is configured as a site ('${config.site}'), not an app. Use 'siteio sites' commands instead.`)
+    }
+    if (config.app && config.domain === serverDomain) {
+      return config.app
+    }
   }
   return null
 }

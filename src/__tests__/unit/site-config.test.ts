@@ -94,10 +94,11 @@ describe("Unit: Site Config", () => {
       expect(result).toBeNull()
     })
 
-    test("returns null when config has app but not site", () => {
+    test("throws when config has app but not site", () => {
       saveProjectConfig({ app: "myapp", domain: "example.com" }, testDir)
-      const result = resolveSubdomain(undefined, "example.com", testDir)
-      expect(result).toBeNull()
+      expect(() => resolveSubdomain(undefined, "example.com", testDir)).toThrow(
+        "This directory is configured as an app ('myapp'), not a site"
+      )
     })
   })
 
@@ -130,10 +131,11 @@ describe("Unit: Site Config", () => {
       expect(result).toBeNull()
     })
 
-    test("returns null when config has site but not app", () => {
+    test("throws when config has site but not app", () => {
       saveProjectConfig({ site: "mysite", domain: "example.com" }, testDir)
-      const result = resolveAppName(undefined, "example.com", testDir)
-      expect(result).toBeNull()
+      expect(() => resolveAppName(undefined, "example.com", testDir)).toThrow(
+        "This directory is configured as a site ('mysite'), not an app"
+      )
     })
   })
 })

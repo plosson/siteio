@@ -128,6 +128,10 @@ export async function deployCommand(folder: string | undefined, options: DeployO
       // Load or create site config
       let localConfig = loadProjectConfig(folderPath)
 
+      if (localConfig?.app && !localConfig?.site) {
+        throw new ValidationError(`This directory is configured as an app ('${localConfig.app}'), not a site. Use 'siteio apps' commands instead.`)
+      }
+
       if (localConfig?.site) {
         subdomain = localConfig.site
 
