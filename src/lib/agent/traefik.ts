@@ -2,7 +2,7 @@ import { existsSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 import { spawnSync } from "bun"
 import { connect as tlsConnect, type PeerCertificate } from "tls"
-import type { SiteMetadata, AgentOAuthConfig } from "../../types.ts"
+import type { SiteMetadata, SiteOAuth, AgentOAuthConfig } from "../../types.ts"
 
 const TRAEFIK_CONTAINER_NAME = "siteio-traefik"
 const NGINX_CONTAINER_NAME = "siteio-nginx"
@@ -258,6 +258,54 @@ log:
 `.trim()
   }
 
+  private hasOAuthRestrictions(oauth?: SiteOAuth): boolean {
+    if (!oauth) return false
+    return (
+      (oauth.allowedEmails != null && oauth.allowedEmails.length > 0) ||
+      !!oauth.allowedDomain ||
+      (oauth.allowedGroups != null && oauth.allowedGroups.length > 0)
+    )
+  }
+
+  private buildLogoutRedirectUrl(oauthConfig: AgentOAuthConfig, domain: string, returnTo: string): string {
+    const auth0LogoutUrl = encodeURIComponent(
+      `${oauthConfig.issuerUrl.replace(/\/$/, "")}/v2/logout?client_id=${oauthConfig.clientId}&returnTo=${encodeURIComponent(returnTo)}`
+    )
+    return `https://auth.${domain}/oauth2/sign_out?rd=${auth0LogoutUrl}`
+  }
+
+  private addLogoutRouter(
+    routers: Record<string, unknown>,
+    middlewares: Record<string, unknown>,
+    oauthConfig: AgentOAuthConfig,
+    domain: string,
+    routerName: string,
+    host: string
+  ): void {
+    const logoutRouterName = `${routerName}-logout`
+    const logoutMiddlewareName = `${routerName}-logout-redirect`
+    const returnTo = `https://${host}/`
+    const logoutUrl = this.buildLogoutRedirectUrl(oauthConfig, domain, returnTo)
+
+    routers[logoutRouterName] = {
+      rule: `Host(\`${host}\`) && Path(\`/logout\`)`,
+      entryPoints: ["websecure"],
+      service: "oauth2-proxy-service",
+      middlewares: [logoutMiddlewareName],
+      tls: {
+        certResolver: "letsencrypt",
+      },
+      priority: 100,
+    }
+
+    middlewares[logoutMiddlewareName] = {
+      redirectRegex: {
+        regex: ".*",
+        replacement: logoutUrl,
+      },
+    }
+  }
+
   generateDynamicConfig(sites: SiteMetadata[]): string {
     const { domain, fileServerPort, oauthConfig } = this.config
     const routers: Record<string, unknown> = {}
@@ -307,10 +355,8 @@ log:
         },
       }
 
-      // Logout route - redirects to oauth2-proxy sign_out with Auth0 logout
-      const logoutRedirectUrl = encodeURIComponent(
-        `https://${oauthConfig.issuerUrl.replace(/\/$/, "")}/v2/logout?client_id=${oauthConfig.clientId}&returnTo=https://auth.${domain}/`
-      )
+      // Global logout route - redirects to oauth2-proxy sign_out with Auth0 logout
+      const authLogoutUrl = this.buildLogoutRedirectUrl(oauthConfig, domain, `https://auth.${domain}/`)
       routers["logout-router"] = {
         rule: `Host(\`auth.${domain}\`) && Path(\`/logout\`)`,
         entryPoints: ["websecure"],
@@ -325,7 +371,7 @@ log:
       middlewares["logout-redirect"] = {
         redirectRegex: {
           regex: ".*",
-          replacement: `https://auth.${domain}/oauth2/sign_out?rd=${logoutRedirectUrl}`,
+          replacement: authLogoutUrl,
         },
       }
 
@@ -371,15 +417,14 @@ log:
       }
 
       // Add OAuth middlewares if site has restrictions and global OAuth is configured
-      if (oauthConfig && site.oauth) {
-        const hasRestrictions =
-          (site.oauth.allowedEmails && site.oauth.allowedEmails.length > 0) ||
-          site.oauth.allowedDomain ||
-          (site.oauth.allowedGroups && site.oauth.allowedGroups.length > 0)
+      const siteHasOAuth = oauthConfig && this.hasOAuthRestrictions(site.oauth)
 
-        if (hasRestrictions) {
-          router.middlewares = ["oauth-errors", "oauth2-proxy-auth", "siteio-authz"]
-        }
+      if (siteHasOAuth) {
+        router.middlewares = ["oauth-errors", "oauth2-proxy-auth", "siteio-authz"]
+
+        // Per-site /logout route - clears session and returns to site root
+        const siteHost = `${site.subdomain}.${domain}`
+        this.addLogoutRouter(routers, middlewares, oauthConfig, domain, routerName, siteHost)
       }
 
       routers[routerName] = router
@@ -398,16 +443,11 @@ log:
             },
           }
 
-          // Apply same OAuth middlewares as subdomain router
-          if (oauthConfig && site.oauth) {
-            const hasRestrictions =
-              (site.oauth.allowedEmails && site.oauth.allowedEmails.length > 0) ||
-              site.oauth.allowedDomain ||
-              (site.oauth.allowedGroups && site.oauth.allowedGroups.length > 0)
+          if (siteHasOAuth) {
+            cdRouter.middlewares = ["oauth-errors", "oauth2-proxy-auth", "siteio-authz"]
 
-            if (hasRestrictions) {
-              cdRouter.middlewares = ["oauth-errors", "oauth2-proxy-auth", "siteio-authz"]
-            }
+            // Per-custom-domain /logout route
+            this.addLogoutRouter(routers, middlewares, oauthConfig, domain, cdRouterName, customDomain)
           }
 
           routers[cdRouterName] = cdRouter
