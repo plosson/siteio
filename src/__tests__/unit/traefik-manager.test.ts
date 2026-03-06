@@ -396,6 +396,108 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).toContain("www.mycoolsite.com")
   })
 
+  it("adds per-site logout router for OAuth-protected site", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+      oauthConfig: {
+        issuerUrl: "https://auth.example.com",
+        clientId: "test-client",
+        clientSecret: "test-secret",
+        cookieSecret: "test-cookie-secret",
+        cookieDomain: "test.siteio.me",
+      },
+    })
+
+    const dynamicConfig = traefik.generateDynamicConfig([
+      {
+        subdomain: "protected",
+        size: 1024,
+        deployedAt: "2024-01-01T00:00:00Z",
+        files: ["index.html"],
+        oauth: { allowedEmails: ["user@example.com"] },
+      },
+    ])
+
+    // Should have a logout router for the site
+    expect(dynamicConfig).toContain("site-protected-logout")
+    // Logout router should match /logout path on the site host
+    expect(dynamicConfig).toContain("Host(`protected.test.siteio.me`) && Path(`/logout`)")
+    // Should have a per-site logout redirect middleware
+    expect(dynamicConfig).toContain("site-protected-logout-redirect")
+    // Redirect should go through oauth2-proxy sign_out
+    expect(dynamicConfig).toContain("auth.test.siteio.me/oauth2/sign_out")
+    // Auth0 logout should return to the site root (double-encoded inside the rd param)
+    expect(dynamicConfig).toContain(encodeURIComponent(encodeURIComponent("https://protected.test.siteio.me/")))
+  })
+
+  it("does not add logout router for public site", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+      oauthConfig: {
+        issuerUrl: "https://auth.example.com",
+        clientId: "test-client",
+        clientSecret: "test-secret",
+        cookieSecret: "test-cookie-secret",
+        cookieDomain: "test.siteio.me",
+      },
+    })
+
+    const dynamicConfig = traefik.generateDynamicConfig([
+      {
+        subdomain: "public",
+        size: 1024,
+        deployedAt: "2024-01-01T00:00:00Z",
+        files: ["index.html"],
+      },
+    ])
+
+    expect(dynamicConfig).not.toContain("site-public-logout")
+  })
+
+  it("adds logout router for custom domain on OAuth-protected site", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+      oauthConfig: {
+        issuerUrl: "https://auth.example.com",
+        clientId: "test-client",
+        clientSecret: "test-secret",
+        cookieSecret: "test-cookie-secret",
+        cookieDomain: "test.siteio.me",
+      },
+    })
+
+    const dynamicConfig = traefik.generateDynamicConfig([
+      {
+        subdomain: "my-blog",
+        domains: ["mycoolsite.com"],
+        size: 1024,
+        deployedAt: "2024-01-01T00:00:00Z",
+        files: ["index.html"],
+        oauth: { allowedEmails: ["user@example.com"] },
+      },
+    ])
+
+    // Should have logout routers for both subdomain and custom domain
+    expect(dynamicConfig).toContain("site-my-blog-logout")
+    expect(dynamicConfig).toContain("Host(`my-blog.test.siteio.me`) && Path(`/logout`)")
+    expect(dynamicConfig).toContain("site-my-blog-cd-0-logout")
+    expect(dynamicConfig).toContain("Host(`mycoolsite.com`) && Path(`/logout`)")
+    // Custom domain logout should return to the custom domain (double-encoded inside the rd param)
+    expect(dynamicConfig).toContain(encodeURIComponent(encodeURIComponent("https://mycoolsite.com/")))
+  })
+
   it("applies OAuth middlewares to custom domain routers", () => {
     const traefik = new TraefikManager({
       dataDir: TEST_DATA_DIR,
