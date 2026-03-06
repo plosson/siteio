@@ -8,161 +8,72 @@ argument-hint: "[folder] [-s subdomain]"
 allowed-tools: Bash(siteio *)
 ---
 
-# Deploy Static Sites with siteio
+# Deploy with siteio
 
-## IMPORTANT
+siteio is a self-hosted deployment platform for **static websites** and **Docker container apps** with automatic HTTPS.
 
-- **siteio deploys STATIC websites only** - HTML, CSS, JS, images, fonts, etc.
-- **NOT for backends, APIs, or server-side applications** - no Node.js, Python, PHP, databases, etc.
-- **You deploy a FOLDER** - the entire folder contents are uploaded and served as-is
-- The folder must contain an \`index.html\` at the root (or appropriate entry point)
+## Discovering Commands
+
+Use \`--help\` at any level to discover subcommands and options:
+
+\`\`\`sh
+siteio --help              # Top-level commands
+siteio sites --help        # Static site commands
+siteio sites deploy --help # Deploy options
+siteio apps --help         # Container app commands
+\`\`\`
+
+**Always use \`--help\` to check exact syntax before running a command.**
 
 ## Installation
 
 \`\`\`sh
 curl -LsSf https://siteio.me/install | sh
-\`\`\`
-
-## Check for Updates
-
-Before deploying, ensure you have the latest version:
-
-\`\`\`sh
-siteio update
+siteio update              # Ensure latest version
 \`\`\`
 
 ## Setup
 
-Before deploying, the user needs to login with a connection token. If they don't have one, ask them to get it from their siteio administrator.
+The user needs a connection token from their siteio administrator:
 
 \`\`\`sh
 siteio login -t <token>
 \`\`\`
 
-The token is provided by the siteio agent administrator and contains the API URL and key.
+## Quick Start: Static Sites
 
-## Prerequisites
-
-1. siteio must be installed (see above)
-2. User must be logged in with a valid token
-3. The site must be a **folder** containing static files only (HTML, CSS, JS, images, fonts, etc.)
-4. The folder should have an \`index.html\` file at the root
-
-## Deploying a Site
+Deploy a folder of static files (HTML, CSS, JS, images) as a website:
 
 \`\`\`sh
-siteio sites deploy <folder> [-s <subdomain>]
-\`\`\`
-
-- \`<folder>\`: Path to the folder containing the static site
-- \`-s, --subdomain <name>\`: Optional subdomain (defaults to folder name)
-
-### Examples
-
-\`\`\`sh
-# Deploy ./dist folder as "myapp"
 siteio sites deploy ./dist -s myapp
-
-# Deploy current directory using folder name as subdomain
-siteio sites deploy .
-
-# Deploy a specific folder
-siteio sites deploy ./build -s dashboard
 \`\`\`
 
-## Authentication
+- The folder must contain an \`index.html\` at the root
+- Sites are served at \`https://<subdomain>.<domain>\` with automatic HTTPS
+- Deploying to the same subdomain replaces the existing site
 
-Sites can be protected with Google OAuth authentication. Only users with allowed emails, domains, or group membership can access protected sites.
+## Quick Start: Container Apps
 
-### Adding Auth During Deployment
-
-\`\`\`sh
-# Restrict to specific email addresses
-siteio sites deploy ./dist -s mysite --allowed-emails "user1@gmail.com,user2@gmail.com"
-
-# Restrict to an email domain (all @company.com addresses)
-siteio sites deploy ./dist -s mysite --allowed-domain "company.com"
-
-# Combine both
-siteio sites deploy ./dist -s mysite --allowed-emails "external@gmail.com" --allowed-domain "company.com"
-\`\`\`
-
-### Managing Auth After Deployment
-
-Use \`siteio sites auth\` to add, modify, or remove authentication on existing sites.
+Deploy Docker images or build from Git repos:
 
 \`\`\`sh
-# Set allowed emails (replaces existing)
-siteio sites auth mysite --allowed-emails "user1@gmail.com,user2@gmail.com"
-
-# Set allowed domain
-siteio sites auth mysite --allowed-domain "company.com"
-
-# Set allowed groups (users must be members of the group)
-siteio sites auth mysite --allowed-groups "engineering,design"
-
-# Incremental changes - add/remove without replacing
-siteio sites auth mysite --add-email "newuser@gmail.com"
-siteio sites auth mysite --remove-email "olduser@gmail.com"
-siteio sites auth mysite --add-group "marketing"
-siteio sites auth mysite --remove-group "design"
-
-# Remove all authentication (make site public)
-siteio sites auth mysite --remove
-\`\`\`
-
-### Notes
-
-- OAuth must be configured on the server (\`siteio agent oauth\`) before auth can be used
-- Multiple emails/groups are comma-separated
-- All values are case-insensitive
-- A user needs to match ANY of the criteria (emails OR domain OR groups)
-
-## Other Commands
-
-\`\`\`sh
-# List all deployed sites
-siteio sites list
-
-# Get info about a specific site
-siteio sites info <subdomain>
-
-# Download a deployed site to a local folder
-siteio sites download <subdomain> <output-folder>
-
-# Remove a deployed site
-siteio sites rm <subdomain>
+siteio apps create myapp -i nginx -p 80
+siteio apps create myapp --git <url> -p 3000
 \`\`\`
 
 ## Editing an Existing Site
 
 When a user wants to edit a site by giving its URL (e.g., \`https://mysite.example.com\`):
 
-1. **Extract the subdomain** from the URL (e.g., \`mysite\` from \`https://mysite.example.com\`)
-2. **Download the site** to a temporary folder:
-   \`\`\`sh
-   siteio sites download mysite /tmp/mysite-edit
-   \`\`\`
-3. **Perform the requested edits** on the files in \`/tmp/mysite-edit/\`
-4. **Re-deploy the site** when edits are complete:
-   \`\`\`sh
-   siteio sites deploy /tmp/mysite-edit -s mysite
-   \`\`\`
+1. Extract the subdomain from the URL (e.g., \`mysite\`)
+2. Download: \`siteio sites download /tmp/mysite-edit -s mysite\`
+3. Edit the files in \`/tmp/mysite-edit/\`
+4. Re-deploy: \`siteio sites deploy /tmp/mysite-edit -s mysite\`
 
-This workflow preserves all existing files while allowing targeted modifications.
+## Key Features
 
-## Workflow
-
-1. Ensure you have a folder with ONLY static files (HTML, CSS, JS, images)
-2. Deploy using siteio sites deploy command 
-3. Access at \`https://<subdomain>.<domain>\`
-
-**The entire folder is uploaded** - all files and subfolders within it will be served.
-
-## Notes
-
-- Sites are served over HTTPS with automatic Let's Encrypt certificates
-- Deploying to the same subdomain replaces the existing site
-- The subdomain must be lowercase alphanumeric (hyphens allowed)
-- Maximum upload size is typically 100MB
+- **OAuth protection**: \`siteio sites auth --help\` for access control options
+- **Custom domains**: \`siteio sites set --help\` / \`siteio apps set --help\`
+- **Version history & rollback**: \`siteio sites history\` / \`siteio sites rollback\`
+- **Groups**: \`siteio groups --help\` for managing OAuth groups
 `
