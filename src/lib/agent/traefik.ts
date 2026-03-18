@@ -191,6 +191,9 @@ server {
       "unless-stopped",
       "--network",
       "siteio-network",
+      // Add host.docker.internal support on Linux (needed for proxy_pass to agent)
+      "--add-host",
+      "host.docker.internal:host-gateway",
       // Mount sites directory
       "-v",
       `${this.sitesDir}:/sites:ro`,
