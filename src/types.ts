@@ -126,6 +126,7 @@ export interface SiteInfo {
   size: number
   deployedAt: string
   oauth?: SiteOAuth
+  persistentStorage?: boolean
   tls?: TlsStatus
 }
 
@@ -175,6 +176,7 @@ export interface SiteMetadata {
   deployedBy?: string
   files: string[]
   oauth?: SiteOAuth
+  persistentStorage?: boolean
 }
 
 // Site config stored in .siteio/config.json (remembers site/app name and server)

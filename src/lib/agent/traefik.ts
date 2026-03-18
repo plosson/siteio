@@ -102,6 +102,22 @@ ${extra}}
 `
   }
 
+  private generateStorageExtra(): string {
+    const { fileServerPort } = this.config
+    return `
+    # Persistent storage
+    sub_filter '</head>' '<script src="/__storage/shim.js"></script></head>';
+    sub_filter_once on;
+    sub_filter_types text/html;
+
+    location /__storage/ {
+        proxy_pass http://host.docker.internal:${fileServerPort};
+        proxy_set_header Host $host;
+        proxy_set_header X-Auth-Request-Email $http_x_auth_request_email;
+    }
+`
+  }
+
   private generateNginxConfig(sites: SiteMetadata[] = []): string {
     const { domain } = this.config
     // Escape dots in domain for regex
@@ -112,11 +128,22 @@ ${extra}}
       "/sites/$subdomain"
     )
 
-    // Add explicit server blocks for sites with custom domains
+    // Add explicit server blocks for sites with persistent storage or custom domains
     for (const site of sites) {
+      // Sites with persistent storage need their own server block (for sub_filter)
+      if (site.persistentStorage) {
+        const extra = this.generateStorageExtra()
+        config += this.generateServerBlock(
+          `${site.subdomain}.${domain}`,
+          `/sites/${site.subdomain}`,
+          extra
+        )
+      }
+
       if (site.domains) {
         for (const customDomain of site.domains) {
-          config += this.generateServerBlock(customDomain, `/sites/${site.subdomain}`)
+          const extra = site.persistentStorage ? this.generateStorageExtra() : ""
+          config += this.generateServerBlock(customDomain, `/sites/${site.subdomain}`, extra)
         }
       }
     }

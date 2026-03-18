@@ -8,6 +8,7 @@ import { resolveSubdomain } from "../../utils/site-config.ts"
 
 export interface SetSiteOptions {
   domain?: string[]
+  persistentStorage?: boolean
   json?: boolean
 }
 
@@ -30,27 +31,48 @@ export async function setSiteCommand(
 
     const client = new SiteioClient()
 
-    if (!options.domain || options.domain.length === 0) {
-      throw new ValidationError("No updates specified. Use --domain to set custom domains.")
+    const hasDomainUpdate = options.domain && options.domain.length > 0
+    const hasStorageUpdate = options.persistentStorage !== undefined
+
+    if (!hasDomainUpdate && !hasStorageUpdate) {
+      throw new ValidationError("No updates specified. Use --domain or --persistent-storage / --no-persistent-storage.")
     }
 
     spinner.start(`Updating site ${subdomain}`)
-    const site = await client.updateSiteDomains(subdomain, options.domain)
+
+    if (hasDomainUpdate) {
+      await client.updateSiteDomains(subdomain, options.domain!)
+    }
+
+    if (hasStorageUpdate) {
+      await client.updateSitePersistentStorage(subdomain, options.persistentStorage!)
+    }
+
     spinner.succeed(`Updated site ${subdomain}`)
 
     if (options.json) {
+      const site = await client.getSite(subdomain)
       console.log(JSON.stringify({ success: true, data: site }, null, 2))
     } else {
       console.log("")
       console.log(formatSuccess(`Site ${chalk.bold(subdomain)} updated.`))
       console.log("")
-      if (site.domains && site.domains.length > 0) {
-        console.log(chalk.bold("Custom domains:"))
-        for (const d of site.domains) {
-          console.log(`  ${chalk.cyan(d)}`)
+      if (hasDomainUpdate) {
+        if (options.domain!.length > 0) {
+          console.log(chalk.bold("Custom domains:"))
+          for (const d of options.domain!) {
+            console.log(`  ${chalk.cyan(d)}`)
+          }
+        } else {
+          console.log(chalk.dim("No custom domains set."))
         }
-      } else {
-        console.log(chalk.dim("No custom domains set."))
+      }
+      if (hasStorageUpdate) {
+        if (options.persistentStorage) {
+          console.log(chalk.bold("Persistent storage:") + " " + chalk.green("enabled"))
+        } else {
+          console.log(chalk.bold("Persistent storage:") + " " + chalk.dim("disabled"))
+        }
       }
       console.log("")
     }

@@ -146,7 +146,7 @@ export class SiteStorage {
       totalSize += data.length
     }
 
-    // Save metadata (preserve domains from previous deploy)
+    // Save metadata (preserve domains and persistentStorage from previous deploy)
     const metadata: SiteMetadata = {
       subdomain,
       domains: existingMetadata?.domains,
@@ -155,6 +155,7 @@ export class SiteStorage {
       deployedBy,
       files,
       oauth,
+      persistentStorage: existingMetadata?.persistentStorage,
     }
 
     writeFileSync(this.getMetadataPath(subdomain), JSON.stringify(metadata, null, 2))
@@ -272,6 +273,22 @@ export class SiteStorage {
     return true
   }
 
+  updatePersistentStorage(subdomain: string, enabled: boolean): boolean {
+    const metadata = this.getMetadata(subdomain)
+    if (!metadata) {
+      return false
+    }
+
+    if (enabled) {
+      metadata.persistentStorage = true
+    } else {
+      delete metadata.persistentStorage
+    }
+
+    writeFileSync(this.getMetadataPath(subdomain), JSON.stringify(metadata, null, 2))
+    return true
+  }
+
   getHistory(subdomain: string): SiteVersion[] {
     const historyPath = this.getHistoryPath(subdomain)
     if (!existsSync(historyPath)) {
@@ -327,6 +344,7 @@ export class SiteStorage {
       deployedAt: new Date().toISOString(),
       files,
       oauth: metadata?.oauth,
+      persistentStorage: metadata?.persistentStorage,
     }
 
     writeFileSync(this.getMetadataPath(subdomain), JSON.stringify(newMetadata, null, 2))

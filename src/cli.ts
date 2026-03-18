@@ -95,6 +95,7 @@ sites
   .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses for Google OAuth")
   .option("--allowed-domain <domain>", "Allow all emails from this domain for Google OAuth")
   .option("--test", "Deploy a simple test page (no folder required)")
+  .option("--persistent-storage", "Enable persistent localStorage for this site")
   .action(async (folder, options) => {
     const { deployCommand } = await import("./commands/sites/deploy.ts")
     await deployCommand(folder, { ...options, json: program.opts().json })
@@ -179,6 +180,8 @@ sites
     prev.push(val)
     return prev
   }, [])
+  .option("--persistent-storage", "Enable persistent localStorage")
+  .option("--no-persistent-storage", "Disable persistent localStorage")
   .action(async (subdomain, options) => {
     const { setSiteCommand } = await import("./commands/sites/set.ts")
     await setSiteCommand(subdomain, { ...options, json: program.opts().json })
