@@ -53,8 +53,10 @@ export async function infoCommand(subdomain: string | undefined, options: { json
 
     if (site.persistentStorage) {
       console.log(chalk.bold("Persistent Storage:") + " " + chalk.green("enabled"))
-      console.log("")
+    } else {
+      console.log(chalk.bold("Persistent Storage:") + " " + chalk.dim("disabled"))
     }
+    console.log("")
 
     if (site.oauth) {
       console.log(chalk.bold("Authentication:"))
