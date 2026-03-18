@@ -524,7 +524,7 @@ describe("Unit: TraefikManager", () => {
     expect(nginxConfig).toContain("sub_filter '</head>'")
     expect(nginxConfig).toContain("/__storage/shim.js")
     // Should have proxy location for /__storage/
-    expect(nginxConfig).toContain("location /__storage/")
+    expect(nginxConfig).toContain("location ^~ /__storage/")
     expect(nginxConfig).toContain("proxy_pass http://host.docker.internal:3000")
   })
 
