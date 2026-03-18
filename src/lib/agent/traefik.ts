@@ -110,7 +110,7 @@ ${extra}}
     sub_filter_once on;
     sub_filter_types text/html;
 
-    location /__storage/ {
+    location ^~ /__storage/ {
         proxy_pass http://host.docker.internal:${fileServerPort};
         proxy_set_header Host $host;
         proxy_set_header X-Auth-Request-Email $http_x_auth_request_email;
