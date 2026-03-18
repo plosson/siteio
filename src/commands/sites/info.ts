@@ -51,6 +51,11 @@ export async function infoCommand(subdomain: string | undefined, options: { json
     console.log(`  Deployed: ${new Date(site.deployedAt).toLocaleString()}`)
     console.log("")
 
+    if (site.persistentStorage) {
+      console.log(chalk.bold("Persistent Storage:") + " " + chalk.green("enabled"))
+      console.log("")
+    }
+
     if (site.oauth) {
       console.log(chalk.bold("Authentication:"))
       if (site.oauth.allowedEmails && site.oauth.allowedEmails.length > 0) {

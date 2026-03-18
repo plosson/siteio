@@ -498,6 +498,88 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).toContain(encodeURIComponent(encodeURIComponent("https://mycoolsite.com/")))
   })
 
+  it("generates nginx config with sub_filter for site with persistentStorage", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+    })
+
+    traefik.updateNginxConfig([
+      {
+        subdomain: "storage-site",
+        size: 1024,
+        deployedAt: "2024-01-01T00:00:00Z",
+        files: ["index.html"],
+        persistentStorage: true,
+      },
+    ])
+
+    const nginxConfig = readFileSync(join(TEST_DATA_DIR, "nginx", "default.conf"), "utf-8")
+    // Should have explicit server block for the persistent storage site
+    expect(nginxConfig).toContain("server_name storage-site.test.siteio.me;")
+    // Should have sub_filter injection
+    expect(nginxConfig).toContain("sub_filter '</head>'")
+    expect(nginxConfig).toContain("/__storage/shim.js")
+    // Should have proxy location for /__storage/
+    expect(nginxConfig).toContain("location /__storage/")
+    expect(nginxConfig).toContain("proxy_pass http://host.docker.internal:3000")
+  })
+
+  it("does not include sub_filter for site without persistentStorage", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+    })
+
+    traefik.updateNginxConfig([
+      {
+        subdomain: "normal-site",
+        size: 1024,
+        deployedAt: "2024-01-01T00:00:00Z",
+        files: ["index.html"],
+      },
+    ])
+
+    const nginxConfig = readFileSync(join(TEST_DATA_DIR, "nginx", "default.conf"), "utf-8")
+    expect(nginxConfig).not.toContain("sub_filter")
+    expect(nginxConfig).not.toContain("/__storage/")
+  })
+
+  it("includes sub_filter in custom domain server blocks when site has persistentStorage", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+    })
+
+    traefik.updateNginxConfig([
+      {
+        subdomain: "my-app",
+        domains: ["myapp.com"],
+        size: 1024,
+        deployedAt: "2024-01-01T00:00:00Z",
+        files: ["index.html"],
+        persistentStorage: true,
+      },
+    ])
+
+    const nginxConfig = readFileSync(join(TEST_DATA_DIR, "nginx", "default.conf"), "utf-8")
+    // Both subdomain and custom domain blocks should have sub_filter
+    expect(nginxConfig).toContain("server_name my-app.test.siteio.me;")
+    expect(nginxConfig).toContain("server_name myapp.com;")
+    // Count occurrences of sub_filter - should appear in both blocks
+    const subFilterCount = (nginxConfig.match(/sub_filter '<\/head>'/g) || []).length
+    expect(subFilterCount).toBe(2)
+  })
+
   it("applies OAuth middlewares to custom domain routers", () => {
     const traefik = new TraefikManager({
       dataDir: TEST_DATA_DIR,

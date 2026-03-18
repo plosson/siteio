@@ -69,7 +69,8 @@ export class SiteioClient {
     subdomain: string,
     zipData: Uint8Array,
     onProgress?: (uploaded: number, total: number) => void,
-    oauth?: SiteOAuth
+    oauth?: SiteOAuth,
+    options?: { persistentStorage?: boolean }
   ): Promise<SiteInfo> {
     // For progress tracking, we'll use XMLHttpRequest-like approach
     // But fetch doesn't support upload progress, so we'll just call onProgress at start and end
@@ -94,6 +95,11 @@ export class SiteioClient {
       if (oauth.allowedDomain) {
         headers["X-Site-OAuth-Domain"] = oauth.allowedDomain
       }
+    }
+
+    // Add persistent storage header if enabled
+    if (options?.persistentStorage) {
+      headers["X-Site-Persistent-Storage"] = "true"
     }
 
     const response = await this.request<ApiResponse<SiteInfo>>(
@@ -164,6 +170,15 @@ export class SiteioClient {
       throw new ApiError("Invalid response from server")
     }
     return response.data
+  }
+
+  async updateSitePersistentStorage(subdomain: string, enabled: boolean): Promise<void> {
+    await this.request<ApiResponse<null>>(
+      "PATCH",
+      `/sites/${subdomain}/storage`,
+      JSON.stringify({ enabled }),
+      { "Content-Type": "application/json" }
+    )
   }
 
   async getSiteHistory(subdomain: string): Promise<SiteVersion[]> {

@@ -77,7 +77,7 @@ async function collectFiles(dir: string, baseDir: string = dir): Promise<Record<
   return files
 }
 
-export async function deployCommand(folder: string | undefined, options: DeployOptions & { json?: boolean }): Promise<void> {
+export async function deployCommand(folder: string | undefined, options: DeployOptions & { json?: boolean; persistentStorage?: boolean }): Promise<void> {
   const spinner = ora()
 
   try {
@@ -222,7 +222,8 @@ export async function deployCommand(folder: string | undefined, options: DeployO
         const percent = Math.round((uploaded / total) * 100)
         spinner.text = `Uploading (${percent}%)`
       },
-      oauth
+      oauth,
+      { persistentStorage: options.persistentStorage }
     )
     spinner.succeed("Uploaded")
 
@@ -241,6 +242,9 @@ export async function deployCommand(folder: string | undefined, options: DeployO
         }
       }
       console.log(`  Size: ${formatBytes(site.size)}`)
+      if (site.persistentStorage) {
+        console.log(`  Storage: ${chalk.green("persistent localStorage enabled")}`)
+      }
       if (site.oauth) {
         console.log(`  Auth: ${chalk.yellow("Google OAuth enabled")}`)
         if (site.oauth.allowedEmails) {

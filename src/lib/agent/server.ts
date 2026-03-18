@@ -6,6 +6,8 @@ import { GroupStorage } from "./groups.ts"
 import { AppStorage } from "./app-storage.ts"
 import { DockerManager } from "./docker.ts"
 import { GitManager } from "./git.ts"
+import { PersistentStorageManager } from "./persistent-storage.ts"
+import { STORAGE_SHIM_JS } from "./storage-shim.ts"
 
 export class AgentServer {
   private config: AgentConfig
@@ -14,6 +16,7 @@ export class AgentServer {
   private appStorage: AppStorage
   private docker: DockerManager
   private git: GitManager
+  private persistentStorage: PersistentStorageManager
   private traefik: TraefikManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
   private oauthConfig: AgentOAuthConfig | null = null
@@ -25,6 +28,7 @@ export class AgentServer {
     this.appStorage = new AppStorage(config.dataDir)
     this.docker = new DockerManager(config.dataDir)
     this.git = new GitManager(config.dataDir)
+    this.persistentStorage = new PersistentStorageManager(config.dataDir)
 
     // Load OAuth config if it exists
     this.oauthConfig = loadOAuthConfig(config.dataDir)
@@ -80,13 +84,26 @@ export class AgentServer {
     const url = new URL(req.url)
     const path = url.pathname
     const host = req.headers.get("host") || ""
-    const hostWithoutPort = host.split(":")[0]
+    const hostWithoutPort = host.split(":")[0] || ""
 
     // Auth check for Traefik forwardAuth (no auth required - called by Traefik)
     // This must be checked BEFORE the API/static routing because Traefik
     // forwards the original Host header of the request being authorized
     if (path === "/auth/check" && req.method === "GET") {
       return this.handleAuthCheck(req)
+    }
+
+    // Persistent storage API (proxied from nginx for site subdomains, or direct in test mode)
+    if (path === "/__storage/shim.js" && req.method === "GET") {
+      return this.handleStorageShim()
+    }
+    if (path === "/__storage/" || path === "/__storage") {
+      if (req.method === "GET") {
+        return this.handleStorageGet(hostWithoutPort, req)
+      }
+      if (req.method === "PUT") {
+        return this.handleStoragePut(hostWithoutPort, req)
+      }
     }
 
     // Check if this is an API request (api.domain)
@@ -161,6 +178,12 @@ export class AgentServer {
     const rollbackMatch = path.match(/^\/sites\/([a-z0-9-]+)\/rollback$/)
     if (rollbackMatch && req.method === "POST") {
       return this.handleRollback(rollbackMatch[1]!, req)
+    }
+
+    // PATCH /sites/:subdomain/storage - toggle persistent storage
+    const storageToggleMatch = path.match(/^\/sites\/([a-z0-9-]+)\/storage$/)
+    if (storageToggleMatch && req.method === "PATCH") {
+      return this.handleToggleStorage(storageToggleMatch[1]!, req)
     }
 
     // GET /groups - list all groups
@@ -263,6 +286,7 @@ export class AgentServer {
       size: site.size,
       deployedAt: site.deployedAt,
       oauth: site.oauth,
+      persistentStorage: site.persistentStorage,
       tls: tlsStatusMap.get(`site-${site.subdomain}`) || "pending",
     }))
     return this.json(siteInfos)
@@ -324,6 +348,13 @@ export class AgentServer {
       // Extract and store site files
       const metadata = await this.storage.extractAndStore(subdomain, zipData, oauth, deployedBy)
 
+      // Handle persistent storage header
+      const persistentStorageHeader = req.headers.get("X-Site-Persistent-Storage")
+      if (persistentStorageHeader === "true") {
+        this.storage.updatePersistentStorage(subdomain, true)
+        metadata.persistentStorage = true
+      }
+
       // Update routing config (Traefik dynamic config + nginx) for this site
       // Static sites are served by the shared nginx container
       const allSites = this.storage.listSites()
@@ -336,6 +367,7 @@ export class AgentServer {
         size: metadata.size,
         deployedAt: metadata.deployedAt,
         oauth: metadata.oauth,
+        persistentStorage: metadata.persistentStorage,
       }
 
       return this.json(siteInfo)
@@ -350,11 +382,12 @@ export class AgentServer {
       return this.error("Site not found", 404)
     }
 
-    // Delete site files and metadata
+    // Delete site files, metadata, and persistent storage data
     const deleted = this.storage.deleteSite(subdomain)
     if (!deleted) {
       return this.error("Failed to delete site", 500)
     }
+    this.persistentStorage.deleteSite(subdomain)
 
     // Update routing config to remove route for this site
     const allSites = this.storage.listSites()
@@ -513,6 +546,7 @@ export class AgentServer {
         size: metadata.size,
         deployedAt: metadata.deployedAt,
         oauth: metadata.oauth,
+        persistentStorage: metadata.persistentStorage,
       }
 
       return this.json(siteInfo)
@@ -558,6 +592,7 @@ export class AgentServer {
         size: metadata.size,
         deployedAt: metadata.deployedAt,
         oauth: metadata.oauth,
+        persistentStorage: metadata.persistentStorage,
       }
 
       return this.json(siteInfo)
@@ -974,6 +1009,73 @@ export class AgentServer {
       const message = err instanceof Error ? err.message : "Failed to get logs"
       return this.error(message, 500)
     }
+  }
+
+  // Persistent storage handlers
+
+  private handleStorageShim(): Response {
+    return new Response(STORAGE_SHIM_JS, {
+      headers: {
+        "Content-Type": "application/javascript",
+        "Cache-Control": "public, max-age=3600",
+      },
+    })
+  }
+
+  private handleStorageGet(host: string, req: Request): Response {
+    const subdomain = this.extractSubdomain(host, req)
+    if (!subdomain) return this.error("Unknown site", 404)
+    const meta = this.storage.getMetadata(subdomain)
+    if (!meta?.persistentStorage) return this.error("Storage not enabled", 404)
+    const email = req.headers.get("X-Auth-Request-Email") || undefined
+    const data = this.persistentStorage.get(subdomain, email) || {}
+    return Response.json(data)
+  }
+
+  private async handleStoragePut(host: string, req: Request): Promise<Response> {
+    const subdomain = this.extractSubdomain(host, req)
+    if (!subdomain) return this.error("Unknown site", 404)
+    const meta = this.storage.getMetadata(subdomain)
+    if (!meta?.persistentStorage) return this.error("Storage not enabled", 404)
+    const email = req.headers.get("X-Auth-Request-Email") || undefined
+    try {
+      const body = (await req.json()) as Record<string, string>
+      this.persistentStorage.set(subdomain, body, email)
+      return Response.json({ ok: true })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to store data"
+      const status = message.includes("exceeds limit") ? 413 : 400
+      return this.error(message, status)
+    }
+  }
+
+  private async handleToggleStorage(subdomain: string, req: Request): Promise<Response> {
+    if (!this.storage.siteExists(subdomain)) {
+      return this.error("Site not found", 404)
+    }
+    try {
+      const body = (await req.json()) as { enabled: boolean }
+      const updated = this.storage.updatePersistentStorage(subdomain, body.enabled)
+      if (!updated) return this.error("Failed to update", 500)
+      const allSites = this.storage.listSites()
+      this.updateRoutingConfig(allSites)
+      return this.json({ persistentStorage: body.enabled })
+    } catch (err) {
+      return this.error("Invalid request body")
+    }
+  }
+
+  private extractSubdomain(host: string, req?: Request): string | null {
+    // In test/dev mode, allow specifying subdomain via header
+    const headerSubdomain = req?.headers.get("X-Site-Subdomain")
+    if (headerSubdomain) {
+      return headerSubdomain
+    }
+    const suffix = `.${this.config.domain}`
+    if (host.endsWith(suffix)) {
+      return host.slice(0, -suffix.length)
+    }
+    return null
   }
 
   // Helper to check if an email is authorized for an OAuth config
