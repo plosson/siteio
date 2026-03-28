@@ -5,7 +5,7 @@ import { spawnSync } from "bun"
 import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts"
 import { loadAgentConfig } from "../../config/agent.ts"
 import { isRemoteTarget, sshExec, sshExecStream } from "../../utils/ssh.ts"
-import { removeWildcardDNS, CloudflareError } from "../../lib/cloudflare.ts"
+import { removeWildcardDNS, CloudflareError, isSslipDomain } from "../../lib/cloudflare.ts"
 
 const SERVICE_NAME = "siteio-agent"
 const SERVICE_FILE = `/etc/systemd/system/${SERVICE_NAME}.service`
@@ -167,9 +167,9 @@ async function uninstallLocal(options: UninstallOptions): Promise<void> {
 
   const s = p.spinner()
 
-  // Check for Cloudflare DNS cleanup
+  // Check for Cloudflare DNS cleanup (skip for sslip.io domains - no Cloudflare records to clean up)
   const agentConfig = loadAgentConfig(DEFAULT_DATA_DIR)
-  if (agentConfig.cloudflareToken && agentConfig.domain) {
+  if (agentConfig.cloudflareToken && agentConfig.domain && !isSslipDomain(agentConfig.domain)) {
     console.log("")
     console.log(chalk.yellow(`Found Cloudflare DNS record for *.${agentConfig.domain}`))
     console.log("")
