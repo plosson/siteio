@@ -254,3 +254,34 @@ export async function removeWildcardDNS(
     message: `Deleted DNS record ${wildcardName}`,
   }
 }
+
+/**
+ * Build a sslip.io domain from an IP address
+ * e.g., "203.0.113.42" -> "203-0-113-42.sslip.io"
+ */
+export function buildSslipDomain(ip: string): string {
+  return `${ip.replace(/\./g, "-")}.sslip.io`
+}
+
+/**
+ * Check if a domain is a sslip.io domain
+ */
+export function isSslipDomain(domain: string): boolean {
+  return domain.endsWith(".sslip.io")
+}
+
+/**
+ * Build a Cloudflare dashboard URL with pre-filled token permissions
+ * Pre-selects Zone:Read + DNS:Edit permissions
+ */
+export function buildCloudflareTokenUrl(tokenName: string = "siteio DNS Token"): string {
+  const permissions = JSON.stringify([
+    { key: "zone", type: "read" },
+    { key: "zone_dns", type: "edit" },
+  ])
+  const params = new URLSearchParams({
+    permissionGroupKeys: permissions,
+    name: tokenName,
+  })
+  return `https://dash.cloudflare.com/profile/api-tokens?${params}`
+}
