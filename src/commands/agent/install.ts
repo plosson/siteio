@@ -7,7 +7,7 @@ import { randomBytes } from "crypto"
 import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts"
 import { encodeToken } from "../../utils/token.ts"
 import { isRemoteTarget, sshExec, sshExecStream } from "../../utils/ssh.ts"
-import { setupWildcardDNS, CloudflareError } from "../../lib/cloudflare.ts"
+import { setupWildcardDNS, CloudflareError, getPublicIP, buildSslipDomain, isSslipDomain, buildCloudflareTokenUrl } from "../../lib/cloudflare.ts"
 import { waitForDNS, waitForCertificate } from "../../lib/verification.ts"
 
 const SERVICE_NAME = "siteio-agent"
@@ -74,6 +74,102 @@ WantedBy=multi-user.target
 `
 }
 
+function openBrowser(url: string): void {
+  try {
+    const cmd = process.platform === "darwin" ? ["open", url] : ["xdg-open", url]
+    spawnSync({ cmd, stdout: "pipe", stderr: "pipe" })
+  } catch {
+    // Browser open failed silently - URL is already displayed to user
+  }
+}
+
+async function gatherInstallConfig(defaultDataDir: string): Promise<{
+  domain: string
+  dataDir: string
+  email: string | undefined
+  cloudflareToken: string | undefined
+}> {
+  // Auto-detect public IP for sslip.io default
+  let sslipDefault: string | undefined
+  try {
+    const publicIP = await getPublicIP()
+    sslipDefault = buildSslipDomain(publicIP)
+  } catch {
+    // IP detection failed, no default
+  }
+
+  const domainAnswer = await p.text({
+    message: "Domain for this agent:",
+    placeholder: sslipDefault || "example.siteio.me",
+    initialValue: sslipDefault,
+    validate: (value) => {
+      if (!value) return "Domain is required"
+      if (!value.includes(".")) return "Please enter a valid domain"
+    },
+  })
+
+  if (p.isCancel(domainAnswer)) {
+    p.cancel("Installation cancelled")
+    process.exit(0)
+  }
+  const domain = domainAnswer as string
+
+  const dataDirAnswer = await p.text({
+    message: "Data directory:",
+    initialValue: defaultDataDir,
+    validate: (value) => {
+      if (!value) return "Data directory is required"
+    },
+  })
+
+  if (p.isCancel(dataDirAnswer)) {
+    p.cancel("Installation cancelled")
+    process.exit(0)
+  }
+  const dataDir = dataDirAnswer as string
+
+  const emailAnswer = await p.text({
+    message: "Email for Let's Encrypt:",
+    placeholder: "you@example.com",
+    validate: (value) => {
+      if (!value) return "Email is required for Let's Encrypt certificates"
+      if (!value.includes("@") || value.includes("example.com")) {
+        return "Please enter a valid email address"
+      }
+    },
+  })
+
+  if (p.isCancel(emailAnswer)) {
+    p.cancel("Installation cancelled")
+    process.exit(0)
+  }
+  const email = emailAnswer as string | undefined
+
+  // Only ask for Cloudflare token if custom domain (not sslip.io)
+  let cloudflareToken: string | undefined
+  if (!isSslipDomain(domain)) {
+    const templateUrl = buildCloudflareTokenUrl()
+    console.log("")
+    console.log(chalk.cyan("To auto-configure DNS, create a Cloudflare API token:"))
+    console.log(chalk.gray(templateUrl))
+    console.log("")
+
+    openBrowser(templateUrl)
+
+    const tokenAnswer = await p.password({
+      message: "Paste your Cloudflare API token (or press Enter to skip):",
+    })
+
+    if (p.isCancel(tokenAnswer)) {
+      p.cancel("Installation cancelled")
+      process.exit(0)
+    }
+    cloudflareToken = tokenAnswer as string | undefined
+  }
+
+  return { domain, dataDir, email, cloudflareToken }
+}
+
 async function installRemote(target: string, options: InstallOptions): Promise<void> {
   p.intro(chalk.bgCyan(" siteio agent install (remote) "))
 
@@ -96,53 +192,11 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
   let cloudflareToken = options.cloudflareToken
 
   if (!domain) {
-    const answers = await p.group(
-      {
-        domain: () =>
-          p.text({
-            message: "Domain for this agent:",
-            placeholder: "example.siteio.me",
-            validate: (value) => {
-              if (!value) return "Domain is required"
-              if (!value.includes(".")) return "Please enter a valid domain"
-            },
-          }),
-        dataDir: () =>
-          p.text({
-            message: "Data directory:",
-            initialValue: dataDir,
-            validate: (value) => {
-              if (!value) return "Data directory is required"
-            },
-          }),
-        email: () =>
-          p.text({
-            message: "Email for Let's Encrypt:",
-            placeholder: "you@example.com",
-            validate: (value) => {
-              if (!value) return "Email is required for Let's Encrypt certificates"
-              if (!value.includes("@") || value.includes("example.com")) {
-                return "Please enter a valid email address"
-              }
-            },
-          }),
-        cloudflareToken: () =>
-          p.password({
-            message: "Cloudflare API token (optional, for auto DNS setup):",
-          }),
-      },
-      {
-        onCancel: () => {
-          p.cancel("Installation cancelled")
-          process.exit(0)
-        },
-      }
-    )
-
-    domain = answers.domain as string
-    dataDir = answers.dataDir as string
-    email = answers.email as string | undefined
-    cloudflareToken = answers.cloudflareToken as string | undefined
+    const config = await gatherInstallConfig(dataDir)
+    domain = config.domain
+    dataDir = config.dataDir
+    email = config.email
+    cloudflareToken = config.cloudflareToken
   }
 
   // Check if siteio is already installed
@@ -230,60 +284,17 @@ async function installLocal(options: InstallOptions): Promise<void> {
   let cloudflareToken = options.cloudflareToken
 
   if (!domain) {
-    // Interactive mode - prompt for configuration
-    const answers = await p.group(
-      {
-        domain: () =>
-          p.text({
-            message: "Domain for this agent:",
-            placeholder: "example.siteio.me",
-            validate: (value) => {
-              if (!value) return "Domain is required"
-              if (!value.includes(".")) return "Please enter a valid domain"
-            },
-          }),
-        dataDir: () =>
-          p.text({
-            message: "Data directory:",
-            initialValue: dataDir,
-            validate: (value) => {
-              if (!value) return "Data directory is required"
-            },
-          }),
-        email: () =>
-          p.text({
-            message: "Email for Let's Encrypt:",
-            placeholder: "you@example.com",
-            validate: (value) => {
-              if (!value) return "Email is required for Let's Encrypt certificates"
-              if (!value.includes("@") || value.includes("example.com")) {
-                return "Please enter a valid email address"
-              }
-            },
-          }),
-        cloudflareToken: () =>
-          p.password({
-            message: "Cloudflare API token (optional, for auto DNS setup):",
-          }),
-      },
-      {
-        onCancel: () => {
-          p.cancel("Installation cancelled")
-          process.exit(0)
-        },
-      }
-    )
-
-    domain = answers.domain as string
-    dataDir = answers.dataDir as string
-    email = answers.email as string | undefined
-    cloudflareToken = answers.cloudflareToken as string | undefined
+    const config = await gatherInstallConfig(dataDir)
+    domain = config.domain
+    dataDir = config.dataDir
+    email = config.email
+    cloudflareToken = config.cloudflareToken
   }
 
   const apiKey = generateApiKey()
 
   // Setup Cloudflare DNS if token provided
-  if (cloudflareToken) {
+  if (cloudflareToken && !isSslipDomain(domain)) {
     const s = p.spinner()
     s.start("Setting up Cloudflare DNS")
     try {
