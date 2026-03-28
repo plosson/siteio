@@ -371,8 +371,8 @@ const agent = program
 
 agent
   .command("install [target]")
-  .description("Install and start the agent as a systemd service (locally or on remote server)")
-  .option("--domain <domain>", "Domain for this agent (e.g., example.siteio.me)")
+  .description("Install and start the agent (auto-configures with sslip.io if no domain provided)")
+  .option("--domain <domain>", "Domain for this agent (default: auto-detected sslip.io)")
   .option("--data-dir <path>", "Data directory (default: /data)")
   .option("--email <email>", "Email for Let's Encrypt")
   .option("--cloudflare-token <token>", "Cloudflare API token for automatic DNS setup")
