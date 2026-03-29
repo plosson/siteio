@@ -354,6 +354,10 @@ async function uninstallLocal(options: UninstallOptions): Promise<void> {
 export async function uninstallAgentCommand(target?: string, options: UninstallOptions = {}): Promise<void> {
   if (target && isRemoteTarget(target)) {
     await uninstallRemote(target, options)
+  } else if (target) {
+    console.error(formatError(`"${target}" looks like a remote target but is missing the SSH user.`))
+    console.error(formatError(`For remote uninstall, use: siteio agent uninstall user@${target}`))
+    process.exit(1)
   } else {
     await uninstallLocal(options)
   }
