@@ -83,19 +83,25 @@ function openBrowser(url: string): void {
   }
 }
 
-async function gatherInstallConfig(defaultDataDir: string): Promise<{
+async function gatherInstallConfig(defaultDataDir: string, remoteIP?: string): Promise<{
   domain: string
   dataDir: string
   email: string | undefined
   cloudflareToken: string | undefined
+  detectedIP: string | undefined
 }> {
-  // Auto-detect public IP for sslip.io default
+  // Remote IP takes precedence — it must match the server being installed on, not the local machine
+  let detectedIP: string | undefined = remoteIP
   let sslipDefault: string | undefined
-  try {
-    const publicIP = await getPublicIP()
-    sslipDefault = buildSslipDomain(publicIP)
-  } catch {
-    // IP detection failed, no default
+  if (!detectedIP) {
+    try {
+      detectedIP = await getPublicIP()
+    } catch {
+      // IP detection failed, no default
+    }
+  }
+  if (detectedIP) {
+    sslipDefault = buildSslipDomain(detectedIP)
   }
 
   const domainAnswer = await p.text({
@@ -167,21 +173,13 @@ async function gatherInstallConfig(defaultDataDir: string): Promise<{
     cloudflareToken = tokenAnswer as string | undefined
 
     if (!cloudflareToken) {
-      // Show manual DNS configuration instructions
-      let serverIP: string | undefined
-      try {
-        serverIP = await getPublicIP()
-      } catch {
-        // IP detection failed
-      }
-
       console.log("")
       console.log(chalk.yellow.bold("─── Manual DNS Configuration Required ───"))
       console.log("")
       console.log(chalk.yellow("Add the following DNS record at your domain provider:"))
       console.log("")
-      if (serverIP) {
-        console.log(`  *.${domain}  →  A  →  ${serverIP}`)
+      if (detectedIP) {
+        console.log(`  *.${domain}  →  A  →  ${detectedIP}`)
       } else {
         console.log(`  *.${domain}  →  A  →  <your-server-ip>`)
       }
@@ -192,7 +190,7 @@ async function gatherInstallConfig(defaultDataDir: string): Promise<{
     }
   }
 
-  return { domain, dataDir, email, cloudflareToken }
+  return { domain, dataDir, email, cloudflareToken, detectedIP }
 }
 
 async function installRemote(target: string, options: InstallOptions): Promise<void> {
@@ -200,15 +198,17 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
 
   const s = p.spinner()
 
-  // Test SSH connection
-  s.start(`Testing SSH connection to ${target}`)
-  const testResult = await sshExec(target, "echo ok", options.identity)
-  if (testResult.exitCode !== 0) {
+  // Test SSH connection and detect remote server's public IP in one call
+  s.start(`Connecting to ${target}`)
+  let remoteIP: string | undefined
+  const ipResult = await sshExec(target, "curl -s --max-time 5 https://api.ipify.org", options.identity)
+  if (ipResult.exitCode !== 0) {
     s.stop(chalk.red("Failed"))
-    console.error(formatError(`Could not connect to ${target}: ${testResult.stderr}`))
+    console.error(formatError(`Could not connect to ${target}: ${ipResult.stderr}`))
     process.exit(1)
   }
-  s.stop(chalk.green("SSH connection OK"))
+  remoteIP = ipResult.stdout.trim() || undefined
+  s.stop(remoteIP ? chalk.green(`Connected (${remoteIP})`) : chalk.green("Connected"))
 
   // Gather configuration if not provided via flags
   let domain = options.domain
@@ -217,7 +217,7 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
   let cloudflareToken = options.cloudflareToken
 
   if (!domain) {
-    const config = await gatherInstallConfig(dataDir)
+    const config = await gatherInstallConfig(dataDir, remoteIP)
     domain = config.domain
     dataDir = config.dataDir
     email = config.email
@@ -302,11 +302,11 @@ async function installLocal(options: InstallOptions): Promise<void> {
     process.exit(1)
   }
 
-  // Gather configuration - use flags if provided, otherwise prompt
   let domain = options.domain
   let dataDir = options.dataDir || "/data"
   let email = options.email
   let cloudflareToken = options.cloudflareToken
+  let serverIP: string | undefined
 
   if (!domain) {
     const config = await gatherInstallConfig(dataDir)
@@ -314,6 +314,7 @@ async function installLocal(options: InstallOptions): Promise<void> {
     dataDir = config.dataDir
     email = config.email
     cloudflareToken = config.cloudflareToken
+    serverIP = config.detectedIP
   }
 
   const apiKey = generateApiKey()
@@ -481,13 +482,6 @@ async function installLocal(options: InstallOptions): Promise<void> {
     } else {
       s.stop(chalk.yellow("DNS not resolved"))
       if (!cloudflareToken) {
-        // No Cloudflare — remind the user about manual DNS setup
-        let serverIP: string | undefined
-        try {
-          serverIP = await getPublicIP()
-        } catch {
-          // IP detection failed
-        }
         console.log("")
         console.log(formatWarning("DNS is not yet pointing to this server."))
         console.log(formatWarning("Make sure you have configured this DNS record at your provider:"))
