@@ -371,7 +371,7 @@ const agent = program
 
 agent
   .command("install [target]")
-  .description("Install and start the agent (auto-configures with sslip.io if no domain provided)")
+  .description("Install and start the agent locally, or on a remote server via user@host (auto-configures with sslip.io if no domain provided)")
   .option("--domain <domain>", "Domain for this agent (default: auto-detected sslip.io)")
   .option("--data-dir <path>", "Data directory (default: /data)")
   .option("--email <email>", "Email for Let's Encrypt")
