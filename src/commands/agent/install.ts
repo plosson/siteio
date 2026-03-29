@@ -165,6 +165,31 @@ async function gatherInstallConfig(defaultDataDir: string): Promise<{
       process.exit(0)
     }
     cloudflareToken = tokenAnswer as string | undefined
+
+    if (!cloudflareToken) {
+      // Show manual DNS configuration instructions
+      let serverIP: string | undefined
+      try {
+        serverIP = await getPublicIP()
+      } catch {
+        // IP detection failed
+      }
+
+      console.log("")
+      console.log(chalk.yellow.bold("─── Manual DNS Configuration Required ───"))
+      console.log("")
+      console.log(chalk.yellow("Add the following DNS record at your domain provider:"))
+      console.log("")
+      if (serverIP) {
+        console.log(`  *.${domain}  →  A  →  ${serverIP}`)
+      } else {
+        console.log(`  *.${domain}  →  A  →  <your-server-ip>`)
+      }
+      console.log("")
+      console.log(chalk.gray("This wildcard record routes all subdomains (api, sites, apps) to your server."))
+      console.log(chalk.yellow.bold("─────────────────────────────────────────"))
+      console.log("")
+    }
   }
 
   return { domain, dataDir, email, cloudflareToken }
@@ -424,15 +449,15 @@ async function installLocal(options: InstallOptions): Promise<void> {
 
   s.stop(chalk.green("Agent started"))
 
-  // Verify DNS propagation and certificate (only when Cloudflare was used)
-  if (cloudflareToken) {
+  // Verify DNS propagation and certificate (for custom domains)
+  if (!isSslipDomain(domain)) {
     const apiDomain = `api.${domain}`
 
     // DNS verification
-    s.start("Waiting for DNS propagation")
+    s.start("Verifying DNS configuration")
     const dnsResult = await waitForDNS(apiDomain, { maxAttempts: 5 }, (attempt, max) => {
       if (attempt > 1) {
-        s.message(`Waiting for DNS propagation (attempt ${attempt}/${max})`)
+        s.message(`Verifying DNS configuration (attempt ${attempt}/${max})`)
       }
     })
 
@@ -454,8 +479,29 @@ async function installLocal(options: InstallOptions): Promise<void> {
         console.log(formatWarning("HTTPS certificate may take a moment to become available."))
       }
     } else {
-      s.stop(chalk.yellow("DNS verification timed out"))
-      console.log(formatWarning("DNS may still be propagating. HTTPS may take a minute to become available."))
+      s.stop(chalk.yellow("DNS not resolved"))
+      if (!cloudflareToken) {
+        // No Cloudflare — remind the user about manual DNS setup
+        let serverIP: string | undefined
+        try {
+          serverIP = await getPublicIP()
+        } catch {
+          // IP detection failed
+        }
+        console.log("")
+        console.log(formatWarning("DNS is not yet pointing to this server."))
+        console.log(formatWarning("Make sure you have configured this DNS record at your provider:"))
+        console.log("")
+        if (serverIP) {
+          console.log(chalk.yellow(`  *.${domain}  →  A  →  ${serverIP}`))
+        } else {
+          console.log(chalk.yellow(`  *.${domain}  →  A  →  <your-server-ip>`))
+        }
+        console.log("")
+        console.log(chalk.gray("HTTPS certificates will be provisioned automatically once DNS resolves."))
+      } else {
+        console.log(formatWarning("DNS may still be propagating. HTTPS may take a minute to become available."))
+      }
     }
   }
 
@@ -489,6 +535,11 @@ async function installLocal(options: InstallOptions): Promise<void> {
 export async function installAgentCommand(target?: string, options: InstallOptions = {}): Promise<void> {
   if (target && isRemoteTarget(target)) {
     await installRemote(target, options)
+  } else if (target) {
+    // Bare hostname/IP without user@ — warn and suggest the correct format
+    console.error(formatError(`"${target}" looks like a remote target but is missing the SSH user.`))
+    console.error(formatError(`For remote install, use: siteio agent install user@${target}`))
+    process.exit(1)
   } else {
     await installLocal(options)
   }
