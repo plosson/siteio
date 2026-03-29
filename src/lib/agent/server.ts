@@ -500,11 +500,12 @@ export class AgentServer {
         }
       }
 
-      // Reject domains within the base domain space
+      // Reject subdomains within the base domain space (e.g., api.example.com)
+      // but allow the apex domain itself (e.g., example.com) as a custom domain
       const baseDomainSuffix = `.${this.config.domain}`
       for (const domain of domains) {
-        if (domain.endsWith(baseDomainSuffix) || domain === this.config.domain) {
-          return this.error(`Cannot use '${domain}' as a custom domain — it conflicts with the base domain`)
+        if (domain.endsWith(baseDomainSuffix)) {
+          return this.error(`Cannot use '${domain}' as a custom domain — it conflicts with the base domain subdomains`)
         }
       }
 
