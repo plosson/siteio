@@ -91,7 +91,7 @@ const sites = program
 sites
   .command("deploy [folder]")
   .description("Deploy a folder as a static site")
-  .option("-s, --subdomain <name>", "Subdomain to deploy to (defaults to folder name)")
+  .option("-s, --subdomain <subdomain>", "Subdomain to deploy to (defaults to folder name)")
   .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses for Google OAuth")
   .option("--allowed-domain <domain>", "Allow all emails from this domain for Google OAuth")
   .option("--test", "Deploy a simple test page (no folder required)")
@@ -112,17 +112,18 @@ sites
   })
 
 sites
-  .command("info [subdomain]")
+  .command("info")
   .description("Show detailed info about a site")
-  .action(async (subdomain) => {
+  .option("-s, --subdomain <subdomain>", "Site to show info for (defaults to .siteio/config.json)")
+  .action(async (options) => {
     const { infoCommand } = await import("./commands/sites/info.ts")
-    await infoCommand(subdomain, { json: program.opts().json })
+    await infoCommand(options.subdomain, { json: program.opts().json })
   })
 
 sites
   .command("download [output-folder]")
   .description("Download a deployed site to a local folder")
-  .option("-s, --subdomain <name>", "Subdomain to download (required)")
+  .option("-s, --subdomain <subdomain>", "Site to download (defaults to .siteio/config.json)")
   .option("-y, --yes", "Overwrite existing folder contents")
   .action(async (outputFolder, options) => {
     const { downloadCommand } = await import("./commands/sites/download.ts")
@@ -130,34 +131,39 @@ sites
   })
 
 sites
-  .command("rm [subdomain]")
+  .command("rm")
   .description("Remove a deployed site")
+  .option("-s, --subdomain <subdomain>", "Site to remove (defaults to .siteio/config.json)")
   .option("-y, --yes", "Skip confirmation prompt")
-  .action(async (subdomain, options) => {
+  .action(async (options) => {
     const { rmCommand } = await import("./commands/sites/rm.ts")
-    await rmCommand(subdomain, { ...options, json: program.opts().json })
+    await rmCommand(options.subdomain, { ...options, json: program.opts().json })
   })
 
 sites
-  .command("history [subdomain]")
+  .command("history")
   .description("Show version history for a site")
-  .action(async (subdomain) => {
+  .option("-s, --subdomain <subdomain>", "Site to show history for (defaults to .siteio/config.json)")
+  .action(async (options) => {
     const { historyCommand } = await import("./commands/sites/history.ts")
-    await historyCommand(subdomain, { json: program.opts().json })
+    await historyCommand(options.subdomain, { json: program.opts().json })
   })
 
 sites
-  .command("rollback [subdomain] [version]")
+  .command("rollback")
   .description("Rollback a site to a previous version")
+  .option("-s, --subdomain <subdomain>", "Site to rollback (defaults to .siteio/config.json)")
+  .option("-v, --version <version>", "Version to rollback to")
   .option("-y, --yes", "Skip confirmation prompt")
-  .action(async (subdomain, version, options) => {
+  .action(async (options) => {
     const { rollbackCommand } = await import("./commands/sites/rollback.ts")
-    await rollbackCommand(subdomain, version, { ...options, json: program.opts().json })
+    await rollbackCommand(options.subdomain, options.version, { ...options, json: program.opts().json })
   })
 
 sites
-  .command("auth [subdomain]")
+  .command("auth")
   .description("Set or remove Google OAuth for a site")
+  .option("-s, --subdomain <subdomain>", "Site to configure auth for (defaults to .siteio/config.json)")
   .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses (replaces existing)")
   .option("--allowed-domain <domain>", "Allow all emails from this domain (replaces existing)")
   .option("--allowed-groups <groups>", "Comma-separated list of allowed groups (replaces existing)")
@@ -168,14 +174,15 @@ sites
   .option("--add-group <group>", "Add group(s) to allowed list")
   .option("--remove-group <group>", "Remove group(s) from allowed list")
   .option("--remove", "Remove all authentication")
-  .action(async (subdomain, options) => {
+  .action(async (options) => {
     const { authCommand } = await import("./commands/sites/auth.ts")
-    await authCommand(subdomain, { ...options, json: program.opts().json })
+    await authCommand(options.subdomain, { ...options, json: program.opts().json })
   })
 
 sites
-  .command("set [subdomain]")
-  .description("Update site configuration (e.g. siteio sites set mysite -d example.com)")
+  .command("set")
+  .description("Update site configuration (e.g. siteio sites set -s mysite -d example.com)")
+  .option("-s, --subdomain <subdomain>", "Site to update (defaults to .siteio/config.json)")
   .option("-d, --domain <domain>", "Set custom domains, e.g. -d example.com -d www.example.com (repeatable)", (val: string, prev: string[]) => {
     prev = prev || []
     prev.push(val)
@@ -183,9 +190,9 @@ sites
   }, [])
   .option("--persistent-storage", "Enable persistent localStorage")
   .option("--no-persistent-storage", "Disable persistent localStorage")
-  .action(async (subdomain, options) => {
+  .action(async (options) => {
     const { setSiteCommand } = await import("./commands/sites/set.ts")
-    await setSiteCommand(subdomain, { ...options, json: program.opts().json })
+    await setSiteCommand(options.subdomain, { ...options, json: program.opts().json })
   })
 
 // Apps commands

@@ -14,7 +14,7 @@ export async function authCommand(subdomain: string | undefined, options: AuthOp
     const server = getCurrentServer()
     const resolved = resolveSubdomain(subdomain, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("Subdomain required. Provide as argument or run from a directory with .siteio/config.json")
+      throw new ValidationError("Subdomain required. Use -s <subdomain> or run from a directory with .siteio/config.json")
     }
     if (!subdomain) {
       console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))
@@ -153,9 +153,9 @@ export async function authCommand(subdomain: string | undefined, options: AuthOp
           console.error("  --add-group, --remove-group (incremental)")
           console.error("")
           console.error("Examples:")
-          console.error(`  siteio sites auth ${subdomain} --allowed-emails "user@gmail.com"`)
-          console.error(`  siteio sites auth ${subdomain} --add-email "new@gmail.com"`)
-          console.error(`  siteio sites auth ${subdomain} --allowed-groups "engineering"`)
+          console.error(`  siteio sites auth -s ${subdomain} --allowed-emails "user@gmail.com"`)
+          console.error(`  siteio sites auth -s ${subdomain} --add-email "new@gmail.com"`)
+          console.error(`  siteio sites auth -s ${subdomain} --allowed-groups "engineering"`)
           console.error("")
           process.exit(1)
         }
