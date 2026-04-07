@@ -179,9 +179,42 @@ sites
     await authCommand(options.subdomain, { ...options, json: program.opts().json })
   })
 
+// Domain subcommands
+const siteDomain = sites
+  .command("domain")
+  .description("Manage custom domains for a site")
+
+siteDomain
+  .command("add <domain>")
+  .description("Add a custom domain to a site")
+  .option("-s, --subdomain <subdomain>", "Site to add domain to (defaults to .siteio/config.json)")
+  .action(async (domain, options) => {
+    const { domainAddCommand } = await import("./commands/sites/domain.ts")
+    await domainAddCommand(domain, { ...options, json: program.opts().json })
+  })
+
+siteDomain
+  .command("remove <domain>")
+  .description("Remove a custom domain from a site")
+  .option("-s, --subdomain <subdomain>", "Site to remove domain from (defaults to .siteio/config.json)")
+  .action(async (domain, options) => {
+    const { domainRemoveCommand } = await import("./commands/sites/domain.ts")
+    await domainRemoveCommand(domain, { ...options, json: program.opts().json })
+  })
+
+siteDomain
+  .command("list")
+  .alias("ls")
+  .description("List custom domains for a site")
+  .option("-s, --subdomain <subdomain>", "Site to list domains for (defaults to .siteio/config.json)")
+  .action(async (options) => {
+    const { domainListCommand } = await import("./commands/sites/domain.ts")
+    await domainListCommand({ ...options, json: program.opts().json })
+  })
+
 sites
   .command("set")
-  .description("Update site configuration (e.g. siteio sites set -s mysite -d example.com)")
+  .description("Update site configuration")
   .option("-s, --subdomain <subdomain>", "Site to update (defaults to .siteio/config.json)")
   .option("-d, --domain <domain>", "Set custom domains, e.g. -d example.com -d www.example.com (repeatable)", (val: string, prev: string[]) => {
     prev = prev || []
