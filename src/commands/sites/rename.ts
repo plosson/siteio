@@ -4,7 +4,7 @@ import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
-import { resolveSubdomain } from "../../utils/site-config.ts"
+import { resolveSubdomain, loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts"
 
 export async function renameCommand(
   subdomain: string | undefined,
@@ -39,14 +39,22 @@ export async function renameCommand(
 
     spinner.succeed(`Renamed ${subdomain} → ${newSubdomain}`)
 
+    // Update .siteio/config.json if it references the old subdomain
+    const localConfig = loadProjectConfig()
+    if (localConfig && localConfig.site === subdomain) {
+      localConfig.site = newSubdomain
+      saveProjectConfig(localConfig)
+      if (!options.json) {
+        console.error(chalk.dim("Updated .siteio/config.json"))
+      }
+    }
+
     if (options.json) {
       console.log(JSON.stringify({ success: true, data: site }, null, 2))
     } else {
       console.log("")
       console.log(formatSuccess(`Site renamed to ${chalk.bold(newSubdomain)}`))
       console.log(`  ${chalk.cyan(site.url)}`)
-      console.log("")
-      console.log(chalk.dim("Note: The old URL will no longer work."))
       console.log("")
     }
     process.exit(0)
