@@ -355,6 +355,37 @@ export class SiteStorage {
     return newMetadata
   }
 
+  renameSite(oldSubdomain: string, newSubdomain: string): SiteMetadata | null {
+    if (!this.siteExists(oldSubdomain)) return null
+    if (this.siteExists(newSubdomain)) return null
+
+    const oldSitePath = this.getSitePath(oldSubdomain)
+    const newSitePath = this.getSitePath(newSubdomain)
+    const oldMetadataPath = this.getMetadataPath(oldSubdomain)
+    const newMetadataPath = this.getMetadataPath(newSubdomain)
+    const oldHistoryPath = this.getHistoryPath(oldSubdomain)
+    const newHistoryPath = this.getHistoryPath(newSubdomain)
+
+    // Move site files
+    cpSync(oldSitePath, newSitePath, { recursive: true })
+    rmSync(oldSitePath, { recursive: true })
+
+    // Move and update metadata
+    const metadata = this.getMetadata(oldSubdomain)
+    if (!metadata) return null
+    metadata.subdomain = newSubdomain
+    writeFileSync(newMetadataPath, JSON.stringify(metadata, null, 2))
+    rmSync(oldMetadataPath)
+
+    // Move history if it exists
+    if (existsSync(oldHistoryPath)) {
+      cpSync(oldHistoryPath, newHistoryPath, { recursive: true })
+      rmSync(oldHistoryPath, { recursive: true })
+    }
+
+    return metadata
+  }
+
   private collectFileList(dir: string, baseDir: string = dir): string[] {
     const files: string[] = []
     const entries = readdirSync(dir)

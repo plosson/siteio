@@ -177,6 +177,19 @@ export class SiteioClient {
     return response.data
   }
 
+  async renameSite(subdomain: string, newSubdomain: string): Promise<SiteInfo> {
+    const response = await this.request<ApiResponse<SiteInfo>>(
+      "PATCH",
+      `/sites/${subdomain}/rename`,
+      JSON.stringify({ newSubdomain }),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
   async updateSitePersistentStorage(subdomain: string, enabled: boolean): Promise<void> {
     await this.request<ApiResponse<null>>(
       "PATCH",

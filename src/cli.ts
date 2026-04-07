@@ -179,6 +179,16 @@ sites
     await authCommand(options.subdomain, { ...options, json: program.opts().json })
   })
 
+sites
+  .command("rename")
+  .description("Rename a site (changes its subdomain)")
+  .option("-s, --subdomain <subdomain>", "Site to rename (defaults to .siteio/config.json)")
+  .requiredOption("--to <new-subdomain>", "New subdomain name")
+  .action(async (options) => {
+    const { renameCommand } = await import("./commands/sites/rename.ts")
+    await renameCommand(options.subdomain, options.to, { json: program.opts().json })
+  })
+
 // Domain subcommands
 const siteDomain = sites
   .command("domain")
