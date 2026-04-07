@@ -10,7 +10,7 @@ import {
 } from "../../config/agent.ts"
 import { formatSuccess, formatError } from "../../utils/output.ts"
 
-const VALID_KEYS: (keyof PersistedAgentConfig)[] = ["apiKey", "domain", "cloudflareToken"]
+const VALID_KEYS: (keyof PersistedAgentConfig)[] = ["apiKey", "domain", "cloudflareToken", "acmeChallenge", "acmeDnsProvider", "acmeDnsEnv"]
 
 function getDataDir(): string {
   return process.env.SITEIO_DATA_DIR || "/data"
@@ -30,10 +30,14 @@ export async function listConfigCommand(options: { json?: boolean }): Promise<vo
 
   if (options.json) {
     // For JSON output, mask sensitive values
-    const masked: Record<string, string> = {}
+    const masked: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(config)) {
       if (value !== undefined) {
-        masked[key] = isSensitiveKey(key) ? maskSensitiveValue(value) : value
+        if (typeof value === "object") {
+          masked[key] = isSensitiveKey(key) ? `{${Object.keys(value).join(", ")}}` : value
+        } else {
+          masked[key] = isSensitiveKey(key) ? maskSensitiveValue(value) : value
+        }
       }
     }
     console.log(JSON.stringify(masked, null, 2))
@@ -51,8 +55,15 @@ export async function listConfigCommand(options: { json?: boolean }): Promise<vo
 
   for (const [key, value] of Object.entries(config)) {
     if (value !== undefined) {
-      const displayValue = isSensitiveKey(key) ? maskSensitiveValue(value) : value
-      console.log(`  ${chalk.bold(key)}: ${displayValue}`)
+      if (typeof value === "object") {
+        const display = isSensitiveKey(key)
+          ? `{${Object.keys(value).join(", ")}}`
+          : JSON.stringify(value)
+        console.log(`  ${chalk.bold(key)}: ${display}`)
+      } else {
+        const displayValue = isSensitiveKey(key) ? maskSensitiveValue(value) : value
+        console.log(`  ${chalk.bold(key)}: ${displayValue}`)
+      }
     }
   }
 }
@@ -73,6 +84,8 @@ export async function getConfigCommand(
 
   if (value === undefined) {
     console.log(chalk.gray("(not set)"))
+  } else if (typeof value === "object") {
+    console.log(JSON.stringify(value, null, 2))
   } else {
     console.log(value)
   }

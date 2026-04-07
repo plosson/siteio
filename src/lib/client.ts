@@ -70,7 +70,7 @@ export class SiteioClient {
     zipData: Uint8Array,
     onProgress?: (uploaded: number, total: number) => void,
     oauth?: SiteOAuth,
-    options?: { persistentStorage?: boolean }
+    options?: { persistentStorage?: boolean; expectedVersion?: number }
   ): Promise<SiteInfo> {
     // For progress tracking, we'll use XMLHttpRequest-like approach
     // But fetch doesn't support upload progress, so we'll just call onProgress at start and end
@@ -100,6 +100,11 @@ export class SiteioClient {
     // Add persistent storage header if enabled
     if (options?.persistentStorage) {
       headers["X-Site-Persistent-Storage"] = "true"
+    }
+
+    // Add expected version header for optimistic concurrency control
+    if (options?.expectedVersion !== undefined) {
+      headers["X-Expected-Version"] = String(options.expectedVersion)
     }
 
     const response = await this.request<ApiResponse<SiteInfo>>(

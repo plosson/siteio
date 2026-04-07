@@ -41,6 +41,7 @@ export class AgentServer {
         httpPort: config.httpPort,
         httpsPort: config.httpsPort,
         fileServerPort: config.port || 3000,
+        acme: config.acme,
         oauthConfig: this.oauthConfig || undefined,
       })
     }
@@ -284,6 +285,7 @@ export class AgentServer {
       url: `https://${site.subdomain}.${this.config.domain}`,
       domains: site.domains,
       size: site.size,
+      version: site.version,
       deployedAt: site.deployedAt,
       oauth: site.oauth,
       persistentStorage: site.persistentStorage,
@@ -316,6 +318,21 @@ export class AgentServer {
     }
 
     try {
+      // Check for version conflict (optimistic concurrency control)
+      const expectedVersionHeader = req.headers.get("X-Expected-Version")
+      if (expectedVersionHeader !== null) {
+        const expectedVersion = parseInt(expectedVersionHeader, 10)
+        if (!isNaN(expectedVersion)) {
+          const existingMetadata = this.storage.getMetadata(subdomain)
+          if (existingMetadata?.version !== undefined && existingMetadata.version !== expectedVersion) {
+            return this.error(
+              `Version conflict: expected v${expectedVersion} but server has v${existingMetadata.version}. Someone else deployed since your last push. Use --force to override.`,
+              409
+            )
+          }
+        }
+      }
+
       // Read the zip data
       const zipData = new Uint8Array(await req.arrayBuffer())
 
@@ -365,6 +382,7 @@ export class AgentServer {
         url: `https://${metadata.subdomain}.${this.config.domain}`,
         domains: metadata.domains,
         size: metadata.size,
+        version: metadata.version,
         deployedAt: metadata.deployedAt,
         oauth: metadata.oauth,
         persistentStorage: metadata.persistentStorage,
@@ -545,6 +563,7 @@ export class AgentServer {
         url: `https://${metadata.subdomain}.${this.config.domain}`,
         domains: metadata.domains,
         size: metadata.size,
+        version: metadata.version,
         deployedAt: metadata.deployedAt,
         oauth: metadata.oauth,
         persistentStorage: metadata.persistentStorage,
@@ -591,6 +610,7 @@ export class AgentServer {
         url: `https://${metadata.subdomain}.${this.config.domain}`,
         domains: metadata.domains,
         size: metadata.size,
+        version: metadata.version,
         deployedAt: metadata.deployedAt,
         oauth: metadata.oauth,
         persistentStorage: metadata.persistentStorage,

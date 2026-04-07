@@ -7,7 +7,7 @@ import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
 import { text, confirm } from "../../utils/prompt.ts"
 import { formatSuccess, formatBytes } from "../../utils/output.ts"
-import { handleError, ValidationError } from "../../utils/errors.ts"
+import { handleError, ValidationError, ApiError } from "../../utils/errors.ts"
 import { loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts"
 import type { DeployOptions, SiteOAuth } from "../../types.ts"
 
@@ -77,13 +77,15 @@ async function collectFiles(dir: string, baseDir: string = dir): Promise<Record<
   return files
 }
 
-export async function deployCommand(folder: string | undefined, options: DeployOptions & { json?: boolean; persistentStorage?: boolean }): Promise<void> {
+export async function deployCommand(folder: string | undefined, options: DeployOptions & { json?: boolean; persistentStorage?: boolean; force?: boolean }): Promise<void> {
   const spinner = ora()
 
   try {
     let files: Record<string, Uint8Array>
     let subdomain: string
     let fileCount: number
+    let localConfig: ReturnType<typeof loadProjectConfig> = null
+    let serverDomain: string | undefined
 
     if (options.test) {
       // Test mode: generate a simple test site
@@ -113,6 +115,7 @@ export async function deployCommand(folder: string | undefined, options: DeployO
       if (!server) {
         throw new ValidationError("Not logged in. Run 'siteio login' first.")
       }
+      serverDomain = server.domain
 
       // Default to current directory if no folder provided
       const folderPath = resolve(folder || ".")
@@ -126,7 +129,7 @@ export async function deployCommand(folder: string | undefined, options: DeployO
       }
 
       // Load or create site config
-      let localConfig = loadProjectConfig(folderPath)
+      localConfig = loadProjectConfig(folderPath)
 
       if (localConfig?.app && !localConfig?.site) {
         throw new ValidationError(`This directory is configured as an app ('${localConfig.app}'), not a site. Use 'siteio apps' commands instead.`)
@@ -215,6 +218,11 @@ export async function deployCommand(folder: string | undefined, options: DeployO
     // Step 3: Upload
     spinner.start("Uploading")
 
+    // Determine expected version for optimistic concurrency control
+    const expectedVersion = (!options.force && !options.test && localConfig?.version !== undefined)
+      ? localConfig.version
+      : undefined
+
     const site = await client.deploySite(
       subdomain,
       zipData,
@@ -223,9 +231,14 @@ export async function deployCommand(folder: string | undefined, options: DeployO
         spinner.text = `Uploading (${percent}%)`
       },
       oauth,
-      { persistentStorage: options.persistentStorage }
+      { persistentStorage: options.persistentStorage, expectedVersion }
     )
     spinner.succeed("Uploaded")
+
+    // Save version to local config for future concurrency checks
+    if (!options.test && serverDomain) {
+      saveProjectConfig({ site: subdomain, domain: serverDomain, version: site.version }, resolve(folder || "."))
+    }
 
     // Step 4: Done
     if (options.json) {
@@ -259,6 +272,14 @@ export async function deployCommand(folder: string | undefined, options: DeployO
     process.exit(0)
   } catch (err) {
     spinner.stop()
+    if (err instanceof ApiError && err.statusCode === 409) {
+      console.error(chalk.red("Deploy rejected: version conflict"))
+      console.error(chalk.yellow(`  ${err.message}`))
+      console.error("")
+      console.error(chalk.dim("  Someone else deployed this site since your last push."))
+      console.error(chalk.dim("  Use --force to deploy anyway."))
+      process.exit(1)
+    }
     handleError(err)
   }
 }

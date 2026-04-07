@@ -96,6 +96,7 @@ sites
   .option("--allowed-domain <domain>", "Allow all emails from this domain for Google OAuth")
   .option("--test", "Deploy a simple test page (no folder required)")
   .option("--persistent-storage", "Enable persistent localStorage for this site")
+  .option("--force", "Deploy even if there is a version conflict")
   .action(async (folder, options) => {
     const { deployCommand } = await import("./commands/sites/deploy.ts")
     await deployCommand(folder, { ...options, json: program.opts().json })

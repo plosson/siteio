@@ -5,7 +5,7 @@ import { AgentServer } from "../../lib/agent/server.ts"
 import { formatError } from "../../utils/output.ts"
 import { encodeToken } from "../../utils/token.ts"
 import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
-import type { AgentConfig } from "../../types.ts"
+import type { AgentConfig, AcmeConfig } from "../../types.ts"
 
 function generateApiKey(): string {
   return randomBytes(32).toString("hex")
@@ -77,6 +77,16 @@ export async function startAgentCommand(): Promise<void> {
   // Save config for persistence
   updateAgentConfig(dataDir, { apiKey, domain })
 
+  // Build ACME config from persisted config
+  let acme: AcmeConfig | undefined
+  if (persistedConfig.acmeChallenge) {
+    acme = {
+      challenge: persistedConfig.acmeChallenge,
+      dnsProvider: persistedConfig.acmeDnsProvider,
+      dnsEnv: persistedConfig.acmeDnsEnv,
+    }
+  }
+
   const config: AgentConfig = {
     apiKey,
     dataDir,
@@ -85,6 +95,7 @@ export async function startAgentCommand(): Promise<void> {
     httpPort,
     httpsPort,
     email,
+    acme,
   }
 
   // Generate connection info

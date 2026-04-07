@@ -579,6 +579,111 @@ describe("API: Sites", () => {
     })
   })
 
+  describe("Version conflict detection", () => {
+    const subdomain = "version-test"
+
+    const deployZip = (content: string = "hello") => {
+      const files: Record<string, Uint8Array> = {
+        "index.html": new TextEncoder().encode(`<html><body>${content}</body></html>`),
+      }
+      return zipSync(files, { level: 6 })
+    }
+
+    const deploySite = (zipData: Uint8Array, expectedVersion?: number) => {
+      const headers: Record<string, string> = {
+        "X-API-Key": TEST_API_KEY,
+        "Content-Type": "application/zip",
+        "Content-Length": String(zipData.length),
+      }
+      if (expectedVersion !== undefined) {
+        headers["X-Expected-Version"] = String(expectedVersion)
+      }
+      return fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}`, {
+        method: "POST",
+        headers,
+        body: zipData,
+      })
+    }
+
+    afterEach(async () => {
+      await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}`, {
+        method: "DELETE",
+        headers: { "X-API-Key": TEST_API_KEY },
+      })
+    })
+
+    test("should return version number on deploy", async () => {
+      const response = await deploySite(deployZip("v1"))
+      expect(response.ok).toBe(true)
+      const data = await parseJson<SiteInfo>(response)
+      expect(data.data?.version).toBeGreaterThanOrEqual(1)
+    })
+
+    test("should increment version on redeploy", async () => {
+      const first = await deploySite(deployZip("v1"))
+      const firstData = await parseJson<SiteInfo>(first)
+      const firstVersion = firstData.data!.version!
+
+      const response = await deploySite(deployZip("v2"))
+      expect(response.ok).toBe(true)
+      const data = await parseJson<SiteInfo>(response)
+      expect(data.data?.version).toBe(firstVersion + 1)
+    })
+
+    test("should include version in site listing", async () => {
+      const deployResponse = await deploySite(deployZip("v1"))
+      const deployData = await parseJson<SiteInfo>(deployResponse)
+      const deployedVersion = deployData.data!.version!
+
+      const response = await fetch(`http://localhost:${TEST_PORT}/sites`, {
+        headers: { "X-API-Key": TEST_API_KEY },
+      })
+      const data = await parseJson<SiteInfo[]>(response)
+      const site = data.data?.find(s => s.subdomain === subdomain)
+      expect(site?.version).toBe(deployedVersion)
+    })
+
+    test("should allow deploy when expected version matches", async () => {
+      const first = await deploySite(deployZip("v1"))
+      const firstData = await parseJson<SiteInfo>(first)
+      const version = firstData.data!.version!
+
+      const response = await deploySite(deployZip("v2"), version)
+      expect(response.ok).toBe(true)
+      const data = await parseJson<SiteInfo>(response)
+      expect(data.data?.version).toBe(version + 1)
+    })
+
+    test("should reject deploy when expected version does not match", async () => {
+      const first = await deploySite(deployZip("v1"))
+      const firstData = await parseJson<SiteInfo>(first)
+      const firstVersion = firstData.data!.version!
+
+      await deploySite(deployZip("v2")) // version incremented
+
+      // Client still thinks version is firstVersion
+      const response = await deploySite(deployZip("v3"), firstVersion)
+      expect(response.status).toBe(409)
+      const data = await parseJson<null>(response)
+      expect(data.error).toContain("Version conflict")
+    })
+
+    test("should allow deploy without expected version header (backward compat)", async () => {
+      await deploySite(deployZip("v1"))
+      await deploySite(deployZip("v2"))
+
+      // No expected version header — should proceed
+      const response = await deploySite(deployZip("v3"))
+      expect(response.ok).toBe(true)
+    })
+
+    test("should allow first deploy with expected version header", async () => {
+      // Site doesn't exist yet, expected version doesn't matter — no existing metadata
+      const response = await deploySite(deployZip("v1"), 0)
+      expect(response.ok).toBe(true)
+    })
+  })
+
   describe("SiteioClient", () => {
     test("should work with the client library", async () => {
       const client = new SiteioClient({

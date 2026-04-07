@@ -2,7 +2,7 @@ import { existsSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 import { spawnSync } from "bun"
 import { connect as tlsConnect, type PeerCertificate } from "tls"
-import type { SiteMetadata, SiteOAuth, AgentOAuthConfig } from "../../types.ts"
+import type { SiteMetadata, SiteOAuth, AgentOAuthConfig, AcmeConfig } from "../../types.ts"
 
 const TRAEFIK_CONTAINER_NAME = "siteio-traefik"
 const NGINX_CONTAINER_NAME = "siteio-nginx"
@@ -18,6 +18,7 @@ export interface TraefikConfig {
   httpPort: number
   httpsPort: number
   fileServerPort: number
+  acme?: AcmeConfig
   oauthConfig?: AgentOAuthConfig
 }
 
@@ -247,7 +248,27 @@ server {
   }
 
   generateStaticConfig(): string {
-    const { httpPort, httpsPort, email } = this.config
+    const { httpPort, httpsPort, email, acme } = this.config
+    const challengeType = acme?.challenge || "http"
+
+    let challengeConfig: string
+    switch (challengeType) {
+      case "tls":
+        challengeConfig = `      tlsChallenge: {}`
+        break
+      case "dns":
+        challengeConfig = `      dnsChallenge:
+        provider: ${acme!.dnsProvider}
+        resolvers:
+          - "1.1.1.1:53"
+          - "8.8.8.8:53"`
+        break
+      case "http":
+      default:
+        challengeConfig = `      httpChallenge:
+        entryPoint: web`
+        break
+    }
 
     // Paths are relative to container mount points
     return `
@@ -280,8 +301,7 @@ certificatesResolvers:
     acme:
       email: ${email}
       storage: /certs/acme.json
-      httpChallenge:
-        entryPoint: web
+${challengeConfig}
 
 log:
   level: INFO
@@ -767,11 +787,21 @@ log:
       // Mount certs directory (needs write access for acme.json)
       "-v",
       `${this.certsDir}:/certs`,
-      // Traefik image
-      TRAEFIK_IMAGE,
-      // Config file path inside container
-      "--configFile=/etc/traefik/traefik.yml",
     ]
+
+    // Pass DNS provider env vars to Traefik container (needed for DNS-01 challenge)
+    const dnsEnv = this.config.acme?.dnsEnv
+    if (dnsEnv) {
+      for (const [key, value] of Object.entries(dnsEnv)) {
+        args.push("-e", `${key}=${value}`)
+      }
+    }
+
+    // Traefik image and config
+    args.push(
+      TRAEFIK_IMAGE,
+      "--configFile=/etc/traefik/traefik.yml",
+    )
 
     const result = spawnSync({ cmd: args, stdout: "pipe", stderr: "pipe" })
 
