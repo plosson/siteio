@@ -147,10 +147,12 @@ export class SiteStorage {
     }
 
     // Save metadata (preserve domains and persistentStorage from previous deploy)
+    const version = this.getNextVersion(subdomain)
     const metadata: SiteMetadata = {
       subdomain,
       domains: existingMetadata?.domains,
       size: totalSize,
+      version,
       deployedAt: new Date().toISOString(),
       deployedBy,
       files,
@@ -337,10 +339,12 @@ export class SiteStorage {
     // Update site metadata
     const metadata = this.getMetadata(subdomain)
     const files = this.collectFileList(sitePath)
+    const newVersion = this.getNextVersion(subdomain)
     const newMetadata: SiteMetadata = {
       subdomain,
       domains: metadata?.domains,
       size: versionMeta.size,
+      version: newVersion,
       deployedAt: new Date().toISOString(),
       files,
       oauth: metadata?.oauth,

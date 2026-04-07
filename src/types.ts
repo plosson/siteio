@@ -124,6 +124,7 @@ export interface SiteInfo {
   url: string
   domains?: string[]
   size: number
+  version?: number
   deployedAt: string
   oauth?: SiteOAuth
   persistentStorage?: boolean
@@ -149,6 +150,16 @@ export interface ClientConfig {
   apiKey?: string
 }
 
+// ACME challenge types supported by Traefik
+export type AcmeChallengeType = "http" | "tls" | "dns"
+
+// ACME certificate configuration
+export interface AcmeConfig {
+  challenge: AcmeChallengeType
+  dnsProvider?: string // Traefik DNS provider name (e.g. "route53", "cloudflare")
+  dnsEnv?: Record<string, string> // Provider-specific env vars passed to Traefik container
+}
+
 // Agent configuration (from env vars)
 export interface AgentConfig {
   apiKey: string
@@ -158,6 +169,7 @@ export interface AgentConfig {
   httpPort: number
   httpsPort: number
   email?: string // For Let's Encrypt
+  acme?: AcmeConfig // ACME challenge configuration
   skipTraefik?: boolean // For testing without Traefik
   port?: number // Override internal API port
 }
@@ -172,6 +184,7 @@ export interface SiteMetadata {
   subdomain: string
   domains?: string[]
   size: number
+  version?: number
   deployedAt: string
   deployedBy?: string
   files: string[]
@@ -184,6 +197,7 @@ export interface SiteConfig {
   site?: string   // for static sites
   app?: string    // for container apps
   domain: string
+  version?: number // last deployed version (for optimistic concurrency)
 }
 
 // Site version info for history

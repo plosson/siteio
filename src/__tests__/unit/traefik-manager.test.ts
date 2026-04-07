@@ -272,6 +272,75 @@ describe("Unit: TraefikManager", () => {
     expect(staticConfig).toContain("insecure: true")
   })
 
+  it("defaults to HTTP-01 challenge when no acme config", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+    })
+
+    const staticConfig = traefik.generateStaticConfig()
+    expect(staticConfig).toContain("httpChallenge:")
+    expect(staticConfig).toContain("entryPoint: web")
+    expect(staticConfig).not.toContain("dnsChallenge:")
+    expect(staticConfig).not.toContain("tlsChallenge:")
+  })
+
+  it("generates TLS-ALPN-01 challenge config", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+      acme: { challenge: "tls" },
+    })
+
+    const staticConfig = traefik.generateStaticConfig()
+    expect(staticConfig).toContain("tlsChallenge:")
+    expect(staticConfig).not.toContain("httpChallenge:")
+    expect(staticConfig).not.toContain("dnsChallenge:")
+  })
+
+  it("generates DNS-01 challenge config with provider", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+      acme: {
+        challenge: "dns",
+        dnsProvider: "route53",
+        dnsEnv: { AWS_ACCESS_KEY_ID: "AKIA...", AWS_SECRET_ACCESS_KEY: "secret" },
+      },
+    })
+
+    const staticConfig = traefik.generateStaticConfig()
+    expect(staticConfig).toContain("dnsChallenge:")
+    expect(staticConfig).toContain("provider: route53")
+    expect(staticConfig).toContain("resolvers:")
+    expect(staticConfig).not.toContain("httpChallenge:")
+    expect(staticConfig).not.toContain("tlsChallenge:")
+  })
+
+  it("generates explicit HTTP-01 challenge config", () => {
+    const traefik = new TraefikManager({
+      dataDir: TEST_DATA_DIR,
+      domain: "test.siteio.me",
+      httpPort: 80,
+      httpsPort: 443,
+      fileServerPort: 3000,
+      acme: { challenge: "http" },
+    })
+
+    const staticConfig = traefik.generateStaticConfig()
+    expect(staticConfig).toContain("httpChallenge:")
+    expect(staticConfig).toContain("entryPoint: web")
+  })
+
   it("correctly handles multiple sites with global OAuth middlewares defined", () => {
     const traefik = new TraefikManager({
       dataDir: TEST_DATA_DIR,

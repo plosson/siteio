@@ -7,10 +7,15 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 
+import type { AcmeChallengeType } from "../types.ts"
+
 export interface PersistedAgentConfig {
   apiKey: string
   domain?: string
   cloudflareToken?: string
+  acmeChallenge?: AcmeChallengeType
+  acmeDnsProvider?: string
+  acmeDnsEnv?: Record<string, string>
 }
 
 const CONFIG_FILENAME = "agent-config.json"
@@ -75,7 +80,7 @@ export function updateAgentConfig(
 export function getAgentConfigValue(
   dataDir: string,
   key: keyof PersistedAgentConfig
-): string | undefined {
+): PersistedAgentConfig[keyof PersistedAgentConfig] {
   const config = loadAgentConfig(dataDir)
   return config[key]
 }
@@ -88,7 +93,7 @@ export function setAgentConfigValue(
   key: keyof PersistedAgentConfig,
   value: string
 ): void {
-  updateAgentConfig(dataDir, { [key]: value })
+  updateAgentConfig(dataDir, { [key]: value } as Partial<PersistedAgentConfig>)
 }
 
 /**
@@ -117,6 +122,6 @@ export function maskSensitiveValue(value: string): string {
  * Check if a key contains sensitive data
  */
 export function isSensitiveKey(key: string): boolean {
-  const sensitiveKeys = ["apiKey", "cloudflareToken"]
+  const sensitiveKeys = ["apiKey", "cloudflareToken", "acmeDnsEnv"]
   return sensitiveKeys.includes(key)
 }

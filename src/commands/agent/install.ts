@@ -14,12 +14,16 @@ const SERVICE_NAME = "siteio-agent"
 const SERVICE_FILE = `/etc/systemd/system/${SERVICE_NAME}.service`
 const INSTALL_SCRIPT_URL = "https://siteio.me/install"
 
+import type { AcmeChallengeType } from "../../types.ts"
+
 interface InstallOptions {
   domain?: string
   dataDir?: string
   email?: string
   identity?: string
   cloudflareToken?: string
+  acmeChallenge?: AcmeChallengeType
+  acmeDnsProvider?: string
 }
 
 function findBinaryPath(): string {
@@ -89,6 +93,9 @@ async function gatherInstallConfig(defaultDataDir: string, remoteIP?: string): P
   email: string | undefined
   cloudflareToken: string | undefined
   detectedIP: string | undefined
+  acmeChallenge: AcmeChallengeType
+  acmeDnsProvider: string | undefined
+  acmeDnsEnv: Record<string, string> | undefined
 }> {
   // Remote IP takes precedence — it must match the server being installed on, not the local machine
   let detectedIP: string | undefined = remoteIP
@@ -190,7 +197,82 @@ async function gatherInstallConfig(defaultDataDir: string, remoteIP?: string): P
     }
   }
 
-  return { domain, dataDir, email, cloudflareToken, detectedIP }
+  // ACME challenge type
+  const challengeAnswer = await p.select({
+    message: "ACME certificate challenge type:",
+    options: [
+      { value: "http", label: "HTTP-01", hint: "default — requires port 80 reachable from the internet" },
+      { value: "tls", label: "TLS-ALPN-01", hint: "requires port 443 reachable from the internet" },
+      { value: "dns", label: "DNS-01", hint: "works behind VPN/firewall — needs DNS provider API credentials" },
+    ],
+    initialValue: "http" as string,
+  })
+
+  if (p.isCancel(challengeAnswer)) {
+    p.cancel("Installation cancelled")
+    process.exit(0)
+  }
+  const acmeChallenge = challengeAnswer as AcmeChallengeType
+
+  let acmeDnsProvider: string | undefined
+  let acmeDnsEnv: Record<string, string> | undefined
+
+  if (acmeChallenge === "dns") {
+    const providerAnswer = await p.text({
+      message: "Traefik DNS provider name:",
+      placeholder: "route53",
+      validate: (value) => {
+        if (!value) return "DNS provider is required for DNS-01 challenge"
+      },
+    })
+
+    if (p.isCancel(providerAnswer)) {
+      p.cancel("Installation cancelled")
+      process.exit(0)
+    }
+    acmeDnsProvider = providerAnswer as string
+
+    // Show link to Traefik docs for the selected provider
+    console.log("")
+    console.log(chalk.cyan(`Provider docs: https://doc.traefik.io/traefik/https/acme/#providers`))
+    console.log(chalk.gray("Enter the environment variables required by your DNS provider."))
+    console.log(chalk.gray("Type an empty name to finish."))
+    console.log("")
+
+    acmeDnsEnv = {}
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const nameAnswer = await p.text({
+        message: "Env var name (empty to finish):",
+        placeholder: "AWS_ACCESS_KEY_ID",
+      })
+
+      if (p.isCancel(nameAnswer)) {
+        p.cancel("Installation cancelled")
+        process.exit(0)
+      }
+
+      const name = (nameAnswer as string).trim()
+      if (!name) break
+
+      const valueAnswer = await p.password({
+        message: `Value for ${name}:`,
+      })
+
+      if (p.isCancel(valueAnswer)) {
+        p.cancel("Installation cancelled")
+        process.exit(0)
+      }
+
+      acmeDnsEnv[name] = valueAnswer as string
+    }
+
+    if (Object.keys(acmeDnsEnv).length === 0) {
+      acmeDnsEnv = undefined
+    }
+  }
+
+  return { domain, dataDir, email, cloudflareToken, detectedIP, acmeChallenge, acmeDnsProvider, acmeDnsEnv }
 }
 
 async function installRemote(target: string, options: InstallOptions): Promise<void> {
@@ -307,6 +389,9 @@ async function installLocal(options: InstallOptions): Promise<void> {
   let email = options.email
   let cloudflareToken = options.cloudflareToken
   let serverIP: string | undefined
+  let acmeChallenge: AcmeChallengeType = options.acmeChallenge || "http"
+  let acmeDnsProvider: string | undefined = options.acmeDnsProvider
+  let acmeDnsEnv: Record<string, string> | undefined
 
   if (!domain) {
     const config = await gatherInstallConfig(dataDir)
@@ -315,6 +400,9 @@ async function installLocal(options: InstallOptions): Promise<void> {
     email = config.email
     cloudflareToken = config.cloudflareToken
     serverIP = config.detectedIP
+    acmeChallenge = config.acmeChallenge
+    acmeDnsProvider = config.acmeDnsProvider
+    acmeDnsEnv = config.acmeDnsEnv
   }
 
   const apiKey = generateApiKey()
@@ -361,9 +449,18 @@ async function installLocal(options: InstallOptions): Promise<void> {
   // Save agent config
   s.start("Saving configuration")
   const configPath = join(dataDir, "agent-config.json")
-  const configData: Record<string, string> = { apiKey, domain }
+  const configData: Record<string, unknown> = { apiKey, domain }
   if (cloudflareToken) {
     configData.cloudflareToken = cloudflareToken
+  }
+  if (acmeChallenge !== "http") {
+    configData.acmeChallenge = acmeChallenge
+  }
+  if (acmeDnsProvider) {
+    configData.acmeDnsProvider = acmeDnsProvider
+  }
+  if (acmeDnsEnv) {
+    configData.acmeDnsEnv = acmeDnsEnv
   }
   const configContent = JSON.stringify(configData, null, 2)
 
