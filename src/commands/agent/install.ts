@@ -252,7 +252,7 @@ async function gatherInstallConfig(defaultDataDir: string, remoteIP?: string): P
         process.exit(0)
       }
 
-      const name = (nameAnswer as string).trim()
+      const name = ((nameAnswer as string) || "").trim()
       if (!name) break
 
       const valueAnswer = await p.password({
