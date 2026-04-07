@@ -181,6 +181,12 @@ export class AgentServer {
       return this.handleRollback(rollbackMatch[1]!, req)
     }
 
+    // PATCH /sites/:subdomain/rename - rename a site
+    const renameMatch = path.match(/^\/sites\/([a-z0-9-]+)\/rename$/)
+    if (renameMatch && req.method === "PATCH") {
+      return this.handleRename(renameMatch[1]!, req)
+    }
+
     // PATCH /sites/:subdomain/storage - toggle persistent storage
     const storageToggleMatch = path.match(/^\/sites\/([a-z0-9-]+)\/storage$/)
     if (storageToggleMatch && req.method === "PATCH") {
@@ -558,6 +564,62 @@ export class AgentServer {
       this.updateRoutingConfig(updatedSites)
 
       const metadata = this.storage.getMetadata(subdomain)!
+      const siteInfo: SiteInfo = {
+        subdomain: metadata.subdomain,
+        url: `https://${metadata.subdomain}.${this.config.domain}`,
+        domains: metadata.domains,
+        size: metadata.size,
+        version: metadata.version,
+        deployedAt: metadata.deployedAt,
+        oauth: metadata.oauth,
+        persistentStorage: metadata.persistentStorage,
+      }
+
+      return this.json(siteInfo)
+    } catch (err) {
+      return this.error("Invalid request body")
+    }
+  }
+
+  private async handleRename(subdomain: string, req: Request): Promise<Response> {
+    if (!this.storage.siteExists(subdomain)) {
+      return this.error("Site not found", 404)
+    }
+
+    try {
+      const body = (await req.json()) as { newSubdomain?: string }
+
+      if (!body.newSubdomain || typeof body.newSubdomain !== "string") {
+        return this.error("'newSubdomain' is required")
+      }
+
+      const newSubdomain = body.newSubdomain.toLowerCase()
+
+      if (!/^[a-z0-9-]+$/.test(newSubdomain)) {
+        return this.error("Subdomain must contain only lowercase letters, numbers, and hyphens")
+      }
+
+      if (newSubdomain === "api") {
+        return this.error("'api' is a reserved subdomain")
+      }
+
+      if (newSubdomain === subdomain) {
+        return this.error("New subdomain is the same as the current one")
+      }
+
+      if (this.storage.siteExists(newSubdomain)) {
+        return this.error(`Site '${newSubdomain}' already exists`)
+      }
+
+      const metadata = this.storage.renameSite(subdomain, newSubdomain)
+      if (!metadata) {
+        return this.error("Failed to rename site", 500)
+      }
+
+      // Update routing config
+      const allSites = this.storage.listSites()
+      this.updateRoutingConfig(allSites)
+
       const siteInfo: SiteInfo = {
         subdomain: metadata.subdomain,
         url: `https://${metadata.subdomain}.${this.config.domain}`,
