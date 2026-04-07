@@ -13,7 +13,7 @@ export async function historyCommand(
     const server = getCurrentServer()
     const resolved = resolveSubdomain(subdomain, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("Subdomain required. Provide as argument or run from a directory with .siteio/config.json")
+      throw new ValidationError("Subdomain required. Use -s <subdomain> or run from a directory with .siteio/config.json")
     }
     if (!subdomain) {
       console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))
@@ -40,7 +40,7 @@ export async function historyCommand(
       console.error(formatVersionEntry(version))
     }
     console.error("")
-    console.error(chalk.dim(`Use 'siteio sites rollback ${subdomain} <version>' to restore a version.`))
+    console.error(chalk.dim(`Use 'siteio sites rollback -v <version>' to restore a version.`))
   } catch (err) {
     handleError(err)
   }

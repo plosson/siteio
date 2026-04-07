@@ -45,7 +45,7 @@ describe("CLI: Sites Auth", () => {
   }
 
   async function deleteSite(subdomain: string): Promise<void> {
-    await runCli(["sites", "rm", "-y", subdomain])
+    await runCli(["sites", "rm", "-s", subdomain, "-y"])
   }
 
   beforeAll(async () => {
@@ -143,7 +143,7 @@ describe("CLI: Sites Auth", () => {
   test("should set OAuth with --allowed-emails", async () => {
     await deploySite("email-site")
 
-    const result = await runCli(["--json", "sites", "auth", "email-site", "--allowed-emails", "user@example.com"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "email-site", "--allowed-emails", "user@example.com"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)
@@ -154,7 +154,7 @@ describe("CLI: Sites Auth", () => {
   test("should set OAuth with --allowed-domain", async () => {
     await deploySite("domain-site")
 
-    const result = await runCli(["--json", "sites", "auth", "domain-site", "--allowed-domain", "company.com"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "domain-site", "--allowed-domain", "company.com"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)
@@ -165,7 +165,7 @@ describe("CLI: Sites Auth", () => {
   test("should set OAuth with --allowed-groups", async () => {
     await deploySite("group-site")
 
-    const result = await runCli(["--json", "sites", "auth", "group-site", "--allowed-groups", "admins,devs"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "group-site", "--allowed-groups", "admins,devs"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)
@@ -177,10 +177,10 @@ describe("CLI: Sites Auth", () => {
     await deploySite("add-email-site")
 
     // Set initial email
-    await runCli(["--json", "sites", "auth", "add-email-site", "--allowed-emails", "first@example.com"])
+    await runCli(["--json", "sites", "auth", "-s", "add-email-site", "--allowed-emails", "first@example.com"])
 
     // Add another email
-    const result = await runCli(["--json", "sites", "auth", "add-email-site", "--add-email", "second@example.com"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "add-email-site", "--add-email", "second@example.com"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)
@@ -192,10 +192,10 @@ describe("CLI: Sites Auth", () => {
     await deploySite("remove-email-site")
 
     // Set initial emails
-    await runCli(["--json", "sites", "auth", "remove-email-site", "--allowed-emails", "keep@example.com,remove@example.com"])
+    await runCli(["--json", "sites", "auth", "-s", "remove-email-site", "--allowed-emails", "keep@example.com,remove@example.com"])
 
     // Remove one email
-    const result = await runCli(["--json", "sites", "auth", "remove-email-site", "--remove-email", "remove@example.com"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "remove-email-site", "--remove-email", "remove@example.com"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)
@@ -205,7 +205,7 @@ describe("CLI: Sites Auth", () => {
   test("should add domain with --add-domain", async () => {
     await deploySite("add-domain-site")
 
-    const result = await runCli(["--json", "sites", "auth", "add-domain-site", "--add-domain", "newdomain.com"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "add-domain-site", "--add-domain", "newdomain.com"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)
@@ -216,10 +216,10 @@ describe("CLI: Sites Auth", () => {
     await deploySite("remove-domain-site")
 
     // Set domain first
-    await runCli(["--json", "sites", "auth", "remove-domain-site", "--allowed-domain", "example.com"])
+    await runCli(["--json", "sites", "auth", "-s", "remove-domain-site", "--allowed-domain", "example.com"])
 
     // Remove domain - should make site public since no other auth
-    const result = await runCli(["--json", "sites", "auth", "remove-domain-site", "--remove-domain", "example.com"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "remove-domain-site", "--remove-domain", "example.com"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)
@@ -230,10 +230,10 @@ describe("CLI: Sites Auth", () => {
     await deploySite("add-group-site")
 
     // Set initial group
-    await runCli(["--json", "sites", "auth", "add-group-site", "--allowed-groups", "admins"])
+    await runCli(["--json", "sites", "auth", "-s", "add-group-site", "--allowed-groups", "admins"])
 
     // Add another group
-    const result = await runCli(["--json", "sites", "auth", "add-group-site", "--add-group", "devs"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "add-group-site", "--add-group", "devs"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)
@@ -245,10 +245,10 @@ describe("CLI: Sites Auth", () => {
     await deploySite("remove-group-site")
 
     // Set initial groups
-    await runCli(["--json", "sites", "auth", "remove-group-site", "--allowed-groups", "admins,devs"])
+    await runCli(["--json", "sites", "auth", "-s", "remove-group-site", "--allowed-groups", "admins,devs"])
 
     // Remove one group
-    const result = await runCli(["--json", "sites", "auth", "remove-group-site", "--remove-group", "devs"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "remove-group-site", "--remove-group", "devs"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)
@@ -259,10 +259,10 @@ describe("CLI: Sites Auth", () => {
     await deploySite("remove-all-site")
 
     // Set OAuth first
-    await runCli(["--json", "sites", "auth", "remove-all-site", "--allowed-emails", "user@example.com"])
+    await runCli(["--json", "sites", "auth", "-s", "remove-all-site", "--allowed-emails", "user@example.com"])
 
     // Remove all OAuth
-    const result = await runCli(["--json", "sites", "auth", "remove-all-site", "--remove"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "remove-all-site", "--remove"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)
@@ -272,7 +272,7 @@ describe("CLI: Sites Auth", () => {
   test("should fail without any options", async () => {
     await deploySite("no-options-site")
 
-    const result = await runCli(["sites", "auth", "no-options-site"])
+    const result = await runCli(["sites", "auth", "-s", "no-options-site"])
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("specify at least one")
   })
@@ -280,7 +280,7 @@ describe("CLI: Sites Auth", () => {
   test("should handle case-insensitive emails", async () => {
     await deploySite("case-site")
 
-    const result = await runCli(["--json", "sites", "auth", "case-site", "--allowed-emails", "USER@EXAMPLE.COM"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "case-site", "--allowed-emails", "USER@EXAMPLE.COM"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)
@@ -290,7 +290,7 @@ describe("CLI: Sites Auth", () => {
   test("should handle multiple emails in comma-separated list", async () => {
     await deploySite("multi-email-site")
 
-    const result = await runCli(["--json", "sites", "auth", "multi-email-site", "--allowed-emails", "a@example.com,b@example.com,c@example.com"])
+    const result = await runCli(["--json", "sites", "auth", "-s", "multi-email-site", "--allowed-emails", "a@example.com,b@example.com,c@example.com"])
     expect(result.exitCode).toBe(0)
 
     const json = JSON.parse(result.stdout)

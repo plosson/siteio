@@ -19,7 +19,7 @@ export async function rmCommand(subdomain: string | undefined, options: RemoveSi
     const server = getCurrentServer()
     const resolved = resolveSubdomain(subdomain, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("Subdomain required. Provide as argument or run from a directory with .siteio/config.json")
+      throw new ValidationError("Subdomain required. Use -s <subdomain> or run from a directory with .siteio/config.json")
     }
     if (!subdomain) {
       console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))

@@ -22,7 +22,7 @@ export async function downloadCommand(
     const server = getCurrentServer()
     const subdomain = resolveSubdomain(options.subdomain, server?.domain ?? "")
     if (!subdomain) {
-      throw new ValidationError("Subdomain required. Use -s/--subdomain or run from a directory with .siteio/config.json")
+      throw new ValidationError("Subdomain required. Use -s <subdomain> or run from a directory with .siteio/config.json")
     }
     if (!options.subdomain) {
       console.error(chalk.dim(`Using site '${subdomain}' from .siteio/config.json`))
