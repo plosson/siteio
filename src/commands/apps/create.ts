@@ -1,3 +1,4 @@
+import { readFileSync } from "fs"
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
@@ -9,6 +10,7 @@ import { saveProjectConfig } from "../../utils/site-config.ts"
 export interface CreateAppOptions {
   image?: string
   git?: string
+  file?: string
   dockerfile?: string
   branch?: string
   context?: string
@@ -33,16 +35,28 @@ export async function createAppCommand(
       )
     }
 
-    // Must provide either --image or --git, but not both
-    if (options.image && options.git) {
-      throw new ValidationError("Cannot specify both --image and --git")
+    // Must provide exactly one of --image, --git, or --file
+    const sources = [options.image, options.git, options.file].filter(Boolean)
+    if (sources.length > 1) {
+      throw new ValidationError("Specify only one of --image, --git, or --file")
     }
-
-    if (!options.image && !options.git) {
-      throw new ValidationError("Either --image or --git is required")
+    if (sources.length === 0) {
+      throw new ValidationError("One of --image, --git, or --file is required")
     }
 
     const isGitBased = !!options.git
+    const isDockerfileBased = !!options.file
+
+    // Read the local Dockerfile up-front so we fail fast on bad paths
+    let dockerfileContent: string | undefined
+    if (options.file) {
+      try {
+        dockerfileContent = readFileSync(options.file, "utf-8")
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        throw new ValidationError(`Failed to read Dockerfile at '${options.file}': ${message}`)
+      }
+    }
 
     spinner.start(`Creating app ${name}`)
 
@@ -58,13 +72,14 @@ export async function createAppCommand(
             context: options.context,
           }
         : undefined,
+      dockerfileContent,
       internalPort: options.port,
     })
 
     spinner.succeed(`Created app ${name}`)
 
-    // Save config for git-based apps (folder context is meaningful)
-    if (isGitBased) {
+    // Save config for source-based apps (folder context is meaningful)
+    if (isGitBased || isDockerfileBased) {
       const server = getCurrentServer()
       if (server) {
         saveProjectConfig({ app: name, domain: server.domain })
@@ -84,6 +99,9 @@ export async function createAppCommand(
         if (options.branch) console.log(`  Branch: ${options.branch}`)
         if (options.dockerfile) console.log(`  Dockerfile: ${options.dockerfile}`)
         if (options.context) console.log(`  Context: ${options.context}`)
+      } else if (isDockerfileBased) {
+        console.log(`  Source: ${chalk.blue("dockerfile")}`)
+        console.log(`  File:   ${options.file}`)
       } else {
         console.log(`  Image:  ${app.image}`)
       }

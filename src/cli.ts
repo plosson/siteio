@@ -248,7 +248,8 @@ apps
   .description("Create a new app")
   .option("-i, --image <image>", "Docker image to use")
   .option("-g, --git <url>", "Git repository URL to build from")
-  .option("--dockerfile <path>", "Path to Dockerfile (default: Dockerfile)")
+  .option("-f, --file <path>", "Path to a self-contained Dockerfile (built remotely with empty context)")
+  .option("--dockerfile <path>", "Path to Dockerfile inside the git repo (default: Dockerfile)")
   .option("--branch <branch>", "Git branch (default: main)")
   .option("--context <path>", "Build context subdirectory for monorepos")
   .option("-p, --port <port>", "Internal port the container listens on", parseInt)
@@ -277,7 +278,8 @@ apps
 apps
   .command("deploy [name]")
   .description("Deploy (start) an app container")
-  .option("--no-cache", "Build without Docker cache (git-based apps only)")
+  .option("--no-cache", "Build without Docker cache (git or dockerfile apps only)")
+  .option("-f, --file <path>", "Replace the stored Dockerfile and rebuild (inline-dockerfile apps only)")
   .action(async (name, options) => {
     const { deployAppCommand } = await import("./commands/apps/deploy.ts")
     await deployAppCommand(name, { ...options, json: program.opts().json })

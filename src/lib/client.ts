@@ -317,6 +317,7 @@ export class SiteioClient {
       dockerfile?: string
       context?: string
     }
+    dockerfileContent?: string
     internalPort?: number
     env?: Record<string, string>
     volumes?: { name: string; mountPath: string }[]
@@ -377,9 +378,18 @@ export class SiteioClient {
     await this.request<ApiResponse<{ deleted: boolean }>>("DELETE", `/apps/${name}`)
   }
 
-  async deployApp(name: string, options?: { noCache?: boolean }): Promise<AppInfo> {
+  async deployApp(
+    name: string,
+    options?: { noCache?: boolean; dockerfileContent?: string }
+  ): Promise<AppInfo> {
     const queryParams = options?.noCache ? "?noCache=true" : ""
-    const response = await this.request<ApiResponse<AppInfo>>("POST", `/apps/${name}/deploy${queryParams}`)
+    const hasBody = options?.dockerfileContent !== undefined
+    const response = await this.request<ApiResponse<AppInfo>>(
+      "POST",
+      `/apps/${name}/deploy${queryParams}`,
+      hasBody ? JSON.stringify({ dockerfileContent: options!.dockerfileContent }) : undefined,
+      hasBody ? { "Content-Type": "application/json" } : undefined
+    )
     if (!response.data) {
       throw new ApiError("Invalid response from server")
     }

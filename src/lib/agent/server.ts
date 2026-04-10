@@ -6,6 +6,7 @@ import { GroupStorage } from "./groups.ts"
 import { AppStorage } from "./app-storage.ts"
 import { DockerManager } from "./docker.ts"
 import { GitManager } from "./git.ts"
+import { DockerfileStorage } from "./dockerfile-storage.ts"
 import { PersistentStorageManager } from "./persistent-storage.ts"
 import { STORAGE_SHIM_JS } from "./storage-shim.ts"
 
@@ -16,6 +17,7 @@ export class AgentServer {
   private appStorage: AppStorage
   private docker: DockerManager
   private git: GitManager
+  private dockerfiles: DockerfileStorage
   private persistentStorage: PersistentStorageManager
   private traefik: TraefikManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
@@ -28,6 +30,7 @@ export class AgentServer {
     this.appStorage = new AppStorage(config.dataDir)
     this.docker = new DockerManager(config.dataDir)
     this.git = new GitManager(config.dataDir)
+    this.dockerfiles = new DockerfileStorage(config.dataDir)
     this.persistentStorage = new PersistentStorageManager(config.dataDir)
 
     // Load OAuth config if it exists
@@ -256,7 +259,7 @@ export class AgentServer {
     // POST /apps/:name/deploy - deploy app
     const appDeployMatch = path.match(/^\/apps\/([a-z0-9-]+)\/deploy$/)
     if (appDeployMatch && req.method === "POST") {
-      return this.handleDeployApp(appDeployMatch[1]!, url)
+      return this.handleDeployApp(appDeployMatch[1]!, url, req)
     }
 
     // POST /apps/:name/stop - stop app
@@ -803,6 +806,7 @@ export class AgentServer {
           dockerfile?: string
           context?: string
         }
+        dockerfileContent?: string
         internalPort?: number
         domains?: string[]
         env?: Record<string, string>
@@ -815,13 +819,13 @@ export class AgentServer {
         return this.error("App name is required")
       }
 
-      // Must provide either image or git, but not both
-      if (body.image && body.git) {
-        return this.error("Cannot specify both image and git source")
+      // Must provide exactly one of: image, git, or inline dockerfile
+      const sourceCount = [body.image, body.git, body.dockerfileContent].filter(Boolean).length
+      if (sourceCount > 1) {
+        return this.error("Specify only one of: image, git source, or dockerfile")
       }
-
-      if (!body.image && !body.git) {
-        return this.error("Either image or git source is required")
+      if (sourceCount === 0) {
+        return this.error("Either image, git source, or dockerfile is required")
       }
 
       // For git sources, validate required fields
@@ -831,35 +835,50 @@ export class AgentServer {
 
       // Determine the image name
       let image: string
-      if (body.git) {
-        // For git-based apps, use a local image tag
+      if (body.git || body.dockerfileContent) {
+        // For locally-built apps, use a local image tag
         image = this.docker.imageTag(body.name)
       } else {
         image = body.image!
       }
 
-      const app = this.appStorage.create({
-        name: body.name,
-        type: (body.type as "static" | "container") || "container",
-        image,
-        git: body.git
-          ? {
-              repoUrl: body.git.repoUrl,
-              branch: body.git.branch || "main",
-              dockerfile: body.git.dockerfile || "Dockerfile",
-              context: body.git.context,
-            }
-          : undefined,
-        internalPort: body.internalPort || 80,
-        domains: body.domains || [],
-        env: body.env || {},
-        volumes: body.volumes || [],
-        restartPolicy: (body.restartPolicy as "always" | "unless-stopped" | "on-failure" | "no") || "unless-stopped",
-        status: "pending",
-        oauth: body.oauth,
-      })
+      // Persist the inline Dockerfile to disk before storing the app metadata.
+      // If app creation fails afterwards, clean up the file to avoid orphans.
+      if (body.dockerfileContent) {
+        this.dockerfiles.write(body.name, body.dockerfileContent)
+      }
 
-      return this.json(app)
+      try {
+        const app = this.appStorage.create({
+          name: body.name,
+          type: (body.type as "static" | "container") || "container",
+          image,
+          git: body.git
+            ? {
+                repoUrl: body.git.repoUrl,
+                branch: body.git.branch || "main",
+                dockerfile: body.git.dockerfile || "Dockerfile",
+                context: body.git.context,
+              }
+            : undefined,
+          dockerfile: body.dockerfileContent ? { source: "inline" } : undefined,
+          internalPort: body.internalPort || 80,
+          domains: body.domains || [],
+          env: body.env || {},
+          volumes: body.volumes || [],
+          restartPolicy: (body.restartPolicy as "always" | "unless-stopped" | "on-failure" | "no") || "unless-stopped",
+          status: "pending",
+          oauth: body.oauth,
+        })
+
+        return this.json(app)
+      } catch (err) {
+        // Roll back the stored Dockerfile if appStorage.create() rejected the app
+        if (body.dockerfileContent) {
+          this.dockerfiles.remove(body.name)
+        }
+        throw err
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create app"
       return this.error(message, 400)
@@ -910,8 +929,17 @@ export class AgentServer {
       }
     }
 
-    // Clean up built image if it's a git-based app
-    if (app.git) {
+    // Clean up stored Dockerfile if it's an inline-dockerfile app
+    if (app.dockerfile && this.dockerfiles.exists(name)) {
+      try {
+        this.dockerfiles.remove(name)
+      } catch {
+        // Ignore errors when removing dockerfile
+      }
+    }
+
+    // Clean up built image if it's a locally-built app (git or inline dockerfile)
+    if (app.git || app.dockerfile) {
       try {
         const imageTag = this.docker.imageTag(name)
         await this.docker.removeImage(imageTag)
@@ -928,13 +956,30 @@ export class AgentServer {
     return this.json(null)
   }
 
-  private async handleDeployApp(name: string, url: URL): Promise<Response> {
+  private async handleDeployApp(name: string, url: URL, req: Request): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
     }
 
     const noCache = url.searchParams.get("noCache") === "true"
+
+    // Optional JSON body lets the client push a fresh Dockerfile at deploy time
+    // (for inline-dockerfile apps only). The body is optional — bare POSTs still work.
+    let newDockerfileContent: string | undefined
+    const contentType = req.headers.get("Content-Type") || ""
+    if (contentType.includes("application/json")) {
+      try {
+        const body = (await req.json()) as { dockerfileContent?: string }
+        newDockerfileContent = body.dockerfileContent
+      } catch {
+        // Empty or malformed body — ignore, treat as bare deploy
+      }
+    }
+
+    if (newDockerfileContent && !app.dockerfile) {
+      return this.error("Cannot override Dockerfile: app was not created with -f", 400)
+    }
 
     try {
       // Check Docker availability
@@ -989,6 +1034,27 @@ export class AgentServer {
 
         // Get commit hash
         commitHash = await this.git.getCommitHash(name)
+        lastBuildAt = new Date().toISOString()
+        imageToRun = imageTag
+      } else if (app.dockerfile) {
+        // Inline-dockerfile app: build from the stored Dockerfile in an empty context.
+        // The Dockerfile must be self-contained (no COPY/ADD from context).
+        if (newDockerfileContent) {
+          this.dockerfiles.write(name, newDockerfileContent)
+        }
+
+        if (!this.dockerfiles.exists(name)) {
+          return this.error("Dockerfile not found for app — re-run deploy with -f", 400)
+        }
+
+        const imageTag = this.docker.imageTag(name)
+        await this.docker.build({
+          contextPath: this.dockerfiles.contextPath(name),
+          dockerfilePath: this.dockerfiles.dockerfilePath(name),
+          tag: imageTag,
+          noCache,
+        })
+
         lastBuildAt = new Date().toISOString()
         imageToRun = imageTag
       } else {

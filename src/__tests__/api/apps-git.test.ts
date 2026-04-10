@@ -113,7 +113,7 @@ describe("Apps API - Git Source", () => {
       })
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain("Cannot specify both")
+      expect(result.error).toContain("Specify only one")
     })
 
     test("rejects when neither image nor git is provided", async () => {
@@ -123,7 +123,7 @@ describe("Apps API - Git Source", () => {
       })
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain("Either image or git")
+      expect(result.error).toContain("Either image, git source, or dockerfile")
     })
 
     test("rejects git source without repoUrl", async () => {
