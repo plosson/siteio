@@ -10,7 +10,7 @@ describe("Apps API - Inline Dockerfile Source", () => {
   let tempDir: string
   let baseUrl: string
   const apiKey = "dockerfile-apps-test-key"
-  const testPort = 4571
+  const testPort = 4573
 
   beforeAll(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "siteio-dockerfile-apps-test-"))
