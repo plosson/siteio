@@ -121,6 +121,7 @@ export class AppStorage {
       type: app.type,
       image: app.image,
       git: app.git,
+      dockerfile: app.dockerfile,
       status: app.status,
       domains: app.domains,
       internalPort: app.internalPort,

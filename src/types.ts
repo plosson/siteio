@@ -39,6 +39,12 @@ export interface GitSource {
   credentialId?: string
 }
 
+// Inline Dockerfile source - file is uploaded by the client and built remotely
+// in an empty context (Dockerfile must be self-contained, no COPY/ADD from context)
+export interface DockerfileSource {
+  source: "inline"
+}
+
 // Core App interface - unified model for sites and containers
 export interface App {
   name: string
@@ -47,6 +53,7 @@ export interface App {
   // Source
   image: string
   git?: GitSource
+  dockerfile?: DockerfileSource
 
   // Runtime
   env: Record<string, string>
@@ -78,6 +85,7 @@ export interface AppInfo {
   type: AppType
   image: string
   git?: GitSource
+  dockerfile?: DockerfileSource
   status: ContainerStatus
   domains: string[]
   internalPort: number

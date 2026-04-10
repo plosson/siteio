@@ -1,3 +1,4 @@
+import { readFileSync } from "fs"
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
@@ -8,6 +9,7 @@ import { resolveAppName, saveProjectConfig } from "../../utils/site-config.ts"
 
 export interface DeployAppOptions {
   noCache?: boolean
+  file?: string
   json?: boolean
 }
 
@@ -28,11 +30,25 @@ export async function deployAppCommand(
     }
     name = resolved
 
+    // Read the local Dockerfile up-front so we fail fast on bad paths
+    let dockerfileContent: string | undefined
+    if (options.file) {
+      try {
+        dockerfileContent = readFileSync(options.file, "utf-8")
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        throw new ValidationError(`Failed to read Dockerfile at '${options.file}': ${message}`)
+      }
+    }
+
     const action = options.noCache ? "Building (no cache) and deploying" : "Deploying"
     spinner.start(`${action} app ${name}`)
 
     const client = new SiteioClient()
-    const app = await client.deployApp(name, { noCache: options.noCache })
+    const app = await client.deployApp(name, {
+      noCache: options.noCache,
+      dockerfileContent,
+    })
 
     spinner.succeed(`Deployed app ${name}`)
 
