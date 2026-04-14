@@ -89,4 +89,21 @@ describe("Unit: OAuth Config", () => {
       expect(loadOAuthConfig(nestedDir)).toEqual(validConfig)
     })
   })
+
+  describe("endSessionEndpoint persistence", () => {
+    test("persists endSessionEndpoint when present", () => {
+      const config: AgentOAuthConfig = {
+        ...validConfig,
+        endSessionEndpoint: "https://tenant.auth0.com/oidc/logout",
+      }
+      saveOAuthConfig(testDir, config)
+      expect(loadOAuthConfig(testDir)).toEqual(config)
+    })
+
+    test("loads legacy config without endSessionEndpoint", () => {
+      saveOAuthConfig(testDir, validConfig)
+      const loaded = loadOAuthConfig(testDir)
+      expect(loaded?.endSessionEndpoint).toBeUndefined()
+    })
+  })
 })
