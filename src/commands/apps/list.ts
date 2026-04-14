@@ -23,13 +23,16 @@ export async function listAppsCommand(options: { json?: boolean } = {}): Promise
     }
 
     // Format the table
-    const headers = ["NAME", "SOURCE", "STATUS", "TLS", "PORT", "DOMAINS", "DEPLOYED"]
+    const headers = ["NAME", "URL", "SOURCE", "STATUS", "TLS", "PORT", "DOMAINS", "AUTH", "DEPLOYED"]
     const rows = apps.map((app) => {
       const date = app.deployedAt ? new Date(app.deployedAt) : null
       const dateStr = date
         ? date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         : chalk.dim("-")
-      const domainsStr = app.domains.length > 0 ? app.domains.join(", ") : chalk.dim("-")
+      const domainsStr = app.domains && app.domains.length > 0
+        ? chalk.cyan(`${app.domains.length}`)
+        : chalk.dim("-")
+      const authStr = app.oauth ? chalk.yellow("oauth") : chalk.dim("-")
       const tlsStr =
         app.tls === "valid"
           ? chalk.green("✓")
@@ -51,11 +54,13 @@ export async function listAppsCommand(options: { json?: boolean } = {}): Promise
 
       return [
         app.name,
+        app.url,
         sourceStr,
         formatStatus(app.status),
         tlsStr,
         String(app.internalPort),
         domainsStr,
+        authStr,
         dateStr,
       ]
     })

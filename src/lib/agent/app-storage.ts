@@ -115,16 +115,18 @@ export class AppStorage {
     })
   }
 
-  toInfo(app: App): AppInfo {
+  toInfo(app: App, domain: string): AppInfo {
     return {
       name: app.name,
       type: app.type,
+      url: `https://${app.name}.${domain}`,
       image: app.image,
       git: app.git,
       dockerfile: app.dockerfile,
       status: app.status,
       domains: app.domains,
       internalPort: app.internalPort,
+      oauth: app.oauth,
       deployedAt: app.deployedAt,
       createdAt: app.createdAt,
       commitHash: app.commitHash,
