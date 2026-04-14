@@ -478,6 +478,7 @@ describe("Unit: TraefikManager", () => {
         clientSecret: "test-secret",
         cookieSecret: "test-cookie-secret",
         cookieDomain: "test.siteio.me",
+        endSessionEndpoint: "https://auth.example.com/oidc/logout",
       },
     })
 
@@ -499,7 +500,7 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).toContain("site-protected-logout-redirect")
     // Redirect should go through oauth2-proxy sign_out
     expect(dynamicConfig).toContain("auth.test.siteio.me/oauth2/sign_out")
-    // Auth0 logout should return to the site root (double-encoded inside the rd param)
+    // OIDC logout should return to the site root (double-encoded inside the rd param)
     expect(dynamicConfig).toContain(encodeURIComponent(encodeURIComponent("https://protected.test.siteio.me/")))
   })
 
@@ -544,6 +545,7 @@ describe("Unit: TraefikManager", () => {
         clientSecret: "test-secret",
         cookieSecret: "test-cookie-secret",
         cookieDomain: "test.siteio.me",
+        endSessionEndpoint: "https://auth.example.com/oidc/logout",
       },
     })
 
@@ -700,5 +702,63 @@ describe("Unit: TraefikManager", () => {
       }
     }
     expect(hasMiddlewares).toBe(true)
+  })
+
+  describe("Generic OIDC logout", () => {
+    it("uses end_session_endpoint with standard OIDC params when available", () => {
+      const manager = new TraefikManager({
+        dataDir: TEST_DATA_DIR,
+        domain: "example.com",
+        httpPort: 80,
+        httpsPort: 443,
+        fileServerPort: 4000,
+        oauthConfig: {
+          issuerUrl: "https://tenant.eu.auth0.com/",
+          clientId: "test-client",
+          clientSecret: "test-secret",
+          cookieSecret: "c".repeat(32),
+          cookieDomain: "example.com",
+          endSessionEndpoint: "https://tenant.eu.auth0.com/oidc/logout",
+        },
+      })
+      // @ts-expect-error - accessing private for test
+      const url = manager.buildLogoutRedirectUrl(
+        manager["config"].oauthConfig!,
+        "example.com",
+        "https://site.example.com/"
+      )
+      expect(url).toContain("https://auth.example.com/oauth2/sign_out?rd=")
+      const decoded = decodeURIComponent(url.split("rd=")[1]!)
+      expect(decoded).toContain("https://tenant.eu.auth0.com/oidc/logout")
+      expect(decoded).toContain("client_id=test-client")
+      expect(decoded).toContain("post_logout_redirect_uri=")
+    })
+
+    it("falls back to local-only logout when end_session_endpoint is absent (Google)", () => {
+      const manager = new TraefikManager({
+        dataDir: TEST_DATA_DIR,
+        domain: "example.com",
+        httpPort: 80,
+        httpsPort: 443,
+        fileServerPort: 4000,
+        oauthConfig: {
+          issuerUrl: "https://accounts.google.com",
+          clientId: "test-client",
+          clientSecret: "test-secret",
+          cookieSecret: "c".repeat(32),
+          cookieDomain: "example.com",
+          // no endSessionEndpoint
+        },
+      })
+      // @ts-expect-error - accessing private for test
+      const url = manager.buildLogoutRedirectUrl(
+        manager["config"].oauthConfig!,
+        "example.com",
+        "https://site.example.com/"
+      )
+      expect(url).toBe(
+        "https://auth.example.com/oauth2/sign_out?rd=" + encodeURIComponent("https://site.example.com/")
+      )
+    })
   })
 })

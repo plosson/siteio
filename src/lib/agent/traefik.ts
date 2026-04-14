@@ -318,10 +318,19 @@ log:
   }
 
   private buildLogoutRedirectUrl(oauthConfig: AgentOAuthConfig, domain: string, returnTo: string): string {
-    const auth0LogoutUrl = encodeURIComponent(
-      `${oauthConfig.issuerUrl.replace(/\/$/, "")}/v2/logout?client_id=${oauthConfig.clientId}&returnTo=${encodeURIComponent(returnTo)}`
-    )
-    return `https://auth.${domain}/oauth2/sign_out?rd=${auth0LogoutUrl}`
+    if (!oauthConfig.endSessionEndpoint) {
+      // Provider has no OIDC end-session endpoint (e.g. Google).
+      // Clear the oauth2-proxy cookie locally and redirect straight back to the site.
+      return `https://auth.${domain}/oauth2/sign_out?rd=${encodeURIComponent(returnTo)}`
+    }
+
+    // Standard OIDC RP-initiated logout.
+    const params = new URLSearchParams({
+      client_id: oauthConfig.clientId,
+      post_logout_redirect_uri: returnTo,
+    })
+    const providerLogoutUrl = `${oauthConfig.endSessionEndpoint}?${params.toString()}`
+    return `https://auth.${domain}/oauth2/sign_out?rd=${encodeURIComponent(providerLogoutUrl)}`
   }
 
   private addLogoutRouter(
