@@ -83,12 +83,14 @@ export interface App {
 export interface AppInfo {
   name: string
   type: AppType
+  url: string
   image: string
   git?: GitSource
   dockerfile?: DockerfileSource
   status: ContainerStatus
   domains: string[]
   internalPort: number
+  oauth?: SiteOAuth
   deployedAt?: string
   createdAt: string
   commitHash?: string

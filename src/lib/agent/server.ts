@@ -780,7 +780,7 @@ export class AgentServer {
     const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
 
     const appInfos: AppInfo[] = apps.map((app) => ({
-      ...this.appStorage.toInfo(app),
+      ...this.appStorage.toInfo(app, this.config.domain),
       tls: tlsStatusMap.get(`siteio-${app.name}`) || "pending",
     }))
     return this.json(appInfos)
