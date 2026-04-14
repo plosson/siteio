@@ -101,6 +101,27 @@ function compareVersions(current: string, latest: string): number {
   return 0
 }
 
+function renderProgress(received: number, total: number, done = false): void {
+  const mb = (b: number) => (b / 1024 / 1024).toFixed(1)
+  const width = 30
+  let line: string
+  if (total > 0) {
+    const pct = Math.min(100, Math.floor((received / total) * 100))
+    const filled = Math.floor((pct / 100) * width)
+    const bar = "█".repeat(filled) + "░".repeat(width - filled)
+    line = `  [${bar}] ${pct}% (${mb(received)}/${mb(total)} MB)`
+  } else {
+    line = `  Downloaded ${mb(received)} MB`
+  }
+  process.stderr.write(`\r\x1b[K${line}`)
+  if (done) process.stderr.write("\n")
+}
+
+async function writeChunk(stream: fs.WriteStream, chunk: Uint8Array): Promise<void> {
+  if (stream.write(chunk)) return
+  await new Promise<void>((resolve) => stream.once("drain", resolve))
+}
+
 async function downloadBinary(url: string, dest: string): Promise<void> {
   const response = await fetch(url, {
     headers: {
@@ -108,12 +129,37 @@ async function downloadBinary(url: string, dest: string): Promise<void> {
     },
   })
 
-  if (!response.ok) {
+  if (!response.ok || !response.body) {
     throw new Error(`Download failed: ${response.statusText}`)
   }
 
-  const buffer = await response.arrayBuffer()
-  fs.writeFileSync(dest, Buffer.from(buffer))
+  const total = Number(response.headers.get("content-length") || 0)
+  let received = 0
+  let lastRender = 0
+  const showProgress = process.stderr.isTTY
+
+  const file = fs.createWriteStream(dest)
+  try {
+    const reader = response.body.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      await writeChunk(file, value)
+      received += value.length
+      if (showProgress) {
+        const now = Date.now()
+        if (now - lastRender > 100) {
+          renderProgress(received, total)
+          lastRender = now
+        }
+      }
+    }
+    if (showProgress) renderProgress(received, total, true)
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      file.end((err?: Error | null) => (err ? reject(err) : resolve()))
+    })
+  }
 }
 
 function moveFile(src: string, dest: string): void {
