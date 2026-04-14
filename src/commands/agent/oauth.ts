@@ -4,6 +4,7 @@ import { randomBytes } from "crypto"
 import { existsSync, readFileSync } from "fs"
 import { join } from "path"
 import { loadOAuthConfig, saveOAuthConfig } from "../../config/oauth.ts"
+import { discoverOIDC } from "../../config/oidc-discovery.ts"
 import { formatSuccess, formatError } from "../../utils/output.ts"
 import type { AgentOAuthConfig } from "../../types.ts"
 
@@ -52,42 +53,68 @@ export async function oauthAgentCommand(): Promise<void> {
     }
   }
 
+  const provider = await p.select({
+    message: "Which OAuth provider do you want to use?",
+    options: [
+      { value: "google", label: "Google", hint: "Sign in with a Google account" },
+      { value: "auth0", label: "Auth0", hint: "Use an Auth0 tenant" },
+      { value: "other", label: "Other", hint: "Any OIDC-compatible provider" },
+    ],
+  })
+  if (p.isCancel(provider)) {
+    p.cancel("Configuration cancelled")
+    process.exit(0)
+  }
+
+  let issuerUrl: string
+  if (provider === "google") {
+    issuerUrl = "https://accounts.google.com"
+  } else if (provider === "auth0") {
+    const tenant = await p.text({
+      message: "Auth0 tenant domain:",
+      placeholder: "your-tenant.eu.auth0.com",
+      validate: (value) => {
+        if (!value) return "Tenant domain is required"
+        if (value.startsWith("http")) return "Just the domain, without https://"
+      },
+    })
+    if (p.isCancel(tenant)) {
+      p.cancel("Configuration cancelled")
+      process.exit(0)
+    }
+    issuerUrl = `https://${tenant}`
+  } else {
+    const url = await p.text({
+      message: "OIDC Issuer URL:",
+      placeholder: "https://your-provider.example.com",
+      validate: (value) => {
+        if (!value) return "Issuer URL is required"
+        if (!value.startsWith("https://")) return "Issuer URL must start with https://"
+      },
+    })
+    if (p.isCancel(url)) {
+      p.cancel("Configuration cancelled")
+      process.exit(0)
+    }
+    issuerUrl = url as string
+  }
+
   console.log("")
-  console.log(chalk.cyan("Configure an OIDC provider (Auth0, Okta, Google, etc.)"))
-  console.log("")
-  console.log("  You'll need:")
-  console.log("     - Issuer URL (e.g., https://your-tenant.auth0.com)")
-  console.log("     - Client ID")
-  console.log("     - Client Secret")
-  console.log("")
-  console.log("  Callback URL (add this to your OIDC provider):")
-  console.log(chalk.cyan(`    https://*.${domain}/oauth2/callback`))
+  console.log(chalk.cyan("Register this callback URL in your provider:"))
+  console.log(chalk.cyan(`  https://auth.${domain}/oauth2/callback`))
   console.log("")
 
-  const answers = await p.group(
+  const creds = await p.group(
     {
-      issuerUrl: () =>
-        p.text({
-          message: "Issuer URL:",
-          placeholder: "https://your-tenant.auth0.com",
-          validate: (value) => {
-            if (!value) return "Issuer URL is required"
-            if (!value.startsWith("https://")) return "Issuer URL must start with https://"
-          },
-        }),
       clientId: () =>
         p.text({
           message: "Client ID:",
-          validate: (value) => {
-            if (!value) return "Client ID is required"
-          },
+          validate: (v) => (!v ? "Client ID is required" : undefined),
         }),
       clientSecret: () =>
         p.password({
           message: "Client Secret:",
-          validate: (value) => {
-            if (!value) return "Client Secret is required"
-          },
+          validate: (v) => (!v ? "Client Secret is required" : undefined),
         }),
     },
     {
@@ -98,38 +125,37 @@ export async function oauthAgentCommand(): Promise<void> {
     }
   )
 
-  const issuerUrl = answers.issuerUrl as string
-
-  const config: AgentOAuthConfig = {
-    issuerUrl,
-    clientId: answers.clientId as string,
-    clientSecret: answers.clientSecret as string,
-    cookieSecret: generateCookieSecret(),
-    cookieDomain: domain,
-  }
-
   const s = p.spinner()
-  s.start("Saving OAuth configuration")
+  s.start("Verifying provider & saving configuration")
 
   try {
+    const discovered = await discoverOIDC(issuerUrl)
+
+    const config: AgentOAuthConfig = {
+      issuerUrl: discovered.issuer,
+      clientId: creds.clientId as string,
+      clientSecret: creds.clientSecret as string,
+      cookieSecret: generateCookieSecret(),
+      cookieDomain: domain,
+      endSessionEndpoint: discovered.endSessionEndpoint,
+      discoveredAt: new Date().toISOString(),
+    }
     saveOAuthConfig(dataDir, config)
     s.stop(chalk.green("Configuration saved"))
 
     console.log("")
-    console.log(formatSuccess("Google OAuth configured successfully!"))
+    console.log(formatSuccess("OAuth configured successfully!"))
     console.log("")
     console.log(chalk.yellow("Important:"))
     console.log("  Restart the agent for changes to take effect:")
     console.log(chalk.gray("    siteio agent restart"))
-    console.log("")
-    console.log("  Or if running in foreground, stop and start again.")
     console.log("")
 
     p.outro(chalk.green("OAuth setup complete!"))
   } catch (err) {
     s.stop(chalk.red("Failed"))
     const message = err instanceof Error ? err.message : "Unknown error"
-    console.error(formatError(`Failed to save configuration: ${message}`))
+    console.error(formatError(`Failed to configure OAuth: ${message}`))
     process.exit(1)
   }
 }
