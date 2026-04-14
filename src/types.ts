@@ -248,11 +248,13 @@ export interface AgentStartOptions {
   port?: number
 }
 
-// OAuth configuration for the agent (OIDC provider like Auth0, Clerk, etc.)
+// OAuth configuration for the agent (any OIDC provider)
 export interface AgentOAuthConfig {
   issuerUrl: string
   clientId: string
   clientSecret: string
   cookieSecret: string
   cookieDomain: string
+  /** Optional RP-initiated logout endpoint discovered from .well-known/openid-configuration. Absent for providers like Google that don't support OIDC end-session. */
+  endSessionEndpoint?: string
 }
