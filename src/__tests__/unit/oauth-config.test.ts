@@ -106,4 +106,57 @@ describe("Unit: OAuth Config", () => {
       expect(loaded?.endSessionEndpoint).toBeUndefined()
     })
   })
+
+  describe("ensureDiscoveredConfig", () => {
+    const originalFetch = globalThis.fetch
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch
+    })
+
+    test("runs discovery and persists endSessionEndpoint when missing", async () => {
+      saveOAuthConfig(testDir, validConfig) // legacy, no endSessionEndpoint, no discoveredAt
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            issuer: "https://accounts.google.com",
+            // no end_session_endpoint
+          }),
+          { status: 200 }
+        )) as unknown as typeof fetch
+
+      const { ensureDiscoveredConfig } = await import("../../config/oauth")
+      const updated = await ensureDiscoveredConfig(testDir)
+      expect(updated?.endSessionEndpoint).toBeUndefined()
+
+      // discoveredAt should be set as ISO timestamp so we don't re-fetch on every boot.
+      const reloaded = loadOAuthConfig(testDir)
+      expect(reloaded?.discoveredAt).toBeTruthy()
+      expect(typeof reloaded?.discoveredAt).toBe("string")
+    })
+
+    test("skips discovery when discoveredAt is already set", async () => {
+      const migrated: AgentOAuthConfig = {
+        ...validConfig,
+        endSessionEndpoint: "https://tenant.auth0.com/oidc/logout",
+        discoveredAt: "2026-04-14T10:00:00.000Z",
+      }
+      saveOAuthConfig(testDir, migrated)
+      let fetchCalled = false
+      globalThis.fetch = (async () => {
+        fetchCalled = true
+        return new Response("{}", { status: 200 })
+      }) as unknown as typeof fetch
+
+      const { ensureDiscoveredConfig } = await import("../../config/oauth")
+      const result = await ensureDiscoveredConfig(testDir)
+      expect(result).toEqual(migrated)
+      expect(fetchCalled).toBe(false)
+    })
+
+    test("returns null when no config file exists", async () => {
+      const { ensureDiscoveredConfig } = await import("../../config/oauth")
+      expect(await ensureDiscoveredConfig(testDir)).toBeNull()
+    })
+  })
 })
