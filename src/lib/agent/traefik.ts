@@ -630,17 +630,11 @@ log:
     }
   }
 
-  async startOAuthProxy(): Promise<void> {
+  private buildOAuthProxyArgs(): string[] {
     const { oauthConfig, domain } = this.config
 
     if (!oauthConfig) {
-      return
-    }
-
-    // Remove existing container if it exists
-    if (this.containerExists(OAUTH_PROXY_CONTAINER_NAME)) {
-      console.log("> Removing existing oauth2-proxy container...")
-      this.removeContainer(OAUTH_PROXY_CONTAINER_NAME)
+      return []
     }
 
     // oauth2-proxy configuration for OIDC provider
@@ -648,7 +642,7 @@ log:
     const { fileServerPort } = this.config
     const upstreamUrl = `http://host.docker.internal:${fileServerPort}`
 
-    const args = [
+    return [
       "docker",
       "run",
       "-d",
@@ -663,11 +657,10 @@ log:
       "-p",
       `${this.oauthProxyPort}:4180`,
       // Environment variables for oauth2-proxy
-      // Ensure issuer URL has trailing slash (required by OIDC spec, enforced by oauth2-proxy)
       "-e",
       "OAUTH2_PROXY_PROVIDER=oidc",
       "-e",
-      `OAUTH2_PROXY_OIDC_ISSUER_URL=${oauthConfig.issuerUrl.endsWith("/") ? oauthConfig.issuerUrl : oauthConfig.issuerUrl + "/"}`,
+      `OAUTH2_PROXY_OIDC_ISSUER_URL=${oauthConfig.issuerUrl}`,
       "-e",
       `OAUTH2_PROXY_CLIENT_ID=${oauthConfig.clientId}`,
       "-e",
@@ -705,6 +698,20 @@ log:
       "OAUTH2_PROXY_INSECURE_OIDC_ALLOW_UNVERIFIED_EMAIL=true",
       OAUTH_PROXY_IMAGE,
     ]
+  }
+
+  async startOAuthProxy(): Promise<void> {
+    if (!this.config.oauthConfig) {
+      return
+    }
+
+    // Remove existing container if it exists
+    if (this.containerExists(OAUTH_PROXY_CONTAINER_NAME)) {
+      console.log("> Removing existing oauth2-proxy container...")
+      this.removeContainer(OAUTH_PROXY_CONTAINER_NAME)
+    }
+
+    const args = this.buildOAuthProxyArgs()
 
     const result = spawnSync({ cmd: args, stdout: "pipe", stderr: "pipe" })
 
