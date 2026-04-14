@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { join, dirname } from "path"
 import type { AgentOAuthConfig } from "../types.ts"
+import { discoverOIDC } from "./oidc-discovery.ts"
 
 const OAUTH_CONFIG_FILE = "oauth-config.json"
 
@@ -50,4 +51,33 @@ export function saveOAuthConfig(dataDir: string, config: AgentOAuthConfig): void
  */
 export function isOAuthConfigured(dataDir: string): boolean {
   return loadOAuthConfig(dataDir) !== null
+}
+
+/**
+ * Load the agent OAuth config, running OIDC discovery once for legacy configs
+ * (those without a `discoveredAt` timestamp) and persisting the result.
+ *
+ * Only the agent-start path should use this — CLI commands that simply read
+ * the config should keep using the sync `loadOAuthConfig`.
+ */
+export async function ensureDiscoveredConfig(dataDir: string): Promise<AgentOAuthConfig | null> {
+  const config = loadOAuthConfig(dataDir)
+  if (!config) return null
+  if (config.discoveredAt) return config
+
+  try {
+    const discovered = await discoverOIDC(config.issuerUrl)
+    const updated: AgentOAuthConfig = {
+      ...config,
+      issuerUrl: discovered.issuer,
+      endSessionEndpoint: discovered.endSessionEndpoint,
+      discoveredAt: new Date().toISOString(),
+    }
+    saveOAuthConfig(dataDir, updated)
+    return updated
+  } catch (err) {
+    // Discovery failure is non-fatal — keep legacy behavior.
+    console.warn(`> OIDC discovery failed, using config as-is: ${err instanceof Error ? err.message : err}`)
+    return config
+  }
 }

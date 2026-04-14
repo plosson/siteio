@@ -1,7 +1,7 @@
 import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteMetadata, SiteOAuth, Group, App, AppInfo, ContainerLogs } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
-import { loadOAuthConfig } from "../../config/oauth.ts"
+import { loadOAuthConfig, ensureDiscoveredConfig } from "../../config/oauth.ts"
 import { GroupStorage } from "./groups.ts"
 import { AppStorage } from "./app-storage.ts"
 import { DockerManager } from "./docker.ts"
@@ -1362,6 +1362,16 @@ export class AgentServer {
   }
 
   async start(): Promise<void> {
+    // Run lazy OIDC discovery migration for legacy oauth configs. Safe no-op if
+    // no config exists or it has already been discovered.
+    const discovered = await ensureDiscoveredConfig(this.config.dataDir)
+    if (discovered) {
+      this.oauthConfig = discovered
+      if (this.traefik) {
+        this.traefik.updateOAuthConfig(discovered)
+      }
+    }
+
     // Start Traefik (if enabled)
     if (this.traefik) {
       await this.traefik.start()

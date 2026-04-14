@@ -257,4 +257,6 @@ export interface AgentOAuthConfig {
   cookieDomain: string
   /** Optional RP-initiated logout endpoint discovered from .well-known/openid-configuration. Absent for providers like Google that don't support OIDC end-session. */
   endSessionEndpoint?: string
+  /** Timestamp of the most recent successful OIDC discovery run. Used to avoid re-fetching on every agent boot. */
+  discoveredAt?: string
 }
