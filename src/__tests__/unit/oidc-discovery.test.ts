@@ -60,4 +60,25 @@ describe("Unit: OIDC Discovery", () => {
     ) as unknown as typeof fetch
     await expect(discoverOIDC("https://weird.example.com")).rejects.toThrow(/missing issuer/i)
   })
+
+  test("propagates network errors from fetch", async () => {
+    globalThis.fetch = mock(async () => {
+      throw new TypeError("fetch failed")
+    }) as unknown as typeof fetch
+    await expect(discoverOIDC("https://unreachable.example.com")).rejects.toThrow(/fetch failed/i)
+  })
+
+  test("throws a helpful error when response body is non-JSON", async () => {
+    globalThis.fetch = mock(async () =>
+      new Response("<html>oops</html>", { status: 200 })
+    ) as unknown as typeof fetch
+    await expect(discoverOIDC("https://notjson.example.com")).rejects.toThrow(/non-JSON body/i)
+  })
+
+  test("throws a helpful error when issuer field is an empty string", async () => {
+    globalThis.fetch = mock(async () =>
+      new Response(JSON.stringify({ issuer: "" }), { status: 200 })
+    ) as unknown as typeof fetch
+    await expect(discoverOIDC("https://empty.example.com")).rejects.toThrow(/missing issuer/i)
+  })
 })
