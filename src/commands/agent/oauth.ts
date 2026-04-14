@@ -98,11 +98,7 @@ export async function oauthAgentCommand(): Promise<void> {
     }
   )
 
-  // Ensure issuer URL has trailing slash (required by some OIDC providers like Auth0)
-  let issuerUrl = answers.issuerUrl as string
-  if (!issuerUrl.endsWith("/")) {
-    issuerUrl += "/"
-  }
+  const issuerUrl = answers.issuerUrl as string
 
   const config: AgentOAuthConfig = {
     issuerUrl,

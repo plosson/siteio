@@ -761,4 +761,27 @@ describe("Unit: TraefikManager", () => {
       )
     })
   })
+
+  describe("Issuer URL passthrough", () => {
+    it("passes issuer URL unchanged to oauth2-proxy env (no slash coercion)", () => {
+      const manager = new TraefikManager({
+        dataDir: TEST_DATA_DIR,
+        domain: "example.com",
+        httpPort: 80,
+        httpsPort: 443,
+        fileServerPort: 4000,
+        oauthConfig: {
+          issuerUrl: "https://accounts.google.com",
+          clientId: "c",
+          clientSecret: "s",
+          cookieSecret: "c".repeat(32),
+          cookieDomain: "example.com",
+        },
+      })
+      // @ts-expect-error - accessing private for test
+      const args: string[] = manager.buildOAuthProxyArgs()
+      const issuerEnv = args.find((a) => a.startsWith("OAUTH2_PROXY_OIDC_ISSUER_URL="))
+      expect(issuerEnv).toBe("OAUTH2_PROXY_OIDC_ISSUER_URL=https://accounts.google.com")
+    })
+  })
 })
