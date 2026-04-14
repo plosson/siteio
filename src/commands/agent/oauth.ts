@@ -74,15 +74,18 @@ export async function oauthAgentCommand(): Promise<void> {
       message: "Auth0 tenant domain:",
       placeholder: "your-tenant.eu.auth0.com",
       validate: (value) => {
-        if (!value) return "Tenant domain is required"
-        if (value.startsWith("http")) return "Just the domain, without https://"
+        const trimmed = value?.trim() ?? ""
+        if (!trimmed) return "Tenant domain is required"
+        if (trimmed.startsWith("http")) return "Just the domain, without https://"
+        if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(trimmed))
+          return "Enter a domain like your-tenant.eu.auth0.com"
       },
     })
     if (p.isCancel(tenant)) {
       p.cancel("Configuration cancelled")
       process.exit(0)
     }
-    issuerUrl = `https://${tenant}`
+    issuerUrl = `https://${(tenant as string).trim()}`
   } else {
     const url = await p.text({
       message: "OIDC Issuer URL:",
