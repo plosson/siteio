@@ -414,7 +414,7 @@ log:
         },
       }
 
-      // Global logout route - redirects to oauth2-proxy sign_out with Auth0 logout
+      // Global logout route - redirects to oauth2-proxy sign_out with OIDC RP-initiated logout (when supported)
       const authLogoutUrl = this.buildLogoutRedirectUrl(oauthConfig, domain, `https://auth.${domain}/`)
       routers["logout-router"] = {
         rule: `Host(\`auth.${domain}\`) && Path(\`/logout\`)`,
