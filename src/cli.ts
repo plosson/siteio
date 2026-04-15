@@ -282,7 +282,13 @@ apps
   .option("-f, --file <path>", "Replace the stored Dockerfile and rebuild (inline-dockerfile apps only)")
   .action(async (name, options) => {
     const { deployAppCommand } = await import("./commands/apps/deploy.ts")
-    await deployAppCommand(name, { ...options, json: program.opts().json })
+    // Commander's `--no-cache` flag sets `options.cache = false` (boolean
+    // negation convention), NOT `options.noCache = true`. Translate to
+    // the explicit `noCache` key the downstream command expects, otherwise
+    // the flag is silently dropped on the wire (no `?noCache=true` query
+    // param reaches the agent).
+    const noCache = options.cache === false
+    await deployAppCommand(name, { ...options, noCache, json: program.opts().json })
   })
 
 apps
