@@ -262,6 +262,171 @@ describe("API: Apps (compose)", () => {
     })
   })
 
+  describe("env file", () => {
+    const inlineEnvFile = "POSTGRES_PASSWORD=secret\nFOO=bar\n"
+
+    test("create with envFileContent persists .env next to compose file", async () => {
+      const r = await req("POST", "/apps", {
+        name: "envfileapp",
+        composeContent: inlineCompose,
+        envFileContent: inlineEnvFile,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      await jsonOk<App>(r)
+      const envPath = join(testDir, "compose", "envfileapp", ".env")
+      expect(existsSync(envPath)).toBe(true)
+      expect(readFileSync(envPath, "utf-8")).toContain("POSTGRES_PASSWORD=secret")
+    })
+
+    test("create rejects envFileContent without compose", async () => {
+      const r = await req("POST", "/apps", {
+        name: "badenv",
+        image: "nginx",
+        envFileContent: inlineEnvFile,
+      })
+      expect(r.status).toBe(400)
+    })
+
+    test("deploy threads envFile to composeConfig, composeUp, composePs", async () => {
+      await req("POST", "/apps", {
+        name: "deployenv",
+        composeContent: inlineCompose,
+        envFileContent: inlineEnvFile,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      runtime.composeConfigReturn = { services: { web: {}, db: {} } }
+      const r = await req("POST", "/apps/deployenv/deploy")
+      await jsonOk<App>(r)
+
+      const expectedEnvPath = join(testDir, "compose", "deployenv", ".env")
+      for (const method of ["composeConfig", "composeUp", "composePs"]) {
+        const calls = runtime.callsOf(method)
+        expect(calls.length).toBeGreaterThan(0)
+        expect(calls[0]!.args[2]).toBe(expectedEnvPath)
+      }
+    })
+
+    test("deploy without envFile passes undefined to compose methods", async () => {
+      await req("POST", "/apps", {
+        name: "noenv",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      runtime.composeConfigReturn = { services: { web: {}, db: {} } }
+      await req("POST", "/apps/noenv/deploy")
+
+      for (const method of ["composeConfig", "composeUp", "composePs"]) {
+        const calls = runtime.callsOf(method)
+        expect(calls.length).toBeGreaterThan(0)
+        expect(calls[0]!.args[2]).toBeUndefined()
+      }
+    })
+
+    test("stop/restart/delete/logs thread envFile through", async () => {
+      await req("POST", "/apps", {
+        name: "lifecycleenv",
+        composeContent: inlineCompose,
+        envFileContent: inlineEnvFile,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      runtime.composeConfigReturn = { services: { web: {}, db: {} } }
+      await req("POST", "/apps/lifecycleenv/deploy")
+      runtime.calls = []
+
+      const expectedEnvPath = join(testDir, "compose", "lifecycleenv", ".env")
+
+      await req("POST", "/apps/lifecycleenv/stop")
+      expect(runtime.callsOf("composeStop")[0]!.args[2]).toBe(expectedEnvPath)
+
+      await req("POST", "/apps/lifecycleenv/restart")
+      expect(runtime.callsOf("composeRestart")[0]!.args[2]).toBe(expectedEnvPath)
+
+      await req("GET", "/apps/lifecycleenv/logs")
+      // composeLogs signature: (project, files, envFile, opts) → envFile at args[2]
+      expect(runtime.callsOf("composeLogs")[0]!.args[2]).toBe(expectedEnvPath)
+
+      await req("DELETE", "/apps/lifecycleenv")
+      expect(runtime.callsOf("composeDown")[0]!.args[2]).toBe(expectedEnvPath)
+    })
+  })
+
+  describe("warnings", () => {
+    test("deploy warns when primary service publishes ports", async () => {
+      await req("POST", "/apps", {
+        name: "portsapp",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      runtime.composeConfigReturn = {
+        services: {
+          web: { ports: ["8080:80"] },
+          db: {},
+        },
+      }
+      const r = await req("POST", "/apps/portsapp/deploy")
+      const parsed = (await r.json()) as { success: boolean; data: { warnings: string[] } }
+      expect(parsed.data.warnings).toBeInstanceOf(Array)
+      expect(parsed.data.warnings.some((w) => w.includes("publishes ports"))).toBe(true)
+    })
+
+    test("deploy warns when any service uses container_name", async () => {
+      await req("POST", "/apps", {
+        name: "cnameapp",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      runtime.composeConfigReturn = {
+        services: {
+          web: {},
+          db: { container_name: "fixed-db-name" },
+        },
+      }
+      const r = await req("POST", "/apps/cnameapp/deploy")
+      const parsed = (await r.json()) as { success: boolean; data: { warnings: string[] } }
+      expect(parsed.data.warnings.some((w) => w.includes("container_name"))).toBe(true)
+      expect(parsed.data.warnings.some((w) => w.includes("fixed-db-name"))).toBe(true)
+    })
+
+    test("deploy with clean compose returns empty warnings array", async () => {
+      await req("POST", "/apps", {
+        name: "cleanapp",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      runtime.composeConfigReturn = {
+        services: { web: {}, db: {} },
+      }
+      const r = await req("POST", "/apps/cleanapp/deploy")
+      const parsed = (await r.json()) as { success: boolean; data: { warnings: string[] } }
+      expect(parsed.data.warnings).toEqual([])
+    })
+
+    test("warnings include both when primary has ports AND another service has container_name", async () => {
+      await req("POST", "/apps", {
+        name: "bothapp",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      runtime.composeConfigReturn = {
+        services: {
+          web: { ports: ["3000:3000"] },
+          db: { container_name: "metamcp-pg" },
+        },
+      }
+      const r = await req("POST", "/apps/bothapp/deploy")
+      const parsed = (await r.json()) as { success: boolean; data: { warnings: string[] } }
+      expect(parsed.data.warnings.length).toBe(2)
+    })
+  })
+
   describe("list", () => {
     test("lists a compose app with compose field intact", async () => {
       await req("POST", "/apps", {
