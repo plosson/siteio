@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { ComposeManager } from "../../lib/agent/compose"
+import { ComposeManager, parsePsOutput } from "../../lib/agent/compose"
 
 describe("Unit: ComposeManager.buildArgs", () => {
   const cm = new ComposeManager()
@@ -61,5 +61,45 @@ describe("Unit: ComposeManager.buildArgs", () => {
     expect(cm.buildStopArgs("siteio-x", ["/b.yml"]).slice(-1)).toEqual(["stop"])
     expect(cm.buildRestartArgs("siteio-x", ["/b.yml"]).slice(-1)).toEqual(["restart"])
     expect(cm.buildPsArgs("siteio-x", ["/b.yml"]).slice(-3)).toEqual(["ps", "--format", "json"])
+  })
+})
+
+describe("Unit: parsePsOutput", () => {
+  test("empty output returns empty array", () => {
+    expect(parsePsOutput("")).toEqual([])
+    expect(parsePsOutput("   \n  ")).toEqual([])
+  })
+
+  test("parses JSON array shape (older docker)", () => {
+    const raw = JSON.stringify([
+      { Service: "web", ID: "abc123", State: "running" },
+      { Service: "db", ID: "def456", State: "running" },
+    ])
+    expect(parsePsOutput(raw)).toEqual([
+      { service: "web", containerId: "abc123", state: "running" },
+      { service: "db", containerId: "def456", state: "running" },
+    ])
+  })
+
+  test("parses NDJSON shape (newer docker, one object per line)", () => {
+    const raw = [
+      JSON.stringify({ Service: "web", ID: "abc123", State: "running" }),
+      JSON.stringify({ Service: "db", ID: "def456", State: "exited" }),
+    ].join("\n")
+    expect(parsePsOutput(raw)).toEqual([
+      { service: "web", containerId: "abc123", state: "running" },
+      { service: "db", containerId: "def456", state: "exited" },
+    ])
+  })
+
+  test("throws SiteioError on malformed JSON", () => {
+    expect(() => parsePsOutput("not json")).toThrow(/Failed to parse compose ps output/)
+  })
+
+  test("handles trailing newlines in NDJSON", () => {
+    const raw = JSON.stringify({ Service: "web", ID: "a", State: "running" }) + "\n\n"
+    expect(parsePsOutput(raw)).toEqual([
+      { service: "web", containerId: "a", state: "running" },
+    ])
   })
 })
