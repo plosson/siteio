@@ -2,6 +2,7 @@ import { spawnSync } from "bun"
 import { join } from "path"
 import type { ContainerInspect, RestartPolicy, VolumeMount } from "../../types"
 import { SiteioError } from "../../utils/errors"
+import type { Runtime } from "./runtime"
 
 export interface ContainerRunConfig {
   name: string
@@ -23,7 +24,7 @@ export interface BuildConfig {
   noCache?: boolean
 }
 
-export class DockerManager {
+export class DockerManager implements Runtime {
   private dataDir: string
   private volumesDir: string
 
