@@ -7,6 +7,8 @@ import { resolveAppName } from "../../utils/site-config.ts"
 
 export interface LogsAppOptions {
   tail?: number
+  service?: string
+  all?: boolean
   json?: boolean
 }
 
@@ -27,12 +29,14 @@ export async function logsAppCommand(
     }
     name = resolved
 
-    const tail = options.tail || 100
-
     spinner.start(`Fetching logs for ${name}`)
 
     const client = new SiteioClient()
-    const logs = await client.getAppLogs(name, { tail })
+    const logs = await client.getAppLogs(name, {
+      tail: options.tail ?? 100,
+      service: options.service,
+      all: options.all,
+    })
 
     spinner.stop()
 

@@ -12,10 +12,51 @@ export interface CreateAppOptions {
   git?: string
   file?: string
   dockerfile?: string
+  composeFile?: string
+  compose?: string
+  service?: string
   branch?: string
   context?: string
   port?: number
   json?: boolean
+}
+
+/**
+ * Pure validation of the source-flag combinations. Throws ValidationError
+ * on any invalid combination. Kept separate from createAppCommand so it can
+ * be exercised directly in unit tests without going through handleError.
+ */
+export function validateCreateOptions(options: CreateAppOptions): void {
+  const hasCompose = !!options.composeFile || !!options.compose
+  const hasLocalDockerfile = !!options.file
+  const hasImage = !!options.image
+  const hasGit = !!options.git
+
+  const primarySources = [hasImage, hasLocalDockerfile, hasCompose, hasGit].filter(Boolean).length
+  if (primarySources === 0) {
+    throw new ValidationError("One of --image, --git, --file, or --compose-file is required")
+  }
+  if (hasImage && (hasLocalDockerfile || hasCompose || hasGit)) {
+    throw new ValidationError("--image cannot be combined with other source flags")
+  }
+  if (hasLocalDockerfile && (hasCompose || hasGit)) {
+    throw new ValidationError("--file cannot be combined with --git or --compose-file")
+  }
+  if (options.composeFile && options.compose) {
+    throw new ValidationError("Specify either --compose-file (local) or --compose (git), not both")
+  }
+  if (options.compose && !options.git) {
+    throw new ValidationError("--compose requires --git")
+  }
+  if (hasCompose && !options.service) {
+    throw new ValidationError("--service is required when using a compose file")
+  }
+  if (!hasCompose && options.service) {
+    throw new ValidationError("--service is only valid with --compose-file or --compose")
+  }
+  if (hasGit && options.dockerfile && options.compose) {
+    throw new ValidationError("Cannot combine --dockerfile and --compose in the same git app")
+  }
 }
 
 export async function createAppCommand(
@@ -35,19 +76,12 @@ export async function createAppCommand(
       )
     }
 
-    // Must provide exactly one of --image, --git, or --file
-    const sources = [options.image, options.git, options.file].filter(Boolean)
-    if (sources.length > 1) {
-      throw new ValidationError("Specify only one of --image, --git, or --file")
-    }
-    if (sources.length === 0) {
-      throw new ValidationError("One of --image, --git, or --file is required")
-    }
+    validateCreateOptions(options)
 
-    const isGitBased = !!options.git
-    const isDockerfileBased = !!options.file
+    const hasCompose = !!options.composeFile || !!options.compose
+    const hasLocalDockerfile = !!options.file
+    const hasGit = !!options.git
 
-    // Read the local Dockerfile up-front so we fail fast on bad paths
     let dockerfileContent: string | undefined
     if (options.file) {
       try {
@@ -55,6 +89,15 @@ export async function createAppCommand(
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         throw new ValidationError(`Failed to read Dockerfile at '${options.file}': ${message}`)
+      }
+    }
+    let composeContent: string | undefined
+    if (options.composeFile) {
+      try {
+        composeContent = readFileSync(options.composeFile, "utf-8")
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        throw new ValidationError(`Failed to read compose file at '${options.composeFile}': ${message}`)
       }
     }
 
@@ -73,13 +116,15 @@ export async function createAppCommand(
           }
         : undefined,
       dockerfileContent,
+      composeContent,
+      composePath: options.compose,
+      primaryService: options.service,
       internalPort: options.port,
     })
 
     spinner.succeed(`Created app ${name}`)
 
-    // Save config for source-based apps (folder context is meaningful)
-    if (isGitBased || isDockerfileBased) {
+    if (hasGit || hasLocalDockerfile || options.composeFile) {
       const server = getCurrentServer()
       if (server) {
         saveProjectConfig({ app: name, domain: server.domain })
@@ -93,13 +138,22 @@ export async function createAppCommand(
       console.log(formatSuccess(`App ${chalk.bold(name)} created successfully!`))
       console.log("")
       console.log(`  Name:   ${chalk.cyan(app.name)}`)
-      if (isGitBased) {
+      if (hasCompose) {
+        console.log(`  Source: ${chalk.blue("compose")}`)
+        if (options.composeFile) {
+          console.log(`  File:    ${options.composeFile}`)
+        } else {
+          console.log(`  Repo:    ${options.git}`)
+          console.log(`  Compose: ${options.compose}`)
+        }
+        console.log(`  Service: ${options.service}`)
+      } else if (hasGit) {
         console.log(`  Source: ${chalk.blue("git")}`)
         console.log(`  Repo:   ${options.git}`)
         if (options.branch) console.log(`  Branch: ${options.branch}`)
         if (options.dockerfile) console.log(`  Dockerfile: ${options.dockerfile}`)
         if (options.context) console.log(`  Context: ${options.context}`)
-      } else if (isDockerfileBased) {
+      } else if (hasLocalDockerfile) {
         console.log(`  Source: ${chalk.blue("dockerfile")}`)
         console.log(`  File:   ${options.file}`)
       } else {
