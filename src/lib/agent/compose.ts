@@ -33,40 +33,43 @@ export function parsePsOutput(raw: string): ComposeServiceState[] {
  * CLI's -p / -f flags so tests can predict the exact argv.
  */
 export class ComposeManager {
-  buildBaseArgs(project: string, files: string[]): string[] {
+  buildBaseArgs(project: string, files: string[], envFile?: string): string[] {
     const args: string[] = ["compose", "-p", project]
     for (const f of files) {
       args.push("-f", f)
     }
+    if (envFile) {
+      args.push("--env-file", envFile)
+    }
     return args
   }
 
-  buildUpArgs(project: string, files: string[]): string[] {
-    return [...this.buildBaseArgs(project, files), "up", "-d", "--build", "--remove-orphans"]
+  buildUpArgs(project: string, files: string[], envFile?: string): string[] {
+    return [...this.buildBaseArgs(project, files, envFile), "up", "-d", "--build", "--remove-orphans"]
   }
 
-  buildDownArgs(project: string, files: string[]): string[] {
-    return [...this.buildBaseArgs(project, files), "down", "-v", "--remove-orphans"]
+  buildDownArgs(project: string, files: string[], envFile?: string): string[] {
+    return [...this.buildBaseArgs(project, files, envFile), "down", "-v", "--remove-orphans"]
   }
 
-  buildStopArgs(project: string, files: string[]): string[] {
-    return [...this.buildBaseArgs(project, files), "stop"]
+  buildStopArgs(project: string, files: string[], envFile?: string): string[] {
+    return [...this.buildBaseArgs(project, files, envFile), "stop"]
   }
 
-  buildRestartArgs(project: string, files: string[]): string[] {
-    return [...this.buildBaseArgs(project, files), "restart"]
+  buildRestartArgs(project: string, files: string[], envFile?: string): string[] {
+    return [...this.buildBaseArgs(project, files, envFile), "restart"]
   }
 
-  buildConfigArgs(project: string, files: string[]): string[] {
-    return [...this.buildBaseArgs(project, files), "config", "--format", "json"]
+  buildConfigArgs(project: string, files: string[], envFile?: string): string[] {
+    return [...this.buildBaseArgs(project, files, envFile), "config", "--format", "json"]
   }
 
-  buildPsArgs(project: string, files: string[]): string[] {
-    return [...this.buildBaseArgs(project, files), "ps", "--format", "json"]
+  buildPsArgs(project: string, files: string[], envFile?: string): string[] {
+    return [...this.buildBaseArgs(project, files, envFile), "ps", "--format", "json"]
   }
 
-  buildLogsArgs(project: string, files: string[], opts: ComposeLogsOptions): string[] {
-    const args = [...this.buildBaseArgs(project, files), "logs", "--no-color", "--tail", String(opts.tail)]
+  buildLogsArgs(project: string, files: string[], envFile: string | undefined, opts: ComposeLogsOptions): string[] {
+    const args = [...this.buildBaseArgs(project, files, envFile), "logs", "--no-color", "--tail", String(opts.tail)]
     // `all: true` overrides service — we want every service's logs
     if (!opts.all && opts.service) {
       args.push(opts.service)
@@ -74,9 +77,9 @@ export class ComposeManager {
     return args
   }
 
-  async up(project: string, files: string[]): Promise<void> {
+  async up(project: string, files: string[], envFile?: string): Promise<void> {
     const result = spawnSync({
-      cmd: ["docker", ...this.buildUpArgs(project, files)],
+      cmd: ["docker", ...this.buildUpArgs(project, files, envFile)],
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -85,9 +88,9 @@ export class ComposeManager {
     }
   }
 
-  async down(project: string, files: string[]): Promise<void> {
+  async down(project: string, files: string[], envFile?: string): Promise<void> {
     const result = spawnSync({
-      cmd: ["docker", ...this.buildDownArgs(project, files)],
+      cmd: ["docker", ...this.buildDownArgs(project, files, envFile)],
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -96,9 +99,9 @@ export class ComposeManager {
     }
   }
 
-  async stop(project: string, files: string[]): Promise<void> {
+  async stop(project: string, files: string[], envFile?: string): Promise<void> {
     const result = spawnSync({
-      cmd: ["docker", ...this.buildStopArgs(project, files)],
+      cmd: ["docker", ...this.buildStopArgs(project, files, envFile)],
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -107,9 +110,9 @@ export class ComposeManager {
     }
   }
 
-  async restart(project: string, files: string[]): Promise<void> {
+  async restart(project: string, files: string[], envFile?: string): Promise<void> {
     const result = spawnSync({
-      cmd: ["docker", ...this.buildRestartArgs(project, files)],
+      cmd: ["docker", ...this.buildRestartArgs(project, files, envFile)],
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -118,9 +121,9 @@ export class ComposeManager {
     }
   }
 
-  async config(project: string, files: string[]): Promise<ComposeSpec> {
+  async config(project: string, files: string[], envFile?: string): Promise<ComposeSpec> {
     const result = spawnSync({
-      cmd: ["docker", ...this.buildConfigArgs(project, files)],
+      cmd: ["docker", ...this.buildConfigArgs(project, files, envFile)],
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -135,9 +138,9 @@ export class ComposeManager {
     }
   }
 
-  async ps(project: string, files: string[]): Promise<ComposeServiceState[]> {
+  async ps(project: string, files: string[], envFile?: string): Promise<ComposeServiceState[]> {
     const result = spawnSync({
-      cmd: ["docker", ...this.buildPsArgs(project, files)],
+      cmd: ["docker", ...this.buildPsArgs(project, files, envFile)],
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -147,9 +150,9 @@ export class ComposeManager {
     return parsePsOutput(result.stdout.toString())
   }
 
-  async logs(project: string, files: string[], opts: ComposeLogsOptions): Promise<string> {
+  async logs(project: string, files: string[], envFile: string | undefined, opts: ComposeLogsOptions): Promise<string> {
     const result = spawnSync({
-      cmd: ["docker", ...this.buildLogsArgs(project, files, opts)],
+      cmd: ["docker", ...this.buildLogsArgs(project, files, envFile, opts)],
       stdout: "pipe",
       stderr: "pipe",
     })

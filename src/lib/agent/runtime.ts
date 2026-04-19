@@ -49,11 +49,11 @@ export interface Runtime {
   imageExists(tag: string): boolean
 
   // ---- Compose ops ----
-  composeConfig(project: string, files: string[]): Promise<ComposeSpec>
-  composeUp(project: string, files: string[]): Promise<void>
-  composeStop(project: string, files: string[]): Promise<void>
-  composeRestart(project: string, files: string[]): Promise<void>
-  composeDown(project: string, files: string[]): Promise<void>
-  composeLogs(project: string, files: string[], opts: ComposeLogsOptions): Promise<string>
-  composePs(project: string, files: string[]): Promise<ComposeServiceState[]>
+  composeConfig(project: string, files: string[], envFile?: string): Promise<ComposeSpec>
+  composeUp(project: string, files: string[], envFile?: string): Promise<void>
+  composeStop(project: string, files: string[], envFile?: string): Promise<void>
+  composeRestart(project: string, files: string[], envFile?: string): Promise<void>
+  composeDown(project: string, files: string[], envFile?: string): Promise<void>
+  composeLogs(project: string, files: string[], envFile: string | undefined, opts: ComposeLogsOptions): Promise<string>
+  composePs(project: string, files: string[], envFile?: string): Promise<ComposeServiceState[]>
 }
