@@ -145,5 +145,25 @@ describe("API: Apps (compose)", () => {
       })
       expect(r.status).toBe(400)
     })
+
+    test("rejects when both composeContent and composePath are supplied", async () => {
+      const r = await req("POST", "/apps", {
+        name: "bad6",
+        git: { repoUrl: "https://example.test/r.git", branch: "main" },
+        composeContent: inlineCompose,
+        composePath: "docker-compose.yml",
+        primaryService: "web",
+      })
+      expect(r.status).toBe(400)
+    })
+
+    test("rejects git+composePath without primaryService", async () => {
+      const r = await req("POST", "/apps", {
+        name: "bad7",
+        git: { repoUrl: "https://example.test/r.git", branch: "main" },
+        composePath: "docker-compose.yml",
+      })
+      expect(r.status).toBe(400)
+    })
   })
 })
