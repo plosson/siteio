@@ -1255,16 +1255,28 @@ export class AgentServer {
       return this.error("App not found", 404)
     }
 
-    try {
-      const tail = parseInt(url.searchParams.get("tail") || "100", 10)
-      const logs = await this.docker.logs(name, tail)
+    const tail = parseInt(url.searchParams.get("tail") || "100", 10)
+    const service = url.searchParams.get("service") || undefined
+    const all = url.searchParams.get("all") === "true"
 
-      const response: ContainerLogs = {
-        name,
-        logs,
-        lines: tail,
+    if ((service || all) && !app.compose) {
+      return this.error("`service` and `all` are only valid on compose-based apps", 400)
+    }
+
+    try {
+      let logs: string
+      if (app.compose) {
+        const files = await this.composeFiles(app)
+        logs = await this.docker.composeLogs(`siteio-${name}`, files, {
+          tail,
+          all,
+          service: all ? undefined : (service ?? app.compose.primaryService),
+        })
+      } else {
+        logs = await this.docker.logs(name, tail)
       }
 
+      const response: ContainerLogs = { name, logs, lines: tail }
       return this.json(response)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to get logs"

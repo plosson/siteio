@@ -212,6 +212,56 @@ describe("API: Apps (compose)", () => {
     })
   })
 
+  describe("logs", () => {
+    const setup = async (name: string) => {
+      await req("POST", "/apps", {
+        name,
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      runtime.composeConfigReturn = { services: { web: {}, db: {} } }
+      await req("POST", `/apps/${name}/deploy`)
+      runtime.calls = []
+    }
+
+    test("default tails the primary service", async () => {
+      await setup("logs1")
+      runtime.composeLogsReturn = "hello from web\n"
+      const r = await req("GET", "/apps/logs1/logs")
+      const body = (await r.json()) as { success: boolean; data: { logs: string } }
+      expect(body.data.logs).toBe("hello from web\n")
+
+      const call = runtime.callsOf("composeLogs")[0]!
+      expect(call.args[2]).toEqual({ service: "web", tail: 100, all: false })
+    })
+
+    test("?service=db targets that service", async () => {
+      await setup("logs2")
+      const r = await req("GET", "/apps/logs2/logs?service=db")
+      expect(r.status).toBeLessThan(300)
+      const call = runtime.callsOf("composeLogs")[0]!
+      expect(call.args[2]).toEqual({ service: "db", tail: 100, all: false })
+    })
+
+    test("?all=true omits service filter", async () => {
+      await setup("logs3")
+      const r = await req("GET", "/apps/logs3/logs?all=true")
+      expect(r.status).toBeLessThan(300)
+      const call = runtime.callsOf("composeLogs")[0]!
+      const opts = call.args[2] as { service?: string; all?: boolean; tail: number }
+      expect(opts.all).toBe(true)
+      expect(opts.tail).toBe(100)
+    })
+
+    test("?service on non-compose app returns 400", async () => {
+      await req("POST", "/apps", { name: "plain", image: "nginx", internalPort: 80 })
+      const r = await req("GET", "/apps/plain/logs?service=web")
+      expect(r.status).toBe(400)
+      expect(runtime.callsOf("composeLogs")).toHaveLength(0)
+    })
+  })
+
   describe("deploy", () => {
     test("inline compose: writes override, calls composeConfig then composeUp then composePs", async () => {
       await req("POST", "/apps", {
