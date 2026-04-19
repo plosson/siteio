@@ -167,6 +167,51 @@ describe("API: Apps (compose)", () => {
     })
   })
 
+  describe("lifecycle", () => {
+    const setup = async (name: string) => {
+      await req("POST", "/apps", {
+        name,
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      runtime.composeConfigReturn = { services: { web: {}, db: {} } }
+      await req("POST", `/apps/${name}/deploy`)
+      runtime.calls = []
+    }
+
+    test("stop invokes composeStop, not docker.stop", async () => {
+      await setup("stopapp")
+      const r = await req("POST", "/apps/stopapp/stop")
+      const app = await jsonOk<App>(r)
+      expect(app.status).toBe("stopped")
+      expect(runtime.callsOf("composeStop")).toHaveLength(1)
+      expect(runtime.callsOf("stop")).toHaveLength(0)
+      expect(runtime.callsOf("composeStop")[0]!.args[0]).toBe("siteio-stopapp")
+    })
+
+    test("restart invokes composeRestart", async () => {
+      await setup("restartapp")
+      const r = await req("POST", "/apps/restartapp/restart")
+      const app = await jsonOk<App>(r)
+      expect(app.status).toBe("running")
+      expect(runtime.callsOf("composeRestart")).toHaveLength(1)
+      expect(runtime.callsOf("restart")).toHaveLength(0)
+    })
+
+    test("delete invokes composeDown and removes compose dir + metadata", async () => {
+      await setup("delapp")
+      const r = await req("DELETE", "/apps/delapp")
+      expect(r.status).toBeLessThan(300)
+      expect(runtime.callsOf("composeDown")).toHaveLength(1)
+      expect(runtime.callsOf("composeDown")[0]!.args[0]).toBe("siteio-delapp")
+
+      expect(existsSync(join(testDir, "compose", "delapp"))).toBe(false)
+      const check = await req("GET", "/apps/delapp")
+      expect(check.status).toBe(404)
+    })
+  })
+
   describe("deploy", () => {
     test("inline compose: writes override, calls composeConfig then composeUp then composePs", async () => {
       await req("POST", "/apps", {

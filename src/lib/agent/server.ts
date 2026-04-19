@@ -943,40 +943,48 @@ export class AgentServer {
       return this.error("App not found", 404)
     }
 
-    // Stop container if running
-    if (this.docker.containerExists(name)) {
+    if (app.compose) {
       try {
-        await this.docker.remove(name)
+        const files = await this.composeFiles(app)
+        await this.docker.composeDown(`siteio-${name}`, files)
       } catch {
-        // Ignore errors when removing container
+        // Best-effort; the base file may be missing if the repo was cleaned up.
+      }
+      try {
+        this.compose.remove(name)
+      } catch {
+        // Ignore
+      }
+    } else {
+      if (this.docker.containerExists(name)) {
+        try {
+          await this.docker.remove(name)
+        } catch {
+          // Ignore
+        }
+      }
+      if (app.dockerfile && this.dockerfiles.exists(name)) {
+        try {
+          this.dockerfiles.remove(name)
+        } catch {
+          // Ignore
+        }
+      }
+      if (app.git || app.dockerfile) {
+        try {
+          const imageTag = this.docker.imageTag(name)
+          await this.docker.removeImage(imageTag)
+        } catch {
+          // Ignore
+        }
       }
     }
 
-    // Clean up git repo if it exists
     if (app.git && this.git.exists(name)) {
       try {
         await this.git.remove(name)
       } catch {
-        // Ignore errors when removing repo
-      }
-    }
-
-    // Clean up stored Dockerfile if it's an inline-dockerfile app
-    if (app.dockerfile && this.dockerfiles.exists(name)) {
-      try {
-        this.dockerfiles.remove(name)
-      } catch {
-        // Ignore errors when removing dockerfile
-      }
-    }
-
-    // Clean up built image if it's a locally-built app (git or inline dockerfile)
-    if (app.git || app.dockerfile) {
-      try {
-        const imageTag = this.docker.imageTag(name)
-        await this.docker.removeImage(imageTag)
-      } catch {
-        // Ignore errors when removing image
+        // Ignore
       }
     }
 
@@ -984,7 +992,6 @@ export class AgentServer {
     if (!deleted) {
       return this.error("Failed to delete app", 500)
     }
-
     return this.json(null)
   }
 
@@ -1203,12 +1210,13 @@ export class AgentServer {
     if (!app) {
       return this.error("App not found", 404)
     }
-
     try {
-      if (this.docker.containerExists(name)) {
+      if (app.compose) {
+        const files = await this.composeFiles(app)
+        await this.docker.composeStop(`siteio-${name}`, files)
+      } else if (this.docker.containerExists(name)) {
         await this.docker.stop(name)
       }
-
       const updated = this.appStorage.update(name, { status: "stopped" })
       return this.json(updated)
     } catch (err) {
@@ -1222,15 +1230,19 @@ export class AgentServer {
     if (!app) {
       return this.error("App not found", 404)
     }
-
     try {
+      if (app.compose) {
+        const files = await this.composeFiles(app)
+        await this.docker.composeRestart(`siteio-${name}`, files)
+        const updated = this.appStorage.update(name, { status: "running" })
+        return this.json(updated)
+      }
       if (this.docker.containerExists(name)) {
         await this.docker.restart(name)
         const updated = this.appStorage.update(name, { status: "running" })
         return this.json(updated)
-      } else {
-        return this.error("Container does not exist. Deploy the app first.", 400)
       }
+      return this.error("Container does not exist. Deploy the app first.", 400)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to restart app"
       return this.error(message, 500)
@@ -1493,6 +1505,23 @@ export class AgentServer {
     console.log(`> Domain: ${this.config.domain}`)
     console.log(`> API URL: https://api.${this.config.domain}`)
     console.log(`> API Key: ${this.config.apiKey}`)
+  }
+
+  /**
+   * Resolve the [base, override] compose file paths for a compose-based app.
+   * For git apps the base lives inside the cloned repo (which must already exist
+   * from a prior deploy — lifecycle ops never re-clone).
+   */
+  private async composeFiles(app: App): Promise<string[]> {
+    if (!app.compose) {
+      throw new Error(`composeFiles called on non-compose app '${app.name}'`)
+    }
+    const { join } = await import("path")
+    const basePath =
+      app.compose.source === "inline"
+        ? this.compose.baseInlinePath(app.name)
+        : join(this.git.repoPath(app.name), app.compose.path)
+    return [basePath, this.compose.overridePath(app.name)]
   }
 
   stop(): void {
