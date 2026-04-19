@@ -100,7 +100,13 @@ function buildTraefikLabelsForCompose(
 }
 
 function yamlQuote(value: string): string {
-  // Double-quoted YAML string: escape backslashes and double quotes only.
-  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  // Double-quoted YAML string: escape backslashes, double quotes, and control
+  // characters that YAML 1.2 would otherwise fold or misinterpret.
+  const escaped = value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t")
   return `"${escaped}"`
 }
