@@ -814,6 +814,7 @@ export class AgentServer {
         dockerfileContent?: string
         composeContent?: string
         composePath?: string
+        envFileContent?: string
         primaryService?: string
         internalPort?: number
         domains?: string[]
@@ -856,6 +857,9 @@ export class AgentServer {
       if (!hasCompose && body.primaryService) {
         return this.error("primaryService is only valid with a compose source")
       }
+      if (body.envFileContent && !hasCompose) {
+        return this.error("envFileContent is only valid when a compose file is provided")
+      }
 
       if (body.git && !body.git.repoUrl) {
         return this.error("Git repository URL is required")
@@ -873,6 +877,9 @@ export class AgentServer {
       }
       if (body.composeContent) {
         this.compose.writeBaseInline(body.name, body.composeContent)
+      }
+      if (body.envFileContent) {
+        this.compose.writeBaseEnv(body.name, body.envFileContent)
       }
 
       try {
@@ -946,7 +953,7 @@ export class AgentServer {
     if (app.compose) {
       try {
         const files = await this.composeFiles(app)
-        await this.docker.composeDown(`siteio-${name}`, files, undefined)
+        await this.docker.composeDown(`siteio-${name}`, files, this.composeEnvFile(name))
       } catch {
         // Best-effort; the base file may be missing if the repo was cleaned up.
       }
@@ -1063,9 +1070,10 @@ export class AgentServer {
 
         const project = `siteio-${name}`
         const files = [basePath, overridePath]
+        const envFile = this.composeEnvFile(name)
 
         // Validate config (parses + merges both files via compose-go)
-        const spec = await this.docker.composeConfig(project, files, undefined)
+        const spec = await this.docker.composeConfig(project, files, envFile)
         if (!spec.services || !spec.services[app.compose.primaryService]) {
           this.appStorage.update(name, { status: "failed" })
           return this.error(
@@ -1074,11 +1082,14 @@ export class AgentServer {
           )
         }
 
+        // Compute deploy-time warnings from the merged config
+        const warnings = this.computeComposeWarnings(spec, app.compose.primaryService)
+
         // Bring up the project
-        await this.docker.composeUp(project, files, undefined)
+        await this.docker.composeUp(project, files, envFile)
 
         // Resolve primary service's container ID via ps
-        const psOutput = await this.docker.composePs(project, files, undefined)
+        const psOutput = await this.docker.composePs(project, files, envFile)
         const primaryState = psOutput.find((s) => s.service === app.compose!.primaryService)
 
         const composeCommitHash = app.compose.source === "git" ? await this.git.getCommitHash(name) : undefined
@@ -1092,7 +1103,7 @@ export class AgentServer {
           ...(composeCommitHash && { commitHash: composeCommitHash }),
         })
 
-        return this.json(updatedCompose)
+        return this.json({ ...updatedCompose, warnings })
       }
       // ---------- END COMPOSE BRANCH ----------
 
@@ -1213,7 +1224,7 @@ export class AgentServer {
     try {
       if (app.compose) {
         const files = await this.composeFiles(app)
-        await this.docker.composeStop(`siteio-${name}`, files, undefined)
+        await this.docker.composeStop(`siteio-${name}`, files, this.composeEnvFile(name))
       } else if (this.docker.containerExists(name)) {
         await this.docker.stop(name)
       }
@@ -1233,7 +1244,7 @@ export class AgentServer {
     try {
       if (app.compose) {
         const files = await this.composeFiles(app)
-        await this.docker.composeRestart(`siteio-${name}`, files, undefined)
+        await this.docker.composeRestart(`siteio-${name}`, files, this.composeEnvFile(name))
         const updated = this.appStorage.update(name, { status: "running" })
         return this.json(updated)
       }
@@ -1267,7 +1278,7 @@ export class AgentServer {
       let logs: string
       if (app.compose) {
         const files = await this.composeFiles(app)
-        logs = await this.docker.composeLogs(`siteio-${name}`, files, undefined, {
+        logs = await this.docker.composeLogs(`siteio-${name}`, files, this.composeEnvFile(name), {
           tail,
           all,
           service: all ? undefined : (service ?? app.compose.primaryService),
@@ -1517,6 +1528,46 @@ export class AgentServer {
     console.log(`> Domain: ${this.config.domain}`)
     console.log(`> API URL: https://api.${this.config.domain}`)
     console.log(`> API Key: ${this.config.apiKey}`)
+  }
+
+  /**
+   * Resolve the env-file path for a compose app if one was uploaded, else undefined.
+   */
+  private composeEnvFile(appName: string): string | undefined {
+    return this.compose.envFileExists(appName) ? this.compose.baseEnvPath(appName) : undefined
+  }
+
+  /**
+   * Compute deploy-time warnings from a merged compose config. These are hints
+   * about patterns that work but aren't ideal for siteio-managed apps:
+   *   - The primary service publishes `ports:` (Traefik handles external access;
+   *     host-side binding is redundant and may conflict with other apps).
+   *   - Any service sets `container_name:` (fixed names prevent multi-instance).
+   */
+  private computeComposeWarnings(
+    spec: import("./compose.ts").ComposeSpec,
+    primaryService: string
+  ): string[] {
+    const warnings: string[] = []
+    const services = spec.services ?? {}
+
+    const primary = services[primaryService] as { ports?: unknown[] } | undefined
+    if (primary && Array.isArray(primary.ports) && primary.ports.length > 0) {
+      warnings.push(
+        `Primary service '${primaryService}' publishes ports (${JSON.stringify(primary.ports)}). Traefik handles external access; host port bindings are redundant and may conflict with other apps on the same server.`
+      )
+    }
+
+    for (const [serviceName, serviceDef] of Object.entries(services)) {
+      const svc = serviceDef as { container_name?: string } | undefined
+      if (svc?.container_name) {
+        warnings.push(
+          `Service '${serviceName}' sets container_name='${svc.container_name}'. Fixed container names prevent deploying multiple instances of this app.`
+        )
+      }
+    }
+
+    return warnings
   }
 
   /**
