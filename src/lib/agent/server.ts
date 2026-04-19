@@ -5,6 +5,7 @@ import { loadOAuthConfig, ensureDiscoveredConfig } from "../../config/oauth.ts"
 import { GroupStorage } from "./groups.ts"
 import { AppStorage } from "./app-storage.ts"
 import { DockerManager } from "./docker.ts"
+import type { Runtime } from "./runtime"
 import { GitManager } from "./git.ts"
 import { DockerfileStorage } from "./dockerfile-storage.ts"
 import { PersistentStorageManager } from "./persistent-storage.ts"
@@ -15,7 +16,7 @@ export class AgentServer {
   private storage: SiteStorage
   private groups: GroupStorage
   private appStorage: AppStorage
-  private docker: DockerManager
+  private docker: Runtime
   private git: GitManager
   private dockerfiles: DockerfileStorage
   private persistentStorage: PersistentStorageManager
@@ -23,12 +24,12 @@ export class AgentServer {
   private server: ReturnType<typeof Bun.serve> | null = null
   private oauthConfig: AgentOAuthConfig | null = null
 
-  constructor(config: AgentConfig) {
+  constructor(config: AgentConfig, runtime?: Runtime) {
     this.config = config
     this.storage = new SiteStorage(config.dataDir)
     this.groups = new GroupStorage(config.dataDir)
     this.appStorage = new AppStorage(config.dataDir)
-    this.docker = new DockerManager(config.dataDir)
+    this.docker = runtime ?? new DockerManager(config.dataDir)
     this.git = new GitManager(config.dataDir)
     this.dockerfiles = new DockerfileStorage(config.dataDir)
     this.persistentStorage = new PersistentStorageManager(config.dataDir)
