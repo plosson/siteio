@@ -123,6 +123,7 @@ export class AppStorage {
       image: app.image,
       git: app.git,
       dockerfile: app.dockerfile,
+      compose: app.compose,
       status: app.status,
       domains: app.domains,
       internalPort: app.internalPort,

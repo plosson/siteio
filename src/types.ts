@@ -45,6 +45,15 @@ export interface DockerfileSource {
   source: "inline"
 }
 
+/**
+ * Compose source — user supplied a docker-compose.yml instead of a single
+ * Dockerfile/image. Exactly one service in the file is publicly exposed
+ * through Traefik; dependencies run alongside it on the compose project network.
+ */
+export type ComposeSource =
+  | { source: "inline"; primaryService: string }
+  | { source: "git"; path: string; primaryService: string }
+
 // Core App interface - unified model for sites and containers
 export interface App {
   name: string
@@ -54,6 +63,7 @@ export interface App {
   image: string
   git?: GitSource
   dockerfile?: DockerfileSource
+  compose?: ComposeSource
 
   // Runtime
   env: Record<string, string>
@@ -87,6 +97,7 @@ export interface AppInfo {
   image: string
   git?: GitSource
   dockerfile?: DockerfileSource
+  compose?: ComposeSource
   status: ContainerStatus
   domains: string[]
   internalPort: number
