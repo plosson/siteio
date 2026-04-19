@@ -811,6 +811,9 @@ export class AgentServer {
           context?: string
         }
         dockerfileContent?: string
+        composeContent?: string
+        composePath?: string
+        primaryService?: string
         internalPort?: number
         domains?: string[]
         env?: Record<string, string>
@@ -823,36 +826,61 @@ export class AgentServer {
         return this.error("App name is required")
       }
 
-      // Must provide exactly one of: image, git, or inline dockerfile
-      const sourceCount = [body.image, body.git, body.dockerfileContent].filter(Boolean).length
-      if (sourceCount > 1) {
-        return this.error("Specify only one of: image, git source, or dockerfile")
+      const hasCompose = !!body.composeContent || !!body.composePath
+      const hasGit = !!body.git
+      const hasImage = !!body.image
+      const hasInlineDockerfile = !!body.dockerfileContent
+
+      // Mutual exclusivity: image / inline-dockerfile / compose / git.
+      // git may coexist with composePath OR GitSource.dockerfile, not both.
+      const primarySources = [hasImage, hasInlineDockerfile, hasCompose, hasGit].filter(Boolean).length
+      if (primarySources === 0) {
+        return this.error("Either image, git source, dockerfile, or compose is required")
       }
-      if (sourceCount === 0) {
-        return this.error("Either image, git source, or dockerfile is required")
+      if (hasImage && (hasInlineDockerfile || hasCompose || hasGit)) {
+        return this.error("--image cannot be combined with other source flags")
+      }
+      if (hasInlineDockerfile && (hasCompose || hasGit)) {
+        return this.error("--file cannot be combined with git or compose sources")
+      }
+      if (body.composeContent && body.composePath) {
+        return this.error("Specify either composeContent (inline) or composePath (git), not both")
+      }
+      if (body.composePath && !hasGit) {
+        return this.error("composePath requires --git")
+      }
+      if (hasCompose && !body.primaryService) {
+        return this.error("primaryService is required when using a compose file")
+      }
+      if (!hasCompose && body.primaryService) {
+        return this.error("primaryService is only valid with a compose source")
       }
 
-      // For git sources, validate required fields
       if (body.git && !body.git.repoUrl) {
         return this.error("Git repository URL is required")
       }
 
-      // Determine the image name
-      let image: string
-      if (body.git || body.dockerfileContent) {
-        // For locally-built apps, use a local image tag
-        image = this.docker.imageTag(body.name)
-      } else {
-        image = body.image!
-      }
+      // Determine image tag for locally-built or compose-tagged apps.
+      const image =
+        hasGit || hasInlineDockerfile || hasCompose
+          ? this.docker.imageTag(body.name)
+          : body.image!
 
-      // Persist the inline Dockerfile to disk before storing the app metadata.
-      // If app creation fails afterwards, clean up the file to avoid orphans.
+      // Persist inline Dockerfile / compose file up-front; roll back on create failure.
       if (body.dockerfileContent) {
         this.dockerfiles.write(body.name, body.dockerfileContent)
       }
+      if (body.composeContent) {
+        this.compose.writeBaseInline(body.name, body.composeContent)
+      }
 
       try {
+        const composeField: App["compose"] = hasCompose
+          ? body.composeContent
+            ? { source: "inline", primaryService: body.primaryService! }
+            : { source: "git", path: body.composePath!, primaryService: body.primaryService! }
+          : undefined
+
         const app = this.appStorage.create({
           name: body.name,
           type: (body.type as "static" | "container") || "container",
@@ -866,6 +894,7 @@ export class AgentServer {
               }
             : undefined,
           dockerfile: body.dockerfileContent ? { source: "inline" } : undefined,
+          compose: composeField,
           internalPort: body.internalPort || 80,
           domains: body.domains || [],
           env: body.env || {},
@@ -877,10 +906,8 @@ export class AgentServer {
 
         return this.json(app)
       } catch (err) {
-        // Roll back the stored Dockerfile if appStorage.create() rejected the app
-        if (body.dockerfileContent) {
-          this.dockerfiles.remove(body.name)
-        }
+        if (body.dockerfileContent) this.dockerfiles.remove(body.name)
+        if (body.composeContent) this.compose.remove(body.name)
         throw err
       }
     } catch (err) {

@@ -82,7 +82,7 @@ describe("Apps API - Inline Dockerfile Source", () => {
       })
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain("Specify only one")
+      expect(result.error).toContain("--image cannot be combined")
     })
 
     test("rejects when both git and dockerfile are provided", async () => {
@@ -94,7 +94,7 @@ describe("Apps API - Inline Dockerfile Source", () => {
       })
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain("Specify only one")
+      expect(result.error).toContain("--file cannot be combined")
     })
 
     test("dockerfile source is included in app info on get", async () => {

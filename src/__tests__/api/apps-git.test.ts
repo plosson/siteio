@@ -113,7 +113,7 @@ describe("Apps API - Git Source", () => {
       })
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain("Specify only one")
+      expect(result.error).toContain("--image cannot be combined")
     })
 
     test("rejects when neither image nor git is provided", async () => {
@@ -123,7 +123,7 @@ describe("Apps API - Git Source", () => {
       })
 
       expect(result.success).toBe(false)
-      expect(result.error).toContain("Either image, git source, or dockerfile")
+      expect(result.error).toContain("Either image, git source, dockerfile, or compose")
     })
 
     test("rejects git source without repoUrl", async () => {
