@@ -8,6 +8,7 @@ import { DockerManager } from "./docker.ts"
 import type { Runtime } from "./runtime.ts"
 import { GitManager } from "./git.ts"
 import { DockerfileStorage } from "./dockerfile-storage.ts"
+import { ComposeStorage } from "./compose-storage.ts"
 import { PersistentStorageManager } from "./persistent-storage.ts"
 import { STORAGE_SHIM_JS } from "./storage-shim.ts"
 
@@ -19,6 +20,7 @@ export class AgentServer {
   private docker: Runtime
   private git: GitManager
   private dockerfiles: DockerfileStorage
+  private compose: ComposeStorage
   private persistentStorage: PersistentStorageManager
   private traefik: TraefikManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
@@ -32,6 +34,7 @@ export class AgentServer {
     this.docker = runtime ?? new DockerManager(config.dataDir)
     this.git = new GitManager(config.dataDir)
     this.dockerfiles = new DockerfileStorage(config.dataDir)
+    this.compose = new ComposeStorage(config.dataDir)
     this.persistentStorage = new PersistentStorageManager(config.dataDir)
 
     // Load OAuth config if it exists
