@@ -319,6 +319,7 @@ export class SiteioClient {
     }
     dockerfileContent?: string
     composeContent?: string
+    envFileContent?: string
     composePath?: string
     primaryService?: string
     internalPort?: number

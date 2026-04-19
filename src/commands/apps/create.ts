@@ -15,6 +15,7 @@ export interface CreateAppOptions {
   composeFile?: string
   compose?: string
   service?: string
+  envFile?: string
   branch?: string
   context?: string
   port?: number
@@ -56,6 +57,9 @@ export function validateCreateOptions(options: CreateAppOptions): void {
   }
   if (hasGit && options.dockerfile && options.compose) {
     throw new ValidationError("Cannot combine --dockerfile and --compose in the same git app")
+  }
+  if (options.envFile && !hasCompose) {
+    throw new ValidationError("--env-file is only valid with --compose-file or --compose")
   }
 }
 
@@ -100,6 +104,15 @@ export async function createAppCommand(
         throw new ValidationError(`Failed to read compose file at '${options.composeFile}': ${message}`)
       }
     }
+    let envFileContent: string | undefined
+    if (options.envFile) {
+      try {
+        envFileContent = readFileSync(options.envFile, "utf-8")
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        throw new ValidationError(`Failed to read env file at '${options.envFile}': ${message}`)
+      }
+    }
 
     spinner.start(`Creating app ${name}`)
 
@@ -117,6 +130,7 @@ export async function createAppCommand(
         : undefined,
       dockerfileContent,
       composeContent,
+      envFileContent,
       composePath: options.compose,
       primaryService: options.service,
       internalPort: options.port,
