@@ -1,6 +1,7 @@
 // src/lib/agent/runtime.ts
 import type { BuildConfig, ContainerRunConfig } from "./docker"
 import type { ContainerInspect } from "../../types"
+import type { ComposeSpec } from "./compose"
 
 export interface LogsOptions {
   tail: number
@@ -47,5 +48,12 @@ export interface Runtime {
   ): Record<string, string>
   imageExists(tag: string): boolean
 
-  // Compose methods added in Task 9 (left as TODO stubs until then).
+  // ---- Compose ops ----
+  composeConfig(project: string, files: string[]): Promise<ComposeSpec>
+  composeUp(project: string, files: string[]): Promise<void>
+  composeStop(project: string, files: string[]): Promise<void>
+  composeRestart(project: string, files: string[]): Promise<void>
+  composeDown(project: string, files: string[]): Promise<void>
+  composeLogs(project: string, files: string[], opts: ComposeLogsOptions): Promise<string>
+  composePs(project: string, files: string[]): Promise<ComposeServiceState[]>
 }
