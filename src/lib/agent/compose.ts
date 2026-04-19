@@ -8,6 +8,25 @@ export interface ComposeSpec {
   volumes?: Record<string, unknown>
 }
 
+export function parsePsOutput(raw: string): ComposeServiceState[] {
+  const trimmed = raw.trim()
+  if (!trimmed) return []
+  try {
+    if (trimmed.startsWith("[")) {
+      const parsed = JSON.parse(trimmed) as Array<{ Service: string; ID: string; State: string }>
+      return parsed.map((p) => ({ service: p.Service, containerId: p.ID, state: p.State }))
+    }
+    return trimmed
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as { Service: string; ID: string; State: string })
+      .map((p) => ({ service: p.Service, containerId: p.ID, state: p.State }))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    throw new SiteioError(`Failed to parse compose ps output: ${message}`)
+  }
+}
+
 /**
  * Thin wrapper around `docker compose` subcommands. Every method takes the
  * compose project name + list of compose files (base, override), mirroring the
@@ -125,20 +144,7 @@ export class ComposeManager {
     if (result.exitCode !== 0) {
       throw new SiteioError(`docker compose ps failed: ${result.stderr.toString()}`)
     }
-
-    // `docker compose ps --format json` emits one JSON object per line (NDJSON)
-    // on recent versions, or a JSON array on older versions. Handle both.
-    const raw = result.stdout.toString().trim()
-    if (!raw) return []
-    if (raw.startsWith("[")) {
-      const parsed = JSON.parse(raw) as Array<{ Service: string; ID: string; State: string }>
-      return parsed.map((p) => ({ service: p.Service, containerId: p.ID, state: p.State }))
-    }
-    return raw
-      .split("\n")
-      .filter((l) => l.trim())
-      .map((l) => JSON.parse(l) as { Service: string; ID: string; State: string })
-      .map((p) => ({ service: p.Service, containerId: p.ID, state: p.State }))
+    return parsePsOutput(result.stdout.toString())
   }
 
   async logs(project: string, files: string[], opts: ComposeLogsOptions): Promise<string> {
@@ -150,6 +156,9 @@ export class ComposeManager {
     if (result.exitCode !== 0) {
       throw new SiteioError(`docker compose logs failed: ${result.stderr.toString()}`)
     }
+    // docker compose logs writes each service's stream to whichever channel the
+    // container used; concatenating captures both. Interleave order is lost but
+    // acceptable for tail-style operator dumps.
     return result.stdout.toString() + result.stderr.toString()
   }
 }
