@@ -318,6 +318,9 @@ export class SiteioClient {
       context?: string
     }
     dockerfileContent?: string
+    composeContent?: string
+    composePath?: string
+    primaryService?: string
     internalPort?: number
     env?: Record<string, string>
     volumes?: { name: string; mountPath: string }[]
@@ -412,10 +415,17 @@ export class SiteioClient {
     return response.data
   }
 
-  async getAppLogs(name: string, tail: number = 100): Promise<ContainerLogs> {
+  async getAppLogs(
+    name: string,
+    opts: { tail?: number; service?: string; all?: boolean } = {}
+  ): Promise<ContainerLogs> {
+    const params = new URLSearchParams()
+    params.set("tail", String(opts.tail ?? 100))
+    if (opts.service) params.set("service", opts.service)
+    if (opts.all) params.set("all", "true")
     const response = await this.request<ApiResponse<ContainerLogs>>(
       "GET",
-      `/apps/${name}/logs?tail=${tail}`
+      `/apps/${name}/logs?${params.toString()}`
     )
     if (!response.data) {
       throw new ApiError("Invalid response from server")
