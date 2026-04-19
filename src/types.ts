@@ -49,6 +49,11 @@ export interface DockerfileSource {
  * Compose source — user supplied a docker-compose.yml instead of a single
  * Dockerfile/image. Exactly one service in the file is publicly exposed
  * through Traefik; dependencies run alongside it on the compose project network.
+ *
+ * Exclusivity invariant (enforced in the API layer by handleCreateApp):
+ *   - mutually exclusive with `dockerfile` and `image`
+ *   - the `git` variant requires `App.git` to also be set; `path` is the
+ *     compose file's location within the cloned repo
  */
 export type ComposeSource =
   | { source: "inline"; primaryService: string }
