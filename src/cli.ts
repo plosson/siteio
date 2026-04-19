@@ -250,6 +250,9 @@ apps
   .option("-g, --git <url>", "Git repository URL to build from")
   .option("-f, --file <path>", "Path to a self-contained Dockerfile (built remotely with empty context)")
   .option("--dockerfile <path>", "Path to Dockerfile inside the git repo (default: Dockerfile)")
+  .option("--compose-file <path>", "Path to a local docker-compose.yml to upload")
+  .option("--compose <path>", "Path to docker-compose.yml inside the git repo")
+  .option("--service <name>", "Primary compose service to expose publicly")
   .option("--branch <branch>", "Git branch (default: main)")
   .option("--context <path>", "Build context subdirectory for monorepos")
   .option("-p, --port <port>", "Internal port the container listens on", parseInt)
@@ -319,8 +322,10 @@ apps
 
 apps
   .command("logs [name]")
-  .description("View app container logs")
-  .option("-t, --tail <n>", "Number of lines to show", parseInt)
+  .description("Tail logs from an app container")
+  .option("-t, --tail <n>", "Number of lines to show", parseInt, 100)
+  .option("--service <name>", "Target a specific compose service (compose apps only)")
+  .option("--all", "Show logs for all compose services (compose apps only)")
   .action(async (name, options) => {
     const { logsAppCommand } = await import("./commands/apps/logs.ts")
     await logsAppCommand(name, { ...options, json: program.opts().json })
