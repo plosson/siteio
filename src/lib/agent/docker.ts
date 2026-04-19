@@ -386,25 +386,25 @@ export class DockerManager implements Runtime {
     }
   }
 
-  composeConfig(project: string, files: string[]): Promise<ComposeSpec> {
-    return this.compose.config(project, files)
+  composeConfig(project: string, files: string[], envFile?: string): Promise<ComposeSpec> {
+    return this.compose.config(project, files, envFile)
   }
-  composeUp(project: string, files: string[]): Promise<void> {
-    return this.compose.up(project, files)
+  composeUp(project: string, files: string[], envFile?: string): Promise<void> {
+    return this.compose.up(project, files, envFile)
   }
-  composeStop(project: string, files: string[]): Promise<void> {
-    return this.compose.stop(project, files)
+  composeStop(project: string, files: string[], envFile?: string): Promise<void> {
+    return this.compose.stop(project, files, envFile)
   }
-  composeRestart(project: string, files: string[]): Promise<void> {
-    return this.compose.restart(project, files)
+  composeRestart(project: string, files: string[], envFile?: string): Promise<void> {
+    return this.compose.restart(project, files, envFile)
   }
-  composeDown(project: string, files: string[]): Promise<void> {
-    return this.compose.down(project, files)
+  composeDown(project: string, files: string[], envFile?: string): Promise<void> {
+    return this.compose.down(project, files, envFile)
   }
-  composeLogs(project: string, files: string[], opts: ComposeLogsOptions): Promise<string> {
-    return this.compose.logs(project, files, opts)
+  composeLogs(project: string, files: string[], envFile: string | undefined, opts: ComposeLogsOptions): Promise<string> {
+    return this.compose.logs(project, files, envFile, opts)
   }
-  composePs(project: string, files: string[]): Promise<ComposeServiceState[]> {
-    return this.compose.ps(project, files)
+  composePs(project: string, files: string[], envFile?: string): Promise<ComposeServiceState[]> {
+    return this.compose.ps(project, files, envFile)
   }
 }

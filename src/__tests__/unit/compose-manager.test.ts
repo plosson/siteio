@@ -34,7 +34,7 @@ describe("Unit: ComposeManager.buildArgs", () => {
   })
 
   test("buildLogsArgs with no service passes --tail and no service filter", () => {
-    const args = cm.buildLogsArgs("siteio-x", ["/base.yml"], { tail: 50 })
+    const args = cm.buildLogsArgs("siteio-x", ["/base.yml"], undefined, { tail: 50 })
     expect(args).toEqual([
       "compose", "-p", "siteio-x", "-f", "/base.yml",
       "logs", "--no-color", "--tail", "50",
@@ -42,7 +42,7 @@ describe("Unit: ComposeManager.buildArgs", () => {
   })
 
   test("buildLogsArgs with service appends the service name", () => {
-    const args = cm.buildLogsArgs("siteio-x", ["/base.yml"], { tail: 100, service: "web" })
+    const args = cm.buildLogsArgs("siteio-x", ["/base.yml"], undefined, { tail: 100, service: "web" })
     expect(args).toEqual([
       "compose", "-p", "siteio-x", "-f", "/base.yml",
       "logs", "--no-color", "--tail", "100", "web",
@@ -50,7 +50,7 @@ describe("Unit: ComposeManager.buildArgs", () => {
   })
 
   test("buildLogsArgs with all ignores service (all = everything)", () => {
-    const args = cm.buildLogsArgs("siteio-x", ["/base.yml"], { tail: 100, all: true, service: "web" })
+    const args = cm.buildLogsArgs("siteio-x", ["/base.yml"], undefined, { tail: 100, all: true, service: "web" })
     expect(args).toEqual([
       "compose", "-p", "siteio-x", "-f", "/base.yml",
       "logs", "--no-color", "--tail", "100",
@@ -61,6 +61,41 @@ describe("Unit: ComposeManager.buildArgs", () => {
     expect(cm.buildStopArgs("siteio-x", ["/b.yml"]).slice(-1)).toEqual(["stop"])
     expect(cm.buildRestartArgs("siteio-x", ["/b.yml"]).slice(-1)).toEqual(["restart"])
     expect(cm.buildPsArgs("siteio-x", ["/b.yml"]).slice(-3)).toEqual(["ps", "--format", "json"])
+  })
+
+  test("buildBaseArgs includes --env-file when provided", () => {
+    const args = cm.buildBaseArgs("siteio-x", ["/base.yml"], "/env/.env")
+    expect(args).toEqual([
+      "compose", "-p", "siteio-x", "-f", "/base.yml", "--env-file", "/env/.env"
+    ])
+  })
+
+  test("buildBaseArgs omits --env-file when not provided", () => {
+    const args = cm.buildBaseArgs("siteio-x", ["/base.yml"])
+    expect(args).not.toContain("--env-file")
+  })
+
+  test("buildUpArgs threads envFile through buildBaseArgs", () => {
+    const args = cm.buildUpArgs("siteio-x", ["/base.yml"], "/e.env")
+    // envFile must appear BEFORE the subcommand
+    const subcommandIdx = args.indexOf("up")
+    const envFlagIdx = args.indexOf("--env-file")
+    expect(envFlagIdx).toBeGreaterThan(-1)
+    expect(envFlagIdx).toBeLessThan(subcommandIdx)
+  })
+
+  test("buildLogsArgs with envFile places it before the subcommand", () => {
+    const args = cm.buildLogsArgs("siteio-x", ["/base.yml"], "/e.env", { tail: 100 })
+    const logsIdx = args.indexOf("logs")
+    const envFlagIdx = args.indexOf("--env-file")
+    expect(envFlagIdx).toBeGreaterThan(-1)
+    expect(envFlagIdx).toBeLessThan(logsIdx)
+  })
+
+  test("buildDownArgs with envFile", () => {
+    const args = cm.buildDownArgs("siteio-x", ["/b.yml"], "/e")
+    expect(args).toContain("--env-file")
+    expect(args.slice(-3)).toEqual(["down", "-v", "--remove-orphans"])
   })
 })
 

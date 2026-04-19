@@ -129,32 +129,33 @@ export class FakeRuntime implements Runtime {
     return this.imageExistsReturn
   }
 
-  async composeConfig(project: string, files: string[]): Promise<ComposeSpec> {
-    this.record("composeConfig", [project, files])
+  async composeConfig(project: string, files: string[], envFile?: string): Promise<ComposeSpec> {
+    this.record("composeConfig", [project, files, envFile])
     return this.composeConfigReturn
   }
-  async composeUp(project: string, files: string[]): Promise<void> {
-    this.record("composeUp", [project, files])
+  async composeUp(project: string, files: string[], envFile?: string): Promise<void> {
+    this.record("composeUp", [project, files, envFile])
   }
-  async composeStop(project: string, files: string[]): Promise<void> {
-    this.record("composeStop", [project, files])
+  async composeStop(project: string, files: string[], envFile?: string): Promise<void> {
+    this.record("composeStop", [project, files, envFile])
   }
-  async composeRestart(project: string, files: string[]): Promise<void> {
-    this.record("composeRestart", [project, files])
+  async composeRestart(project: string, files: string[], envFile?: string): Promise<void> {
+    this.record("composeRestart", [project, files, envFile])
   }
-  async composeDown(project: string, files: string[]): Promise<void> {
-    this.record("composeDown", [project, files])
+  async composeDown(project: string, files: string[], envFile?: string): Promise<void> {
+    this.record("composeDown", [project, files, envFile])
   }
   async composeLogs(
     project: string,
     files: string[],
+    envFile: string | undefined,
     opts: ComposeLogsOptions
   ): Promise<string> {
-    this.record("composeLogs", [project, files, opts])
+    this.record("composeLogs", [project, files, envFile, opts])
     return this.composeLogsReturn
   }
-  async composePs(project: string, files: string[]): Promise<ComposeServiceState[]> {
-    this.record("composePs", [project, files])
+  async composePs(project: string, files: string[], envFile?: string): Promise<ComposeServiceState[]> {
+    this.record("composePs", [project, files, envFile])
     return this.composePsReturn
   }
 

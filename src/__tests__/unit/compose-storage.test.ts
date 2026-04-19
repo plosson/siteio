@@ -59,4 +59,30 @@ describe("Unit: ComposeStorage", () => {
     storage.remove("myapp")
     expect(existsSync(join(testDir, "compose", "myapp"))).toBe(false)
   })
+
+  test("writeBaseEnv persists .env file alongside compose file", () => {
+    storage.writeBaseEnv("myapp", "POSTGRES_PASSWORD=secret\nFOO=bar\n")
+    const expected = join(testDir, "compose", "myapp", ".env")
+    expect(existsSync(expected)).toBe(true)
+    expect(readFileSync(expected, "utf-8")).toContain("POSTGRES_PASSWORD=secret")
+  })
+
+  test("baseEnvPath returns the expected location", () => {
+    expect(storage.baseEnvPath("myapp")).toBe(
+      join(testDir, "compose", "myapp", ".env")
+    )
+  })
+
+  test("envFileExists is false before write, true after", () => {
+    expect(storage.envFileExists("x")).toBe(false)
+    storage.writeBaseEnv("x", "KEY=value")
+    expect(storage.envFileExists("x")).toBe(true)
+  })
+
+  test("remove deletes the .env alongside the compose files", () => {
+    storage.writeBaseInline("myapp", "services: {}")
+    storage.writeBaseEnv("myapp", "KEY=v")
+    storage.remove("myapp")
+    expect(existsSync(join(testDir, "compose", "myapp", ".env"))).toBe(false)
+  })
 })

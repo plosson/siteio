@@ -44,6 +44,19 @@ export class ComposeStorage {
     writeFileSync(this.overridePath(appName), content)
   }
 
+  baseEnvPath(appName: string): string {
+    return join(this.appDir(appName), ".env")
+  }
+
+  writeBaseEnv(appName: string, content: string): void {
+    this.ensureAppDir(appName)
+    writeFileSync(this.baseEnvPath(appName), content)
+  }
+
+  envFileExists(appName: string): boolean {
+    return existsSync(this.baseEnvPath(appName))
+  }
+
   exists(appName: string): boolean {
     return existsSync(this.baseInlinePath(appName))
   }

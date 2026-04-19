@@ -946,7 +946,7 @@ export class AgentServer {
     if (app.compose) {
       try {
         const files = await this.composeFiles(app)
-        await this.docker.composeDown(`siteio-${name}`, files)
+        await this.docker.composeDown(`siteio-${name}`, files, undefined)
       } catch {
         // Best-effort; the base file may be missing if the repo was cleaned up.
       }
@@ -1065,7 +1065,7 @@ export class AgentServer {
         const files = [basePath, overridePath]
 
         // Validate config (parses + merges both files via compose-go)
-        const spec = await this.docker.composeConfig(project, files)
+        const spec = await this.docker.composeConfig(project, files, undefined)
         if (!spec.services || !spec.services[app.compose.primaryService]) {
           this.appStorage.update(name, { status: "failed" })
           return this.error(
@@ -1075,10 +1075,10 @@ export class AgentServer {
         }
 
         // Bring up the project
-        await this.docker.composeUp(project, files)
+        await this.docker.composeUp(project, files, undefined)
 
         // Resolve primary service's container ID via ps
-        const psOutput = await this.docker.composePs(project, files)
+        const psOutput = await this.docker.composePs(project, files, undefined)
         const primaryState = psOutput.find((s) => s.service === app.compose!.primaryService)
 
         const composeCommitHash = app.compose.source === "git" ? await this.git.getCommitHash(name) : undefined
@@ -1213,7 +1213,7 @@ export class AgentServer {
     try {
       if (app.compose) {
         const files = await this.composeFiles(app)
-        await this.docker.composeStop(`siteio-${name}`, files)
+        await this.docker.composeStop(`siteio-${name}`, files, undefined)
       } else if (this.docker.containerExists(name)) {
         await this.docker.stop(name)
       }
@@ -1233,7 +1233,7 @@ export class AgentServer {
     try {
       if (app.compose) {
         const files = await this.composeFiles(app)
-        await this.docker.composeRestart(`siteio-${name}`, files)
+        await this.docker.composeRestart(`siteio-${name}`, files, undefined)
         const updated = this.appStorage.update(name, { status: "running" })
         return this.json(updated)
       }
@@ -1267,7 +1267,7 @@ export class AgentServer {
       let logs: string
       if (app.compose) {
         const files = await this.composeFiles(app)
-        logs = await this.docker.composeLogs(`siteio-${name}`, files, {
+        logs = await this.docker.composeLogs(`siteio-${name}`, files, undefined, {
           tail,
           all,
           service: all ? undefined : (service ?? app.compose.primaryService),

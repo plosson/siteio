@@ -233,7 +233,7 @@ describe("API: Apps (compose)", () => {
       expect(body.data.logs).toBe("hello from web\n")
 
       const call = runtime.callsOf("composeLogs")[0]!
-      expect(call.args[2]).toEqual({ service: "web", tail: 100, all: false })
+      expect(call.args[3]).toEqual({ service: "web", tail: 100, all: false })
     })
 
     test("?service=db targets that service", async () => {
@@ -241,7 +241,7 @@ describe("API: Apps (compose)", () => {
       const r = await req("GET", "/apps/logs2/logs?service=db")
       expect(r.status).toBeLessThan(300)
       const call = runtime.callsOf("composeLogs")[0]!
-      expect(call.args[2]).toEqual({ service: "db", tail: 100, all: false })
+      expect(call.args[3]).toEqual({ service: "db", tail: 100, all: false })
     })
 
     test("?all=true omits service filter", async () => {
@@ -249,7 +249,7 @@ describe("API: Apps (compose)", () => {
       const r = await req("GET", "/apps/logs3/logs?all=true")
       expect(r.status).toBeLessThan(300)
       const call = runtime.callsOf("composeLogs")[0]!
-      const opts = call.args[2] as { service?: string; all?: boolean; tail: number }
+      const opts = call.args[3] as { service?: string; all?: boolean; tail: number }
       expect(opts.all).toBe(true)
       expect(opts.tail).toBe(100)
     })
