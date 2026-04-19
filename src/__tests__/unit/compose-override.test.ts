@@ -80,4 +80,65 @@ describe("Unit: buildOverride", () => {
     expect(line.trim().startsWith("traefik.http.routers.siteio-myapp.rule:")).toBe(true)
     expect(line).toContain('"Host(`x.test`)"')
   })
+
+  test("escapes newlines in env values as \\n literals", () => {
+    const yaml = buildOverride(
+      appWithCompose({ env: { CERT: "line1\nline2\nline3" } })
+    )
+    expect(yaml).toContain('CERT: "line1\\nline2\\nline3"')
+    // And must NOT contain a raw newline inside a quoted value (would be folded by YAML parsers)
+    const certLine = yaml.split("\n").find((l) => l.includes("CERT:"))!
+    expect(certLine).toBe('      CERT: "line1\\nline2\\nline3"')
+  })
+
+  test("escapes tabs and carriage returns in env values", () => {
+    const yaml = buildOverride(
+      appWithCompose({ env: { MSG: "a\tb\r\nc" } })
+    )
+    expect(yaml).toContain('MSG: "a\\tb\\r\\nc"')
+  })
+
+  test("throws when called on a non-compose app", () => {
+    const nonCompose: Parameters<typeof buildOverride>[0] = {
+      name: "plain",
+      type: "container",
+      image: "nginx",
+      env: {},
+      volumes: [],
+      internalPort: 80,
+      restartPolicy: "unless-stopped",
+      domains: [],
+      status: "pending",
+      createdAt: "2026-04-19T00:00:00Z",
+      updatedAt: "2026-04-19T00:00:00Z",
+    }
+    expect(() => buildOverride(nonCompose)).toThrow(/non-compose/)
+  })
+
+  test("readonly volumes emit the :ro suffix", () => {
+    const yaml = buildOverride(
+      appWithCompose({ volumes: [{ name: "data", mountPath: "/data", readonly: true }] })
+    )
+    const volLine = yaml.split("\n").find((l) => l.trim().startsWith("- ") && l.includes("/data"))!
+    expect(volLine).toContain(":/data:ro\"")
+  })
+
+  test("absolute-path volumes use the host path directly", () => {
+    const yaml = buildOverride(
+      appWithCompose({ volumes: [{ name: "/srv/shared", mountPath: "/data" }] })
+    )
+    const volLine = yaml.split("\n").find((l) => l.trim().startsWith("- ") && l.includes("/data"))!
+    // Must NOT prepend the dataDir volumes dir
+    expect(volLine).not.toContain("volumes/myapp")
+    expect(volLine).toContain('"/srv/shared:/data"')
+  })
+
+  test("custom dataDir threads through volume path resolution", () => {
+    const yaml = buildOverride(
+      appWithCompose({ volumes: [{ name: "data", mountPath: "/data" }] }),
+      "/custom/data/root"
+    )
+    const volLine = yaml.split("\n").find((l) => l.trim().startsWith("- ") && l.includes("/data"))!
+    expect(volLine).toContain("/custom/data/root/volumes/myapp/data:/data")
+  })
 })
