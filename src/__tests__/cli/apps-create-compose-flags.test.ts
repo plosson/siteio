@@ -41,4 +41,26 @@ describe("CLI: validateCreateOptions", () => {
       expect(e).toBeInstanceOf(ValidationError)
     }
   })
+
+  test("--env-file without compose throws", () => {
+    expect(() => validateCreateOptions({ image: "nginx", envFile: "/tmp/.env" }))
+      .toThrow(/--env-file is only valid/)
+  })
+
+  test("--env-file with --compose-file + --service passes", () => {
+    expect(() =>
+      validateCreateOptions({ composeFile: "/tmp/c.yml", service: "web", envFile: "/tmp/.env" })
+    ).not.toThrow()
+  })
+
+  test("--env-file with --git + --compose + --service passes", () => {
+    expect(() =>
+      validateCreateOptions({
+        git: "https://x.test/r.git",
+        compose: "dc.yml",
+        service: "web",
+        envFile: "/tmp/.env",
+      })
+    ).not.toThrow()
+  })
 })

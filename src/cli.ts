@@ -253,6 +253,7 @@ apps
   .option("--compose-file <path>", "Path to a local docker-compose.yml to upload")
   .option("--compose <path>", "Path to docker-compose.yml inside the git repo")
   .option("--service <name>", "Primary compose service to expose publicly")
+  .option("--env-file <path>", "Path to a local .env file to upload alongside the compose file")
   .option("--branch <branch>", "Git branch (default: main)")
   .option("--context <path>", "Build context subdirectory for monorepos")
   .option("-p, --port <port>", "Internal port the container listens on", parseInt)

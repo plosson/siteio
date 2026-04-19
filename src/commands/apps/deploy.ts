@@ -76,6 +76,16 @@ export async function deployAppCommand(
         }
       }
       console.log("")
+
+      // If the agent returned deploy-time warnings (compose apps only), surface them
+      const warnings = (app as unknown as { warnings?: string[] }).warnings
+      if (warnings && warnings.length > 0) {
+        console.log("")
+        console.log(chalk.yellow("Warnings:"))
+        for (const w of warnings) {
+          console.log(chalk.yellow(`  • ${w}`))
+        }
+      }
     }
     process.exit(0)
   } catch (err) {
