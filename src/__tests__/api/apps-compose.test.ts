@@ -262,6 +262,22 @@ describe("API: Apps (compose)", () => {
     })
   })
 
+  describe("list", () => {
+    test("lists a compose app with compose field intact", async () => {
+      await req("POST", "/apps", {
+        name: "listapp",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      const r = await req("GET", "/apps")
+      const parsed = (await r.json()) as { success: boolean; data: AppInfo[] }
+      const entry = parsed.data.find((a) => a.name === "listapp")
+      expect(entry).toBeTruthy()
+      expect(entry!.compose).toEqual({ source: "inline", primaryService: "web" })
+    })
+  })
+
   describe("deploy", () => {
     test("inline compose: writes override, calls composeConfig then composeUp then composePs", async () => {
       await req("POST", "/apps", {
