@@ -2,6 +2,8 @@
 import type { BuildConfig, ContainerRunConfig } from "../../lib/agent/docker"
 import type { ContainerInspect } from "../../types"
 import type { Runtime } from "../../lib/agent/runtime"
+import type { ComposeSpec } from "../../lib/agent/compose"
+import type { ComposeLogsOptions, ComposeServiceState } from "../../lib/agent/runtime"
 
 export interface RecordedCall {
   method: string
@@ -25,6 +27,13 @@ export class FakeRuntime implements Runtime {
   imageExistsReturn = false
   isRunningReturn = true
   containerExistsReturn = false
+
+  // Compose fixtures
+  composeConfigReturn: ComposeSpec = { services: { web: {} } }
+  composePsReturn: ComposeServiceState[] = [
+    { service: "web", containerId: "fake-web-id", state: "running" },
+  ]
+  composeLogsReturn = ""
 
   private record(method: string, args: unknown[]): void {
     this.calls.push({ method, args })
@@ -118,6 +127,35 @@ export class FakeRuntime implements Runtime {
   imageExists(tag: string): boolean {
     this.record("imageExists", [tag])
     return this.imageExistsReturn
+  }
+
+  async composeConfig(project: string, files: string[]): Promise<ComposeSpec> {
+    this.record("composeConfig", [project, files])
+    return this.composeConfigReturn
+  }
+  async composeUp(project: string, files: string[]): Promise<void> {
+    this.record("composeUp", [project, files])
+  }
+  async composeStop(project: string, files: string[]): Promise<void> {
+    this.record("composeStop", [project, files])
+  }
+  async composeRestart(project: string, files: string[]): Promise<void> {
+    this.record("composeRestart", [project, files])
+  }
+  async composeDown(project: string, files: string[]): Promise<void> {
+    this.record("composeDown", [project, files])
+  }
+  async composeLogs(
+    project: string,
+    files: string[],
+    opts: ComposeLogsOptions
+  ): Promise<string> {
+    this.record("composeLogs", [project, files, opts])
+    return this.composeLogsReturn
+  }
+  async composePs(project: string, files: string[]): Promise<ComposeServiceState[]> {
+    this.record("composePs", [project, files])
+    return this.composePsReturn
   }
 
   // Helper: filter recorded calls by method name

@@ -3,6 +3,8 @@ import { join } from "path"
 import type { ContainerInspect, RestartPolicy, VolumeMount } from "../../types"
 import { SiteioError } from "../../utils/errors"
 import type { Runtime } from "./runtime"
+import { ComposeManager, type ComposeSpec } from "./compose"
+import type { ComposeLogsOptions, ComposeServiceState } from "./runtime"
 
 export interface ContainerRunConfig {
   name: string
@@ -27,10 +29,12 @@ export interface BuildConfig {
 export class DockerManager implements Runtime {
   private dataDir: string
   private volumesDir: string
+  private compose: ComposeManager
 
   constructor(dataDir: string) {
     this.dataDir = dataDir
     this.volumesDir = join(dataDir, "volumes")
+    this.compose = new ComposeManager()
   }
 
   /**
@@ -380,5 +384,27 @@ export class DockerManager implements Runtime {
     if (result.exitCode !== 0 && !result.stderr.toString().includes("No such image")) {
       throw new SiteioError(`Failed to remove image: ${result.stderr.toString()}`)
     }
+  }
+
+  composeConfig(project: string, files: string[]): Promise<ComposeSpec> {
+    return this.compose.config(project, files)
+  }
+  composeUp(project: string, files: string[]): Promise<void> {
+    return this.compose.up(project, files)
+  }
+  composeStop(project: string, files: string[]): Promise<void> {
+    return this.compose.stop(project, files)
+  }
+  composeRestart(project: string, files: string[]): Promise<void> {
+    return this.compose.restart(project, files)
+  }
+  composeDown(project: string, files: string[]): Promise<void> {
+    return this.compose.down(project, files)
+  }
+  composeLogs(project: string, files: string[], opts: ComposeLogsOptions): Promise<string> {
+    return this.compose.logs(project, files, opts)
+  }
+  composePs(project: string, files: string[]): Promise<ComposeServiceState[]> {
+    return this.compose.ps(project, files)
   }
 }
