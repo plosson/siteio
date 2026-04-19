@@ -9,6 +9,7 @@ import type { Runtime } from "./runtime.ts"
 import { GitManager } from "./git.ts"
 import { DockerfileStorage } from "./dockerfile-storage.ts"
 import { ComposeStorage } from "./compose-storage.ts"
+import { buildOverride } from "./compose-override.ts"
 import { PersistentStorageManager } from "./persistent-storage.ts"
 import { STORAGE_SHIM_JS } from "./storage-shim.ts"
 
@@ -1018,7 +1019,77 @@ export class AgentServer {
         return this.error("Docker is not available", 500)
       }
 
-      // Ensure network exists
+      const { existsSync } = await import("fs")
+      const { join } = await import("path")
+
+      // ---------- COMPOSE BRANCH ----------
+      if (app.compose) {
+        // Ensure Traefik can reach the service
+        this.docker.ensureNetwork()
+
+        // Resolve base compose file
+        let basePath: string
+        if (app.compose.source === "inline") {
+          basePath = this.compose.baseInlinePath(name)
+          if (!existsSync(basePath)) {
+            this.appStorage.update(name, { status: "failed" })
+            return this.error("Compose file not found for app", 400)
+          }
+        } else {
+          if (!app.git) {
+            this.appStorage.update(name, { status: "failed" })
+            return this.error("Git source missing on compose app", 500)
+          }
+          await this.git.clone(name, app.git.repoUrl, app.git.branch)
+          const repoPath = this.git.repoPath(name)
+          basePath = join(repoPath, app.compose.path)
+          if (!existsSync(basePath)) {
+            this.appStorage.update(name, { status: "failed" })
+            return this.error(`Compose file not found at '${app.compose.path}'`, 400)
+          }
+        }
+
+        // Write the override (regenerate every deploy so env/domain/oauth updates apply)
+        const overrideYaml = buildOverride(app, this.config.dataDir)
+        this.compose.writeOverride(name, overrideYaml)
+        const overridePath = this.compose.overridePath(name)
+
+        const project = `siteio-${name}`
+        const files = [basePath, overridePath]
+
+        // Validate config (parses + merges both files via compose-go)
+        const spec = await this.docker.composeConfig(project, files)
+        if (!spec.services || !spec.services[app.compose.primaryService]) {
+          this.appStorage.update(name, { status: "failed" })
+          return this.error(
+            `Primary service '${app.compose.primaryService}' not found in compose file. Available: ${Object.keys(spec.services || {}).join(", ") || "none"}`,
+            400
+          )
+        }
+
+        // Bring up the project
+        await this.docker.composeUp(project, files)
+
+        // Resolve primary service's container ID via ps
+        const psOutput = await this.docker.composePs(project, files)
+        const primaryState = psOutput.find((s) => s.service === app.compose!.primaryService)
+
+        const composeCommitHash = app.compose.source === "git" ? await this.git.getCommitHash(name) : undefined
+        const composeLastBuildAt = new Date().toISOString()
+
+        const updatedCompose = this.appStorage.update(name, {
+          status: "running",
+          containerId: primaryState?.containerId,
+          deployedAt: new Date().toISOString(),
+          lastBuildAt: composeLastBuildAt,
+          ...(composeCommitHash && { commitHash: composeCommitHash }),
+        })
+
+        return this.json(updatedCompose)
+      }
+      // ---------- END COMPOSE BRANCH ----------
+
+      // Ensure network exists (container flow)
       this.docker.ensureNetwork()
 
       // Remove existing container if it exists
@@ -1032,8 +1103,6 @@ export class AgentServer {
 
       if (app.git) {
         // Git-based app: clone and build
-        const { existsSync } = await import("fs")
-        const { join } = await import("path")
 
         // Clone repository
         await this.git.clone(name, app.git.repoUrl, app.git.branch)
