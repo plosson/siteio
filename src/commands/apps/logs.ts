@@ -32,7 +32,7 @@ export async function logsAppCommand(
     spinner.start(`Fetching logs for ${name}`)
 
     const client = new SiteioClient()
-    const logs = await client.getAppLogs(name, tail)
+    const logs = await client.getAppLogs(name, { tail })
 
     spinner.stop()
 
