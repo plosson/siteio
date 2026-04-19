@@ -166,4 +166,80 @@ describe("API: Apps (compose)", () => {
       expect(r.status).toBe(400)
     })
   })
+
+  describe("deploy", () => {
+    test("inline compose: writes override, calls composeConfig then composeUp then composePs", async () => {
+      await req("POST", "/apps", {
+        name: "deployinline",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      const r = await req("POST", "/apps/deployinline/deploy")
+      const app = await jsonOk<App>(r)
+
+      // containerId resolved from composePs() primary-service match
+      expect(app.containerId).toBe("fake-web-id")
+      expect(app.status).toBe("running")
+
+      // Override file written
+      const overridePath = join(testDir, "compose", "deployinline", "docker-compose.siteio.yml")
+      expect(existsSync(overridePath)).toBe(true)
+      expect(readFileSync(overridePath, "utf-8")).toContain("siteio-network")
+
+      // Runtime calls in order: composeConfig, composeUp, composePs
+      const methods = runtime.calls.map((c) => c.method)
+      const composeConfigIdx = methods.indexOf("composeConfig")
+      const composeUpIdx = methods.indexOf("composeUp")
+      const composePsIdx = methods.indexOf("composePs")
+      expect(composeConfigIdx).toBeGreaterThan(-1)
+      expect(composeUpIdx).toBeGreaterThan(composeConfigIdx)
+      expect(composePsIdx).toBeGreaterThan(composeUpIdx)
+
+      // Project name is siteio-<app>; files are [base, override]
+      const upCall = runtime.calls[composeUpIdx]!
+      expect(upCall.args[0]).toBe("siteio-deployinline")
+      const files = upCall.args[1] as string[]
+      expect(files).toHaveLength(2)
+      expect(files[0]).toBe(join(testDir, "compose", "deployinline", "docker-compose.yml"))
+      expect(files[1]).toBe(overridePath)
+    })
+
+    test("deploy fails with 400 if primary service not found in compose config", async () => {
+      await req("POST", "/apps", {
+        name: "badprimary",
+        composeContent: inlineCompose,
+        primaryService: "nonexistent",
+        internalPort: 80,
+      })
+      runtime.composeConfigReturn = { services: { web: {}, db: {} } }
+      const r = await req("POST", "/apps/badprimary/deploy")
+      expect(r.status).toBe(400)
+
+      // composeUp must NOT have been called
+      expect(runtime.callsOf("composeUp")).toHaveLength(0)
+    })
+
+    test("redeploy after env update regenerates override and invokes composeUp", async () => {
+      await req("POST", "/apps", {
+        name: "envapp",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      // reset fixture mutated by prior test
+      runtime.composeConfigReturn = { services: { web: {}, db: {} } }
+      await req("POST", "/apps/envapp/deploy")
+
+      // Update env via PATCH
+      await req("PATCH", "/apps/envapp", { env: { FOO: "bar" } })
+      runtime.calls = []
+
+      await req("POST", "/apps/envapp/deploy")
+
+      const overridePath = join(testDir, "compose", "envapp", "docker-compose.siteio.yml")
+      expect(readFileSync(overridePath, "utf-8")).toContain('FOO: "bar"')
+      expect(runtime.callsOf("composeUp")).toHaveLength(1)
+    })
+  })
 })
