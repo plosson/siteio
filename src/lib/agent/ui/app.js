@@ -117,6 +117,18 @@ function siteioAdmin() {
       this.loginError = "Session expired. Please sign in again."
     },
 
+    onEscape() {
+      // If the user is on the logs view, toggle auto-refresh off (quick pause).
+      if (this.route.view === "apps" && this.route.subtab === "logs" && this.appLogsAuto) {
+        this.appLogsAuto = false
+        this.stopLogsPoll()
+      }
+    },
+
+    // Force Alpine reactivity by reassigning the Set after every mutation.
+    _pendAdd(key) { this.pending.add(key); this.pending = new Set(this.pending) },
+    _pendDel(key) { this.pending.delete(key); this.pending = new Set(this.pending) },
+
     logout() {
       this.stopLogsPoll()
       sessionStorage.removeItem("siteio_api_key")
@@ -143,7 +155,7 @@ function siteioAdmin() {
     // --- Apps ---
 
     async loadApps() {
-      this.pending.add("apps-list")
+      this._pendAdd("apps-list")
       try {
         const res = await this.apiFetch("/apps")
         const body = await res.json()
@@ -159,13 +171,13 @@ function siteioAdmin() {
           this.toast("error", "Could not reach server")
         }
       } finally {
-        this.pending.delete("apps-list")
+        this._pendDel("apps-list")
       }
     },
 
     async loadApp(name) {
       this.selectedApp = null
-      this.pending.add("app-detail")
+      this._pendAdd("app-detail")
       try {
         const res = await this.apiFetch("/apps/" + encodeURIComponent(name))
         if (res.status === 404) {
@@ -185,12 +197,12 @@ function siteioAdmin() {
           this.toast("error", "Could not reach server")
         }
       } finally {
-        this.pending.delete("app-detail")
+        this._pendDel("app-detail")
       }
     },
 
     async _runAction(name, key, method, path, successMsg) {
-      this.pending.add(key)
+      this._pendAdd(key)
       try {
         const res = await this.apiFetch(path, { method })
         const body = await res.json()
@@ -204,7 +216,7 @@ function siteioAdmin() {
           this.toast("error", "Could not reach server")
         }
       } finally {
-        this.pending.delete(key)
+        this._pendDel(key)
       }
     },
 
@@ -230,10 +242,17 @@ function siteioAdmin() {
       window.location.hash = "#/apps"
     },
 
+    anyAppActionPending() {
+      return this.pending.has("deploy")
+          || this.pending.has("stop")
+          || this.pending.has("restart")
+          || this.pending.has("remove")
+    },
+
     // --- Sites ---
 
     async loadSites() {
-      this.pending.add("sites-list")
+      this._pendAdd("sites-list")
       try {
         const res = await this.apiFetch("/sites")
         const body = await res.json()
@@ -245,7 +264,7 @@ function siteioAdmin() {
           this.toast("error", "Could not reach server")
         }
       } finally {
-        this.pending.delete("sites-list")
+        this._pendDel("sites-list")
       }
     },
 
@@ -283,7 +302,7 @@ function siteioAdmin() {
 
     async undeploySite(subdomain) {
       if (!confirm(`Undeploy site '${subdomain}'? Files will be deleted.`)) return
-      this.pending.add("undeploy")
+      this._pendAdd("undeploy")
       try {
         const res = await this.apiFetch(`/sites/${encodeURIComponent(subdomain)}`, { method: "DELETE" })
         const body = await res.json()
@@ -296,12 +315,12 @@ function siteioAdmin() {
       } catch (err) {
         if (err && err.message !== "Unauthenticated") this.toast("error", "Could not reach server")
       } finally {
-        this.pending.delete("undeploy")
+        this._pendDel("undeploy")
       }
     },
 
     async rollbackSite(subdomain, version) {
-      this.pending.add("rollback-" + version)
+      this._pendAdd("rollback-" + version)
       try {
         const res = await this.apiFetch(`/sites/${encodeURIComponent(subdomain)}/rollback`, {
           method: "POST",
@@ -319,7 +338,7 @@ function siteioAdmin() {
       } catch (err) {
         if (err && err.message !== "Unauthenticated") this.toast("error", "Could not reach server")
       } finally {
-        this.pending.delete("rollback-" + version)
+        this._pendDel("rollback-" + version)
       }
     },
 
@@ -334,7 +353,7 @@ function siteioAdmin() {
     // --- Groups ---
 
     async loadGroups() {
-      this.pending.add("groups-list")
+      this._pendAdd("groups-list")
       try {
         const res = await this.apiFetch("/groups")
         const body = await res.json()
@@ -346,12 +365,12 @@ function siteioAdmin() {
           this.toast("error", "Could not reach server")
         }
       } finally {
-        this.pending.delete("groups-list")
+        this._pendDel("groups-list")
       }
     },
 
     async loadAppLogs(name) {
-      this.pending.add("logs")
+      this._pendAdd("logs")
       try {
         const res = await this.apiFetch(`/apps/${encodeURIComponent(name)}/logs?tail=200`)
         const body = await res.json()
@@ -371,7 +390,7 @@ function siteioAdmin() {
           this.toast("error", "Could not reach server")
         }
       } finally {
-        this.pending.delete("logs")
+        this._pendDel("logs")
       }
     },
 
