@@ -1,0 +1,27 @@
+.nav-link {
+  color: #424a53;
+}
+.nav-link:hover {
+  background-color: #f6f8fa;
+}
+.nav-link-active {
+  background-color: #f6f8fa;
+  color: #0969da;
+  font-weight: 500;
+  border-left: 2px solid #0969da;
+  padding-left: 10px;
+}
+
+pre.logs {
+  font-family: "Fira Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  background: #1f2328;
+  color: #eaeef2;
+  padding: 1rem;
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 70vh;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>siteio admin</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Fira+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="https://sets.hugeicons.com/7v2rm862ty6.css" crossorigin="anonymous" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              blue: "#0969da",
+              green: "#2da44e",
+            },
+            gray: {
+              50: "#f6f8fa",
+              100: "#eaeef2",
+              200: "#d0d7de",
+              300: "#afb8c1",
+              400: "#8c959f",
+              500: "#6e7781",
+              600: "#57606a",
+              700: "#424a53",
+              800: "#32383f",
+              900: "#1f2328",
+            },
+          },
+          fontFamily: {
+            sans: ["Geist", "system-ui", "sans-serif"],
+            mono: ["Fira Mono", "monospace"],
+          },
+        },
+      },
+    }
+  </script>
+
+  <link rel="stylesheet" href="/ui/app.css" />
+
+  <script defer src="/ui/app.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.15.3/dist/cdn.min.js"></script>
+</head>
+<body class="font-sans bg-gray-50 text-gray-900 antialiased" x-data="siteioAdmin()" x-init="init()">
+
+  <template x-if="!authed">
+    <div id="login-view" class="min-h-screen flex items-center justify-center p-6">
+      <div class="text-gray-500 text-sm">Login view will render here (Task 2).</div>
+    </div>
+  </template>
+
+  <template x-if="authed">
+    <div class="flex min-h-screen">
+      <aside class="w-56 shrink-0 border-r border-gray-200 bg-white flex flex-col">
+        <div class="p-4 border-b border-gray-200">
+          <div class="font-semibold text-gray-900">siteio</div>
+          <div class="text-xs text-gray-500 mt-1 font-mono" x-text="hostname"></div>
+        </div>
+        <nav class="flex-1 p-2 space-y-1">
+          <a href="#/apps" :class="navClass('apps')" class="flex items-center gap-2 px-3 py-2 rounded text-sm">
+            <i class="hgi hgi-stroke hgi-apps"></i> Apps
+          </a>
+          <a href="#/sites" :class="navClass('sites')" class="flex items-center gap-2 px-3 py-2 rounded text-sm">
+            <i class="hgi hgi-stroke hgi-globe"></i> Sites
+          </a>
+          <a href="#/groups" :class="navClass('groups')" class="flex items-center gap-2 px-3 py-2 rounded text-sm">
+            <i class="hgi hgi-stroke hgi-user-group"></i> Groups
+          </a>
+        </nav>
+        <div class="p-2 border-t border-gray-200">
+          <button @click="logout()" class="w-full flex items-center gap-2 px-3 py-2 rounded text-sm text-gray-700 hover:bg-gray-50">
+            <i class="hgi hgi-stroke hgi-logout-03"></i> Logout
+          </button>
+        </div>
+      </aside>
+
+      <main class="flex-1 overflow-auto">
+        <div class="p-6" id="main-content">
+          <div class="text-sm text-gray-500">Main content will render here (later tasks).</div>
+        </div>
+      </main>
+    </div>
+  </template>
+</body>
+</html>
