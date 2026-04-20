@@ -153,6 +153,7 @@ function siteioAdmin() {
         }
       } catch (err) {
         if (err && err.message !== "Unauthenticated") {
+          this.selectedApp = "not-found"
           this.toast("error", "Could not reach server")
         }
       } finally {
