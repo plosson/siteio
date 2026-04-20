@@ -110,7 +110,76 @@
 
       <main class="flex-1 overflow-auto">
         <div class="p-6" id="main-content">
-          <div class="text-sm text-gray-500">Main content will render here (later tasks).</div>
+          <!-- Apps list -->
+          <template x-if="route.view === 'apps' && !route.param">
+            <section>
+              <div class="flex items-center justify-between mb-4">
+                <h1 class="text-xl font-semibold">Apps</h1>
+                <button @click="loadApps()" :disabled="pending.has('apps-list')"
+                        class="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
+                  <i class="hgi hgi-stroke hgi-refresh"></i>
+                  <span x-show="!pending.has('apps-list')">Refresh</span>
+                  <span x-show="pending.has('apps-list')">Loading…</span>
+                </button>
+              </div>
+
+              <template x-if="apps === null">
+                <div class="text-sm text-gray-500">Loading apps…</div>
+              </template>
+
+              <template x-if="apps && apps.length === 0">
+                <div class="text-sm text-gray-500">No apps yet. Create one with <code class="font-mono">siteio apps create</code>.</div>
+              </template>
+
+              <template x-if="apps && apps.length > 0">
+                <div class="border border-gray-200 rounded overflow-hidden bg-white">
+                  <table class="w-full text-sm">
+                    <thead class="bg-gray-50 text-left text-xs uppercase text-gray-600">
+                      <tr>
+                        <th class="px-3 py-2">Name</th>
+                        <th class="px-3 py-2">Source</th>
+                        <th class="px-3 py-2">Status</th>
+                        <th class="px-3 py-2">Domains</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="app in apps" :key="app.name">
+                        <tr class="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
+                            @click="window.location.hash = '#/apps/' + app.name"
+                            :data-app-name="app.name">
+                          <td class="px-3 py-2 font-medium" x-text="app.name"></td>
+                          <td class="px-3 py-2 text-gray-700" x-text="appSourceLabel(app)"></td>
+                          <td class="px-3 py-2">
+                            <span :class="statusBadgeClass(app.status)"
+                                  class="inline-block px-2 py-0.5 text-xs rounded font-medium"
+                                  x-text="app.status"></span>
+                          </td>
+                          <td class="px-3 py-2 text-gray-700 font-mono text-xs" x-text="(app.domains || []).join(', ') || '—'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+            </section>
+          </template>
+
+          <!-- App detail (stub — filled in Task 4) -->
+          <template x-if="route.view === 'apps' && route.param">
+            <section>
+              <div class="text-sm text-gray-500">App detail for <code class="font-mono" x-text="route.param"></code> — coming in Task 4.</div>
+            </section>
+          </template>
+
+          <!-- Sites placeholder -->
+          <template x-if="route.view === 'sites'">
+            <div class="text-sm text-gray-500">Sites coming in Task 7.</div>
+          </template>
+
+          <!-- Groups placeholder -->
+          <template x-if="route.view === 'groups'">
+            <div class="text-sm text-gray-500">Groups coming in Task 8.</div>
+          </template>
         </div>
       </main>
     </div>
