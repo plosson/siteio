@@ -5,7 +5,9 @@ function siteioAdmin() {
     // auth
     apiKey: null,
     authed: false,
+    apiKeyInput: "",
     loginError: "",
+    loginPending: false,
 
     // route
     route: { view: "apps", param: null, subtab: null },
@@ -43,6 +45,37 @@ function siteioAdmin() {
       return this.route.view === view ? "nav-link nav-link-active" : "nav-link"
     },
 
+    async login() {
+      this.loginError = ""
+      const candidate = this.apiKeyInput.trim()
+      if (!candidate) {
+        this.loginError = "API key is required."
+        return
+      }
+      this.loginPending = true
+      try {
+        const res = await fetch("/sites", {
+          headers: { "X-API-Key": candidate },
+        })
+        if (res.status === 401) {
+          this.loginError = "Invalid API key."
+          return
+        }
+        if (!res.ok) {
+          this.loginError = `Server returned ${res.status}.`
+          return
+        }
+        sessionStorage.setItem("siteio_api_key", candidate)
+        this.apiKey = candidate
+        this.authed = true
+        this.apiKeyInput = ""
+      } catch {
+        this.loginError = "Could not reach server."
+      } finally {
+        this.loginPending = false
+      }
+    },
+
     onUnauthenticated() {
       this.apiKey = null
       this.authed = false
@@ -54,12 +87,14 @@ function siteioAdmin() {
       this.apiKey = null
       this.authed = false
       this.loginError = ""
+      this.apiKeyInput = ""
     },
 
     async apiFetch(path, options = {}) {
+      const key = sessionStorage.getItem("siteio_api_key")
       const res = await fetch(path, {
         ...options,
-        headers: { ...(options.headers || {}), "X-API-Key": this.apiKey },
+        headers: { ...(options.headers || {}), "X-API-Key": key },
       })
       if (res.status === 401) {
         sessionStorage.removeItem("siteio_api_key")
