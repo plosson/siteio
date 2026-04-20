@@ -218,12 +218,12 @@
                 <div class="space-y-4">
                   <!-- Sub-tabs -->
                   <div class="border-b border-gray-200 flex gap-4">
-                    <button @click="route.subtab = 'overview'"
-                            :class="route.subtab === 'overview' || !route.subtab ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
+                    <button @click="window.location.hash = '#/apps/' + route.param + '/overview'"
+                            :class="(route.subtab === 'overview' || !route.subtab) ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
                             class="border-b-2 pb-2 text-sm">
                       Overview
                     </button>
-                    <button @click="route.subtab = 'logs'"
+                    <button @click="window.location.hash = '#/apps/' + route.param + '/logs'"
                             :class="route.subtab === 'logs' ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
                             class="border-b-2 pb-2 text-sm">
                       Logs
@@ -325,9 +325,22 @@
                     </div>
                   </template>
 
-                  <!-- Logs sub-tab placeholder (Task 6) -->
                   <template x-if="route.subtab === 'logs'">
-                    <div class="text-sm text-gray-500">Logs coming in Task 6.</div>
+                    <div>
+                      <div class="flex items-center gap-3 mb-2">
+                        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                          <input type="checkbox" x-model="appLogsAuto" @change="appLogsAuto ? startLogsPoll() : stopLogsPoll()">
+                          Auto-refresh (3s)
+                        </label>
+                        <button
+                          @click="loadAppLogs(route.param)"
+                          :disabled="pending.has('logs')"
+                          class="ml-auto inline-flex items-center gap-1 px-3 py-1 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
+                          <i class="hgi hgi-stroke hgi-refresh"></i> Refresh now
+                        </button>
+                      </div>
+                      <pre class="logs" x-ref="logsEl" x-text="appLogs || 'No logs yet.'"></pre>
+                    </div>
                   </template>
                 </div>
               </template>

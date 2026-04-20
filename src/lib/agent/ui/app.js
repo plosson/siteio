@@ -21,6 +21,12 @@ function siteioAdmin() {
     pending: new Set(),
     hostname: "",
 
+    // logs
+    appLogs: "",
+    appLogsAuto: true,
+    appLogsTimer: null,
+    _logsVisibilityHandler: null,
+
     init() {
       this.hostname = window.location.hostname
       const key = sessionStorage.getItem("siteio_api_key")
@@ -38,13 +44,25 @@ function siteioAdmin() {
       const parts = h.split("/").filter(Boolean)
       const view = parts[0] || "apps"
       const param = parts[1] || null
-      this.route = { view, param, subtab: null }
+      const subtab = parts[2] || null
+      // When leaving a logs tab (or any view change), stop any poll
+      if (this.route.subtab === "logs" && subtab !== "logs") this.stopLogsPoll()
+      this.route = { view, param, subtab }
       if (this.authed) this.onRouteEnter()
     },
 
     onRouteEnter() {
       if (this.route.view === "apps" && !this.route.param) this.loadApps()
-      if (this.route.view === "apps" && this.route.param) this.loadApp(this.route.param)
+      if (this.route.view === "apps" && this.route.param) {
+        // Only re-fetch the app detail when we arrive on a new app (not on sub-tab change)
+        if (!this.selectedApp || (this.selectedApp !== "not-found" && this.selectedApp.name !== this.route.param)) {
+          this.loadApp(this.route.param)
+        }
+        if (this.route.subtab === "logs") {
+          if (this.appLogsAuto) this.startLogsPoll()
+          else this.loadAppLogs(this.route.param)
+        }
+      }
       // sites + groups wired in later tasks
     },
 
@@ -200,6 +218,60 @@ function siteioAdmin() {
       await this._runAction(name, "remove", "DELETE", `/apps/${encodeURIComponent(name)}`, `App ${name} removed`)
       // After removal, navigate back to the list
       window.location.hash = "#/apps"
+    },
+
+    async loadAppLogs(name) {
+      this.pending.add("logs")
+      try {
+        const res = await this.apiFetch(`/apps/${encodeURIComponent(name)}/logs?tail=200`)
+        const body = await res.json()
+        if (body.success) {
+          this.appLogs = body.data.logs || ""
+          // Scroll to bottom if auto-refresh is on
+          this.$nextTick(() => {
+            if (this.appLogsAuto && this.$refs.logsEl) {
+              this.$refs.logsEl.scrollTop = this.$refs.logsEl.scrollHeight
+            }
+          })
+        } else {
+          this.toast("error", body.error || "Failed to load logs")
+        }
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") {
+          this.toast("error", "Could not reach server")
+        }
+      } finally {
+        this.pending.delete("logs")
+      }
+    },
+
+    startLogsPoll() {
+      this.stopLogsPoll()
+      const name = this.route.param
+      if (!name) return
+      this.loadAppLogs(name)
+      this.appLogsTimer = setInterval(() => {
+        if (document.hidden) return
+        this.loadAppLogs(name)
+      }, 3000)
+      this._logsVisibilityHandler = () => {
+        // When page comes back to foreground, fetch immediately
+        if (!document.hidden && this.route.subtab === "logs" && this.appLogsAuto) {
+          this.loadAppLogs(this.route.param)
+        }
+      }
+      document.addEventListener("visibilitychange", this._logsVisibilityHandler)
+    },
+
+    stopLogsPoll() {
+      if (this.appLogsTimer) {
+        clearInterval(this.appLogsTimer)
+        this.appLogsTimer = null
+      }
+      if (this._logsVisibilityHandler) {
+        document.removeEventListener("visibilitychange", this._logsVisibilityHandler)
+        this._logsVisibilityHandler = null
+      }
     },
 
     appSourceLabel(app) {
