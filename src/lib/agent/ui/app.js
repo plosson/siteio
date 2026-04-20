@@ -44,7 +44,8 @@ function siteioAdmin() {
 
     onRouteEnter() {
       if (this.route.view === "apps" && !this.route.param) this.loadApps()
-      // detail + sites + groups wired in later tasks
+      if (this.route.view === "apps" && this.route.param) this.loadApp(this.route.param)
+      // sites + groups wired in later tasks
     },
 
     navClass(view) {
@@ -131,6 +132,31 @@ function siteioAdmin() {
         }
       } finally {
         this.pending.delete("apps-list")
+      }
+    },
+
+    async loadApp(name) {
+      this.selectedApp = null
+      this.pending.add("app-detail")
+      try {
+        const res = await this.apiFetch("/apps/" + encodeURIComponent(name))
+        if (res.status === 404) {
+          this.selectedApp = "not-found"
+          return
+        }
+        const body = await res.json()
+        if (body.success) {
+          this.selectedApp = body.data
+        } else {
+          this.selectedApp = "not-found"
+          this.toast("error", body.error || "Failed to load app")
+        }
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") {
+          this.toast("error", "Could not reach server")
+        }
+      } finally {
+        this.pending.delete("app-detail")
       }
     },
 
