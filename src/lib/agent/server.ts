@@ -12,6 +12,7 @@ import { ComposeStorage } from "./compose-storage.ts"
 import { buildOverride } from "./compose-override.ts"
 import { PersistentStorageManager } from "./persistent-storage.ts"
 import { STORAGE_SHIM_JS } from "./storage-shim.ts"
+import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS } from "./ui/assets.ts"
 
 export class AgentServer {
   private config: AgentConfig
@@ -136,6 +137,12 @@ export class AgentServer {
     // OAuth status (no auth required - public info)
     if (path === "/oauth/status" && req.method === "GET") {
       return this.json({ enabled: this.hasOAuthEnabled() })
+    }
+
+    // Admin UI assets are served via the Bun.serve routes map. Any other
+    // /ui/* path is a missing asset — return 404 without requiring auth.
+    if (path === "/ui" || path.startsWith("/ui/")) {
+      return this.error("Not found", 404)
     }
 
     // All other routes require auth
@@ -1521,6 +1528,20 @@ export class AgentServer {
     // Start HTTP server
     this.server = Bun.serve({
       port,
+      routes: {
+        "/ui": () =>
+          new Response(ADMIN_UI_HTML, {
+            headers: { "Content-Type": "text/html; charset=utf-8" },
+          }),
+        "/ui/app.js": () =>
+          new Response(ADMIN_UI_JS, {
+            headers: { "Content-Type": "application/javascript; charset=utf-8" },
+          }),
+        "/ui/app.css": () =>
+          new Response(ADMIN_UI_CSS, {
+            headers: { "Content-Type": "text/css; charset=utf-8" },
+          }),
+      },
       fetch: (req) => this.handleRequest(req),
     })
 

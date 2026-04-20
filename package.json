@@ -11,9 +11,11 @@
     "dev": "bun run --watch src/cli.ts",
     "start": "bun run src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test --path-ignore-patterns='**/tests/playwright/**'",
+    "test:e2e": "bun run node_modules/@playwright/test/cli.js test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/bun": "latest"
   },
   "peerDependencies": {
