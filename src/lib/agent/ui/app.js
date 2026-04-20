@@ -161,6 +161,47 @@ function siteioAdmin() {
       }
     },
 
+    async _runAction(name, key, method, path, successMsg) {
+      this.pending.add(key)
+      try {
+        const res = await this.apiFetch(path, { method })
+        const body = await res.json()
+        if (!body.success) {
+          this.toast("error", body.error || "Action failed")
+          return
+        }
+        this.toast("success", successMsg)
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") {
+          this.toast("error", "Could not reach server")
+        }
+      } finally {
+        this.pending.delete(key)
+      }
+    },
+
+    async deployApp(name) {
+      await this._runAction(name, "deploy", "POST", `/apps/${encodeURIComponent(name)}/deploy`, `App ${name} deployed`)
+      await this.loadApp(name)
+    },
+
+    async stopApp(name) {
+      await this._runAction(name, "stop", "POST", `/apps/${encodeURIComponent(name)}/stop`, `App ${name} stopped`)
+      await this.loadApp(name)
+    },
+
+    async restartApp(name) {
+      await this._runAction(name, "restart", "POST", `/apps/${encodeURIComponent(name)}/restart`, `App ${name} restarted`)
+      await this.loadApp(name)
+    },
+
+    async removeApp(name) {
+      if (!confirm(`Remove app '${name}'? Container and image will be deleted.`)) return
+      await this._runAction(name, "remove", "DELETE", `/apps/${encodeURIComponent(name)}`, `App ${name} removed`)
+      // After removal, navigate back to the list
+      window.location.hash = "#/apps"
+    },
+
     appSourceLabel(app) {
       if (app.compose) return "compose"
       if (app.git) return "git"
