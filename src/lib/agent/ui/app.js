@@ -71,6 +71,7 @@ function siteioAdmin() {
         }
         if (this.route.subtab === "history") this.loadSiteHistory(this.route.param)
       }
+      if (this.route.view === "groups") this.loadGroups()
     },
 
     navClass(view) {
@@ -328,6 +329,25 @@ function siteioAdmin() {
       if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB"
       if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB"
       return (n / 1024 / 1024 / 1024).toFixed(1) + " GB"
+    },
+
+    // --- Groups ---
+
+    async loadGroups() {
+      this.pending.add("groups-list")
+      try {
+        const res = await this.apiFetch("/groups")
+        const body = await res.json()
+        this.groups = body.success ? body.data : []
+        if (!body.success) this.toast("error", body.error || "Failed to load groups")
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") {
+          this.groups = []
+          this.toast("error", "Could not reach server")
+        }
+      } finally {
+        this.pending.delete("groups-list")
+      }
     },
 
     async loadAppLogs(name) {

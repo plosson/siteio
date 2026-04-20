@@ -511,9 +511,59 @@
             </section>
           </template>
 
-          <!-- Groups placeholder -->
+          <!-- Groups -->
           <template x-if="route.view === 'groups'">
-            <div class="text-sm text-gray-500">Groups coming in Task 8.</div>
+            <section x-data="{ expanded: {} }">
+              <div class="flex items-center justify-between mb-4">
+                <h1 class="text-xl font-semibold">Groups</h1>
+                <button @click="loadGroups()" :disabled="pending.has('groups-list')"
+                        class="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
+                  <i class="hgi hgi-stroke hgi-refresh"></i>
+                  <span x-show="!pending.has('groups-list')">Refresh</span>
+                  <span x-show="pending.has('groups-list')">Loading…</span>
+                </button>
+              </div>
+
+              <template x-if="groups === null"><div class="text-sm text-gray-500">Loading groups…</div></template>
+              <template x-if="groups && groups.length === 0"><div class="text-sm text-gray-500">No groups defined.</div></template>
+
+              <template x-if="groups && groups.length > 0">
+                <div class="border border-gray-200 rounded overflow-hidden bg-white">
+                  <table class="w-full text-sm">
+                    <thead class="bg-gray-50 text-left text-xs uppercase text-gray-600">
+                      <tr>
+                        <th class="px-3 py-2">Name</th>
+                        <th class="px-3 py-2">Members</th>
+                      </tr>
+                    </thead>
+                    <template x-for="g in groups" :key="g.name">
+                      <tbody>
+                        <tr class="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
+                            @click="expanded[g.name] = !expanded[g.name]"
+                            :data-group-name="g.name">
+                          <td class="px-3 py-2 font-medium" x-text="g.name"></td>
+                          <td class="px-3 py-2 text-gray-700" x-text="(g.emails || []).length"></td>
+                        </tr>
+                        <template x-if="expanded[g.name]">
+                          <tr class="border-t border-gray-100 bg-gray-50">
+                            <td colspan="2" class="px-3 py-2">
+                              <template x-if="(g.emails || []).length === 0">
+                                <div class="text-sm text-gray-500">No members.</div>
+                              </template>
+                              <template x-if="(g.emails || []).length > 0">
+                                <ul class="text-sm font-mono space-y-1">
+                                  <template x-for="e in g.emails" :key="e"><li x-text="e"></li></template>
+                                </ul>
+                              </template>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </template>
+                  </table>
+                </div>
+              </template>
+            </section>
           </template>
         </div>
       </main>
