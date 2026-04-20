@@ -31,7 +31,6 @@ function siteioAdmin() {
       this.parseHash()
       window.addEventListener("hashchange", () => this.parseHash())
       window.addEventListener("siteio:unauthenticated", () => this.onUnauthenticated())
-      if (this.authed) this.onRouteEnter()
     },
 
     parseHash() {
