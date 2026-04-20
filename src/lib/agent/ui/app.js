@@ -31,14 +31,21 @@ function siteioAdmin() {
       this.parseHash()
       window.addEventListener("hashchange", () => this.parseHash())
       window.addEventListener("siteio:unauthenticated", () => this.onUnauthenticated())
+      if (this.authed) this.onRouteEnter()
     },
 
     parseHash() {
       const h = window.location.hash.replace(/^#/, "") || "/apps"
-      const parts = h.split("/").filter(Boolean) // ["apps"] or ["apps", "myapp"]
+      const parts = h.split("/").filter(Boolean)
       const view = parts[0] || "apps"
       const param = parts[1] || null
       this.route = { view, param, subtab: null }
+      if (this.authed) this.onRouteEnter()
+    },
+
+    onRouteEnter() {
+      if (this.route.view === "apps" && !this.route.param) this.loadApps()
+      // detail + sites + groups wired in later tasks
     },
 
     navClass(view) {
@@ -69,6 +76,7 @@ function siteioAdmin() {
         this.apiKey = candidate
         this.authed = true
         this.apiKeyInput = ""
+        this.onRouteEnter()
       } catch {
         this.loginError = "Could not reach server."
       } finally {
@@ -102,6 +110,52 @@ function siteioAdmin() {
         throw new Error("Unauthenticated")
       }
       return res
+    },
+
+    // --- Apps ---
+
+    async loadApps() {
+      this.pending.add("apps-list")
+      try {
+        const res = await this.apiFetch("/apps")
+        const body = await res.json()
+        if (body.success) {
+          this.apps = body.data
+        } else {
+          this.apps = []
+          this.toast("error", body.error || "Failed to load apps")
+        }
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") {
+          this.apps = []
+          this.toast("error", "Could not reach server")
+        }
+      } finally {
+        this.pending.delete("apps-list")
+      }
+    },
+
+    appSourceLabel(app) {
+      if (app.compose) return "compose"
+      if (app.git) return "git"
+      if (app.dockerfile) return "dockerfile"
+      return "image"
+    },
+
+    statusBadgeClass(status) {
+      switch (status) {
+        case "running": return "bg-green-100 text-green-800"
+        case "stopped": return "bg-gray-100 text-gray-700"
+        case "failed":  return "bg-red-100 text-red-800"
+        case "pending":
+        default:        return "bg-amber-100 text-amber-800"
+      }
+    },
+
+    toast(type, message) {
+      const id = Date.now() + Math.random()
+      this.toasts.push({ id, type, message })
+      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id) }, 4000)
     },
   }
 }

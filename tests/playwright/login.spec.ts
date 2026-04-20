@@ -38,16 +38,8 @@ test("401 on any authed fetch triggers session expiry", async ({ page, context }
   // Seed a BAD key so any real fetch will 401
   await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "stale-key"))
   await page.goto(`${srv.url}/ui`)
-  // sidebar renders (authed flipped true at boot based on sessionStorage presence)
-  await expect(page.locator("aside")).toBeVisible()
-  // Manually trigger apiFetch which will 401 → flip to login with message.
-  // Fire-and-forget so the page.evaluate promise resolves before Alpine swaps
-  // templates (which otherwise races with the evaluate execution context).
-  await page.evaluate(() => {
-    // @ts-expect-error access Alpine root for test-only action
-    const root = Alpine.$data(document.body)
-    root.apiFetch("/sites").catch(() => { /* expected 401 */ })
-  })
+  // On boot, the route-driven fetch for /apps fires with the stale key and 401s,
+  // which flips authed=false and surfaces the session-expired message.
   await expect(page.locator("#login-view")).toBeVisible()
   await expect(page.locator("#login-error")).toContainText("Session expired")
 })
