@@ -46,10 +46,11 @@ test("pausing auto-refresh stops polling", async ({ page, context }) => {
   })
 
   await page.goto(`${srv.url}/ui#/apps/logsapp/logs`)
-  // Uncheck the auto-refresh checkbox
+  // Uncheck the auto-refresh checkbox, then wait briefly for any in-flight poll to settle
   await page.uncheck('input[type="checkbox"]')
+  await page.waitForTimeout(500)
   const before = hitCount
   await page.waitForTimeout(4000)
-  // No additional polls after pause
-  expect(hitCount).toBeLessThanOrEqual(before + 1) // allow 1 in-flight
+  // Strict: absolutely no polls after pause took effect
+  expect(hitCount).toBe(before)
 })

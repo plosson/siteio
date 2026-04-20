@@ -103,12 +103,14 @@ function siteioAdmin() {
     },
 
     onUnauthenticated() {
+      this.stopLogsPoll()
       this.apiKey = null
       this.authed = false
       this.loginError = "Session expired. Please sign in again."
     },
 
     logout() {
+      this.stopLogsPoll()
       sessionStorage.removeItem("siteio_api_key")
       this.apiKey = null
       this.authed = false
