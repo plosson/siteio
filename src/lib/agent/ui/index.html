@@ -347,9 +347,168 @@
             </section>
           </template>
 
-          <!-- Sites placeholder -->
-          <template x-if="route.view === 'sites'">
-            <div class="text-sm text-gray-500">Sites coming in Task 7.</div>
+          <!-- Sites list -->
+          <template x-if="route.view === 'sites' && !route.param">
+            <section>
+              <div class="flex items-center justify-between mb-4">
+                <h1 class="text-xl font-semibold">Sites</h1>
+                <button @click="loadSites()" :disabled="pending.has('sites-list')"
+                        class="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
+                  <i class="hgi hgi-stroke hgi-refresh"></i>
+                  <span x-show="!pending.has('sites-list')">Refresh</span>
+                  <span x-show="pending.has('sites-list')">Loading…</span>
+                </button>
+              </div>
+
+              <template x-if="sites === null"><div class="text-sm text-gray-500">Loading sites…</div></template>
+              <template x-if="sites && sites.length === 0"><div class="text-sm text-gray-500">No sites deployed.</div></template>
+
+              <template x-if="sites && sites.length > 0">
+                <div class="border border-gray-200 rounded overflow-hidden bg-white">
+                  <table class="w-full text-sm">
+                    <thead class="bg-gray-50 text-left text-xs uppercase text-gray-600">
+                      <tr>
+                        <th class="px-3 py-2">Subdomain</th>
+                        <th class="px-3 py-2">Version</th>
+                        <th class="px-3 py-2">Size</th>
+                        <th class="px-3 py-2">Deployed</th>
+                        <th class="px-3 py-2">TLS</th>
+                        <th class="px-3 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="s in sites" :key="s.subdomain">
+                        <tr class="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
+                            @click="window.location.hash = '#/sites/' + s.subdomain"
+                            :data-site-subdomain="s.subdomain">
+                          <td class="px-3 py-2 font-medium" x-text="s.subdomain"></td>
+                          <td class="px-3 py-2 font-mono text-gray-700" x-text="s.version || '—'"></td>
+                          <td class="px-3 py-2 text-gray-700" x-text="formatBytes(s.size)"></td>
+                          <td class="px-3 py-2 text-gray-700" x-text="s.deployedAt"></td>
+                          <td class="px-3 py-2 text-gray-700 text-xs uppercase" x-text="s.tls || '—'"></td>
+                          <td class="px-3 py-2 text-right">
+                            <a :href="s.url" target="_blank" rel="noreferrer"
+                               @click.stop
+                               class="text-brand-blue hover:underline text-xs">Open ↗</a>
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+            </section>
+          </template>
+
+          <!-- Site detail -->
+          <template x-if="route.view === 'sites' && route.param">
+            <section>
+              <div class="flex items-center gap-3 mb-4 flex-wrap">
+                <a href="#/sites" class="text-sm text-gray-500 hover:text-gray-700">← Sites</a>
+                <h1 class="text-xl font-semibold" x-text="route.param"></h1>
+                <div class="ml-auto" x-show="selectedSite && selectedSite !== 'not-found'">
+                  <button
+                    :disabled="pending.has('undeploy')"
+                    @click="undeploySite(route.param)"
+                    class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60">
+                    <i class="hgi hgi-stroke hgi-delete-02"></i> Undeploy
+                  </button>
+                </div>
+              </div>
+
+              <template x-if="selectedSite === null"><div class="text-sm text-gray-500">Loading…</div></template>
+              <template x-if="selectedSite === 'not-found'">
+                <div class="text-sm text-gray-500">
+                  Site not found.
+                  <a href="#/sites" class="text-brand-blue hover:underline ml-1">Back to sites</a>.
+                </div>
+              </template>
+
+              <template x-if="selectedSite && selectedSite !== 'not-found'">
+                <div class="space-y-4">
+                  <div class="border-b border-gray-200 flex gap-4">
+                    <button @click="window.location.hash = '#/sites/' + route.param + '/overview'"
+                            :class="(route.subtab === 'overview' || !route.subtab) ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
+                            class="border-b-2 pb-2 text-sm">Overview</button>
+                    <button @click="window.location.hash = '#/sites/' + route.param + '/history'"
+                            :class="route.subtab === 'history' ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
+                            class="border-b-2 pb-2 text-sm">History</button>
+                  </div>
+
+                  <template x-if="!route.subtab || route.subtab === 'overview'">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div class="bg-white border border-gray-200 rounded p-4">
+                        <div class="text-xs uppercase text-gray-500 mb-2">URL</div>
+                        <a :href="selectedSite.url" target="_blank" rel="noreferrer" class="text-brand-blue hover:underline font-mono text-sm break-all" x-text="selectedSite.url"></a>
+                      </div>
+                      <div class="bg-white border border-gray-200 rounded p-4">
+                        <div class="text-xs uppercase text-gray-500 mb-2">Deployed</div>
+                        <div class="text-sm font-mono" x-text="selectedSite.deployedAt"></div>
+                        <div class="text-sm"><span class="text-gray-500">Version:</span> <span class="font-mono" x-text="selectedSite.version || '—'"></span></div>
+                        <div class="text-sm"><span class="text-gray-500">Size:</span> <span class="font-mono" x-text="formatBytes(selectedSite.size)"></span></div>
+                        <div class="text-sm"><span class="text-gray-500">TLS:</span> <span class="font-mono" x-text="selectedSite.tls || '—'"></span></div>
+                      </div>
+                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
+                        <div class="text-xs uppercase text-gray-500 mb-2">Custom domains</div>
+                        <div class="text-sm font-mono" x-text="(selectedSite.domains || []).join(', ') || '—'"></div>
+                      </div>
+                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
+                        <div class="text-xs uppercase text-gray-500 mb-2">Access control</div>
+                        <template x-if="!selectedSite.oauth"><div class="text-sm text-gray-500">Public</div></template>
+                        <template x-if="selectedSite.oauth">
+                          <div class="text-sm">
+                            <template x-if="(selectedSite.oauth.allowedEmails || []).length"><div><span class="text-gray-500">Emails:</span> <span class="font-mono" x-text="selectedSite.oauth.allowedEmails.join(', ')"></span></div></template>
+                            <template x-if="selectedSite.oauth.allowedDomain"><div><span class="text-gray-500">Domain:</span> <span class="font-mono" x-text="selectedSite.oauth.allowedDomain"></span></div></template>
+                            <template x-if="(selectedSite.oauth.allowedGroups || []).length"><div><span class="text-gray-500">Groups:</span> <span class="font-mono" x-text="selectedSite.oauth.allowedGroups.join(', ')"></span></div></template>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+
+                  <template x-if="route.subtab === 'history'">
+                    <div>
+                      <template x-if="siteHistory === null"><div class="text-sm text-gray-500">Loading history…</div></template>
+                      <template x-if="siteHistory && siteHistory.length === 0"><div class="text-sm text-gray-500">No history.</div></template>
+                      <template x-if="siteHistory && siteHistory.length > 0">
+                        <div class="border border-gray-200 rounded overflow-hidden bg-white">
+                          <table class="w-full text-sm">
+                            <thead class="bg-gray-50 text-left text-xs uppercase text-gray-600">
+                              <tr>
+                                <th class="px-3 py-2">Version</th>
+                                <th class="px-3 py-2">Deployed</th>
+                                <th class="px-3 py-2">By</th>
+                                <th class="px-3 py-2">Size</th>
+                                <th class="px-3 py-2"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <template x-for="v in siteHistory" :key="v.version">
+                                <tr class="border-t border-gray-100" :data-version="v.version">
+                                  <td class="px-3 py-2 font-mono" x-text="v.version"></td>
+                                  <td class="px-3 py-2 font-mono text-gray-700" x-text="v.deployedAt"></td>
+                                  <td class="px-3 py-2 text-gray-700" x-text="v.deployedBy || '—'"></td>
+                                  <td class="px-3 py-2 text-gray-700" x-text="formatBytes(v.size)"></td>
+                                  <td class="px-3 py-2 text-right">
+                                    <button
+                                      :disabled="pending.has('rollback-' + v.version) || v.version === selectedSite.version"
+                                      @click="rollbackSite(route.param, v.version)"
+                                      class="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                                      <template x-if="v.version === selectedSite.version"><span>current</span></template>
+                                      <template x-if="v.version !== selectedSite.version"><span>Rollback</span></template>
+                                    </button>
+                                  </td>
+                                </tr>
+                              </template>
+                            </tbody>
+                          </table>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </section>
           </template>
 
           <!-- Groups placeholder -->

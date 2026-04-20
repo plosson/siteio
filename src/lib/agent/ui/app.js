@@ -15,6 +15,7 @@ function siteioAdmin() {
     // data
     sites: null, apps: null, groups: null,
     selectedSite: null, selectedApp: null,
+    siteHistory: null,
 
     // ui
     toasts: [],
@@ -63,7 +64,13 @@ function siteioAdmin() {
           else this.loadAppLogs(this.route.param)
         }
       }
-      // sites + groups wired in later tasks
+      if (this.route.view === "sites" && !this.route.param) this.loadSites()
+      if (this.route.view === "sites" && this.route.param) {
+        if (!this.selectedSite || (this.selectedSite !== "not-found" && this.selectedSite.subdomain !== this.route.param)) {
+          this.loadSite(this.route.param)
+        }
+        if (this.route.subtab === "history") this.loadSiteHistory(this.route.param)
+      }
     },
 
     navClass(view) {
@@ -220,6 +227,107 @@ function siteioAdmin() {
       await this._runAction(name, "remove", "DELETE", `/apps/${encodeURIComponent(name)}`, `App ${name} removed`)
       // After removal, navigate back to the list
       window.location.hash = "#/apps"
+    },
+
+    // --- Sites ---
+
+    async loadSites() {
+      this.pending.add("sites-list")
+      try {
+        const res = await this.apiFetch("/sites")
+        const body = await res.json()
+        this.sites = body.success ? body.data : []
+        if (!body.success) this.toast("error", body.error || "Failed to load sites")
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") {
+          this.sites = []
+          this.toast("error", "Could not reach server")
+        }
+      } finally {
+        this.pending.delete("sites-list")
+      }
+    },
+
+    async loadSite(subdomain) {
+      // Site detail fetched by listing and picking (no GET /sites/:subdomain exists).
+      this.selectedSite = null
+      try {
+        const res = await this.apiFetch("/sites")
+        const body = await res.json()
+        if (!body.success) { this.selectedSite = "not-found"; return }
+        const match = (body.data || []).find(s => s.subdomain === subdomain)
+        this.selectedSite = match || "not-found"
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") {
+          this.selectedSite = "not-found"
+          this.toast("error", "Could not reach server")
+        }
+      }
+    },
+
+    async loadSiteHistory(subdomain) {
+      this.siteHistory = null
+      try {
+        const res = await this.apiFetch(`/sites/${encodeURIComponent(subdomain)}/history`)
+        if (res.status === 404) { this.siteHistory = []; return }
+        const body = await res.json()
+        this.siteHistory = body.success ? body.data : []
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") {
+          this.siteHistory = []
+          this.toast("error", "Could not reach server")
+        }
+      }
+    },
+
+    async undeploySite(subdomain) {
+      if (!confirm(`Undeploy site '${subdomain}'? Files will be deleted.`)) return
+      this.pending.add("undeploy")
+      try {
+        const res = await this.apiFetch(`/sites/${encodeURIComponent(subdomain)}`, { method: "DELETE" })
+        const body = await res.json()
+        if (!body.success) {
+          this.toast("error", body.error || "Failed to undeploy")
+          return
+        }
+        this.toast("success", `Site ${subdomain} undeployed`)
+        window.location.hash = "#/sites"
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") this.toast("error", "Could not reach server")
+      } finally {
+        this.pending.delete("undeploy")
+      }
+    },
+
+    async rollbackSite(subdomain, version) {
+      this.pending.add("rollback-" + version)
+      try {
+        const res = await this.apiFetch(`/sites/${encodeURIComponent(subdomain)}/rollback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version }),
+        })
+        const body = await res.json()
+        if (!body.success) {
+          this.toast("error", body.error || "Rollback failed")
+          return
+        }
+        this.toast("success", `Rolled back to v${version}`)
+        await this.loadSite(subdomain)
+        await this.loadSiteHistory(subdomain)
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") this.toast("error", "Could not reach server")
+      } finally {
+        this.pending.delete("rollback-" + version)
+      }
+    },
+
+    formatBytes(n) {
+      if (n === undefined || n === null) return "—"
+      if (n < 1024) return n + " B"
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB"
+      if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB"
+      return (n / 1024 / 1024 / 1024).toFixed(1) + " GB"
     },
 
     async loadAppLogs(name) {
