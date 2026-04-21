@@ -33,6 +33,16 @@ describe("CLI: validateCreateOptions", () => {
       .not.toThrow()
   })
 
+  test("--git-token without --git throws", () => {
+    expect(() => validateCreateOptions({ image: "nginx", gitToken: "ghp_x" }))
+      .toThrow(/--git-token requires --git/)
+  })
+
+  test("--git + --git-token passes", () => {
+    expect(() => validateCreateOptions({ git: "https://x.test/r.git", gitToken: "ghp_x" }))
+      .not.toThrow()
+  })
+
   test("errors are ValidationError instances", () => {
     try {
       validateCreateOptions({ composeFile: "/tmp/c.yml" })

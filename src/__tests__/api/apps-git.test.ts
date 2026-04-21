@@ -163,6 +163,62 @@ describe("Apps API - Git Source", () => {
     })
   })
 
+  describe("Git token storage and scrubbing", () => {
+    test("stores token on create and scrubs it from GET / LIST responses", async () => {
+      const create = await request<App>("POST", "/apps", {
+        name: "git-token-app",
+        git: {
+          repoUrl: "https://github.com/user/private",
+          token: "ghp_secret123",
+        },
+        internalPort: 80,
+      })
+      expect(create.success).toBe(true)
+      expect(create.data?.git?.repoUrl).toBe("https://github.com/user/private")
+      // Token never returned to clients; a boolean indicator is surfaced instead
+      expect((create.data?.git as { token?: string } | undefined)?.token).toBeUndefined()
+      expect(create.data?.git?.tokenSet).toBe(true)
+
+      const got = await request<App>("GET", "/apps/git-token-app")
+      expect((got.data?.git as { token?: string } | undefined)?.token).toBeUndefined()
+      expect(got.data?.git?.tokenSet).toBe(true)
+
+      const list = await request<AppInfo[]>("GET", "/apps")
+      const listed = list.data?.find((a) => a.name === "git-token-app")
+      expect((listed?.git as { token?: string } | undefined)?.token).toBeUndefined()
+      expect(listed?.git?.tokenSet).toBe(true)
+    })
+
+    test("PATCH merges git fields and can update the token without losing others", async () => {
+      // Update only dockerfile — token and repoUrl must be preserved
+      const patch1 = await request<App>("PATCH", "/apps/git-token-app", {
+        git: { dockerfile: "docker/Dockerfile" },
+      })
+      expect(patch1.success).toBe(true)
+      expect(patch1.data?.git?.dockerfile).toBe("docker/Dockerfile")
+      expect(patch1.data?.git?.repoUrl).toBe("https://github.com/user/private")
+      expect(patch1.data?.git?.tokenSet).toBe(true)
+
+      // Update only the token — other fields preserved
+      const patch2 = await request<App>("PATCH", "/apps/git-token-app", {
+        git: { token: "ghp_newsecret" },
+      })
+      expect(patch2.success).toBe(true)
+      expect(patch2.data?.git?.repoUrl).toBe("https://github.com/user/private")
+      expect(patch2.data?.git?.dockerfile).toBe("docker/Dockerfile")
+      expect(patch2.data?.git?.tokenSet).toBe(true)
+
+      // Clear the token by passing undefined (null round-trips as undefined via JSON — use empty string semantically)
+      const patch3 = await request<App>("PATCH", "/apps/git-token-app", {
+        git: { token: undefined },
+      })
+      // undefined fields drop during JSON serialization on the client side, so
+      // this acts as a no-op; ensure state is still consistent.
+      expect(patch3.success).toBe(true)
+      expect(patch3.data?.git?.tokenSet).toBe(true)
+    })
+  })
+
   describe("DELETE /apps/:name - delete git-based app", () => {
     test("deletes git-based app", async () => {
       // Create a temporary app

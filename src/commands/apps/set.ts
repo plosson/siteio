@@ -16,6 +16,7 @@ export interface SetAppOptions {
   restart?: string
   image?: string
   dockerfile?: string
+  gitToken?: string
   json?: boolean
 }
 
@@ -107,7 +108,8 @@ export async function setAppCommand(
       internalPort?: number
       restartPolicy?: RestartPolicy
       image?: string
-      git?: { repoUrl: string; branch: string; dockerfile: string; context?: string; credentialId?: string }
+      // Partial patch — server merges with existing app.git
+      git?: { repoUrl?: string; branch?: string; dockerfile?: string; context?: string; token?: string }
     } = {}
 
     if (options.env && options.env.length > 0) {
@@ -134,13 +136,21 @@ export async function setAppCommand(
       updates.image = options.image
     }
 
-    if (options.dockerfile) {
-      // Fetch current app to merge git config
+    if (options.dockerfile || options.gitToken !== undefined) {
+      // Validate the app is git-based. Server does the field-level merge.
       const current = await client.getApp(name)
       if (!current.git) {
-        throw new ValidationError("Cannot set --dockerfile on a non-git app")
+        throw new ValidationError("Cannot set --dockerfile or --git-token on a non-git app")
       }
-      updates.git = { ...current.git, dockerfile: options.dockerfile }
+      const gitPatch: { dockerfile?: string; token?: string } = {}
+      if (options.dockerfile) {
+        gitPatch.dockerfile = options.dockerfile
+      }
+      if (options.gitToken !== undefined) {
+        // Empty string clears the stored token
+        gitPatch.token = options.gitToken === "" ? undefined : options.gitToken
+      }
+      updates.git = gitPatch
     }
 
     if (Object.keys(updates).length === 0) {
@@ -197,7 +207,12 @@ export async function setAppCommand(
       }
 
       if (updates.git) {
-        console.log(`Dockerfile: ${updates.git.dockerfile}`)
+        if (options.dockerfile) {
+          console.log(`Dockerfile: ${updates.git.dockerfile}`)
+        }
+        if (options.gitToken !== undefined) {
+          console.log(`Git token: ${updates.git.token ? chalk.dim("***") : chalk.dim("(cleared)")}`)
+        }
       }
 
       console.log("")

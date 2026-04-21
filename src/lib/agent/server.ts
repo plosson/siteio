@@ -14,6 +14,15 @@ import { PersistentStorageManager } from "./persistent-storage.ts"
 import { STORAGE_SHIM_JS } from "./storage-shim.ts"
 import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS } from "./ui/assets.ts"
 
+// Strip the git token before returning an app over the API. Clients never need
+// the raw value; they can set/clear it via PATCH. `tokenSet` is surfaced so
+// UIs can indicate whether a token is stored.
+function scrubApp<T extends App | AppInfo>(app: T): T {
+  if (!app.git) return app
+  const { token, ...rest } = app.git
+  return { ...app, git: { ...rest, tokenSet: !!token } }
+}
+
 export class AgentServer {
   private config: AgentConfig
   private storage: SiteStorage
@@ -791,7 +800,7 @@ export class AgentServer {
     // Get TLS status from Traefik if available
     const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
 
-    const appInfos: AppInfo[] = apps.map((app) => ({
+    const appInfos: AppInfo[] = apps.map((app) => scrubApp({
       ...this.appStorage.toInfo(app, this.config.domain),
       tls: tlsStatusMap.get(`siteio-${app.name}`) || "pending",
     }))
@@ -803,7 +812,7 @@ export class AgentServer {
     if (!app) {
       return this.error("App not found", 404)
     }
-    return this.json(app)
+    return this.json(scrubApp(app))
   }
 
   private async handleCreateApp(req: Request): Promise<Response> {
@@ -817,6 +826,7 @@ export class AgentServer {
           branch?: string
           dockerfile?: string
           context?: string
+          token?: string
         }
         dockerfileContent?: string
         composeContent?: string
@@ -906,6 +916,7 @@ export class AgentServer {
                 branch: body.git.branch || "main",
                 dockerfile: body.git.dockerfile || "Dockerfile",
                 context: body.git.context,
+                token: body.git.token,
               }
             : undefined,
           dockerfile: body.dockerfileContent ? { source: "inline" } : undefined,
@@ -919,7 +930,7 @@ export class AgentServer {
           oauth: body.oauth,
         })
 
-        return this.json(app)
+        return this.json(scrubApp(app))
       } catch (err) {
         if (body.dockerfileContent) this.dockerfiles.remove(body.name)
         if (body.composeContent) this.compose.remove(body.name)
@@ -939,12 +950,21 @@ export class AgentServer {
       }
 
       const body = (await req.json()) as Partial<Omit<App, "name" | "createdAt">>
+
+      // Field-level merge for git so partial updates (e.g. only --git-token or
+      // only --dockerfile) preserve other stored fields. Also strip clients'
+      // incoming `tokenSet` — it's an output-only hint.
+      if (body.git && app.git) {
+        const { tokenSet: _drop, ...incoming } = body.git as typeof body.git & { tokenSet?: boolean }
+        body.git = { ...app.git, ...incoming }
+      }
+
       const updated = this.appStorage.update(name, body)
       if (!updated) {
         return this.error("Failed to update app", 500)
       }
 
-      return this.json(updated)
+      return this.json(scrubApp(updated))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update app"
       return this.error(message, 400)
@@ -1061,7 +1081,7 @@ export class AgentServer {
             this.appStorage.update(name, { status: "failed" })
             return this.error("Git source missing on compose app", 500)
           }
-          await this.git.clone(name, app.git.repoUrl, app.git.branch)
+          await this.git.clone(name, app.git.repoUrl, app.git.branch, app.git.token)
           const repoPath = this.git.repoPath(name)
           basePath = join(repoPath, app.compose.path)
           if (!existsSync(basePath)) {
@@ -1130,7 +1150,7 @@ export class AgentServer {
         // Git-based app: clone and build
 
         // Clone repository
-        await this.git.clone(name, app.git.repoUrl, app.git.branch)
+        await this.git.clone(name, app.git.repoUrl, app.git.branch, app.git.token)
 
         const repoPath = this.git.repoPath(name)
 

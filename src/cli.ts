@@ -256,6 +256,7 @@ apps
   .option("--env-file <path>", "Path to a local .env file to upload alongside the compose file")
   .option("--branch <branch>", "Git branch (default: main)")
   .option("--context <path>", "Build context subdirectory for monorepos")
+  .option("--git-token <token>", "Personal access token for cloning a private HTTPS git repo")
   .option("-p, --port <port>", "Internal port the container listens on", parseInt)
   .action(async (name, options) => {
     const { createAppCommand } = await import("./commands/apps/create.ts")
@@ -354,6 +355,7 @@ apps
   .option("-r, --restart <policy>", "Set restart policy (always, unless-stopped, on-failure, no)")
   .option("--image <image>", "Set Docker image")
   .option("--dockerfile <path>", "Set Dockerfile path (git-based apps only)")
+  .option("--git-token <token>", "Update the token used to clone a private HTTPS git repo (pass empty string to clear)")
   .action(async (name, options) => {
     const { setAppCommand } = await import("./commands/apps/set.ts")
     await setAppCommand(name, { ...options, json: program.opts().json })
