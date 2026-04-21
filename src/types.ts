@@ -36,7 +36,10 @@ export interface GitSource {
   branch: string
   dockerfile: string
   context?: string // Subdirectory for monorepo support
-  credentialId?: string
+  token?: string // Optional PAT for private HTTPS repos; injected via GIT_ASKPASS at clone time
+  // Set by the server on outgoing API responses — true when a token is stored.
+  // Never sent by clients; the server ignores it on PATCH.
+  tokenSet?: boolean
 }
 
 // Inline Dockerfile source - file is uploaded by the client and built remotely

@@ -249,6 +249,7 @@
                               <div x-text="selectedApp.git.repoUrl"></div>
                               <div class="text-gray-600" x-text="'branch: ' + selectedApp.git.branch + ' · dockerfile: ' + selectedApp.git.dockerfile"></div>
                               <template x-if="selectedApp.git.context"><div class="text-gray-600" x-text="'context: ' + selectedApp.git.context"></div></template>
+                              <template x-if="selectedApp.git.tokenSet"><div class="text-gray-600">token: *** (stored)</div></template>
                             </div>
                           </template>
                           <template x-if="selectedApp.dockerfile && !selectedApp.git">

@@ -18,6 +18,7 @@ export interface CreateAppOptions {
   envFile?: string
   branch?: string
   context?: string
+  gitToken?: string
   port?: number
   json?: boolean
 }
@@ -60,6 +61,9 @@ export function validateCreateOptions(options: CreateAppOptions): void {
   }
   if (options.envFile && !hasCompose) {
     throw new ValidationError("--env-file is only valid with --compose-file or --compose")
+  }
+  if (options.gitToken && !hasGit) {
+    throw new ValidationError("--git-token requires --git")
   }
 }
 
@@ -126,6 +130,7 @@ export async function createAppCommand(
             branch: options.branch,
             dockerfile: options.dockerfile,
             context: options.context,
+            token: options.gitToken,
           }
         : undefined,
       dockerfileContent,

@@ -316,6 +316,7 @@ export class SiteioClient {
       branch?: string
       dockerfile?: string
       context?: string
+      token?: string
     }
     dockerfileContent?: string
     composeContent?: string
@@ -363,7 +364,7 @@ export class SiteioClient {
       internalPort?: number
       restartPolicy?: string
       image?: string
-      git?: { repoUrl: string; branch: string; dockerfile: string; context?: string; credentialId?: string }
+      git?: { repoUrl?: string; branch?: string; dockerfile?: string; context?: string; token?: string }
     }
   ): Promise<App> {
     const response = await this.request<ApiResponse<App>>(

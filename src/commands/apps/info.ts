@@ -51,6 +51,9 @@ export async function infoAppCommand(
       if (app.git.context) {
         console.log(`  Context: ${app.git.context}`)
       }
+      if (app.git.tokenSet) {
+        console.log(`  Token:   ${chalk.dim("*** (stored)")}`)
+      }
       if (app.commitHash) {
         console.log(`  Commit:  ${chalk.dim(app.commitHash.substring(0, 7))}`)
       }
