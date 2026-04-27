@@ -60,6 +60,20 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
       console.error(formatError(message))
       process.exit(1)
     }
+  } else if (options.apiUrl || options.apiKey) {
+    if (!options.apiUrl || !options.apiKey) {
+      console.error(formatError("--api-url and --api-key must be used together"))
+      process.exit(1)
+    }
+    try {
+      new URL(options.apiUrl)
+    } catch {
+      console.error(formatError(`Invalid API URL: ${options.apiUrl}`))
+      process.exit(1)
+    }
+    apiUrl = options.apiUrl
+    apiKey = options.apiKey
+    p.log.info(`Using provided credentials for ${extractDomain(apiUrl)}`)
   } else {
     // No token - show server list if we have multiple, or prompt for new
     const servers = listServers()
@@ -157,9 +171,16 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
   // Save server config
   const domain = addServer(apiUrl, apiKey)
 
-  // Prompt for username if not already set
+  // Username: use --username flag if provided, else prompt only in fully-interactive mode
   const existingUsername = getUsername()
-  if (!existingUsername) {
+  const nonInteractiveAuth = Boolean(token || options.apiUrl)
+  if (options.username !== undefined) {
+    const trimmed = options.username.trim()
+    if (trimmed) {
+      setUsername(trimmed)
+      p.log.success(`Username set to "${trimmed}"`)
+    }
+  } else if (!existingUsername && !nonInteractiveAuth) {
     const username = await p.text({
       message: "Your name (for deploy attribution):",
       placeholder: "e.g., alice (press Enter to skip)",

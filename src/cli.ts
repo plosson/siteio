@@ -68,6 +68,7 @@ program
   .option("--api-url <url>", "API URL")
   .option("--api-key <key>", "API key")
   .option("-t, --token <token>", "Connection token (contains URL and API key)")
+  .option("--username <name>", "Set username for deploy attribution (skips prompt)")
   .action(async (domain, options) => {
     const { loginCommand } = await import("./commands/login.ts")
     await loginCommand({ ...options, domain })

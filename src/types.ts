@@ -262,6 +262,7 @@ export interface LoginOptions {
   apiUrl?: string
   apiKey?: string
   token?: string
+  username?: string
   domain?: string // Switch to existing server by domain
 }
 
