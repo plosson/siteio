@@ -181,7 +181,7 @@ CMD ["echo", "hello"]
 
       // Cleanup
       await docker.removeImage(tag)
-    })
+    }, 30000)
 
     test("should build image with nested Dockerfile path in context", async () => {
       if (!isDockerAvailable()) {
@@ -214,7 +214,7 @@ CMD ["echo", "production"]
 
       // Cleanup
       await docker.removeImage(tag)
-    })
+    }, 30000)
 
     test("should fail when Dockerfile does not exist", async () => {
       if (!isDockerAvailable()) {
@@ -232,7 +232,7 @@ CMD ["echo", "production"]
           tag: "should-not-exist:latest",
         })
       ).rejects.toThrow()
-    })
+    }, 30000)
 
     test("should pass --no-cache flag when specified", async () => {
       if (!isDockerAvailable()) {
@@ -265,6 +265,6 @@ CMD ["echo", "no-cache-test"]
 
       // Cleanup
       await docker.removeImage(tag)
-    })
+    }, 30000)
   })
 })
