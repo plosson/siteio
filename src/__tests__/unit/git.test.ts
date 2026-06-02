@@ -2,7 +2,38 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { mkdtempSync, rmSync, existsSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { GitManager } from "../../lib/agent/git"
+import { GitManager, cloneErrorMessage } from "../../lib/agent/git"
+
+describe("cloneErrorMessage", () => {
+  const opts = { branch: "main", url: "https://github.com/u/private.git", hasToken: true }
+
+  test("private repo with no access is NOT mislabeled as a missing branch", () => {
+    // GitHub returns "Repository not found" for private repos the token can't read.
+    const stderr = "remote: Repository not found.\nfatal: repository 'https://github.com/u/private.git/' not found"
+    const msg = cloneErrorMessage(stderr, opts)
+    expect(msg).toContain("Repository not found")
+    expect(msg).not.toContain("Branch")
+  })
+
+  test("a genuinely missing branch is reported as a branch error", () => {
+    const stderr = "fatal: Remote branch main not found in upstream origin"
+    expect(cloneErrorMessage(stderr, opts)).toBe("Branch 'main' not found in repository")
+  })
+
+  test("missing credentials (no token) asks for a token", () => {
+    const stderr = "fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+    expect(cloneErrorMessage(stderr, { ...opts, hasToken: false })).toContain("supply a token")
+  })
+
+  test("bad credentials (with token) reports an auth failure", () => {
+    const stderr = "remote: Invalid username or password.\nfatal: Authentication failed for 'https://...'"
+    expect(cloneErrorMessage(stderr, opts)).toContain("Authentication failed")
+  })
+
+  test("unrecognized errors fall through to a generic message", () => {
+    expect(cloneErrorMessage("fatal: unable to access: timeout", opts)).toContain("Failed to clone repository")
+  })
+})
 
 describe("GitManager", () => {
   let tempDir: string

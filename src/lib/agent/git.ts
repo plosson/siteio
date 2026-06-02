@@ -21,6 +21,39 @@ function redactToken(text: string, token: string | undefined): string {
   return text.split(token).join("***")
 }
 
+// Map git clone stderr to a clear, accurate error message.
+//
+// Order matters: GitHub hides private repos behind "Repository not found" (which
+// contains the substring "not found"), so the branch check must be specific to
+// real "remote branch missing" messages and must run AFTER the auth and
+// repository-not-found checks — otherwise an auth/access failure is mislabeled
+// as "Branch '<branch>' not found".
+export function cloneErrorMessage(
+  stderr: string,
+  opts: { branch: string; url: string; hasToken: boolean },
+): string {
+  if (
+    stderr.includes("Authentication failed") ||
+    stderr.includes("could not read Username") ||
+    stderr.includes("could not read Password")
+  ) {
+    return opts.hasToken
+      ? "Authentication failed for repository — check the git token"
+      : "Authentication required for repository — supply a token with --git-token"
+  }
+  if (stderr.includes("Repository not found") || stderr.includes("not appear to be a git repository")) {
+    return `Repository not found (or token lacks access): ${opts.url}`
+  }
+  if (
+    stderr.includes("Remote branch") ||
+    stderr.includes("not found in upstream") ||
+    stderr.includes("does not exist")
+  ) {
+    return `Branch '${opts.branch}' not found in repository`
+  }
+  return `Failed to clone repository: ${stderr}`
+}
+
 export class GitManager {
   private reposDir: string
 
@@ -72,24 +105,7 @@ export class GitManager {
 
       if (result.exitCode !== 0) {
         const stderr = redactToken(result.stderr.toString(), token)
-        if (stderr.includes("not found") || stderr.includes("does not exist")) {
-          throw new SiteioError(`Branch '${branch}' not found in repository`)
-        }
-        if (
-          stderr.includes("Authentication failed") ||
-          stderr.includes("could not read Username") ||
-          stderr.includes("could not read Password")
-        ) {
-          throw new SiteioError(
-            token
-              ? `Authentication failed for repository — check the git token`
-              : `Authentication required for repository — supply a token with --git-token`
-          )
-        }
-        if (stderr.includes("Repository not found") || stderr.includes("not appear to be a git repository")) {
-          throw new SiteioError(`Repository not found: ${url}`)
-        }
-        throw new SiteioError(`Failed to clone repository: ${stderr}`)
+        throw new SiteioError(cloneErrorMessage(stderr, { branch, url, hasToken: !!token }))
       }
     } finally {
       if (askpassDir && existsSync(askpassDir)) {
