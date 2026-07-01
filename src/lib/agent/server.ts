@@ -1449,6 +1449,21 @@ export class AgentServer {
     }
   }
 
+  // Per-pocket Google flags take precedence; otherwise fall back to the agent's
+  // own Google OAuth config (only when its issuer is Google — a generic OIDC
+  // issuer isn't a PocketBase named provider). Returns undefined when neither.
+  private resolvePocketGoogle(
+    id?: string,
+    secret?: string
+  ): { clientId: string; clientSecret: string } | undefined {
+    if (id && secret) return { clientId: id, clientSecret: secret }
+    const cfg = this.oauthConfig
+    if (cfg?.clientId && cfg?.clientSecret && cfg.issuerUrl.includes("accounts.google.com")) {
+      return { clientId: cfg.clientId, clientSecret: cfg.clientSecret }
+    }
+    return undefined
+  }
+
   private async handleDeployPocket(name: string, req: Request): Promise<Response> {
     // Validate upload
     const contentType = req.headers.get("Content-Type") || ""
@@ -1469,6 +1484,11 @@ export class AgentServer {
     const googleId = req.headers.get("X-Pocket-Google-Client-Id") || undefined
     const googleSecret = req.headers.get("X-Pocket-Google-Client-Secret") || undefined
 
+    // Resolve Google credentials: per-pocket flags win; otherwise reuse the
+    // agent-level OAuth config (from `siteio agent oauth`) when it's Google, so
+    // every pocket gets "Sign in with Google" for free with no per-pocket setup.
+    const google = this.resolvePocketGoogle(googleId, googleSecret)
+
     // Create metadata on first deploy (generates superuser creds).
     let pocket = this.pocketStorage.get(name)
     if (!pocket) {
@@ -1480,10 +1500,10 @@ export class AgentServer {
         size: 0,
         superuserEmail: `admin@${name}.${this.config.domain}`,
         superuserPassword: crypto.randomUUID().replace(/-/g, ""),
-        google: googleId && googleSecret ? { clientId: googleId, clientSecret: googleSecret } : undefined,
+        google,
       })
-    } else if (googleId && googleSecret) {
-      pocket = this.pocketStorage.update(name, { google: { clientId: googleId, clientSecret: googleSecret } })!
+    } else if (google) {
+      pocket = this.pocketStorage.update(name, { google })!
     }
 
     try {
