@@ -93,16 +93,17 @@ PocketBase SDK in the browser and talk to it directly:
 </script>
 \`\`\`
 
-## Sign in with Google
+## Single sign-on (Google / Auth0 / any OIDC)
 
-If the operator enabled Google on the agent (\`siteio agent oauth\`), any pocket
-gets Google login with **no per-pocket setup** — the agent runs one shared OAuth
-callback for all pockets. To use it, include the helper and call \`pocketLogin\`:
+If the operator configured an identity provider on the agent (\`siteio agent
+oauth\` — Google, Auth0, etc.), any pocket gets SSO with **no per-pocket setup**:
+the agent runs one shared OAuth callback for all pockets. Include the helper and
+call \`pocketLogin()\`:
 
 \`\`\`html
 <script src="https://cdn.jsdelivr.net/npm/pocketbase@0.22.0/dist/pocketbase.umd.js"></script>
 <script src="/pocket-oauth.js"></script>
-<button onclick="pocketLogin('google')">Sign in with Google</button>
+<button onclick="pocketLogin()">Sign in</button>
 <script>
   // Optional callbacks after the redirect completes:
   window.onPocketLogin = () => location.reload()          // logged in (pb.authStore is set)
@@ -110,9 +111,9 @@ callback for all pockets. To use it, include the helper and call \`pocketLogin\`
 </script>
 \`\`\`
 
-\`/pocket-oauth.js\` is present only when Google is enabled. Email/password auth
+\`/pocket-oauth.js\` is present only when SSO is enabled. Email/password auth
 (above) always works and needs no setup. Note: use the pocket's default
-\`<name>.<domain>\` URL for Google login.
+\`<name>.<domain>\` URL for SSO.
 
 ## Defining data (schema)
 

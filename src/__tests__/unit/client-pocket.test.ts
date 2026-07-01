@@ -18,13 +18,14 @@ describe("Unit: SiteioClient pocket methods", () => {
     }) as typeof fetch
 
     const info = await client.deployPocket("blog", new Uint8Array([1, 2, 3]), {
-      google: { clientId: "cid", clientSecret: "sec" },
+      oidc: { issuer: "https://auth.example.com/", clientId: "cid", clientSecret: "sec" },
     })
     expect(info.name).toBe("blog")
     expect(captured!.url).toBe("http://agent/pockets/blog")
     expect(captured!.method).toBe("POST")
     expect(captured!.headers["Content-Type"]).toBe("application/zip")
-    expect(captured!.headers["X-Pocket-Google-Client-Id"]).toBe("cid")
+    expect(captured!.headers["X-Pocket-OIDC-Issuer"]).toBe("https://auth.example.com/")
+    expect(captured!.headers["X-Pocket-OIDC-Client-Id"]).toBe("cid")
   })
 
   test("getPocketAdmin returns credentials", async () => {

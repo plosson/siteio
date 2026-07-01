@@ -249,8 +249,9 @@ export interface Pocket {
   // Auto-generated on first deploy; surfaced via `siteio pocket admin`.
   superuserEmail?: string
   superuserPassword?: string
-  // Optional Google social login (off unless both set).
-  google?: { clientId: string; clientSecret: string }
+  // Optional OIDC social login (Google, Auth0, or any OIDC issuer). Set from
+  // per-pocket flags or reused from the agent's `siteio agent oauth` config.
+  oidc?: { issuer: string; clientId: string; clientSecret: string }
 }
 
 // Pocket info returned to clients (secrets stripped).

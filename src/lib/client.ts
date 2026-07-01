@@ -440,7 +440,7 @@ export class SiteioClient {
   async deployPocket(
     name: string,
     zipData: Uint8Array,
-    opts?: { version?: string; google?: { clientId: string; clientSecret: string }; deployedBy?: string }
+    opts?: { version?: string; oidc?: { issuer: string; clientId: string; clientSecret: string }; deployedBy?: string }
   ): Promise<PocketInfo> {
     const headers: Record<string, string> = {
       "Content-Type": "application/zip",
@@ -448,9 +448,10 @@ export class SiteioClient {
     }
     if (opts?.deployedBy) headers["X-Deployed-By"] = opts.deployedBy
     if (opts?.version) headers["X-Pocket-Version"] = opts.version
-    if (opts?.google) {
-      headers["X-Pocket-Google-Client-Id"] = opts.google.clientId
-      headers["X-Pocket-Google-Client-Secret"] = opts.google.clientSecret
+    if (opts?.oidc) {
+      headers["X-Pocket-OIDC-Issuer"] = opts.oidc.issuer
+      headers["X-Pocket-OIDC-Client-Id"] = opts.oidc.clientId
+      headers["X-Pocket-OIDC-Client-Secret"] = opts.oidc.clientSecret
     }
     const response = await this.request<ApiResponse<PocketInfo>>("POST", `/pockets/${name}`, zipData, headers)
     if (!response.data) throw new ApiError("Invalid response from server")
