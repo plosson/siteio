@@ -60,3 +60,22 @@ export function resolveAppName(explicit: string | undefined, serverDomain: strin
   }
   return null
 }
+
+/**
+ * Resolve pocket name from explicit argument or .siteio/config.json.
+ * Returns null if neither source provides a value.
+ */
+export function resolvePocketName(explicit: string | undefined, serverDomain: string, dir?: string): string | null {
+  if (explicit) return explicit
+  const config = loadProjectConfig(dir)
+  if (config) {
+    if ((config.site || config.app) && !config.pocket) {
+      const other = config.site ? `a site ('${config.site}')` : `an app ('${config.app}')`
+      throw new ValidationError(`This directory is configured as ${other}, not a pocket.`)
+    }
+    if (config.pocket && config.domain === serverDomain) {
+      return config.pocket
+    }
+  }
+  return null
+}
