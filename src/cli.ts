@@ -375,6 +375,81 @@ apps
     await unsetAppCommand(name, { ...options, json: program.opts().json })
   })
 
+// Pocket commands (PocketBase-backed sites)
+const pocket = program
+  .command("pocket")
+  .description("Manage PocketBase-backed sites (auth + storage + database)")
+
+pocket
+  .command("init [folder]")
+  .description("Scaffold a new pocket project")
+  .action(async (folder) => {
+    const { pocketInitCommand } = await import("./commands/pocket/init.ts")
+    await pocketInitCommand(folder, { json: program.opts().json })
+  })
+
+pocket
+  .command("dev [folder]")
+  .description("Run the pocket locally with PocketBase (no Docker required)")
+  .option("-p, --port <port>", "Local port", parseInt, 8090)
+  .action(async (folder, options) => {
+    const { pocketDevCommand } = await import("./commands/pocket/dev.ts")
+    await pocketDevCommand(folder, options)
+  })
+
+pocket
+  .command("deploy [folder]")
+  .description("Deploy the pocket (frontend + PocketBase backend)")
+  .option("--google-client-id <id>", "Enable Google login (requires --google-client-secret)")
+  .option("--google-client-secret <secret>", "Google OAuth client secret")
+  .action(async (folder, options) => {
+    const { pocketDeployCommand } = await import("./commands/pocket/deploy.ts")
+    await pocketDeployCommand(folder, { ...options, json: program.opts().json })
+  })
+
+pocket
+  .command("list")
+  .alias("ls")
+  .description("List all pockets")
+  .action(async () => {
+    const { pocketListCommand } = await import("./commands/pocket/list.ts")
+    await pocketListCommand({ json: program.opts().json })
+  })
+
+pocket
+  .command("info [name]")
+  .description("Show detailed info about a pocket")
+  .action(async (name) => {
+    const { pocketInfoCommand } = await import("./commands/pocket/info.ts")
+    await pocketInfoCommand(name, { json: program.opts().json })
+  })
+
+pocket
+  .command("logs [name]")
+  .description("Show logs from a pocket")
+  .option("-t, --tail <n>", "Number of lines", parseInt, 100)
+  .action(async (name, options) => {
+    const { pocketLogsCommand } = await import("./commands/pocket/logs.ts")
+    await pocketLogsCommand(name, { ...options, json: program.opts().json })
+  })
+
+pocket
+  .command("rm [name]")
+  .description("Remove a pocket and its data")
+  .option("-y, --yes", "Skip confirmation")
+  .action(async (name, options) => {
+    const { pocketRmCommand } = await import("./commands/pocket/rm.ts")
+    await pocketRmCommand(name, { ...options, json: program.opts().json })
+  })
+
+pocket
+  .command("admin [name]")
+  .description("Show the PocketBase admin URL and superuser credentials")
+  .action(async (name) => {
+    const { pocketAdminCommand } = await import("./commands/pocket/admin.ts")
+    await pocketAdminCommand(name, { json: program.opts().json })
+  })
+
 // Groups command
 const groups = program
   .command("groups")
