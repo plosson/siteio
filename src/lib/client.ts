@@ -1,6 +1,6 @@
 import { loadConfig, getUsername } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
-import type { ApiResponse, SiteInfo, SiteOAuth, SiteVersion, Group, App, AppInfo, ContainerLogs } from "../types.ts"
+import type { ApiResponse, SiteInfo, SiteOAuth, SiteVersion, Group, App, AppInfo, ContainerLogs, PocketInfo } from "../types.ts"
 
 export interface ClientOptions {
   apiUrl?: string
@@ -432,6 +432,55 @@ export class SiteioClient {
     if (!response.data) {
       throw new ApiError("Invalid response from server")
     }
+    return response.data
+  }
+
+  // Pockets API
+
+  async deployPocket(
+    name: string,
+    zipData: Uint8Array,
+    opts?: { version?: string; google?: { clientId: string; clientSecret: string }; deployedBy?: string }
+  ): Promise<PocketInfo> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/zip",
+      "Content-Length": String(zipData.length),
+    }
+    if (opts?.deployedBy) headers["X-Deployed-By"] = opts.deployedBy
+    if (opts?.version) headers["X-Pocket-Version"] = opts.version
+    if (opts?.google) {
+      headers["X-Pocket-Google-Client-Id"] = opts.google.clientId
+      headers["X-Pocket-Google-Client-Secret"] = opts.google.clientSecret
+    }
+    const response = await this.request<ApiResponse<PocketInfo>>("POST", `/pockets/${name}`, zipData, headers)
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
+  async listPockets(): Promise<PocketInfo[]> {
+    const response = await this.request<ApiResponse<PocketInfo[]>>("GET", "/pockets")
+    return response.data || []
+  }
+
+  async getPocket(name: string): Promise<PocketInfo> {
+    const response = await this.request<ApiResponse<PocketInfo>>("GET", `/pockets/${name}`)
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
+  async deletePocket(name: string): Promise<void> {
+    await this.request<ApiResponse<{ deleted: boolean }>>("DELETE", `/pockets/${name}`)
+  }
+
+  async getPocketLogs(name: string, tail: number = 100): Promise<ContainerLogs> {
+    const response = await this.request<ApiResponse<ContainerLogs>>("GET", `/pockets/${name}/logs?tail=${tail}`)
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
+  async getPocketAdmin(name: string): Promise<{ email: string; password: string; adminUrl: string }> {
+    const response = await this.request<ApiResponse<{ email: string; password: string; adminUrl: string }>>("GET", `/pockets/${name}/admin`)
+    if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
   }
 }
