@@ -375,6 +375,28 @@ apps
     await unsetAppCommand(name, { ...options, json: program.opts().json })
   })
 
+// Pocket commands (PocketBase-backed sites)
+const pocket = program
+  .command("pocket")
+  .description("Manage PocketBase-backed sites (auth + storage + database)")
+
+pocket
+  .command("init [folder]")
+  .description("Scaffold a new pocket project")
+  .action(async (folder) => {
+    const { pocketInitCommand } = await import("./commands/pocket/init.ts")
+    await pocketInitCommand(folder, { json: program.opts().json })
+  })
+
+pocket
+  .command("dev [folder]")
+  .description("Run the pocket locally with PocketBase (no Docker required)")
+  .option("-p, --port <port>", "Local port", parseInt, 8090)
+  .action(async (folder, options) => {
+    const { pocketDevCommand } = await import("./commands/pocket/dev.ts")
+    await pocketDevCommand(folder, options)
+  })
+
 // Groups command
 const groups = program
   .command("groups")
