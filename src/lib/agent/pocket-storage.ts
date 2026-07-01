@@ -144,18 +144,19 @@ export class PocketStorage {
 
   // Inject a system hook that enables Google OAuth2 from env vars when both are
   // present. Written into the mounted pb_hooks dir so PocketBase loads it.
-  // Targeted at the pinned PocketBase version; verified manually (see plan §Task 8).
+  // PocketBase 0.23 configures OAuth2 providers on the auth collection (not
+  // global settings); applied on every boot so credential changes take effect
+  // on redeploy. Verified against the pinned 0.23.4 binary.
   writeGoogleHook(name: string): void {
     const hook = `onBootstrap((e) => {
   e.next()
   const id = $os.getenv("POCKET_GOOGLE_CLIENT_ID")
   const secret = $os.getenv("POCKET_GOOGLE_CLIENT_SECRET")
   if (!id || !secret) return
-  const s = $app.settings()
-  s.googleAuth.enabled = true
-  s.googleAuth.clientId = id
-  s.googleAuth.clientSecret = secret
-  $app.save(s)
+  const users = e.app.findCollectionByNameOrId("users")
+  users.oauth2.enabled = true
+  users.oauth2.providers = [{ name: "google", clientId: id, clientSecret: secret }]
+  e.app.save(users)
 })
 `
     const dir = join(this.getCodePath(name), "pb_hooks")
