@@ -1509,7 +1509,10 @@ export class AgentServer {
     try {
       // Extract code (archives previous version); never touches pb_data.
       const { size, version: codeVersion } = await this.pocketStorage.extractCode(name, zipData)
-      if (pocket.google) this.pocketStorage.writeGoogleHook(name)
+      if (pocket.google) {
+        this.pocketStorage.writeGoogleHook(name)
+        this.pocketStorage.writeOAuthHelper(name, this.config.domain)
+      }
 
       this.docker.ensureNetwork()
       await this.docker.pull(POCKETBASE_IMAGE)
