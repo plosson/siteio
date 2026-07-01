@@ -48,6 +48,12 @@ describe("Unit: PocketStorage", () => {
     expect(second.version).toBe(2)
   })
 
+  test("extractCode rejects path traversal entries", async () => {
+    storage.create(base("blog"))
+    const evil = zipSync({ "../escape.txt": new TextEncoder().encode("x") })
+    await expect(storage.extractCode("blog", evil)).rejects.toThrow()
+  })
+
   test("delete removes metadata, code and data", async () => {
     storage.create(base("blog"))
     const zip = zipSync({ "public/index.html": new TextEncoder().encode("x") })
@@ -55,13 +61,22 @@ describe("Unit: PocketStorage", () => {
     expect(storage.delete("blog")).toBe(true)
     expect(storage.get("blog")).toBeNull()
     expect(existsSync(storage.getCodePath("blog"))).toBe(false)
+    expect(existsSync(storage.getDataPath("blog"))).toBe(false)
   })
 
   test("toInfo strips secrets and exposes admin url", () => {
-    const p = storage.create({ ...base("blog"), superuserEmail: "a@b.co", superuserPassword: "secret" })
+    const p = storage.create({
+      ...base("blog"),
+      superuserEmail: "a@b.co",
+      superuserPassword: "secret",
+      google: { clientId: "id", clientSecret: "sec" },
+    })
     const info = storage.toInfo(p, "example.com")
     expect(info.url).toBe("https://blog.example.com")
     expect(info.adminUrl).toBe("https://blog.example.com/_/")
-    expect((info as unknown as { superuserPassword?: string }).superuserPassword).toBeUndefined()
+    const raw = info as unknown as { superuserPassword?: string; superuserEmail?: string; google?: unknown }
+    expect(raw.superuserPassword).toBeUndefined()
+    expect(raw.superuserEmail).toBeUndefined()
+    expect(raw.google).toBeUndefined()
   })
 })

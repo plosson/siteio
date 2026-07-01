@@ -1,7 +1,7 @@
 import {
   existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, cpSync,
 } from "fs"
-import { join } from "path"
+import { join, resolve, sep } from "path"
 import { unzipSync } from "fflate"
 import type { Pocket, PocketInfo } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
@@ -124,6 +124,10 @@ export class PocketStorage {
     for (const [filename, data] of Object.entries(unzipped)) {
       if (filename.endsWith("/")) continue
       const filePath = join(codePath, filename)
+      const resolved = resolve(filePath)
+      if (resolved !== resolve(codePath) && !resolved.startsWith(resolve(codePath) + sep)) {
+        throw new ValidationError(`Unsafe path in upload: ${filename}`)
+      }
       mkdirSync(join(filePath, ".."), { recursive: true, mode: 0o755 })
       await Bun.write(filePath, data, { mode: 0o644 })
       size += data.length
