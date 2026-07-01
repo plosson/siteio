@@ -239,6 +239,7 @@ export interface Pocket {
   domains: string[]
   pocketbaseVersion: string
   status: ContainerStatus
+  containerId?: string
   size: number
   version?: number
   deployedAt?: string
