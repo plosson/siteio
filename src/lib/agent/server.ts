@@ -153,6 +153,13 @@ export class AgentServer {
       return this.json({ enabled: this.hasOAuthEnabled() })
     }
 
+    // Pocket OAuth relay callback (no auth — the OAuth provider redirects the
+    // browser here with ?code&state). One shared callback for every pocket:
+    // we decode the target pocket from state and bounce the code back to it.
+    if (path === "/pocket/oauth/callback" && req.method === "GET") {
+      return this.handlePocketOAuthCallback(url)
+    }
+
     // Admin UI assets are served via the Bun.serve routes map. Any other
     // /ui/* path is a missing asset — return 404 without requiring auth.
     if (path === "/ui" || path.startsWith("/ui/")) {
@@ -1389,6 +1396,44 @@ export class AgentServer {
       password: pocket.superuserPassword,
       adminUrl: `https://${primary}/_/`,
     })
+  }
+
+  // Shared OAuth relay: the provider (e.g. Google) redirects every pocket's
+  // login here (one registered callback for the whole agent). The `state`
+  // carries the target pocket; we validate it is a real pocket on this agent's
+  // base domain and bounce the code back to it. The redirect target is always
+  // `<pocket>.<domain>` built from validated inputs — never a caller-supplied
+  // host — so this cannot be turned into an open redirect that leaks codes.
+  private handlePocketOAuthCallback(url: URL): Response {
+    const state = url.searchParams.get("state") || ""
+    const code = url.searchParams.get("code")
+    const oauthError = url.searchParams.get("error")
+
+    let pocketName: string | null = null
+    try {
+      const decoded = JSON.parse(Buffer.from(state, "base64url").toString("utf-8")) as { p?: unknown }
+      if (typeof decoded.p === "string") pocketName = decoded.p
+    } catch {
+      pocketName = null
+    }
+
+    // Only bounce to a pocket that actually exists on this agent.
+    if (!pocketName || !/^[a-z0-9-]+$/.test(pocketName) || !this.pocketStorage.exists(pocketName)) {
+      return this.error("Invalid OAuth relay state", 400)
+    }
+
+    const target = new URL(`https://${pocketName}.${this.config.domain}/`)
+    target.searchParams.set("__pocket_oauth", "1")
+    target.searchParams.set("state", state)
+    if (oauthError) {
+      target.searchParams.set("error", oauthError)
+    } else if (code) {
+      target.searchParams.set("code", code)
+    } else {
+      return this.error("Missing code", 400)
+    }
+
+    return new Response(null, { status: 302, headers: { Location: target.toString() } })
   }
 
   private async handleGetPocketLogs(name: string, url: URL): Promise<Response> {
