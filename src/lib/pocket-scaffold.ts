@@ -93,6 +93,28 @@ PocketBase SDK in the browser and talk to it directly:
 </script>
 \`\`\`
 
+## Single sign-on (Google / Auth0 / any OIDC)
+
+If the operator configured an identity provider on the agent (\`siteio agent
+oauth\` — Google, Auth0, etc.), any pocket gets SSO with **no per-pocket setup**:
+the agent runs one shared OAuth callback for all pockets. Include the helper and
+call \`pocketLogin()\`:
+
+\`\`\`html
+<script src="https://cdn.jsdelivr.net/npm/pocketbase@0.22.0/dist/pocketbase.umd.js"></script>
+<script src="/pocket-oauth.js"></script>
+<button onclick="pocketLogin()">Sign in</button>
+<script>
+  // Optional callbacks after the redirect completes:
+  window.onPocketLogin = () => location.reload()          // logged in (pb.authStore is set)
+  window.onPocketLoginError = (e) => console.error(e)
+</script>
+\`\`\`
+
+\`/pocket-oauth.js\` is present only when SSO is enabled. Email/password auth
+(above) always works and needs no setup. Note: use the pocket's default
+\`<name>.<domain>\` URL for SSO.
+
 ## Defining data (schema)
 
 Add or change a collection by writing a migration in \`.siteio/pb_migrations/\`,
