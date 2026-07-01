@@ -3,6 +3,7 @@ import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteMetadata
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { loadOAuthConfig, ensureDiscoveredConfig } from "../../config/oauth.ts"
+import { discoverOIDC } from "../../config/oidc-discovery.ts"
 import { GroupStorage } from "./groups.ts"
 import { AppStorage } from "./app-storage.ts"
 import { DockerManager } from "./docker.ts"
@@ -1450,16 +1451,17 @@ export class AgentServer {
   }
 
   // Per-pocket Google flags take precedence; otherwise fall back to the agent's
-  // own Google OAuth config (only when its issuer is Google — a generic OIDC
-  // issuer isn't a PocketBase named provider). Returns undefined when neither.
-  private resolvePocketGoogle(
+  // own OIDC config (any issuer — Google, Auth0, etc.). Returns undefined when
+  // neither is available.
+  private resolvePocketOIDC(
+    issuer?: string,
     id?: string,
     secret?: string
-  ): { clientId: string; clientSecret: string } | undefined {
-    if (id && secret) return { clientId: id, clientSecret: secret }
+  ): { issuer: string; clientId: string; clientSecret: string } | undefined {
+    if (issuer && id && secret) return { issuer, clientId: id, clientSecret: secret }
     const cfg = this.oauthConfig
-    if (cfg?.clientId && cfg?.clientSecret && cfg.issuerUrl.includes("accounts.google.com")) {
-      return { clientId: cfg.clientId, clientSecret: cfg.clientSecret }
+    if (cfg?.issuerUrl && cfg?.clientId && cfg?.clientSecret) {
+      return { issuer: cfg.issuerUrl, clientId: cfg.clientId, clientSecret: cfg.clientSecret }
     }
     return undefined
   }
@@ -1481,13 +1483,14 @@ export class AgentServer {
     if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
 
     const deployedBy = req.headers.get("X-Deployed-By") || undefined
-    const googleId = req.headers.get("X-Pocket-Google-Client-Id") || undefined
-    const googleSecret = req.headers.get("X-Pocket-Google-Client-Secret") || undefined
+    const oidcIssuer = req.headers.get("X-Pocket-OIDC-Issuer") || undefined
+    const oidcClientId = req.headers.get("X-Pocket-OIDC-Client-Id") || undefined
+    const oidcClientSecret = req.headers.get("X-Pocket-OIDC-Client-Secret") || undefined
 
-    // Resolve Google credentials: per-pocket flags win; otherwise reuse the
-    // agent-level OAuth config (from `siteio agent oauth`) when it's Google, so
-    // every pocket gets "Sign in with Google" for free with no per-pocket setup.
-    const google = this.resolvePocketGoogle(googleId, googleSecret)
+    // Resolve OIDC credentials: per-pocket flags win; otherwise reuse the
+    // agent-level OAuth config (from `siteio agent oauth`) — any issuer — so
+    // every pocket gets "Sign in with <provider>" for free with no per-pocket setup.
+    const oidc = this.resolvePocketOIDC(oidcIssuer, oidcClientId, oidcClientSecret)
 
     // Create metadata on first deploy (generates superuser creds).
     let pocket = this.pocketStorage.get(name)
@@ -1500,18 +1503,37 @@ export class AgentServer {
         size: 0,
         superuserEmail: `admin@${name}.${this.config.domain}`,
         superuserPassword: crypto.randomUUID().replace(/-/g, ""),
-        google,
+        oidc,
       })
-    } else if (google) {
-      pocket = this.pocketStorage.update(name, { google })!
+    } else if (oidc) {
+      pocket = this.pocketStorage.update(name, { oidc })!
     }
 
     try {
       // Extract code (archives previous version); never touches pb_data.
       const { size, version: codeVersion } = await this.pocketStorage.extractCode(name, zipData)
-      if (pocket.google) {
-        this.pocketStorage.writeGoogleHook(name)
-        this.pocketStorage.writeOAuthHelper(name, this.config.domain)
+
+      // Enable social login when configured: discover the issuer's endpoints,
+      // write the PocketBase oidc provider hook + the client helper. Discovery
+      // failure is non-fatal — the pocket still deploys, just without login.
+      let oidcEnabled = false
+      if (pocket.oidc) {
+        try {
+          const disc = await discoverOIDC(pocket.oidc.issuer)
+          if (disc.authorizationEndpoint && disc.tokenEndpoint && disc.userInfoEndpoint) {
+            this.pocketStorage.writeOAuthHook(name, {
+              authURL: disc.authorizationEndpoint,
+              tokenURL: disc.tokenEndpoint,
+              userInfoURL: disc.userInfoEndpoint,
+            })
+            this.pocketStorage.writeOAuthHelper(name, this.config.domain)
+            oidcEnabled = true
+          } else {
+            console.warn(`> OIDC discovery for ${pocket.oidc.issuer} is missing endpoints; deploying without login`)
+          }
+        } catch (err) {
+          console.warn(`> OIDC discovery failed for ${pocket.oidc.issuer}; deploying without login: ${err instanceof Error ? err.message : err}`)
+        }
       }
 
       this.docker.ensureNetwork()
@@ -1525,9 +1547,9 @@ export class AgentServer {
         POCKET_SUPERUSER_EMAIL: pocket.superuserEmail!,
         POCKET_SUPERUSER_PASSWORD: pocket.superuserPassword!,
       }
-      if (pocket.google) {
-        env.POCKET_GOOGLE_CLIENT_ID = pocket.google.clientId
-        env.POCKET_GOOGLE_CLIENT_SECRET = pocket.google.clientSecret
+      if (oidcEnabled && pocket.oidc) {
+        env.POCKET_OIDC_CLIENT_ID = pocket.oidc.clientId
+        env.POCKET_OIDC_CLIENT_SECRET = pocket.oidc.clientSecret
       }
 
       // Ensure the pb_data dir exists before building the volume mount.

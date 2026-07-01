@@ -44,8 +44,9 @@ export async function collectPocketFiles(folder: string): Promise<Record<string,
 }
 
 export interface PocketDeployOptions {
-  googleClientId?: string
-  googleClientSecret?: string
+  oidcIssuer?: string
+  oidcClientId?: string
+  oidcClientSecret?: string
   json?: boolean
 }
 
@@ -67,8 +68,9 @@ export async function pocketDeployCommand(folder: string | undefined, options: P
       throw new ValidationError("Pocket name must contain only lowercase letters, numbers, and hyphens")
     }
 
-    if ((options.googleClientId && !options.googleClientSecret) || (!options.googleClientId && options.googleClientSecret)) {
-      throw new ValidationError("Google login requires BOTH --google-client-id and --google-client-secret")
+    const oidcFlags = [options.oidcIssuer, options.oidcClientId, options.oidcClientSecret]
+    if (oidcFlags.some(Boolean) && !oidcFlags.every(Boolean)) {
+      throw new ValidationError("Custom OIDC login requires ALL of --oidc-issuer, --oidc-client-id, --oidc-client-secret")
     }
 
     console.error(chalk.cyan(`> Deploying pocket ${name}`))
@@ -85,8 +87,8 @@ export async function pocketDeployCommand(folder: string | undefined, options: P
     const info = await client.deployPocket(name, zipData, {
       version: POCKETBASE_VERSION,
       deployedBy: getUsername() || undefined,
-      google: options.googleClientId && options.googleClientSecret
-        ? { clientId: options.googleClientId, clientSecret: options.googleClientSecret }
+      oidc: options.oidcIssuer && options.oidcClientId && options.oidcClientSecret
+        ? { issuer: options.oidcIssuer, clientId: options.oidcClientId, clientSecret: options.oidcClientSecret }
         : undefined,
     })
     spinner.succeed("Deployed")

@@ -23,7 +23,7 @@ const OAUTH_HELPER_TEMPLATE = `;(function () {
 
   // Start login: redirect to the provider via the shared agent relay.
   window.pocketLogin = async function(provider, collection){
-    provider = provider || "google"; collection = collection || "users";
+    provider = provider || "oidc"; collection = collection || "users";
     var methods = await pb().collection(collection).listAuthMethods();
     var providers = (methods.oauth2 && methods.oauth2.providers) || methods.authProviders || [];
     var p = providers.filter(function(x){return x.name===provider;})[0];
@@ -194,26 +194,37 @@ export class PocketStorage {
     return { size, version }
   }
 
-  // Inject a system hook that enables Google OAuth2 from env vars when both are
-  // present. Written into the mounted pb_hooks dir so PocketBase loads it.
-  // PocketBase 0.23 configures OAuth2 providers on the auth collection (not
-  // global settings); applied on every boot so credential changes take effect
-  // on redeploy. Verified against the pinned 0.23.4 binary.
-  writeGoogleHook(name: string): void {
+  // Inject a system hook that enables an OIDC provider (Google, Auth0, or any
+  // issuer) from env credentials plus the discovered endpoints. PocketBase 0.23
+  // configures OAuth2 providers on the auth collection; applied on every boot so
+  // credential changes take effect on redeploy. Verified against 0.23.4.
+  writeOAuthHook(
+    name: string,
+    endpoints: { authURL: string; tokenURL: string; userInfoURL: string; displayName?: string }
+  ): void {
     const hook = `onBootstrap((e) => {
   e.next()
-  const id = $os.getenv("POCKET_GOOGLE_CLIENT_ID")
-  const secret = $os.getenv("POCKET_GOOGLE_CLIENT_SECRET")
+  const id = $os.getenv("POCKET_OIDC_CLIENT_ID")
+  const secret = $os.getenv("POCKET_OIDC_CLIENT_SECRET")
   if (!id || !secret) return
   const users = e.app.findCollectionByNameOrId("users")
   users.oauth2.enabled = true
-  users.oauth2.providers = [{ name: "google", clientId: id, clientSecret: secret }]
+  users.oauth2.providers = [{
+    name: "oidc",
+    clientId: id,
+    clientSecret: secret,
+    displayName: ${JSON.stringify(endpoints.displayName || "Sign in")},
+    authURL: ${JSON.stringify(endpoints.authURL)},
+    tokenURL: ${JSON.stringify(endpoints.tokenURL)},
+    userInfoURL: ${JSON.stringify(endpoints.userInfoURL)},
+    pkce: true,
+  }]
   e.app.save(users)
 })
 `
     const dir = join(this.getCodePath(name), "pb_hooks")
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o755 })
-    writeFileSync(join(dir, "_siteio_google.pb.js"), hook, { mode: 0o644 })
+    writeFileSync(join(dir, "_siteio_oauth.pb.js"), hook, { mode: 0o644 })
   }
 
   // Write the client OAuth helper into the pocket's public dir so the frontend
