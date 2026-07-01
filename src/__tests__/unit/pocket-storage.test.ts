@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, existsSync } from "fs"
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
@@ -78,5 +78,24 @@ describe("Unit: PocketStorage", () => {
     expect(raw.superuserPassword).toBeUndefined()
     expect(raw.superuserEmail).toBeUndefined()
     expect(raw.google).toBeUndefined()
+  })
+
+  test("writeOAuthHelper writes a valid public/pocket-oauth.js with injected values", async () => {
+    storage.create(base("blog"))
+    await storage.extractCode("blog", zipSync({ "public/index.html": new TextEncoder().encode("x") }))
+    storage.writeOAuthHelper("blog", "example.com")
+
+    const helperPath = join(storage.getCodePath("blog"), "public", "pocket-oauth.js")
+    expect(existsSync(helperPath)).toBe(true)
+    const js = readFileSync(helperPath, "utf-8")
+
+    // Injected, not left as placeholders
+    expect(js).not.toContain("__POCKET_NAME__")
+    expect(js).toContain('var POCKET = "blog"')
+    expect(js).toContain('var API_BASE = "https://api.example.com"')
+    expect(js).toContain("window.pocketLogin")
+    expect(js).toContain("/pocket/oauth/callback")
+    // The generated script is syntactically valid JavaScript
+    expect(() => new Function(js)).not.toThrow()
   })
 })
