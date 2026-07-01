@@ -66,6 +66,17 @@ describe("API: pockets", () => {
     expect(body.data!.adminUrl).toBe("https://blog.example.com/_/")
   })
 
+  test("POST /pockets/:name returns 500 and creates nothing when Docker is unavailable", async () => {
+    runtime.isAvailableReturn = false
+    const res = await server.handleRequestForTest(
+      new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() })
+    )
+    expect(res.status).toBe(500)
+    const list = await server.handleRequestForTest(new Request("http://x/pockets", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const body = (await list.json()) as ApiResponse<PocketInfo[]>
+    expect(body.data).toHaveLength(0)
+  })
+
   test("DELETE /pockets/:name removes it", async () => {
     await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
     const del = await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "DELETE", headers: { "X-API-Key": "test-key" } }))
