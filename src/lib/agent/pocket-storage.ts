@@ -8,6 +8,58 @@ import { ValidationError } from "../../utils/errors.ts"
 
 const MAX_HISTORY_VERSIONS = 10
 
+// Client helper served from each pocket (public/pocket-oauth.js) that drives
+// the shared OAuth relay. It starts the flow (redirect to the provider via the
+// agent's one shared callback) and finishes it when bounced back — so the site
+// author only calls `pocketLogin("google")`. __POCKET_NAME__/__POCKET_API_BASE__
+// are substituted per pocket at deploy time.
+const OAUTH_HELPER_TEMPLATE = `;(function () {
+  var POCKET = "__POCKET_NAME__";
+  var API_BASE = "__POCKET_API_BASE__";
+  var RELAY = API_BASE + "/pocket/oauth/callback";
+  var KEY = "__pocket_oauth_pkce";
+  function b64url(o){return btoa(JSON.stringify(o)).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"");}
+  function pb(){ if(typeof PocketBase==="undefined") throw new Error("PocketBase SDK not loaded"); return new PocketBase(window.location.origin); }
+
+  // Start login: redirect to the provider via the shared agent relay.
+  window.pocketLogin = async function(provider, collection){
+    provider = provider || "oidc"; collection = collection || "users";
+    var methods = await pb().collection(collection).listAuthMethods();
+    var providers = (methods.oauth2 && methods.oauth2.providers) || methods.authProviders || [];
+    var p = providers.filter(function(x){return x.name===provider;})[0];
+    if(!p) throw new Error("Provider '"+provider+"' is not enabled on this pocket");
+    var nonce = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    var state = b64url({ p: POCKET, n: nonce });
+    sessionStorage.setItem(KEY, JSON.stringify({ state: state, codeVerifier: p.codeVerifier, provider: provider, collection: collection }));
+    var auth = new URL(p.authURL || p.authUrl);
+    auth.searchParams.set("redirect_uri", RELAY);
+    auth.searchParams.set("state", state);
+    window.location.href = auth.toString();
+  };
+
+  // Finish login if the relay bounced us back with ?__pocket_oauth=1.
+  async function finish(){
+    var params = new URLSearchParams(window.location.search);
+    if(params.get("__pocket_oauth")!=="1") return;
+    var saved=null; try{ saved=JSON.parse(sessionStorage.getItem(KEY)||"null"); }catch(e){}
+    sessionStorage.removeItem(KEY);
+    var clean = window.location.pathname;
+    try{
+      if(params.get("error")) throw new Error(params.get("error"));
+      if(!saved || params.get("state")!==saved.state) throw new Error("OAuth state mismatch");
+      var code = params.get("code"); if(!code) throw new Error("No authorization code");
+      await pb().collection(saved.collection).authWithOAuth2Code(saved.provider, code, saved.codeVerifier, RELAY);
+      window.history.replaceState({}, "", clean);
+      if(typeof window.onPocketLogin==="function") window.onPocketLogin(); else window.location.reload();
+    }catch(e){
+      window.history.replaceState({}, "", clean);
+      if(typeof window.onPocketLoginError==="function") window.onPocketLoginError(e); else console.error("[pocket-oauth]", e);
+    }
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded", finish); else finish();
+})();
+`
+
 export class PocketStorage {
   private metaDir: string
   private codeDir: string
@@ -142,25 +194,50 @@ export class PocketStorage {
     return { size, version }
   }
 
-  // Inject a system hook that enables Google OAuth2 from env vars when both are
-  // present. Written into the mounted pb_hooks dir so PocketBase loads it.
-  // Targeted at the pinned PocketBase version; verified manually (see plan §Task 8).
-  writeGoogleHook(name: string): void {
+  // Inject a system hook that enables an OIDC provider (Google, Auth0, or any
+  // issuer) from env credentials plus the discovered endpoints. PocketBase 0.23
+  // configures OAuth2 providers on the auth collection; applied on every boot so
+  // credential changes take effect on redeploy. Verified against 0.23.4.
+  writeOAuthHook(
+    name: string,
+    endpoints: { authURL: string; tokenURL: string; userInfoURL: string; displayName?: string }
+  ): void {
     const hook = `onBootstrap((e) => {
   e.next()
-  const id = $os.getenv("POCKET_GOOGLE_CLIENT_ID")
-  const secret = $os.getenv("POCKET_GOOGLE_CLIENT_SECRET")
+  const id = $os.getenv("POCKET_OIDC_CLIENT_ID")
+  const secret = $os.getenv("POCKET_OIDC_CLIENT_SECRET")
   if (!id || !secret) return
-  const s = $app.settings()
-  s.googleAuth.enabled = true
-  s.googleAuth.clientId = id
-  s.googleAuth.clientSecret = secret
-  $app.save(s)
+  const users = e.app.findCollectionByNameOrId("users")
+  users.oauth2.enabled = true
+  users.oauth2.providers = [{
+    name: "oidc",
+    clientId: id,
+    clientSecret: secret,
+    displayName: ${JSON.stringify(endpoints.displayName || "Sign in")},
+    authURL: ${JSON.stringify(endpoints.authURL)},
+    tokenURL: ${JSON.stringify(endpoints.tokenURL)},
+    userInfoURL: ${JSON.stringify(endpoints.userInfoURL)},
+    pkce: true,
+  }]
+  e.app.save(users)
 })
 `
     const dir = join(this.getCodePath(name), "pb_hooks")
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o755 })
-    writeFileSync(join(dir, "_siteio_google.pb.js"), hook, { mode: 0o644 })
+    writeFileSync(join(dir, "_siteio_oauth.pb.js"), hook, { mode: 0o644 })
+  }
+
+  // Write the client OAuth helper into the pocket's public dir so the frontend
+  // can `<script src="/pocket-oauth.js">` and call `pocketLogin("google")`.
+  // The shared relay lives on the agent's api host; the pocket name is baked in
+  // so state routes back correctly.
+  writeOAuthHelper(name: string, baseDomain: string): void {
+    const js = OAUTH_HELPER_TEMPLATE
+      .replace(/__POCKET_NAME__/g, name)
+      .replace(/__POCKET_API_BASE__/g, `https://api.${baseDomain}`)
+    const dir = join(this.getCodePath(name), "public")
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o755 })
+    writeFileSync(join(dir, "pocket-oauth.js"), js, { mode: 0o644 })
   }
 
   toInfo(pocket: Pocket, domain: string): PocketInfo {
