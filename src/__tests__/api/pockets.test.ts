@@ -6,7 +6,7 @@ import { tmpdir } from "os"
 import { zipSync } from "fflate"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { FakeRuntime } from "../helpers/fake-runtime.ts"
-import { POCKETBASE_IMAGE } from "../../lib/pocketbase-version.ts"
+import { POCKETBASE_IMAGE, POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
 import type { AgentConfig, ApiResponse, PocketInfo } from "../../types.ts"
 
 function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
@@ -75,6 +75,16 @@ describe("API: pockets", () => {
     const list = await server.handleRequestForTest(new Request("http://x/pockets", { method: "GET", headers: { "X-API-Key": "test-key" } }))
     const body = (await list.json()) as ApiResponse<PocketInfo[]>
     expect(body.data).toHaveLength(0)
+  })
+
+  test("pocketbaseVersion is always POCKETBASE_VERSION even when client sends a different X-Pocket-Version", async () => {
+    const headers = { ...H, "X-Pocket-Version": "0.0.1-custom" }
+    const res = await server.handleRequestForTest(
+      new Request("http://x/pockets/blog", { method: "POST", headers, body: zip() })
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as ApiResponse<PocketInfo>
+    expect(body.data!.pocketbaseVersion).toBe(POCKETBASE_VERSION)
   })
 
   test("DELETE /pockets/:name removes it", async () => {

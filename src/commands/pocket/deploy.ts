@@ -83,7 +83,7 @@ export async function pocketDeployCommand(folder: string | undefined, options: P
     spinner.start("Uploading")
     const client = new SiteioClient()
     const info = await client.deployPocket(name, zipData, {
-      version: config?.pocketbaseVersion || POCKETBASE_VERSION,
+      version: POCKETBASE_VERSION,
       deployedBy: getUsername() || undefined,
       google: options.googleClientId && options.googleClientSecret
         ? { clientId: options.googleClientId, clientSecret: options.googleClientSecret }

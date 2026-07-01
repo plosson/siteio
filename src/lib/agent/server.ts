@@ -1421,7 +1421,6 @@ export class AgentServer {
     if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
 
     const deployedBy = req.headers.get("X-Deployed-By") || undefined
-    const version = req.headers.get("X-Pocket-Version") || POCKETBASE_VERSION
     const googleId = req.headers.get("X-Pocket-Google-Client-Id") || undefined
     const googleSecret = req.headers.get("X-Pocket-Google-Client-Secret") || undefined
 
@@ -1431,7 +1430,7 @@ export class AgentServer {
       pocket = this.pocketStorage.create({
         name,
         domains: [`${name}.${this.config.domain}`],
-        pocketbaseVersion: version,
+        pocketbaseVersion: POCKETBASE_VERSION,
         status: "pending",
         size: 0,
         superuserEmail: `admin@${name}.${this.config.domain}`,
@@ -1485,7 +1484,7 @@ export class AgentServer {
         containerId,
         size,
         version: codeVersion,
-        pocketbaseVersion: version,
+        pocketbaseVersion: POCKETBASE_VERSION,
         deployedAt: new Date().toISOString(),
         deployedBy,
       })!
