@@ -1416,6 +1416,10 @@ export class AgentServer {
       return this.error("Upload too large", 413)
     }
 
+    // Fail fast before any state mutation so a Docker outage never leaves an
+    // orphaned "pending" pocket with extracted code but no container.
+    if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+
     const deployedBy = req.headers.get("X-Deployed-By") || undefined
     const version = req.headers.get("X-Pocket-Version") || POCKETBASE_VERSION
     const googleId = req.headers.get("X-Pocket-Google-Client-Id") || undefined
@@ -1443,7 +1447,6 @@ export class AgentServer {
       const { size, version: codeVersion } = await this.pocketStorage.extractCode(name, zipData)
       if (pocket.google) this.pocketStorage.writeGoogleHook(name)
 
-      if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
       this.docker.ensureNetwork()
       await this.docker.pull(POCKETBASE_IMAGE)
       if (this.docker.containerExists(name)) await this.docker.remove(name)
