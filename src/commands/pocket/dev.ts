@@ -12,7 +12,7 @@ export async function pocketDevCommand(folder: string | undefined, options: { po
     if (!existsSync(dir)) throw new ValidationError(`Folder not found: ${dir}`)
 
     const config = loadProjectConfig(dir)
-    const version = config?.pocketbaseVersion || POCKETBASE_VERSION
+    const version = POCKETBASE_VERSION
     const port = options.port || 8090
     const http = `127.0.0.1:${port}`
 
