@@ -28,4 +28,25 @@ describe("Unit: scaffoldPocket", () => {
     scaffoldPocket(dir)
     expect(readFileSync(join(dir, "index.html"), "utf-8")).toBe("<p>mine</p>")
   })
+
+  test("writes a CLAUDE.local.md guide covering commands and the PocketBase JS client", () => {
+    scaffoldPocket(dir)
+    const guide = join(dir, "CLAUDE.local.md")
+    expect(existsSync(guide)).toBe(true)
+    const md = readFileSync(guide, "utf-8")
+    // Covers the pocket commands
+    for (const cmd of ["siteio pocket dev", "siteio pocket deploy", "siteio pocket admin"]) {
+      expect(md).toContain(cmd)
+    }
+    // Makes the PocketBase JS client the way to add storage
+    expect(md).toContain("PocketBase JS client")
+    expect(md).toContain("pocketbase.umd.js")
+    expect(md).toContain("new PocketBase(")
+  })
+
+  test("does not overwrite an existing CLAUDE.local.md", () => {
+    writeFileSync(join(dir, "CLAUDE.local.md"), "keep me")
+    scaffoldPocket(dir)
+    expect(readFileSync(join(dir, "CLAUDE.local.md"), "utf-8")).toBe("keep me")
+  })
 })
