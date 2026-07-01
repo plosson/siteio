@@ -225,8 +225,46 @@ export interface SiteMetadata {
 export interface SiteConfig {
   site?: string   // for static sites
   app?: string    // for container apps
+  pocket?: string // for pocketbase-backed sites
   domain: string
   version?: number // last deployed version (for optimistic concurrency)
+  pocketbaseVersion?: string // pinned PocketBase version for this project
+}
+
+// Pocket: PocketBase-backed site (third primitive, alongside site and app).
+// Stored server-side, one container per pocket. Code is mounted read-only;
+// pb_data lives on a persistent volume and is never rolled back.
+export interface Pocket {
+  name: string
+  domains: string[]
+  pocketbaseVersion: string
+  status: ContainerStatus
+  size: number
+  version?: number
+  deployedAt?: string
+  deployedBy?: string
+  createdAt: string
+  updatedAt: string
+  // Auto-generated on first deploy; surfaced via `siteio pocket admin`.
+  superuserEmail?: string
+  superuserPassword?: string
+  // Optional Google social login (off unless both set).
+  google?: { clientId: string; clientSecret: string }
+}
+
+// Pocket info returned to clients (secrets stripped).
+export interface PocketInfo {
+  name: string
+  url: string
+  adminUrl: string
+  domains: string[]
+  status: ContainerStatus
+  pocketbaseVersion: string
+  size: number
+  version?: number
+  deployedAt?: string
+  createdAt: string
+  tls?: TlsStatus
 }
 
 // Site version info for history
