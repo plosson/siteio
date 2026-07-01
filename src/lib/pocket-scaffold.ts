@@ -93,6 +93,27 @@ PocketBase SDK in the browser and talk to it directly:
 </script>
 \`\`\`
 
+## Sign in with Google
+
+If the operator enabled Google on the agent (\`siteio agent oauth\`), any pocket
+gets Google login with **no per-pocket setup** — the agent runs one shared OAuth
+callback for all pockets. To use it, include the helper and call \`pocketLogin\`:
+
+\`\`\`html
+<script src="https://cdn.jsdelivr.net/npm/pocketbase@0.22.0/dist/pocketbase.umd.js"></script>
+<script src="/pocket-oauth.js"></script>
+<button onclick="pocketLogin('google')">Sign in with Google</button>
+<script>
+  // Optional callbacks after the redirect completes:
+  window.onPocketLogin = () => location.reload()          // logged in (pb.authStore is set)
+  window.onPocketLoginError = (e) => console.error(e)
+</script>
+\`\`\`
+
+\`/pocket-oauth.js\` is present only when Google is enabled. Email/password auth
+(above) always works and needs no setup. Note: use the pocket's default
+\`<name>.<domain>\` URL for Google login.
+
 ## Defining data (schema)
 
 Add or change a collection by writing a migration in \`.siteio/pb_migrations/\`,
