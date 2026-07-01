@@ -1,3 +1,4 @@
+import { mkdirSync } from "fs"
 import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteMetadata, SiteOAuth, Group, App, AppInfo, ContainerLogs } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
@@ -13,6 +14,8 @@ import { buildOverride } from "./compose-override.ts"
 import { PersistentStorageManager } from "./persistent-storage.ts"
 import { STORAGE_SHIM_JS } from "./storage-shim.ts"
 import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS } from "./ui/assets.ts"
+import { PocketStorage } from "./pocket-storage.ts"
+import { POCKETBASE_IMAGE, POCKETBASE_VERSION } from "../pocketbase-version.ts"
 
 // Strip the git token before returning an app over the API. Clients never need
 // the raw value; they can set/clear it via PATCH. `tokenSet` is surfaced so
@@ -28,6 +31,7 @@ export class AgentServer {
   private storage: SiteStorage
   private groups: GroupStorage
   private appStorage: AppStorage
+  private pocketStorage: PocketStorage
   private docker: Runtime
   private git: GitManager
   private dockerfiles: DockerfileStorage
@@ -42,6 +46,7 @@ export class AgentServer {
     this.storage = new SiteStorage(config.dataDir)
     this.groups = new GroupStorage(config.dataDir)
     this.appStorage = new AppStorage(config.dataDir)
+    this.pocketStorage = new PocketStorage(config.dataDir)
     this.docker = runtime ?? new DockerManager(config.dataDir)
     this.git = new GitManager(config.dataDir)
     this.dockerfiles = new DockerfileStorage(config.dataDir)
@@ -299,6 +304,32 @@ export class AgentServer {
     const appLogsMatch = path.match(/^\/apps\/([a-z0-9-]+)\/logs$/)
     if (appLogsMatch && req.method === "GET") {
       return this.handleGetAppLogs(appLogsMatch[1]!, url)
+    }
+
+    // GET /pockets - list all pockets
+    if (path === "/pockets" && req.method === "GET") {
+      return this.handleListPockets()
+    }
+
+    // POST /pockets/:name - deploy (create-or-update) a pocket
+    const pocketDeployMatch = path.match(/^\/pockets\/([a-z0-9-]+)$/)
+    if (pocketDeployMatch) {
+      const pocketName = pocketDeployMatch[1]!
+      if (req.method === "POST") return this.handleDeployPocket(pocketName, req)
+      if (req.method === "GET") return this.handleGetPocket(pocketName)
+      if (req.method === "DELETE") return this.handleDeletePocket(pocketName)
+    }
+
+    // GET /pockets/:name/logs
+    const pocketLogsMatch = path.match(/^\/pockets\/([a-z0-9-]+)\/logs$/)
+    if (pocketLogsMatch && req.method === "GET") {
+      return this.handleGetPocketLogs(pocketLogsMatch[1]!, url)
+    }
+
+    // GET /pockets/:name/admin - reveal superuser credentials
+    const pocketAdminMatch = path.match(/^\/pockets\/([a-z0-9-]+)\/admin$/)
+    if (pocketAdminMatch && req.method === "GET") {
+      return this.handleGetPocketAdmin(pocketAdminMatch[1]!)
     }
 
     return this.error("Not found", 404)
@@ -1322,6 +1353,149 @@ export class AgentServer {
     }
   }
 
+  // Pocket handlers
+
+  private async handleListPockets(): Promise<Response> {
+    const pockets = this.pocketStorage.list()
+    return this.json(pockets.map((p) => this.pocketStorage.toInfo(p, this.config.domain)))
+  }
+
+  private async handleGetPocket(name: string): Promise<Response> {
+    const pocket = this.pocketStorage.get(name)
+    if (!pocket) return this.error("Pocket not found", 404)
+    return this.json(this.pocketStorage.toInfo(pocket, this.config.domain))
+  }
+
+  private async handleDeletePocket(name: string): Promise<Response> {
+    const pocket = this.pocketStorage.get(name)
+    if (!pocket) return this.error("Pocket not found", 404)
+    try {
+      if (this.docker.isAvailable() && this.docker.containerExists(name)) {
+        await this.docker.remove(name)
+      }
+    } catch {
+      // best effort — proceed to remove metadata/code even if the container is gone
+    }
+    this.pocketStorage.delete(name)
+    return this.json({ deleted: true })
+  }
+
+  private async handleGetPocketAdmin(name: string): Promise<Response> {
+    const pocket = this.pocketStorage.get(name)
+    if (!pocket) return this.error("Pocket not found", 404)
+    const primary = pocket.domains[0] || `${name}.${this.config.domain}`
+    return this.json({
+      email: pocket.superuserEmail,
+      password: pocket.superuserPassword,
+      adminUrl: `https://${primary}/_/`,
+    })
+  }
+
+  private async handleGetPocketLogs(name: string, url: URL): Promise<Response> {
+    const pocket = this.pocketStorage.get(name)
+    if (!pocket) return this.error("Pocket not found", 404)
+    const tail = parseInt(url.searchParams.get("tail") || "100", 10)
+    try {
+      const logs = await this.docker.logs(name, tail)
+      return this.json({ name, logs, lines: tail } as ContainerLogs)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to get logs"
+      return this.error(message, 500)
+    }
+  }
+
+  private async handleDeployPocket(name: string, req: Request): Promise<Response> {
+    // Validate upload
+    const contentType = req.headers.get("Content-Type") || ""
+    if (!contentType.includes("application/zip")) {
+      return this.error("Expected application/zip body", 400)
+    }
+    const zipData = new Uint8Array(await req.arrayBuffer())
+    if (zipData.length === 0) return this.error("Empty upload", 400)
+    if (zipData.length > this.config.maxUploadSize) {
+      return this.error("Upload too large", 413)
+    }
+
+    // Fail fast before any state mutation so a Docker outage never leaves an
+    // orphaned "pending" pocket with extracted code but no container.
+    if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+
+    const deployedBy = req.headers.get("X-Deployed-By") || undefined
+    const googleId = req.headers.get("X-Pocket-Google-Client-Id") || undefined
+    const googleSecret = req.headers.get("X-Pocket-Google-Client-Secret") || undefined
+
+    // Create metadata on first deploy (generates superuser creds).
+    let pocket = this.pocketStorage.get(name)
+    if (!pocket) {
+      pocket = this.pocketStorage.create({
+        name,
+        domains: [`${name}.${this.config.domain}`],
+        pocketbaseVersion: POCKETBASE_VERSION,
+        status: "pending",
+        size: 0,
+        superuserEmail: `admin@${name}.${this.config.domain}`,
+        superuserPassword: crypto.randomUUID().replace(/-/g, ""),
+        google: googleId && googleSecret ? { clientId: googleId, clientSecret: googleSecret } : undefined,
+      })
+    } else if (googleId && googleSecret) {
+      pocket = this.pocketStorage.update(name, { google: { clientId: googleId, clientSecret: googleSecret } })!
+    }
+
+    try {
+      // Extract code (archives previous version); never touches pb_data.
+      const { size, version: codeVersion } = await this.pocketStorage.extractCode(name, zipData)
+      if (pocket.google) this.pocketStorage.writeGoogleHook(name)
+
+      this.docker.ensureNetwork()
+      await this.docker.pull(POCKETBASE_IMAGE)
+      if (this.docker.containerExists(name)) await this.docker.remove(name)
+
+      const domains = pocket.domains.length > 0 ? pocket.domains : [`${name}.${this.config.domain}`]
+      const labels = this.docker.buildTraefikLabels(name, domains, 8090)
+
+      const env: Record<string, string> = {
+        POCKET_SUPERUSER_EMAIL: pocket.superuserEmail!,
+        POCKET_SUPERUSER_PASSWORD: pocket.superuserPassword!,
+      }
+      if (pocket.google) {
+        env.POCKET_GOOGLE_CLIENT_ID = pocket.google.clientId
+        env.POCKET_GOOGLE_CLIENT_SECRET = pocket.google.clientSecret
+      }
+
+      // Ensure the pb_data dir exists before building the volume mount.
+      mkdirSync(this.pocketStorage.getDataPath(name), { recursive: true, mode: 0o755 })
+
+      const containerId = await this.docker.run({
+        name,
+        image: POCKETBASE_IMAGE,
+        internalPort: 8090,
+        env,
+        volumes: [
+          { name: this.pocketStorage.getCodePath(name), mountPath: "/pb-code", readonly: true },
+          { name: this.pocketStorage.getDataPath(name), mountPath: "/pb-data" },
+        ],
+        restartPolicy: "unless-stopped",
+        network: "siteio-network",
+        labels,
+      })
+
+      const updated = this.pocketStorage.update(name, {
+        status: "running",
+        containerId,
+        size,
+        version: codeVersion,
+        pocketbaseVersion: POCKETBASE_VERSION,
+        deployedAt: new Date().toISOString(),
+        deployedBy,
+      })!
+      return this.json(this.pocketStorage.toInfo(updated, this.config.domain))
+    } catch (err) {
+      this.pocketStorage.update(name, { status: "failed" })
+      const message = err instanceof Error ? err.message : "Failed to deploy pocket"
+      return this.error(message, 500)
+    }
+  }
+
   // Persistent storage handlers
 
   private handleStorageShim(): Response {
@@ -1521,6 +1695,14 @@ export class AgentServer {
     const originalUrl = `${proto}://${host}${uri}`
 
     return this.checkOAuthAuthorization(oauth, email, this.config.domain, originalUrl)
+  }
+
+  // Test seam: exercise the router directly without binding a socket.
+  // Sets the host header to "localhost" so the isApiRequest check passes.
+  handleRequestForTest(req: Request): Promise<Response> {
+    const headers = new Headers(req.headers)
+    headers.set("host", "localhost")
+    return this.handleRequest(new Request(req.url, { method: req.method, headers, body: req.body }))
   }
 
   async start(): Promise<void> {
