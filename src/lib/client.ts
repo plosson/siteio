@@ -55,6 +55,28 @@ export class SiteioClient {
     return response.json() as Promise<T>
   }
 
+  // Like request(), but returns the raw response bytes (for zip downloads).
+  private async requestBytes(path: string): Promise<Uint8Array> {
+    const response = await fetch(`${this.apiUrl}${path}`, {
+      method: "GET",
+      headers: { "X-API-Key": this.apiKey },
+    })
+
+    if (!response.ok) {
+      const text = await response.text()
+      let message = `API error: ${response.status}`
+      try {
+        const json = JSON.parse(text) as ApiResponse<unknown>
+        if (json.error) message = json.error
+      } catch {
+        if (text) message = text
+      }
+      throw new ApiError(message, response.status)
+    }
+
+    return new Uint8Array(await response.arrayBuffer())
+  }
+
   async listSites(): Promise<SiteInfo[]> {
     const response = await this.request<ApiResponse<SiteInfo[]>>("GET", "/sites")
     return response.data || []
@@ -128,27 +150,7 @@ export class SiteioClient {
   }
 
   async downloadSite(subdomain: string): Promise<Uint8Array> {
-    const url = `${this.apiUrl}/sites/${subdomain}/download`
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        "X-API-Key": this.apiKey,
-      },
-    })
-
-    if (!response.ok) {
-      const text = await response.text()
-      let message = `API error: ${response.status}`
-      try {
-        const json = JSON.parse(text) as ApiResponse<unknown>
-        if (json.error) message = json.error
-      } catch {
-        if (text) message = text
-      }
-      throw new ApiError(message, response.status)
-    }
-
-    return new Uint8Array(await response.arrayBuffer())
+    return this.requestBytes(`/sites/${subdomain}/download`)
   }
 
   async updateSiteOAuth(subdomain: string, oauth: SiteOAuth | null): Promise<void> {
@@ -450,6 +452,10 @@ export class SiteioClient {
     const response = await this.request<ApiResponse<PocketInfo>>("POST", `/pockets/${name}`, zipData, headers)
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
+  }
+
+  async downloadPocket(name: string): Promise<Uint8Array> {
+    return this.requestBytes(`/pockets/${name}/download`)
   }
 
   async listPockets(): Promise<PocketInfo[]> {

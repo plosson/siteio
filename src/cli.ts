@@ -406,6 +406,16 @@ pocket
   })
 
 pocket
+  .command("download [output-folder]")
+  .description("Download a deployed pocket's code to a local folder")
+  .option("-n, --name <name>", "Pocket to download (defaults to .siteio/config.json)")
+  .option("-y, --yes", "Overwrite existing folder contents")
+  .action(async (outputFolder, options) => {
+    const { pocketDownloadCommand } = await import("./commands/pocket/download.ts")
+    await pocketDownloadCommand(outputFolder ?? ".", { ...options, json: program.opts().json })
+  })
+
+pocket
   .command("list")
   .alias("ls")
   .description("List all pockets")

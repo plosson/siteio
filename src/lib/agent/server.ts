@@ -332,6 +332,12 @@ export class AgentServer {
       return this.handleGetPocketAdmin(pocketAdminMatch[1]!)
     }
 
+    // GET /pockets/:name/download - download pocket code as zip
+    const pocketDownloadMatch = path.match(/^\/pockets\/([a-z0-9-]+)\/download$/)
+    if (pocketDownloadMatch && req.method === "GET") {
+      return this.handleDownloadPocket(pocketDownloadMatch[1]!)
+    }
+
     return this.error("Not found", 404)
   }
 
@@ -1389,6 +1395,25 @@ export class AgentServer {
       password: pocket.superuserPassword,
       adminUrl: `https://${primary}/_/`,
     })
+  }
+
+  private async handleDownloadPocket(name: string): Promise<Response> {
+    if (!this.pocketStorage.exists(name)) return this.error("Pocket not found", 404)
+    try {
+      const zipData = await this.pocketStorage.zipCode(name)
+      if (!zipData) return this.error("Failed to create zip", 500)
+      return new Response(zipData, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="${name}.zip"`,
+          "Content-Length": String(zipData.length),
+        },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to download pocket"
+      return this.error(message, 500)
+    }
   }
 
   private async handleGetPocketLogs(name: string, url: URL): Promise<Response> {
