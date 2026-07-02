@@ -42,7 +42,7 @@ migrate((app) => {
 
 // A guide dropped into the project so an AI assistant understands how to run,
 // deploy, and add storage to a pocket. Kept intentionally short and practical.
-const CLAUDE_LOCAL = `# siteio pocket — project guide (for the AI assistant)
+const CLAUDE_MD = `# siteio pocket — project guide (for the AI assistant)
 
 This folder is a **siteio pocket**: a static website that ships with its own
 backend (**PocketBase** — database, auth, file storage, REST + realtime API).
@@ -131,7 +131,7 @@ export function scaffoldPocket(dir: string): { created: string[] } {
   mkdirSync(join(dir, ".siteio", "pb_hooks"), { recursive: true })
 
   write("index.html", STARTER_INDEX)
-  write("CLAUDE.local.md", CLAUDE_LOCAL)
+  write("CLAUDE.md", CLAUDE_MD)
   write(join(".siteio", "pb_migrations", "1700000000_init.js"), STARTER_MIGRATION)
   write(join(".siteio", "pb_hooks", ".gitkeep"), "")
 
