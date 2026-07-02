@@ -2,7 +2,6 @@ import { resolve } from "path"
 import { existsSync } from "fs"
 import chalk from "chalk"
 import { runPocketbaseDev } from "../../lib/pocketbase-dev.ts"
-import { loadProjectConfig } from "../../utils/site-config.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
 
@@ -11,7 +10,6 @@ export async function pocketDevCommand(folder: string | undefined, options: { po
     const dir = resolve(folder || ".")
     if (!existsSync(dir)) throw new ValidationError(`Folder not found: ${dir}`)
 
-    const config = loadProjectConfig(dir)
     const version = POCKETBASE_VERSION
     const port = options.port || 8090
     const http = `127.0.0.1:${port}`

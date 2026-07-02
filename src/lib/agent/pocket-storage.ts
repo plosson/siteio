@@ -120,12 +120,13 @@ export class PocketStorage {
     mkdirSync(codePath, { recursive: true, mode: 0o755 })
 
     let size = 0
+    const resolvedBase = resolve(codePath)
     const unzipped = unzipSync(zipData)
     for (const [filename, data] of Object.entries(unzipped)) {
       if (filename.endsWith("/")) continue
       const filePath = join(codePath, filename)
       const resolved = resolve(filePath)
-      if (resolved !== resolve(codePath) && !resolved.startsWith(resolve(codePath) + sep)) {
+      if (resolved !== resolvedBase && !resolved.startsWith(resolvedBase + sep)) {
         throw new ValidationError(`Unsafe path in upload: ${filename}`)
       }
       mkdirSync(join(filePath, ".."), { recursive: true, mode: 0o755 })
@@ -142,8 +143,14 @@ export class PocketStorage {
     return { size, version }
   }
 
+  // The pocket's primary hostname: its first custom domain, else the default
+  // `<name>.<domain>` subdomain. Single source of truth for URL construction.
+  primaryDomain(pocket: Pocket, domain: string): string {
+    return pocket.domains[0] || `${pocket.name}.${domain}`
+  }
+
   toInfo(pocket: Pocket, domain: string): PocketInfo {
-    const primary = pocket.domains[0] || `${pocket.name}.${domain}`
+    const primary = this.primaryDomain(pocket, domain)
     return {
       name: pocket.name,
       url: `https://${primary}`,

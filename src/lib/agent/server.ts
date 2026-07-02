@@ -1383,7 +1383,7 @@ export class AgentServer {
   private async handleGetPocketAdmin(name: string): Promise<Response> {
     const pocket = this.pocketStorage.get(name)
     if (!pocket) return this.error("Pocket not found", 404)
-    const primary = pocket.domains[0] || `${name}.${this.config.domain}`
+    const primary = this.pocketStorage.primaryDomain(pocket, this.config.domain)
     return this.json({
       email: pocket.superuserEmail,
       password: pocket.superuserPassword,
@@ -1392,8 +1392,7 @@ export class AgentServer {
   }
 
   private async handleGetPocketLogs(name: string, url: URL): Promise<Response> {
-    const pocket = this.pocketStorage.get(name)
-    if (!pocket) return this.error("Pocket not found", 404)
+    if (!this.pocketStorage.exists(name)) return this.error("Pocket not found", 404)
     const tail = parseInt(url.searchParams.get("tail") || "100", 10)
     try {
       const logs = await this.docker.logs(name, tail)
