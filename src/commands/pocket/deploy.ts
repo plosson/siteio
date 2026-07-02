@@ -70,14 +70,14 @@ export async function pocketDeployCommand(folder: string | undefined, options: P
 
     spinner.start("Packaging")
     const files = await collectPocketFiles(folderPath)
-    if (Object.keys(files).length === 0) throw new ValidationError("Nothing to deploy (folder is empty)")
+    const fileCount = Object.keys(files).length
+    if (fileCount === 0) throw new ValidationError("Nothing to deploy (folder is empty)")
     const zipData = zipSync(files, { level: 6 })
-    spinner.succeed(`Packaged ${Object.keys(files).length} files (${formatBytes(zipData.length)})`)
+    spinner.succeed(`Packaged ${fileCount} files (${formatBytes(zipData.length)})`)
 
     spinner.start("Uploading")
     const client = new SiteioClient()
     const info = await client.deployPocket(name, zipData, {
-      version: POCKETBASE_VERSION,
       deployedBy: getUsername() || undefined,
     })
     spinner.succeed("Deployed")
