@@ -1,8 +1,8 @@
 import {
-  existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, cpSync,
+  existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, cpSync, statSync,
 } from "fs"
 import { join, resolve, sep } from "path"
-import { unzipSync } from "fflate"
+import { unzipSync, zipSync } from "fflate"
 import type { Pocket, PocketInfo } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
 
@@ -141,6 +141,24 @@ export class PocketStorage {
 
     const version = this.nextVersion(name)
     return { size, version }
+  }
+
+  // Zip the pocket's deployed code (public/**, pb_migrations/**, pb_hooks/**)
+  // for download. The reverse of extractCode; NEVER includes pb_data.
+  async zipCode(name: string): Promise<Uint8Array | null> {
+    const codePath = this.getCodePath(name)
+    if (!existsSync(codePath)) return null
+    const files: Record<string, Uint8Array> = {}
+    const collect = (dir: string, base: string = dir): void => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry)
+        const rel = full.slice(base.length + 1)
+        if (statSync(full).isDirectory()) collect(full, base)
+        else files[rel] = readFileSync(full)
+      }
+    }
+    collect(codePath)
+    return zipSync(files, { level: 6 })
   }
 
   // The pocket's primary hostname: its first custom domain, else the default

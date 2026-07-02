@@ -9,6 +9,7 @@ import { loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts
 import { formatSuccess, formatBytes } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
+import { PUBLIC_DIR, SITEIO_DIR, BACKEND_DIRS } from "../../lib/pocket-layout.ts"
 
 // Recursively collect files from `dir` into the zip map under `prefix`.
 async function addTree(dir: string, prefix: string, out: Record<string, Uint8Array>): Promise<void> {
@@ -30,16 +31,17 @@ export async function collectPocketFiles(folder: string): Promise<Record<string,
   const out: Record<string, Uint8Array> = {}
   // Web root = folder contents minus the .siteio plumbing dir.
   for (const entry of readdirSync(folder)) {
-    if (entry === ".siteio") continue
+    if (entry === SITEIO_DIR) continue
     const full = join(folder, entry)
     if (statSync(full).isDirectory()) {
-      await addTree(full, `public/${entry}`, out)
+      await addTree(full, `${PUBLIC_DIR}/${entry}`, out)
     } else {
-      out[`public/${entry}`] = await Bun.file(full).bytes()
+      out[`${PUBLIC_DIR}/${entry}`] = await Bun.file(full).bytes()
     }
   }
-  await addTree(join(folder, ".siteio", "pb_migrations"), "pb_migrations", out)
-  await addTree(join(folder, ".siteio", "pb_hooks"), "pb_hooks", out)
+  for (const dir of BACKEND_DIRS) {
+    await addTree(join(folder, SITEIO_DIR, dir), dir, out)
+  }
   return out
 }
 
