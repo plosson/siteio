@@ -69,50 +69,12 @@ describe("Unit: PocketStorage", () => {
       ...base("blog"),
       superuserEmail: "a@b.co",
       superuserPassword: "secret",
-      oidc: { issuer: "https://auth.example.com/", clientId: "id", clientSecret: "sec" },
     })
     const info = storage.toInfo(p, "example.com")
     expect(info.url).toBe("https://blog.example.com")
     expect(info.adminUrl).toBe("https://blog.example.com/_/")
-    const raw = info as unknown as { superuserPassword?: string; superuserEmail?: string; oidc?: unknown }
+    const raw = info as unknown as { superuserPassword?: string; superuserEmail?: string }
     expect(raw.superuserPassword).toBeUndefined()
     expect(raw.superuserEmail).toBeUndefined()
-    expect(raw.oidc).toBeUndefined()
-  })
-
-  test("writeOAuthHook bakes the discovered endpoints into a valid hook", () => {
-    storage.create(base("blog"))
-    storage.writeOAuthHook("blog", {
-      authURL: "https://auth.example.com/authorize",
-      tokenURL: "https://auth.example.com/oauth/token",
-      userInfoURL: "https://auth.example.com/userinfo",
-    })
-    const hookPath = join(storage.getCodePath("blog"), "pb_hooks", "_siteio_oauth.pb.js")
-    expect(existsSync(hookPath)).toBe(true)
-    const hook = readFileSync(hookPath, "utf-8")
-    expect(hook).toContain('name: "oidc"')
-    expect(hook).toContain("https://auth.example.com/authorize")
-    expect(hook).toContain('$os.getenv("POCKET_OIDC_CLIENT_ID")')
-    // secrets come from env, never baked into the hook
-    expect(hook).not.toContain("clientSecret: \"")
-  })
-
-  test("writeOAuthHelper writes a valid public/pocket-oauth.js with injected values", async () => {
-    storage.create(base("blog"))
-    await storage.extractCode("blog", zipSync({ "public/index.html": new TextEncoder().encode("x") }))
-    storage.writeOAuthHelper("blog", "example.com")
-
-    const helperPath = join(storage.getCodePath("blog"), "public", "pocket-oauth.js")
-    expect(existsSync(helperPath)).toBe(true)
-    const js = readFileSync(helperPath, "utf-8")
-
-    // Injected, not left as placeholders
-    expect(js).not.toContain("__POCKET_NAME__")
-    expect(js).toContain('var POCKET = "blog"')
-    expect(js).toContain('var API_BASE = "https://api.example.com"')
-    expect(js).toContain("window.pocketLogin")
-    expect(js).toContain("/pocket/oauth/callback")
-    // The generated script is syntactically valid JavaScript
-    expect(() => new Function(js)).not.toThrow()
   })
 })

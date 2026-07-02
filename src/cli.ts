@@ -400,9 +400,6 @@ pocket
 pocket
   .command("deploy [folder]")
   .description("Deploy the pocket (frontend + PocketBase backend)")
-  .option("--oidc-issuer <url>", "Enable social login with a custom OIDC issuer (else the agent's OAuth config is reused)")
-  .option("--oidc-client-id <id>", "OIDC client ID (requires --oidc-issuer and --oidc-client-secret)")
-  .option("--oidc-client-secret <secret>", "OIDC client secret")
   .action(async (folder, options) => {
     const { pocketDeployCommand } = await import("./commands/pocket/deploy.ts")
     await pocketDeployCommand(folder, { ...options, json: program.opts().json })
