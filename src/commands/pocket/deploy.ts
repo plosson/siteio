@@ -44,9 +44,6 @@ export async function collectPocketFiles(folder: string): Promise<Record<string,
 }
 
 export interface PocketDeployOptions {
-  oidcIssuer?: string
-  oidcClientId?: string
-  oidcClientSecret?: string
   json?: boolean
 }
 
@@ -68,11 +65,6 @@ export async function pocketDeployCommand(folder: string | undefined, options: P
       throw new ValidationError("Pocket name must contain only lowercase letters, numbers, and hyphens")
     }
 
-    const oidcFlags = [options.oidcIssuer, options.oidcClientId, options.oidcClientSecret]
-    if (oidcFlags.some(Boolean) && !oidcFlags.every(Boolean)) {
-      throw new ValidationError("Custom OIDC login requires ALL of --oidc-issuer, --oidc-client-id, --oidc-client-secret")
-    }
-
     console.error(chalk.cyan(`> Deploying pocket ${name}`))
     saveProjectConfig({ pocket: name, domain: server.domain, pocketbaseVersion: config?.pocketbaseVersion || POCKETBASE_VERSION }, folderPath)
 
@@ -87,9 +79,6 @@ export async function pocketDeployCommand(folder: string | undefined, options: P
     const info = await client.deployPocket(name, zipData, {
       version: POCKETBASE_VERSION,
       deployedBy: getUsername() || undefined,
-      oidc: options.oidcIssuer && options.oidcClientId && options.oidcClientSecret
-        ? { issuer: options.oidcIssuer, clientId: options.oidcClientId, clientSecret: options.oidcClientSecret }
-        : undefined,
     })
     spinner.succeed("Deployed")
 
