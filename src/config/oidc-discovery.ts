@@ -1,9 +1,6 @@
 export interface OIDCDiscoveryResult {
   issuer: string
   endSessionEndpoint?: string
-  authorizationEndpoint?: string
-  tokenEndpoint?: string
-  userInfoEndpoint?: string
 }
 
 export async function discoverOIDC(issuerUrl: string): Promise<OIDCDiscoveryResult> {
@@ -27,15 +24,9 @@ export async function discoverOIDC(issuerUrl: string): Promise<OIDCDiscoveryResu
     throw new Error(`OIDC discovery failed: ${response.status} ${response.statusText} (${url})`)
   }
 
-  let doc: {
-    issuer?: unknown
-    end_session_endpoint?: unknown
-    authorization_endpoint?: unknown
-    token_endpoint?: unknown
-    userinfo_endpoint?: unknown
-  }
+  let doc: { issuer?: unknown; end_session_endpoint?: unknown }
   try {
-    doc = (await response.json()) as typeof doc
+    doc = (await response.json()) as { issuer?: unknown; end_session_endpoint?: unknown }
   } catch {
     throw new Error(`OIDC discovery returned non-JSON body (${url})`)
   }
@@ -44,13 +35,10 @@ export async function discoverOIDC(issuerUrl: string): Promise<OIDCDiscoveryResu
     throw new Error(`OIDC discovery document missing issuer field (${url})`)
   }
 
-  const str = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : undefined)
+  const endSessionEndpoint = typeof doc.end_session_endpoint === "string" ? doc.end_session_endpoint : undefined
 
   return {
     issuer: doc.issuer,
-    endSessionEndpoint: str(doc.end_session_endpoint),
-    authorizationEndpoint: str(doc.authorization_endpoint),
-    tokenEndpoint: str(doc.token_endpoint),
-    userInfoEndpoint: str(doc.userinfo_endpoint),
+    endSessionEndpoint,
   }
 }
