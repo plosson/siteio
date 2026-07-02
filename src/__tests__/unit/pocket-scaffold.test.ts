@@ -29,9 +29,9 @@ describe("Unit: scaffoldPocket", () => {
     expect(readFileSync(join(dir, "index.html"), "utf-8")).toBe("<p>mine</p>")
   })
 
-  test("writes a CLAUDE.local.md guide covering commands and the PocketBase JS client", () => {
+  test("writes a CLAUDE.md guide covering commands and the PocketBase JS client", () => {
     scaffoldPocket(dir)
-    const guide = join(dir, "CLAUDE.local.md")
+    const guide = join(dir, "CLAUDE.md")
     expect(existsSync(guide)).toBe(true)
     const md = readFileSync(guide, "utf-8")
     // Covers the pocket commands
@@ -44,9 +44,9 @@ describe("Unit: scaffoldPocket", () => {
     expect(md).toContain("new PocketBase(")
   })
 
-  test("does not overwrite an existing CLAUDE.local.md", () => {
-    writeFileSync(join(dir, "CLAUDE.local.md"), "keep me")
+  test("does not overwrite an existing CLAUDE.md", () => {
+    writeFileSync(join(dir, "CLAUDE.md"), "keep me")
     scaffoldPocket(dir)
-    expect(readFileSync(join(dir, "CLAUDE.local.md"), "utf-8")).toBe("keep me")
+    expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toBe("keep me")
   })
 })

@@ -1,5 +1,11 @@
 import { describe, test, expect } from "bun:test"
-import { buildDevArgs, resolveDevPaths } from "../../lib/pocketbase-dev.ts"
+import {
+  buildDevArgs,
+  resolveDevPaths,
+  buildSuperuserArgs,
+  DEV_SUPERUSER_EMAIL,
+  DEV_SUPERUSER_PASSWORD,
+} from "../../lib/pocketbase-dev.ts"
 
 describe("Unit: pocketbase dev runner", () => {
   test("builds serve args with all dirs and http bind", () => {
@@ -26,5 +32,17 @@ describe("Unit: pocketbase dev runner", () => {
     expect(p.migrationsDir).toBe("/proj/.siteio/pb_migrations")
     expect(p.hooksDir).toBe("/proj/.siteio/pb_hooks")
     expect(p.dataDir).toBe("/proj/.siteio/pb_data")
+  })
+
+  test("builds the fixed local superuser upsert args", () => {
+    expect(DEV_SUPERUSER_EMAIL).toBe("admin@siteio.me")
+    expect(DEV_SUPERUSER_PASSWORD.length).toBeGreaterThanOrEqual(8)
+    expect(buildSuperuserArgs(DEV_SUPERUSER_EMAIL, DEV_SUPERUSER_PASSWORD, "/proj/.siteio/pb_data")).toEqual([
+      "superuser",
+      "upsert",
+      "admin@siteio.me",
+      DEV_SUPERUSER_PASSWORD,
+      "--dir=/proj/.siteio/pb_data",
+    ])
   })
 })
