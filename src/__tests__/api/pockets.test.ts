@@ -87,6 +87,27 @@ describe("API: pockets", () => {
     expect(body.data!.pocketbaseVersion).toBe(POCKETBASE_VERSION)
   })
 
+  test("GET /pockets/:name/download returns the deployed code as a zip", async () => {
+    await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
+    const res = await server.handleRequestForTest(
+      new Request("http://x/pockets/blog/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Content-Type")).toBe("application/zip")
+    expect(res.headers.get("Content-Disposition")).toContain("blog.zip")
+    const { unzipSync } = await import("fflate")
+    const files = unzipSync(new Uint8Array(await res.arrayBuffer()))
+    expect(Object.keys(files)).toContain("public/index.html")
+    expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("<h1>hi</h1>")
+  })
+
+  test("GET /pockets/:name/download returns 404 for a missing pocket", async () => {
+    const res = await server.handleRequestForTest(
+      new Request("http://x/pockets/nope/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+    )
+    expect(res.status).toBe(404)
+  })
+
   test("DELETE /pockets/:name removes it", async () => {
     await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
     const del = await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "DELETE", headers: { "X-API-Key": "test-key" } }))
