@@ -1,7 +1,7 @@
 import { resolve } from "path"
 import { existsSync } from "fs"
 import chalk from "chalk"
-import { runPocketbaseDev } from "../../lib/pocketbase-dev.ts"
+import { runPocketbaseDev, DEV_SUPERUSER_EMAIL, DEV_SUPERUSER_PASSWORD } from "../../lib/pocketbase-dev.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
 
@@ -16,6 +16,7 @@ export async function pocketDevCommand(folder: string | undefined, options: { po
 
     console.error(chalk.cyan(`> Starting PocketBase ${version} at http://${http}`))
     console.error(chalk.dim("  Serving this folder + /api backend. Press Ctrl+C to stop."))
+    console.error(chalk.dim(`  Admin UI: http://${http}/_/  (${DEV_SUPERUSER_EMAIL} / ${DEV_SUPERUSER_PASSWORD})`))
 
     // Prints the local URL to stdout so the driving agent can hit it.
     console.log(`http://${http}`)
