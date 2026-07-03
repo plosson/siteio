@@ -66,7 +66,7 @@ siteio apps create myapp --git <url> -p 3000
 When a user wants to edit a site by giving its URL (e.g., \`https://mysite.example.com\`):
 
 1. Extract the subdomain from the URL (e.g., \`mysite\`)
-2. Download: \`siteio sites download /tmp/mysite-edit -s mysite\`
+2. Download: \`siteio sites download /tmp/mysite-edit -n mysite\`
 3. Edit the files in \`/tmp/mysite-edit/\`
 4. Re-deploy: \`siteio sites deploy /tmp/mysite-edit -s mysite\`
 

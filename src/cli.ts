@@ -129,12 +129,12 @@ sites
 
 sites
   .command("download [output-folder]")
-  .description("Download a deployed site to a local folder")
-  .option("-s, --subdomain <subdomain>", "Site to download (defaults to .siteio/config.json)")
+  .description("Download a deployed site to a local folder (defaults to ./<name>)")
+  .option("-n, --name <name>", "Site to download (defaults to .siteio/config.json)")
   .option("-y, --yes", "Overwrite existing folder contents")
   .action(async (outputFolder, options) => {
     const { downloadCommand } = await import("./commands/sites/download.ts")
-    await downloadCommand(outputFolder ?? ".", { ...options, json: program.opts().json })
+    await downloadCommand(outputFolder, { ...options, json: program.opts().json })
   })
 
 sites
@@ -414,12 +414,12 @@ pocket
 
 pocket
   .command("download [output-folder]")
-  .description("Download a deployed pocket's code to a local folder")
+  .description("Download a deployed pocket's code to a local folder (defaults to ./<name>)")
   .option("-n, --name <name>", "Pocket to download (defaults to .siteio/config.json)")
   .option("-y, --yes", "Overwrite existing folder contents")
   .action(async (outputFolder, options) => {
     const { pocketDownloadCommand } = await import("./commands/pocket/download.ts")
-    await pocketDownloadCommand(outputFolder ?? ".", { ...options, json: program.opts().json })
+    await pocketDownloadCommand(outputFolder, { ...options, json: program.opts().json })
   })
 
 pocket

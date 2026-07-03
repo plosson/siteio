@@ -15,7 +15,7 @@ import { POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
 import { toLocalPath } from "../../lib/pocket-layout.ts"
 
 export async function pocketDownloadCommand(
-  outputFolder: string,
+  outputFolder: string | undefined,
   options: { name?: string; yes?: boolean; json?: boolean }
 ): Promise<void> {
   const spinner = ora()
@@ -31,7 +31,9 @@ export async function pocketDownloadCommand(
       console.error(chalk.dim(`Using pocket '${name}' from .siteio/config.json`))
     }
 
-    const outputPath = resolve(outputFolder)
+    // Default to a subfolder named after the pocket when no folder is given.
+    const targetFolder = outputFolder ?? name
+    const outputPath = resolve(targetFolder)
 
     // Guard against clobbering a non-empty folder unless -y is given.
     if (!options.yes && existsSync(outputPath)) {
@@ -43,7 +45,7 @@ export async function pocketDownloadCommand(
       }
     }
 
-    console.error(chalk.cyan(`> Downloading pocket ${name} to ${outputFolder}`))
+    console.error(chalk.cyan(`> Downloading pocket ${name} to ${targetFolder}`))
 
     const client = new SiteioClient()
 

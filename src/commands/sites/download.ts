@@ -12,23 +12,25 @@ import { handleError, ValidationError } from "../../utils/errors.ts"
 import { resolveSubdomain, saveProjectConfig } from "../../utils/site-config.ts"
 
 export async function downloadCommand(
-  outputFolder: string,
-  options: { subdomain?: string; yes?: boolean; json?: boolean }
+  outputFolder: string | undefined,
+  options: { name?: string; yes?: boolean; json?: boolean }
 ): Promise<void> {
   const spinner = ora()
   const tempDir = join(tmpdir(), `siteio-download-${Date.now()}`)
 
   try {
     const server = getCurrentServer()
-    const subdomain = resolveSubdomain(options.subdomain, server?.domain ?? "")
+    const subdomain = resolveSubdomain(options.name, server?.domain ?? "")
     if (!subdomain) {
-      throw new ValidationError("Subdomain required. Use -s <subdomain> or run from a directory with .siteio/config.json")
+      throw new ValidationError("Site name required. Use -n <name> or run from a directory with .siteio/config.json")
     }
-    if (!options.subdomain) {
+    if (!options.name) {
       console.error(chalk.dim(`Using site '${subdomain}' from .siteio/config.json`))
     }
 
-    const outputPath = resolve(outputFolder)
+    // Default to a subfolder named after the site when no folder is given.
+    const targetFolder = outputFolder ?? subdomain
+    const outputPath = resolve(targetFolder)
 
     // Check if output folder exists (unless -y flag is set)
     if (!options.yes && existsSync(outputPath)) {
@@ -43,7 +45,7 @@ export async function downloadCommand(
       }
     }
 
-    console.error(chalk.cyan(`> Downloading ${subdomain} to ${outputFolder}`))
+    console.error(chalk.cyan(`> Downloading ${subdomain} to ${targetFolder}`))
 
     const client = new SiteioClient()
 
