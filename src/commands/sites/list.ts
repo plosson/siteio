@@ -1,7 +1,7 @@
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
-import { formatTable, formatBytes, formatInfo } from "../../utils/output.ts"
+import { formatTable, formatBytes, formatInfo, formatTls, formatDeployedDate } from "../../utils/output.ts"
 import { handleError } from "../../utils/errors.ts"
 
 export async function listCommand(options: { json?: boolean } = {}): Promise<void> {
@@ -25,22 +25,12 @@ export async function listCommand(options: { json?: boolean } = {}): Promise<voi
     // Format the table
     const headers = ["SUBDOMAIN", "URL", "SIZE", "TLS", "DOMAINS", "AUTH", "STORAGE", "DEPLOYED"]
     const rows = sites.map((site) => {
-      const date = new Date(site.deployedAt)
-      const dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
       const authStr = site.oauth ? chalk.yellow("oauth") : chalk.dim("-")
-      const tlsStr =
-        site.tls === "valid"
-          ? chalk.green("✓")
-          : site.tls === "pending"
-            ? chalk.yellow("…")
-            : site.tls === "error"
-              ? chalk.red("✗")
-              : chalk.dim("-")
       const domainsStr = site.domains && site.domains.length > 0
         ? chalk.cyan(`${site.domains.length}`)
         : chalk.dim("-")
       const storageStr = site.persistentStorage ? chalk.green("✓") : chalk.dim("-")
-      return [site.subdomain, site.url, formatBytes(site.size), tlsStr, domainsStr, authStr, storageStr, dateStr]
+      return [site.subdomain, site.url, formatBytes(site.size), formatTls(site.tls), domainsStr, authStr, storageStr, formatDeployedDate(site.deployedAt)]
     })
 
     console.log("")

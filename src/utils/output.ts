@@ -95,6 +95,27 @@ export function formatStatus(status: string): string {
   }
 }
 
+// Format TLS status as a colored glyph for list tables
+export function formatTls(tls?: string): string {
+  switch (tls) {
+    case "valid":
+      return chalk.green("✓")
+    case "pending":
+      return chalk.yellow("…")
+    case "error":
+      return chalk.red("✗")
+    default:
+      return chalk.dim("-")
+  }
+}
+
+// Format a deployment date for list tables
+export function formatDeployedDate(deployedAt?: string): string {
+  if (!deployedAt) return chalk.dim("-")
+  const date = new Date(deployedAt)
+  return date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+}
+
 // Format a site version entry for history display
 export function formatVersionEntry(version: {
   version: number

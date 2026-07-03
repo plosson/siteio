@@ -1,7 +1,7 @@
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
-import { formatTable, formatInfo, formatStatus } from "../../utils/output.ts"
+import { formatTable, formatInfo, formatStatus, formatTls, formatDeployedDate } from "../../utils/output.ts"
 import { handleError } from "../../utils/errors.ts"
 
 export async function listAppsCommand(options: { json?: boolean } = {}): Promise<void> {
@@ -25,22 +25,10 @@ export async function listAppsCommand(options: { json?: boolean } = {}): Promise
     // Format the table
     const headers = ["NAME", "URL", "SOURCE", "STATUS", "TLS", "PORT", "DOMAINS", "AUTH", "DEPLOYED"]
     const rows = apps.map((app) => {
-      const date = app.deployedAt ? new Date(app.deployedAt) : null
-      const dateStr = date
-        ? date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-        : chalk.dim("-")
       const domainsStr = app.domains && app.domains.length > 0
         ? chalk.cyan(`${app.domains.length}`)
         : chalk.dim("-")
       const authStr = app.oauth ? chalk.yellow("oauth") : chalk.dim("-")
-      const tlsStr =
-        app.tls === "valid"
-          ? chalk.green("✓")
-          : app.tls === "pending"
-            ? chalk.yellow("…")
-            : app.tls === "error"
-              ? chalk.red("✗")
-              : chalk.dim("-")
 
       // Format source: show shortened git URL or image name
       let sourceStr: string
@@ -57,11 +45,11 @@ export async function listAppsCommand(options: { json?: boolean } = {}): Promise
         app.url,
         sourceStr,
         formatStatus(app.status),
-        tlsStr,
+        formatTls(app.tls),
         String(app.internalPort),
         domainsStr,
         authStr,
-        dateStr,
+        formatDeployedDate(app.deployedAt),
       ]
     })
 
