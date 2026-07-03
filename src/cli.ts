@@ -251,6 +251,14 @@ const apps = program
   .description("Manage containerized applications")
 
 apps
+  .command("init [folder]")
+  .description("Scaffold a new app project (Dockerfile + AI guide)")
+  .action(async (folder) => {
+    const { appsInitCommand } = await import("./commands/apps/init.ts")
+    await appsInitCommand(folder, { json: program.opts().json })
+  })
+
+apps
   .command("create <name>")
   .description("Create a new app")
   .option("-i, --image <image>", "Docker image to use")
