@@ -24,6 +24,12 @@ function getVersion(): string {
   }
 }
 
+// Commander calls option parsers as fn(value, previous), so bare parseInt
+// would receive the option's default/previous value as its radix.
+function intArg(value: string): number {
+  return parseInt(value, 10)
+}
+
 const program = new Command()
   .name("siteio")
   .description("Deploy static sites with ease")
@@ -258,7 +264,7 @@ apps
   .option("--branch <branch>", "Git branch (default: main)")
   .option("--context <path>", "Build context subdirectory for monorepos")
   .option("--git-token <token>", "Personal access token for cloning a private HTTPS git repo")
-  .option("-p, --port <port>", "Internal port the container listens on", parseInt)
+  .option("-p, --port <port>", "Internal port the container listens on", intArg)
   .action(async (name, options) => {
     const { createAppCommand } = await import("./commands/apps/create.ts")
     await createAppCommand(name, { ...options, json: program.opts().json })
@@ -326,7 +332,7 @@ apps
 apps
   .command("logs [name]")
   .description("Tail logs from an app container")
-  .option("-t, --tail <n>", "Number of lines to show", parseInt, 100)
+  .option("-t, --tail <n>", "Number of lines to show", intArg, 100)
   .option("--service <name>", "Target a specific compose service (compose apps only)")
   .option("--all", "Show logs for all compose services (compose apps only)")
   .action(async (name, options) => {
@@ -352,7 +358,7 @@ apps
     prev.push(val)
     return prev
   }, [])
-  .option("-p, --port <port>", "Set internal port", parseInt)
+  .option("-p, --port <port>", "Set internal port", intArg)
   .option("-r, --restart <policy>", "Set restart policy (always, unless-stopped, on-failure, no)")
   .option("--image <image>", "Set Docker image")
   .option("--dockerfile <path>", "Set Dockerfile path (git-based apps only)")
@@ -391,7 +397,7 @@ pocket
 pocket
   .command("dev [folder]")
   .description("Run the pocket locally with PocketBase (no Docker required)")
-  .option("-p, --port <port>", "Local port", parseInt, 8090)
+  .option("-p, --port <port>", "Local port", intArg, 8090)
   .action(async (folder, options) => {
     const { pocketDevCommand } = await import("./commands/pocket/dev.ts")
     await pocketDevCommand(folder, options)
@@ -436,7 +442,7 @@ pocket
 pocket
   .command("logs [name]")
   .description("Show logs from a pocket")
-  .option("-t, --tail <n>", "Number of lines", parseInt, 100)
+  .option("-t, --tail <n>", "Number of lines", intArg, 100)
   .action(async (name, options) => {
     const { pocketLogsCommand } = await import("./commands/pocket/logs.ts")
     await pocketLogsCommand(name, { ...options, json: program.opts().json })
