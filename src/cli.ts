@@ -400,6 +400,7 @@ pocket
 pocket
   .command("deploy [folder]")
   .description("Deploy the pocket (frontend + PocketBase backend)")
+  .option("--force", "Deploy even if there is a version conflict")
   .action(async (folder, options) => {
     const { pocketDeployCommand } = await import("./commands/pocket/deploy.ts")
     await pocketDeployCommand(folder, { ...options, json: program.opts().json })

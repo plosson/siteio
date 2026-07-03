@@ -9,7 +9,7 @@ import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
 import { formatSuccess, formatBytes } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
-import { resolveSubdomain } from "../../utils/site-config.ts"
+import { resolveSubdomain, saveProjectConfig } from "../../utils/site-config.ts"
 
 export async function downloadCommand(
   outputFolder: string,
@@ -47,9 +47,13 @@ export async function downloadCommand(
 
     const client = new SiteioClient()
 
-    // Download the zip
+    // Fetch the zip and the site info (for the regenerated config) concurrently
+    // — the two round-trips are independent.
     spinner.start("Downloading")
-    const zipData = await client.downloadSite(subdomain)
+    const [zipData, siteInfo] = await Promise.all([
+      client.downloadSite(subdomain),
+      client.getSite(subdomain).catch(() => null),
+    ])
     spinner.succeed(`Downloaded ${formatBytes(zipData.length)}`)
 
     // Extract to temp directory first
@@ -76,6 +80,14 @@ export async function downloadCommand(
       await Bun.write(filePath, data)
     }
     spinner.succeed(`Extracted ${fileCount} files`)
+
+    // Regenerate the local-only .siteio/config.json, recording the downloaded
+    // version so a later deploy can detect conflicts.
+    saveProjectConfig({
+      site: subdomain,
+      domain: server?.domain ?? "",
+      version: siteInfo?.version,
+    }, tempDir)
 
     // Sync to output directory (creates it if needed, syncs if exists)
     spinner.start("Syncing to output folder")

@@ -1448,6 +1448,19 @@ export class AgentServer {
 
     // Create metadata on first deploy (generates superuser creds).
     let pocket = this.pocketStorage.get(name)
+
+    // Check for version conflict (optimistic concurrency control)
+    const expectedVersionHeader = req.headers.get("X-Expected-Version")
+    if (expectedVersionHeader !== null) {
+      const expectedVersion = parseInt(expectedVersionHeader, 10)
+      if (!isNaN(expectedVersion) && pocket?.version !== undefined && pocket.version !== expectedVersion) {
+        return this.error(
+          `Version conflict: expected v${expectedVersion} but server has v${pocket.version}. Someone else deployed since your last push. Use --force to override.`,
+          409
+        )
+      }
+    }
+
     if (!pocket) {
       pocket = this.pocketStorage.create({
         name,

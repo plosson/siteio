@@ -108,6 +108,40 @@ describe("API: pockets", () => {
     expect(res.status).toBe(404)
   })
 
+  describe("Version conflict detection", () => {
+    const deploy = (expectedVersion?: number) => {
+      const headers: Record<string, string> = { ...H }
+      if (expectedVersion !== undefined) headers["X-Expected-Version"] = String(expectedVersion)
+      return server.handleRequestForTest(
+        new Request("http://x/pockets/blog", { method: "POST", headers, body: zip() })
+      )
+    }
+
+    test("deploy returns a version that increments on redeploy", async () => {
+      const first = (await (await deploy()).json()) as ApiResponse<PocketInfo>
+      expect(first.data!.version).toBeGreaterThanOrEqual(1)
+      const second = (await (await deploy()).json()) as ApiResponse<PocketInfo>
+      expect(second.data!.version).toBe(first.data!.version! + 1)
+    })
+
+    test("should allow deploy when expected version matches", async () => {
+      const first = (await (await deploy()).json()) as ApiResponse<PocketInfo>
+      const res = await deploy(first.data!.version!)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as ApiResponse<PocketInfo>
+      expect(body.data!.version).toBe(first.data!.version! + 1)
+    })
+
+    test("should reject deploy when expected version does not match", async () => {
+      const first = (await (await deploy()).json()) as ApiResponse<PocketInfo>
+      await deploy() // version incremented by someone else
+      const res = await deploy(first.data!.version!)
+      expect(res.status).toBe(409)
+      const body = (await res.json()) as ApiResponse<null>
+      expect(body.error).toContain("Version conflict")
+    })
+  })
+
   test("DELETE /pockets/:name removes it", async () => {
     await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
     const del = await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "DELETE", headers: { "X-API-Key": "test-key" } }))

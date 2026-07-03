@@ -442,13 +442,16 @@ export class SiteioClient {
   async deployPocket(
     name: string,
     zipData: Uint8Array,
-    opts?: { deployedBy?: string }
+    opts?: { deployedBy?: string; expectedVersion?: number }
   ): Promise<PocketInfo> {
     const headers: Record<string, string> = {
       "Content-Type": "application/zip",
       "Content-Length": String(zipData.length),
     }
     if (opts?.deployedBy) headers["X-Deployed-By"] = opts.deployedBy
+    if (opts?.expectedVersion !== undefined) {
+      headers["X-Expected-Version"] = String(opts.expectedVersion)
+    }
     const response = await this.request<ApiResponse<PocketInfo>>("POST", `/pockets/${name}`, zipData, headers)
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data

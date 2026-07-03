@@ -47,12 +47,12 @@ export async function pocketDownloadCommand(
 
     const client = new SiteioClient()
 
-    // Fetch the code zip and the pocketbaseVersion (for the regenerated config)
+    // Fetch the code zip and the pocket info (for the regenerated config)
     // concurrently — the two round-trips are independent.
     spinner.start("Downloading")
-    const [zipData, pbVersion] = await Promise.all([
+    const [zipData, pocketInfo] = await Promise.all([
       client.downloadPocket(name),
-      client.getPocket(name).then((p) => p.pocketbaseVersion).catch(() => POCKETBASE_VERSION),
+      client.getPocket(name).catch(() => null),
     ])
     spinner.succeed(`Downloaded ${formatBytes(zipData.length)}`)
 
@@ -73,7 +73,13 @@ export async function pocketDownloadCommand(
     spinner.succeed(`Extracted ${fileCount} files`)
 
     // Regenerate the local-only .siteio/config.json (never shipped to the server).
-    saveProjectConfig({ pocket: name, domain: server?.domain ?? "", pocketbaseVersion: pbVersion }, tempDir)
+    // Records the downloaded version so a later deploy can detect conflicts.
+    saveProjectConfig({
+      pocket: name,
+      domain: server?.domain ?? "",
+      pocketbaseVersion: pocketInfo?.pocketbaseVersion ?? POCKETBASE_VERSION,
+      version: pocketInfo?.version,
+    }, tempDir)
 
     // Sync to the output directory. Preserve any local .siteio/pb_data (dev DB)
     // that the download never carries, so refreshing a project can't wipe it.

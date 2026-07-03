@@ -7,7 +7,7 @@ import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer, getUsername } from "../../config/loader.ts"
 import { loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts"
 import { formatSuccess, formatBytes } from "../../utils/output.ts"
-import { handleError, ValidationError } from "../../utils/errors.ts"
+import { handleError, ApiError, ValidationError } from "../../utils/errors.ts"
 import { POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
 import { PUBLIC_DIR, SITEIO_DIR, BACKEND_DIRS } from "../../lib/pocket-layout.ts"
 
@@ -47,6 +47,7 @@ export async function collectPocketFiles(folder: string): Promise<Record<string,
 
 export interface PocketDeployOptions {
   json?: boolean
+  force?: boolean
 }
 
 export async function pocketDeployCommand(folder: string | undefined, options: PocketDeployOptions = {}): Promise<void> {
@@ -68,7 +69,7 @@ export async function pocketDeployCommand(folder: string | undefined, options: P
     }
 
     console.error(chalk.cyan(`> Deploying pocket ${name}`))
-    saveProjectConfig({ pocket: name, domain: server.domain, pocketbaseVersion: config?.pocketbaseVersion || POCKETBASE_VERSION }, folderPath)
+    saveProjectConfig({ pocket: name, domain: server.domain, pocketbaseVersion: config?.pocketbaseVersion || POCKETBASE_VERSION, version: config?.version }, folderPath)
 
     spinner.start("Packaging")
     const files = await collectPocketFiles(folderPath)
@@ -79,10 +80,20 @@ export async function pocketDeployCommand(folder: string | undefined, options: P
 
     spinner.start("Uploading")
     const client = new SiteioClient()
+
+    // Determine expected version for optimistic concurrency control
+    const expectedVersion = (!options.force && config?.version !== undefined)
+      ? config.version
+      : undefined
+
     const info = await client.deployPocket(name, zipData, {
       deployedBy: getUsername() || undefined,
+      expectedVersion,
     })
     spinner.succeed("Deployed")
+
+    // Save version to local config for future concurrency checks
+    saveProjectConfig({ pocket: name, domain: server.domain, pocketbaseVersion: config?.pocketbaseVersion || POCKETBASE_VERSION, version: info.version }, folderPath)
 
     if (options.json) {
       console.log(JSON.stringify({ success: true, data: info }, null, 2))
@@ -96,6 +107,14 @@ export async function pocketDeployCommand(folder: string | undefined, options: P
     process.exit(0)
   } catch (err) {
     spinner.stop()
+    if (err instanceof ApiError && err.statusCode === 409) {
+      console.error(chalk.red("Deploy rejected: version conflict"))
+      console.error(chalk.yellow(`  ${err.message}`))
+      console.error("")
+      console.error(chalk.dim("  Someone else deployed this pocket since your last push."))
+      console.error(chalk.dim("  Use --force to deploy anyway."))
+      process.exit(1)
+    }
     handleError(err)
   }
 }
