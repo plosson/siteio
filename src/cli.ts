@@ -96,6 +96,14 @@ const sites = program
   .description("Manage deployed sites")
 
 sites
+  .command("init [folder]")
+  .description("Scaffold a new static site project (index.html + AI guide)")
+  .action(async (folder) => {
+    const { sitesInitCommand } = await import("./commands/sites/init.ts")
+    await sitesInitCommand(folder, { json: program.opts().json })
+  })
+
+sites
   .command("deploy [folder]")
   .description("Deploy a folder as a static site")
   .option("-s, --subdomain <subdomain>", "Subdomain to deploy to (defaults to folder name)")
