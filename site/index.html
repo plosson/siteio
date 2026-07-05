@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>siteio — deploy static sites with one command</title>
-  <meta name="description" content="Deploy static sites to your own server with a single command. Automatic HTTPS. Wildcard subdomains.">
-  <meta property="og:title" content="siteio — deploy static sites with one command">
-  <meta property="og:description" content="Deploy static sites to your own server with a single command. Automatic HTTPS. Wildcard subdomains.">
+  <title>siteio — deploy sites, backends, and apps to your own server</title>
+  <meta name="description" content="Deploy static sites, PocketBase backends, and Docker apps to your own server with a single command. Automatic HTTPS. Wildcard subdomains.">
+  <meta property="og:title" content="siteio — deploy sites, backends, and apps to your own server">
+  <meta property="og:description" content="Deploy static sites, PocketBase backends, and Docker apps to your own server with a single command. Automatic HTTPS. Wildcard subdomains.">
   <meta property="og:url" content="https://siteio.houlahop.com">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="hh-terminal.css?v=1">
@@ -201,6 +201,45 @@
       border: 1px solid var(--border);
       border-radius: var(--radius);
       padding: 16px;
+    }
+
+    .deploy-kinds {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .deploy-kind {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+    }
+
+    .deploy-kind h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+
+    .deploy-kind p {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      line-height: 1.55;
+      margin-bottom: 12px;
+    }
+
+    .deploy-kind code {
+      display: block;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      background: var(--code-bg);
+      border: 1px solid var(--border-light);
+      border-radius: 6px;
+      padding: 8px 10px;
+      overflow-x: auto;
+      white-space: nowrap;
     }
 
     .use-case p {
@@ -553,8 +592,8 @@
         <div class="logo">S</div>
         <h1>siteio</h1>
       </div>
-      <p class="headline">Your agent ships a folder to a live HTTPS site — one command.</p>
-      <p class="tagline">A CLI and self-hosted agent. Your VPS, your domain, automatic HTTPS, wildcard subdomains. No vendor in the middle.</p>
+      <p class="headline">Your agent ships sites, backends, and full apps to your own server — one command.</p>
+      <p class="tagline">Static sites, PocketBase backends, or full Docker apps — on your VPS, your domain, with automatic HTTPS. No vendor in the middle.</p>
     </header>
 
     <div class="hh-term">
@@ -583,6 +622,27 @@
         </div>
         <div class="update-hint">
           Already installed? Run <code>siteio update</code> to get the latest version.
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Three ways to deploy</h2>
+      <div class="deploy-kinds">
+        <div class="deploy-kind">
+          <h3>$ siteio sites</h3>
+          <p>Static sites. A folder of HTML, deployed to its own subdomain in seconds.</p>
+          <code>siteio sites deploy ./folder --subdomain demo</code>
+        </div>
+        <div class="deploy-kind">
+          <h3>$ siteio pocket</h3>
+          <p>PocketBase-backed sites. Auth, database, file storage, and realtime — scaffold, develop locally, deploy.</p>
+          <code>siteio pocket init todo && siteio pocket deploy</code>
+        </div>
+        <div class="deploy-kind">
+          <h3>$ siteio apps</h3>
+          <p>Full Docker apps. Any image or Git repo, with env vars, volumes, logs, and rollback.</p>
+          <code>siteio apps create api --git &lt;repo&gt; --port 3000</code>
         </div>
       </div>
     </section>
@@ -744,28 +804,44 @@ siteio sites undeploy my-site</code></pre>
         cmd: "siteio sites deploy ./site --subdomain demo",
         output: [
           "> Deploying site to demo",
-          "✔ Zipped 12 files",
-          "✔ Uploaded",
+          "\u2714 Zipped 12 files",
+          "\u2714 Uploaded",
           "",
           "+ Site deployed successfully!",
           "  URL: https://demo.yourdomain.com",
         ],
       },
       {
-        cmd: "siteio sites list",
+        cmd: "siteio pocket deploy ./todo",
         output: [
-          "site      url                              deployed",
-          "─────────────────────────────────────────────────────",
-          "demo      https://demo.yourdomain.com      just now",
-          "blog      https://blog.yourdomain.com      2 days ago",
-          "docs      https://docs.yourdomain.com      3 weeks ago",
+          "> Deploying pocket todo",
+          "\u2714 Frontend uploaded",
+          "\u2714 PocketBase backend running",
+          "",
+          "+ https://todo.yourdomain.com is live",
+          "  auth \u00b7 database \u00b7 file storage \u00b7 realtime",
+        ],
+      },
+      {
+        cmd: "siteio apps create api --git https://github.com/you/api --port 3000",
+        output: [
+          "\u2714 App created from Git repo",
+          "  next: siteio apps deploy api",
+        ],
+      },
+      {
+        cmd: "siteio apps deploy api",
+        output: [
+          "> Cloning and building image",
+          "\u2714 Built",
+          "\u2714 Running at https://api.yourdomain.com",
         ],
       },
       {
         cmd: "siteio sites rollback demo 3",
         output: [
           "> Rolling back demo to version 3",
-          "✔ Restored",
+          "\u2714 Restored",
           "  https://demo.yourdomain.com is live",
         ],
       },
