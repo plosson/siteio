@@ -15,7 +15,7 @@ setDefaultTimeout(60000)
  * Docker Integration Tests
  *
  * These tests use REAL Docker containers and Traefik routing.
- * Static sites are served by a single shared nginx container.
+ * Each site runs in its own PocketBase container discovered via docker labels.
  * They are skipped if Docker is not available.
  *
  * Prerequisites:
@@ -136,7 +136,7 @@ describe("Integration: Docker", () => {
     }
     mkdirSync(TEST_DATA_DIR, { recursive: true })
 
-    // Start AgentServer with real Traefik and shared nginx
+    // Start AgentServer with real Traefik
     server = new AgentServer({
       domain: TEST_DOMAIN,
       apiKey: TEST_API_KEY,
@@ -160,7 +160,7 @@ describe("Integration: Docker", () => {
   afterAll(async () => {
     if (!dockerAvailable) return
 
-    // Stop server (this also stops Traefik and nginx)
+    // Stop server (this also stops Traefik)
     server?.stop()
 
     // Clean up any remaining containers
@@ -181,7 +181,7 @@ describe("Integration: Docker", () => {
     expect(dockerAvailable).toBe(true)
   })
 
-  it("should deploy static site and route through Traefik to shared nginx", async () => {
+  it("should deploy a site and route through Traefik to its container", async () => {
     if (!dockerAvailable) return
 
     const siteName = "testsite"
@@ -203,7 +203,7 @@ describe("Integration: Docker", () => {
     expect(deployRes.ok).toBe(true)
 
     const { data: siteInfo } = (await deployRes.json()) as ApiResponse<SiteInfo>
-    expect(siteInfo?.subdomain).toBe(siteName)
+    expect(siteInfo?.name).toBe(siteName)
     expect(siteInfo?.url).toBe(`https://${siteName}.${TEST_DOMAIN}`)
 
     // Wait for Traefik to pick up the new route
@@ -220,7 +220,7 @@ describe("Integration: Docker", () => {
     expect(html).toContain("Integration Test Site")
   })
 
-  it("should serve different content for different sites from shared nginx", async () => {
+  it("should serve different content for different sites", async () => {
     if (!dockerAvailable) return
 
     const site1 = "site-one"
@@ -292,7 +292,7 @@ describe("Integration: Docker", () => {
     expect(status).toBe(404)
   })
 
-  it("should update content on redeploy without container restart", async () => {
+  it("should update content on redeploy", async () => {
     if (!dockerAvailable) return
 
     const siteName = "redeploy-test"
@@ -321,14 +321,20 @@ describe("Integration: Docker", () => {
       body: zip2,
     })
 
-    // Small delay for files to be written
-    await new Promise((r) => setTimeout(r, 1000))
-
-    // New content should be served immediately (no container restart needed)
-    const res2 = await fetch(`https://localhost:${TEST_HTTPS_PORT}/`, {
-      headers: { Host: `${siteName}.${TEST_DOMAIN}` },
-    })
-    expect(await res2.text()).toContain("Version 2")
+    // Redeploy recreates the container — wait for it to come back up and
+    // poll until the new content is served.
+    await waitForSite(TEST_HTTPS_PORT, `${siteName}.${TEST_DOMAIN}`)
+    let html = ""
+    const start = Date.now()
+    while (Date.now() - start < 15000) {
+      const res2 = await fetch(`https://localhost:${TEST_HTTPS_PORT}/`, {
+        headers: { Host: `${siteName}.${TEST_DOMAIN}` },
+      })
+      html = await res2.text()
+      if (html.includes("Version 2")) break
+      await new Promise((r) => setTimeout(r, 500))
+    }
+    expect(html).toContain("Version 2")
   })
 
   it("should list deployed sites", async () => {

@@ -2,14 +2,10 @@ import { existsSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 import { spawnSync } from "bun"
 import { connect as tlsConnect, type PeerCertificate } from "tls"
-import type { SiteMetadata, SiteOAuth, AgentOAuthConfig, AcmeConfig } from "../../types.ts"
+import type { AcmeConfig } from "../../types.ts"
 
 const TRAEFIK_CONTAINER_NAME = "siteio-traefik"
-const NGINX_CONTAINER_NAME = "siteio-nginx"
-const OAUTH_PROXY_CONTAINER_NAME = "siteio-oauth2-proxy"
 const TRAEFIK_IMAGE = "traefik:v3.0"
-const NGINX_IMAGE = "nginx:alpine"
-const OAUTH_PROXY_IMAGE = "quay.io/oauth2-proxy/oauth2-proxy:v7.6.0"
 
 export interface TraefikConfig {
   dataDir: string
@@ -19,7 +15,6 @@ export interface TraefikConfig {
   httpsPort: number
   fileServerPort: number
   acme?: AcmeConfig
-  oauthConfig?: AgentOAuthConfig
 }
 
 export class TraefikManager {
@@ -28,9 +23,6 @@ export class TraefikManager {
   private dynamicConfigPath: string
   private staticConfigPath: string
   private certsDir: string
-  private nginxConfigDir: string
-  private sitesDir: string
-  private oauthProxyPort = 4180
 
   constructor(config: TraefikConfig) {
     this.config = config
@@ -38,8 +30,6 @@ export class TraefikManager {
     this.dynamicConfigPath = join(this.configDir, "dynamic.yml")
     this.staticConfigPath = join(this.configDir, "traefik.yml")
     this.certsDir = join(config.dataDir, "certs")
-    this.nginxConfigDir = join(config.dataDir, "nginx")
-    this.sitesDir = join(config.dataDir, "sites")
 
     // Ensure directories exist
     if (!existsSync(this.configDir)) {
@@ -47,12 +37,6 @@ export class TraefikManager {
     }
     if (!existsSync(this.certsDir)) {
       mkdirSync(this.certsDir, { recursive: true })
-    }
-    if (!existsSync(this.nginxConfigDir)) {
-      mkdirSync(this.nginxConfigDir, { recursive: true })
-    }
-    if (!existsSync(this.sitesDir)) {
-      mkdirSync(this.sitesDir, { recursive: true })
     }
 
     // Ensure acme.json exists with correct permissions
@@ -62,189 +46,6 @@ export class TraefikManager {
       // Set permissions to 600 (required by Traefik)
       spawnSync({ cmd: ["chmod", "600", acmePath] })
     }
-
-    // Write nginx config for subdomain-based routing
-    this.updateNginxConfig()
-  }
-
-  /**
-   * Generate nginx config that routes based on subdomain.
-   * Uses a regex to extract subdomain from Host header and serve from /sites/<subdomain>/
-   */
-  private generateServerBlock(serverName: string, root: string, extra = ""): string {
-    return `
-server {
-    listen 80;
-    server_name ${serverName};
-
-    root ${root};
-    index index.html index.htm;
-
-    # Static assets - cache for 1 hour
-    location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|map)$ {
-        try_files $uri =404;
-        add_header Cache-Control "public, max-age=3600" always;
-    }
-
-    # Handle SPA routing - always revalidate HTML
-    location / {
-        try_files $uri $uri/ /index.html;
-        add_header Cache-Control "no-cache" always;
-    }
-
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-
-    # Gzip compression
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
-${extra}}
-`
-  }
-
-  private generateStorageExtra(): string {
-    const { fileServerPort } = this.config
-    return `
-    # Persistent storage
-    sub_filter '</head>' '<script src="/__storage/shim.js"></script></head>';
-    sub_filter_once on;
-    sub_filter_types text/html;
-
-    location ^~ /__storage/ {
-        proxy_pass http://host.docker.internal:${fileServerPort};
-        proxy_set_header Host $host;
-        proxy_set_header X-Auth-Request-Email $http_x_auth_request_email;
-    }
-`
-  }
-
-  private generateNginxConfig(sites: SiteMetadata[] = []): string {
-    const { domain } = this.config
-    // Escape dots in domain for regex
-    const escapedDomain = domain.replace(/\./g, "\\.")
-
-    let config = this.generateServerBlock(
-      `~^(?<subdomain>[a-z0-9-]+)\\.${escapedDomain}$`,
-      "/sites/$subdomain"
-    )
-
-    // Add explicit server blocks for sites with persistent storage or custom domains
-    for (const site of sites) {
-      // Sites with persistent storage need their own server block (for sub_filter)
-      if (site.persistentStorage) {
-        const extra = this.generateStorageExtra()
-        config += this.generateServerBlock(
-          `${site.subdomain}.${domain}`,
-          `/sites/${site.subdomain}`,
-          extra
-        )
-      }
-
-      if (site.domains) {
-        for (const customDomain of site.domains) {
-          const extra = site.persistentStorage ? this.generateStorageExtra() : ""
-          config += this.generateServerBlock(customDomain, `/sites/${site.subdomain}`, extra)
-        }
-      }
-    }
-
-    config += `
-# Default server for unmatched hosts
-server {
-    listen 80 default_server;
-    return 404;
-}
-`
-    return config.trim()
-  }
-
-  updateNginxConfig(sites: SiteMetadata[] = []): void {
-    const configPath = join(this.nginxConfigDir, "default.conf")
-    writeFileSync(configPath, this.generateNginxConfig(sites))
-  }
-
-  reloadNginx(): void {
-    spawnSync({
-      cmd: ["docker", "exec", NGINX_CONTAINER_NAME, "nginx", "-s", "reload"],
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-  }
-
-  async startNginx(): Promise<void> {
-    // Remove existing container if it exists
-    if (this.containerExists(NGINX_CONTAINER_NAME)) {
-      console.log("> Removing existing nginx container...")
-      this.removeContainer(NGINX_CONTAINER_NAME)
-    }
-
-    // Ensure nginx config is up to date
-    this.updateNginxConfig()
-
-    const args = [
-      "docker",
-      "run",
-      "-d",
-      "--name",
-      NGINX_CONTAINER_NAME,
-      "--restart",
-      "unless-stopped",
-      "--network",
-      "siteio-network",
-      // Add host.docker.internal support on Linux (needed for proxy_pass to agent)
-      "--add-host",
-      "host.docker.internal:host-gateway",
-      // Mount sites directory
-      "-v",
-      `${this.sitesDir}:/sites:ro`,
-      // Mount nginx config
-      "-v",
-      `${this.nginxConfigDir}/default.conf:/etc/nginx/conf.d/default.conf:ro`,
-      // Traefik labels for service discovery
-      "-l",
-      "traefik.enable=true",
-      NGINX_IMAGE,
-    ]
-
-    const result = spawnSync({ cmd: args, stdout: "pipe", stderr: "pipe" })
-
-    if (result.exitCode !== 0) {
-      const stderr = result.stderr.toString()
-      throw new Error(`Failed to start nginx container: ${stderr}`)
-    }
-
-    const containerId = result.stdout.toString().trim().slice(0, 12)
-    console.log(`> nginx container started: ${containerId}`)
-
-    // Wait and verify it's running
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
-    if (!this.isContainerRunning(NGINX_CONTAINER_NAME)) {
-      const logs = spawnSync({
-        cmd: ["docker", "logs", NGINX_CONTAINER_NAME],
-        stdout: "pipe",
-        stderr: "pipe",
-      })
-      const output = logs.stdout.toString() + logs.stderr.toString()
-      throw new Error(`nginx container failed to start. Logs:\n${output}`)
-    }
-  }
-
-  stopNginx(): void {
-    if (this.containerExists(NGINX_CONTAINER_NAME)) {
-      console.log("> Stopping nginx container...")
-      spawnSync({ cmd: ["docker", "stop", NGINX_CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
-      spawnSync({ cmd: ["docker", "rm", NGINX_CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
-    }
-  }
-
-  hasOAuthConfig(): boolean {
-    return !!this.config.oauthConfig
-  }
-
-  updateOAuthConfig(oauthConfig: AgentOAuthConfig): void {
-    this.config.oauthConfig = oauthConfig
   }
 
   generateStaticConfig(): string {
@@ -308,222 +109,33 @@ log:
 `.trim()
   }
 
-  private hasOAuthRestrictions(oauth?: SiteOAuth): boolean {
-    if (!oauth) return false
-    return (
-      (oauth.allowedEmails != null && oauth.allowedEmails.length > 0) ||
-      !!oauth.allowedDomain ||
-      (oauth.allowedGroups != null && oauth.allowedGroups.length > 0)
-    )
-  }
-
-  private buildLogoutRedirectUrl(oauthConfig: AgentOAuthConfig, domain: string, returnTo: string): string {
-    if (!oauthConfig.endSessionEndpoint) {
-      // Provider has no OIDC end-session endpoint (e.g. Google).
-      // Clear the oauth2-proxy cookie locally and redirect straight back to the site.
-      return `https://auth.${domain}/oauth2/sign_out?rd=${encodeURIComponent(returnTo)}`
-    }
-
-    // Standard OIDC RP-initiated logout.
-    const params = new URLSearchParams({
-      client_id: oauthConfig.clientId,
-      post_logout_redirect_uri: returnTo,
-    })
-    const providerLogoutUrl = `${oauthConfig.endSessionEndpoint}?${params.toString()}`
-    return `https://auth.${domain}/oauth2/sign_out?rd=${encodeURIComponent(providerLogoutUrl)}`
-  }
-
-  private addLogoutRouter(
-    routers: Record<string, unknown>,
-    middlewares: Record<string, unknown>,
-    oauthConfig: AgentOAuthConfig,
-    domain: string,
-    routerName: string,
-    host: string
-  ): void {
-    const logoutRouterName = `${routerName}-logout`
-    const logoutMiddlewareName = `${routerName}-logout-redirect`
-    const returnTo = `https://${host}/`
-    const logoutUrl = this.buildLogoutRedirectUrl(oauthConfig, domain, returnTo)
-
-    routers[logoutRouterName] = {
-      rule: `Host(\`${host}\`) && Path(\`/logout\`)`,
-      entryPoints: ["websecure"],
-      service: "oauth2-proxy-service",
-      middlewares: [logoutMiddlewareName],
-      tls: {
-        certResolver: "letsencrypt",
-      },
-      priority: 100,
-    }
-
-    middlewares[logoutMiddlewareName] = {
-      redirectRegex: {
-        regex: ".*",
-        replacement: logoutUrl,
-      },
-    }
-  }
-
-  generateDynamicConfig(sites: SiteMetadata[]): string {
-    const { domain, fileServerPort, oauthConfig } = this.config
-    const routers: Record<string, unknown> = {}
-    const services: Record<string, unknown> = {}
-    const middlewares: Record<string, unknown> = {}
-
-    // Use host.docker.internal to reach the host from container
+  // The file provider carries only the `api.<domain>` router to the agent's
+  // own HTTP server on the host. Everything else (sites and apps alike)
+  // routes via docker-label discovery.
+  generateDynamicConfig(): string {
+    const { domain, fileServerPort } = this.config
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
-
-    // Add API router (reserved subdomain)
-    routers["api-router"] = {
-      rule: `Host(\`api.${domain}\`)`,
-      entryPoints: ["websecure"],
-      service: "api-service",
-      tls: {
-        certResolver: "letsencrypt",
-      },
-    }
-
-    services["api-service"] = {
-      loadBalancer: {
-        servers: [{ url: hostUrl }],
-      },
-    }
-
-    // Add shared nginx service for all static sites
-    services["nginx-service"] = {
-      loadBalancer: {
-        servers: [{ url: `http://${NGINX_CONTAINER_NAME}:80` }],
-      },
-    }
-
-    // Add oauth2-proxy service and auth router when OAuth is configured
-    if (oauthConfig) {
-      services["oauth2-proxy-service"] = {
-        loadBalancer: {
-          servers: [{ url: `http://${OAUTH_PROXY_CONTAINER_NAME}:4180` }],
-        },
-      }
-
-      routers["auth-router"] = {
-        rule: `Host(\`auth.${domain}\`)`,
-        entryPoints: ["websecure"],
-        service: "oauth2-proxy-service",
-        tls: {
-          certResolver: "letsencrypt",
-        },
-      }
-
-      // Global logout route - redirects to oauth2-proxy sign_out with OIDC RP-initiated logout (when supported)
-      const authLogoutUrl = this.buildLogoutRedirectUrl(oauthConfig, domain, `https://auth.${domain}/`)
-      routers["logout-router"] = {
-        rule: `Host(\`auth.${domain}\`) && Path(\`/logout\`)`,
-        entryPoints: ["websecure"],
-        service: "oauth2-proxy-service",
-        middlewares: ["logout-redirect"],
-        tls: {
-          certResolver: "letsencrypt",
-        },
-        priority: 100, // Higher priority than auth-router
-      }
-
-      middlewares["logout-redirect"] = {
-        redirectRegex: {
-          regex: ".*",
-          replacement: authLogoutUrl,
-        },
-      }
-
-      // Global OAuth middlewares
-      // Use root path (/) instead of /oauth2/auth - oauth2-proxy handles redirects automatically
-      // Requires OAUTH2_PROXY_UPSTREAMS=static://202 to return 202 when authenticated
-      middlewares["oauth2-proxy-auth"] = {
-        forwardAuth: {
-          address: `http://${OAUTH_PROXY_CONTAINER_NAME}:4180/`,
-          trustForwardHeader: true,
-          authResponseHeaders: ["X-Auth-Request-Email", "X-Auth-Request-User", "X-Auth-Request-Groups"],
-        },
-      }
-
-      middlewares["siteio-authz"] = {
-        forwardAuth: {
-          address: `http://host.docker.internal:${fileServerPort}/auth/check`,
-          trustForwardHeader: true,
-        },
-      }
-
-      // Redirect to OAuth sign-in when unauthenticated (401)
-      // Use /oauth2/start without rd param - oauth2-proxy reads redirect from X-Forwarded-Uri header
-      middlewares["oauth-errors"] = {
-        errors: {
-          status: ["401"],
-          service: "oauth2-proxy-service",
-          query: "/oauth2/start",
-        },
-      }
-    }
-
-    // Add a router for each static site
-    for (const site of sites) {
-      const routerName = `site-${site.subdomain}`
-      const router: Record<string, unknown> = {
-        rule: `Host(\`${site.subdomain}.${domain}\`)`,
-        entryPoints: ["websecure"],
-        service: "nginx-service",
-        tls: {
-          certResolver: "letsencrypt",
-        },
-      }
-
-      // Add OAuth middlewares if site has restrictions and global OAuth is configured
-      const siteHasOAuth = oauthConfig && this.hasOAuthRestrictions(site.oauth)
-
-      if (siteHasOAuth) {
-        router.middlewares = ["oauth-errors", "oauth2-proxy-auth", "siteio-authz"]
-
-        // Per-site /logout route - clears session and returns to site root
-        const siteHost = `${site.subdomain}.${domain}`
-        this.addLogoutRouter(routers, middlewares, oauthConfig, domain, routerName, siteHost)
-      }
-
-      routers[routerName] = router
-
-      // Add routers for custom domains
-      if (site.domains) {
-        for (let i = 0; i < site.domains.length; i++) {
-          const customDomain = site.domains[i]!
-          const cdRouterName = `site-${site.subdomain}-cd-${i}`
-          const cdRouter: Record<string, unknown> = {
-            rule: `Host(\`${customDomain}\`)`,
-            entryPoints: ["websecure"],
-            service: "nginx-service",
-            tls: {
-              certResolver: "letsencrypt",
-            },
-          }
-
-          if (siteHasOAuth) {
-            cdRouter.middlewares = ["oauth-errors", "oauth2-proxy-auth", "siteio-authz"]
-
-            // Per-custom-domain /logout route
-            this.addLogoutRouter(routers, middlewares, oauthConfig, domain, cdRouterName, customDomain)
-          }
-
-          routers[cdRouterName] = cdRouter
-        }
-      }
-    }
 
     const config: Record<string, unknown> = {
       http: {
-        routers,
-        services,
+        routers: {
+          "api-router": {
+            rule: `Host(\`api.${domain}\`)`,
+            entryPoints: ["websecure"],
+            service: "api-service",
+            tls: {
+              certResolver: "letsencrypt",
+            },
+          },
+        },
+        services: {
+          "api-service": {
+            loadBalancer: {
+              servers: [{ url: hostUrl }],
+            },
+          },
+        },
       },
-    }
-
-    // Only add middlewares section if there are any
-    if (Object.keys(middlewares).length > 0) {
-      ;(config.http as Record<string, unknown>).middlewares = middlewares
     }
 
     return this.toYaml(config)
@@ -576,8 +188,8 @@ log:
     writeFileSync(this.staticConfigPath, this.generateStaticConfig())
   }
 
-  updateDynamicConfig(sites: SiteMetadata[]): void {
-    writeFileSync(this.dynamicConfigPath, this.generateDynamicConfig(sites))
+  updateDynamicConfig(): void {
+    writeFileSync(this.dynamicConfigPath, this.generateDynamicConfig())
   }
 
   private isDockerAvailable(): boolean {
@@ -630,126 +242,6 @@ log:
     }
   }
 
-  private buildOAuthProxyArgs(): string[] {
-    const { oauthConfig, domain } = this.config
-
-    if (!oauthConfig) {
-      return []
-    }
-
-    // oauth2-proxy configuration for OIDC provider
-    // Using reverse proxy mode: oauth2-proxy handles auth and proxies to fileserver
-    const { fileServerPort } = this.config
-    const upstreamUrl = `http://host.docker.internal:${fileServerPort}`
-
-    return [
-      "docker",
-      "run",
-      "-d",
-      "--name",
-      OAUTH_PROXY_CONTAINER_NAME,
-      "--network",
-      "siteio-network",
-      "--restart",
-      "unless-stopped",
-      "--add-host",
-      "host.docker.internal:host-gateway",
-      "-p",
-      `${this.oauthProxyPort}:4180`,
-      // Environment variables for oauth2-proxy
-      "-e",
-      "OAUTH2_PROXY_PROVIDER=oidc",
-      "-e",
-      `OAUTH2_PROXY_OIDC_ISSUER_URL=${oauthConfig.issuerUrl}`,
-      "-e",
-      `OAUTH2_PROXY_CLIENT_ID=${oauthConfig.clientId}`,
-      "-e",
-      `OAUTH2_PROXY_CLIENT_SECRET=${oauthConfig.clientSecret}`,
-      "-e",
-      `OAUTH2_PROXY_COOKIE_SECRET=${oauthConfig.cookieSecret}`,
-      "-e",
-      `OAUTH2_PROXY_COOKIE_DOMAINS=.${oauthConfig.cookieDomain}`,
-      "-e",
-      "OAUTH2_PROXY_EMAIL_DOMAINS=*",
-      "-e",
-      "OAUTH2_PROXY_COOKIE_SECURE=true",
-      "-e",
-      "OAUTH2_PROXY_REVERSE_PROXY=true",
-      "-e",
-      "OAUTH2_PROXY_SET_XAUTHREQUEST=true",
-      "-e",
-      "OAUTH2_PROXY_PASS_ACCESS_TOKEN=true",
-      "-e",
-      "OAUTH2_PROXY_PASS_USER_HEADERS=true",
-      "-e",
-      `OAUTH2_PROXY_WHITELIST_DOMAINS=.${domain},${new URL(oauthConfig.issuerUrl).hostname}`,
-      "-e",
-      "OAUTH2_PROXY_HTTP_ADDRESS=0.0.0.0:4180",
-      // Set redirect URL to auth subdomain for centralized OAuth callback
-      "-e",
-      `OAUTH2_PROXY_REDIRECT_URL=https://auth.${domain}/oauth2/callback`,
-      "-e",
-      "OAUTH2_PROXY_SKIP_PROVIDER_BUTTON=true",
-      // Use static://202 for forwardAuth mode - returns 202 when authenticated, no proxying
-      "-e",
-      "OAUTH2_PROXY_UPSTREAMS=static://202",
-      // Allow unverified emails (some OIDC providers don't verify emails by default)
-      "-e",
-      "OAUTH2_PROXY_INSECURE_OIDC_ALLOW_UNVERIFIED_EMAIL=true",
-      OAUTH_PROXY_IMAGE,
-    ]
-  }
-
-  async startOAuthProxy(): Promise<void> {
-    if (!this.config.oauthConfig) {
-      return
-    }
-
-    // Remove existing container if it exists
-    if (this.containerExists(OAUTH_PROXY_CONTAINER_NAME)) {
-      console.log("> Removing existing oauth2-proxy container...")
-      this.removeContainer(OAUTH_PROXY_CONTAINER_NAME)
-    }
-
-    const args = this.buildOAuthProxyArgs()
-
-    const result = spawnSync({ cmd: args, stdout: "pipe", stderr: "pipe" })
-
-    if (result.exitCode !== 0) {
-      const stderr = result.stderr.toString()
-      throw new Error(`Failed to start oauth2-proxy container: ${stderr}`)
-    }
-
-    const containerId = result.stdout.toString().trim().slice(0, 12)
-    console.log(`> oauth2-proxy container started: ${containerId}`)
-
-    // Wait a moment and verify it's running
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
-    if (!this.isContainerRunning(OAUTH_PROXY_CONTAINER_NAME)) {
-      const logs = spawnSync({
-        cmd: ["docker", "logs", OAUTH_PROXY_CONTAINER_NAME],
-        stdout: "pipe",
-        stderr: "pipe",
-      })
-      const output = logs.stdout.toString() + logs.stderr.toString()
-      throw new Error(`oauth2-proxy container failed to start. Logs:\n${output}`)
-    }
-  }
-
-  stopOAuthProxy(): void {
-    if (this.containerExists(OAUTH_PROXY_CONTAINER_NAME)) {
-      console.log("> Stopping oauth2-proxy container...")
-      spawnSync({ cmd: ["docker", "stop", OAUTH_PROXY_CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
-      spawnSync({ cmd: ["docker", "rm", OAUTH_PROXY_CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })
-    }
-  }
-
-  async restartOAuthProxy(): Promise<void> {
-    this.stopOAuthProxy()
-    await this.startOAuthProxy()
-  }
-
   async start(): Promise<void> {
     // Check Docker is available
     if (!this.isDockerAvailable()) {
@@ -758,7 +250,7 @@ log:
 
     // Write initial configs
     this.writeStaticConfig()
-    this.updateDynamicConfig([])
+    this.updateDynamicConfig()
 
     // Ensure Docker network exists
     this.ensureNetwork()
@@ -841,14 +333,6 @@ log:
       })
       const output = logs.stdout.toString() + logs.stderr.toString()
       throw new Error(`Traefik container failed to start. Logs:\n${output}`)
-    }
-
-    // Start shared nginx container for static sites
-    await this.startNginx()
-
-    // Start OAuth proxy if configured
-    if (this.hasOAuthConfig()) {
-      await this.startOAuthProxy()
     }
   }
 
@@ -936,7 +420,7 @@ log:
       const domainsToVerify: Array<{ baseName: string; domain: string }> = []
 
       for (const router of routers) {
-        // Extract the base name (e.g., "site-mysite@file" -> "site-mysite")
+        // Extract the base name (e.g., "siteio-mysite@docker" -> "siteio-mysite")
         const baseName = router.name.split("@")[0] || router.name
 
         if (!router.tls) {
@@ -952,7 +436,7 @@ log:
             // Valid domain - queue for verification
             domainsToVerify.push({ baseName, domain })
           } else {
-            // Invalid domain (e.g., "siteio-nginx-demo" without dots)
+            // Invalid domain (e.g., a bare container name without dots)
             statusMap.set(baseName, "error")
           }
         }
@@ -979,12 +463,6 @@ log:
   }
 
   stop(): void {
-    // Stop nginx
-    this.stopNginx()
-
-    // Stop OAuth proxy
-    this.stopOAuthProxy()
-
     if (this.containerExists(TRAEFIK_CONTAINER_NAME)) {
       console.log("> Stopping Traefik container...")
       spawnSync({ cmd: ["docker", "stop", TRAEFIK_CONTAINER_NAME], stdout: "pipe", stderr: "pipe" })

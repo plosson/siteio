@@ -2,9 +2,9 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { collectPocketFiles } from "../../commands/pocket/deploy.ts"
+import { collectSiteFiles } from "../../commands/sites/deploy.ts"
 
-describe("Unit: collectPocketFiles", () => {
+describe("Unit: collectSiteFiles", () => {
   let dir: string
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "siteio-pd-"))
@@ -19,14 +19,14 @@ describe("Unit: collectPocketFiles", () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
   test("maps web root to public/ and includes migrations + hooks", async () => {
-    const files = await collectPocketFiles(dir)
+    const files = await collectSiteFiles(dir)
     expect(Object.keys(files)).toContain("public/index.html")
     expect(Object.keys(files)).toContain("pb_migrations/1_init.js")
     expect(Object.keys(files)).toContain("pb_hooks/main.pb.js")
   })
 
   test("NEVER includes pb_data", async () => {
-    const files = await collectPocketFiles(dir)
+    const files = await collectSiteFiles(dir)
     const leaked = Object.keys(files).filter((k) => k.includes("pb_data"))
     expect(leaked).toEqual([])
   })

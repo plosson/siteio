@@ -1,15 +1,15 @@
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
-import { resolvePocketName } from "../../utils/site-config.ts"
+import { resolveSiteName } from "../../utils/site-config.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 
-export async function pocketAdminCommand(name: string | undefined, options: { json?: boolean } = {}): Promise<void> {
+export async function sitesAdminCommand(name: string | undefined, options: { json?: boolean } = {}): Promise<void> {
   try {
     const server = getCurrentServer()
-    const resolved = resolvePocketName(name, server?.domain ?? "")
-    if (!resolved) throw new ValidationError("Pocket name required (argument or .siteio/config.json)")
-    const admin = await new SiteioClient().getPocketAdmin(resolved)
+    const resolved = resolveSiteName(name, server?.domain ?? "")
+    if (!resolved) throw new ValidationError("Site name required (argument or .siteio/config.json)")
+    const admin = await new SiteioClient().getSiteAdmin(resolved)
     if (options.json) {
       console.log(JSON.stringify({ success: true, data: admin }, null, 2))
     } else {

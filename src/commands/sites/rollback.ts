@@ -5,10 +5,10 @@ import { getCurrentServer } from "../../config/loader.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { confirm } from "../../utils/prompt.ts"
 import { formatBytes, formatVersionEntry } from "../../utils/output.ts"
-import { resolveSubdomain } from "../../utils/site-config.ts"
+import { resolveSiteName } from "../../utils/site-config.ts"
 
-export async function rollbackCommand(
-  subdomain: string | undefined,
+export async function sitesRollbackCommand(
+  name: string | undefined,
   version: string | undefined,
   options: { json?: boolean; yes?: boolean }
 ): Promise<void> {
@@ -16,31 +16,30 @@ export async function rollbackCommand(
 
   try {
     const server = getCurrentServer()
-    const resolved = resolveSubdomain(subdomain, server?.domain ?? "")
+    const resolved = resolveSiteName(name, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("Subdomain required. Use -s <subdomain> or run from a directory with .siteio/config.json")
+      throw new ValidationError("Site name required. Pass it as an argument or run from a directory with .siteio/config.json")
     }
-    if (!subdomain) {
+    if (!name) {
       console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))
     }
-    subdomain = resolved
 
     const client = new SiteioClient()
 
     // If no version specified, show history and let user choose
     if (!version) {
-      const history = await client.getSiteHistory(subdomain)
+      const history = await client.getSiteHistory(resolved)
       if (history.length === 0) {
         throw new ValidationError("No history found for this site.")
       }
 
-      console.error(chalk.cyan(`Available versions for ${subdomain}:`))
+      console.error(chalk.cyan(`Available versions for ${resolved}:`))
       console.error("")
       for (const v of history) {
         console.error(formatVersionEntry(v))
       }
       console.error("")
-      throw new ValidationError(`Please specify a version: siteio sites rollback -s ${subdomain} -v <version>`)
+      throw new ValidationError(`Please specify a version: siteio sites rollback ${resolved} -v <version>`)
     }
 
     const versionNum = parseInt(version, 10)
@@ -48,16 +47,17 @@ export async function rollbackCommand(
       throw new ValidationError("Version must be a number")
     }
 
-    // Confirm rollback
+    // Confirm rollback. Only the code rolls back — the site's database and
+    // uploaded files stay as they are.
     if (!options.yes) {
-      const proceed = await confirm(`Rollback ${subdomain} to version ${versionNum}?`)
+      const proceed = await confirm(`Rollback ${resolved} code to version ${versionNum}? (data is not affected)`)
       if (!proceed) {
         process.exit(0)
       }
     }
 
     spinner.start(`Rolling back to version ${versionNum}`)
-    const site = await client.rollbackSite(subdomain, versionNum)
+    const site = await client.rollbackSite(resolved, versionNum)
     spinner.succeed("Rollback complete")
 
     if (options.json) {

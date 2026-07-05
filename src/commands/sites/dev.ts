@@ -5,7 +5,7 @@ import { runPocketbaseDev, DEV_SUPERUSER_EMAIL, DEV_SUPERUSER_PASSWORD } from ".
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
 
-export async function pocketDevCommand(folder: string | undefined, options: { port?: number } = {}): Promise<void> {
+export async function sitesDevCommand(folder: string | undefined, options: { port?: number } = {}): Promise<void> {
   try {
     const dir = resolve(folder || ".")
     if (!existsSync(dir)) throw new ValidationError(`Folder not found: ${dir}`)

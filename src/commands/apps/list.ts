@@ -23,12 +23,11 @@ export async function listAppsCommand(options: { json?: boolean } = {}): Promise
     }
 
     // Format the table
-    const headers = ["NAME", "URL", "SOURCE", "STATUS", "TLS", "PORT", "DOMAINS", "AUTH", "DEPLOYED"]
+    const headers = ["NAME", "URL", "SOURCE", "STATUS", "TLS", "PORT", "DOMAINS", "DEPLOYED"]
     const rows = apps.map((app) => {
       const domainsStr = app.domains && app.domains.length > 0
         ? chalk.cyan(`${app.domains.length}`)
         : chalk.dim("-")
-      const authStr = app.oauth ? chalk.yellow("oauth") : chalk.dim("-")
 
       // Format source: show shortened git URL or image name
       let sourceStr: string
@@ -48,7 +47,6 @@ export async function listAppsCommand(options: { json?: boolean } = {}): Promise
         formatTls(app.tls),
         String(app.internalPort),
         domainsStr,
-        authStr,
         formatDeployedDate(app.deployedAt),
       ]
     })

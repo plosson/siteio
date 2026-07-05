@@ -1,718 +1,361 @@
-import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "fs"
+// src/__tests__/api/pockets.test.ts
+import { describe, test, expect, beforeEach, afterEach } from "bun:test"
+import { mkdtempSync, rmSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { SiteioClient } from "../../lib/client.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
+import { POCKETBASE_IMAGE, POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
 import type { AgentConfig, ApiResponse, SiteInfo } from "../../types.ts"
 
-// Helper to parse JSON responses with proper typing
-async function parseJson<T>(response: Response): Promise<ApiResponse<T>> {
-  return response.json() as Promise<ApiResponse<T>>
+function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
+  const config: AgentConfig = {
+    apiKey: "test-key", dataDir, domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+  }
+  return new AgentServer(config, runtime)
 }
 
-const TEST_PORT = 4567
-const TEST_API_KEY = "test-api-key-12345"
-const TEST_DOMAIN = "test.local"
+const H = { "X-API-Key": "test-key", "Content-Type": "application/zip" }
 
-describe("API: Sites", () => {
-  let server: AgentServer
+describe("API: sites", () => {
   let dataDir: string
-  let testSiteDir: string
+  let runtime: FakeRuntime
+  let server: AgentServer
 
-  beforeAll(async () => {
-    // Create temp directories
-    dataDir = mkdtempSync(join(tmpdir(), "siteio-test-data-"))
-    testSiteDir = mkdtempSync(join(tmpdir(), "siteio-test-site-"))
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), "siteio-pockets-"))
+    runtime = new FakeRuntime()
+    server = makeServer(dataDir, runtime)
+  })
+  afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
 
-    // Create a test site with HTML files
-    writeFileSync(join(testSiteDir, "index.html"), "<html><body><h1>Hello World</h1></body></html>")
-    writeFileSync(join(testSiteDir, "about.html"), "<html><body><h1>About</h1></body></html>")
-    mkdirSync(join(testSiteDir, "css"))
-    writeFileSync(join(testSiteDir, "css", "style.css"), "body { color: red; }")
+  const zip = () => zipSync({ "public/index.html": new TextEncoder().encode("<h1>hi</h1>") })
 
-    // Start server
-    const config: AgentConfig = {
-      apiKey: TEST_API_KEY,
-      dataDir,
-      domain: TEST_DOMAIN,
-      maxUploadSize: 50 * 1024 * 1024,
-      httpPort: 80,
-      httpsPort: 443,
-      skipTraefik: true,
-      port: TEST_PORT,
-    }
+  test("POST /sites/:name deploys a new site using the pinned image", async () => {
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() })
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as ApiResponse<SiteInfo>
+    expect(body.success).toBe(true)
+    expect(body.data!.url).toBe("https://blog.example.com")
+    expect(body.data!.status).toBe("running")
 
-    server = new AgentServer(config)
-    await server.start()
+    const runCall = runtime.calls.find((c) => c.method === "run")
+    expect(runCall).toBeDefined()
+    const pullCall = runtime.calls.find((c) => c.method === "pull")
+    expect(pullCall!.args[0]).toBe(POCKETBASE_IMAGE)
   })
 
-  afterAll(() => {
-    server.stop()
-    // Cleanup temp directories
-    if (existsSync(dataDir)) {
-      rmSync(dataDir, { recursive: true })
-    }
-    if (existsSync(testSiteDir)) {
-      rmSync(testSiteDir, { recursive: true })
-    }
+  test("GET /sites lists deployed sites", async () => {
+    await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+    const res = await server.handleRequestForTest(new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const body = (await res.json()) as ApiResponse<SiteInfo[]>
+    expect(body.data).toHaveLength(1)
+    expect(body.data?.[0]?.name).toBe("blog")
   })
 
-  describe("Health endpoint", () => {
-    test("should return ok without auth", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/health`)
-      expect(response.ok).toBe(true)
-      const data = await parseJson<{ status: string }>(response)
-      expect(data.success).toBe(true)
-      expect(data.data?.status).toBe("ok")
-    })
+  test("GET /sites/:name/admin returns generated superuser credentials", async () => {
+    await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+    const res = await server.handleRequestForTest(new Request("http://x/sites/blog/admin", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const body = (await res.json()) as ApiResponse<{ email: string; password: string; adminUrl: string }>
+    expect(body.data!.email).toContain("@")
+    expect(body.data!.password.length).toBeGreaterThan(8)
+    expect(body.data!.adminUrl).toBe("https://blog.example.com/_/")
   })
 
-  describe("Authentication", () => {
-    test("should reject requests without API key", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites`)
-      expect(response.status).toBe(401)
-    })
-
-    test("should reject requests with wrong API key", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites`, {
-        headers: { "X-API-Key": "wrong-key" },
-      })
-      expect(response.status).toBe(401)
-    })
-
-    test("should accept requests with correct API key", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites`, {
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-      expect(response.ok).toBe(true)
-    })
+  test("POST /sites/:name returns 500 and creates nothing when Docker is unavailable", async () => {
+    runtime.isAvailableReturn = false
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() })
+    )
+    expect(res.status).toBe(500)
+    const list = await server.handleRequestForTest(new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const body = (await list.json()) as ApiResponse<SiteInfo[]>
+    expect(body.data).toHaveLength(0)
   })
 
-  describe("Sites API", () => {
-    const subdomain = "mysite"
-
-    test("should list empty sites initially", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites`, {
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo[]>(response)
-      expect(data.success).toBe(true)
-      expect(data.data).toEqual([])
-    })
-
-    test("should deploy a site", async () => {
-      // Create zip from test site
-      const files: Record<string, Uint8Array> = {
-        "index.html": new TextEncoder().encode("<html><body><h1>Hello World</h1></body></html>"),
-        "about.html": new TextEncoder().encode("<html><body><h1>About</h1></body></html>"),
-        "css/style.css": new TextEncoder().encode("body { color: red; }"),
-      }
-      const zipData = zipSync(files, { level: 6 })
-
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}`, {
-        method: "POST",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/zip",
-          "Content-Length": String(zipData.length),
-        },
-        body: zipData,
-      })
-
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo>(response)
-      expect(data.success).toBe(true)
-      expect(data.data?.subdomain).toBe(subdomain)
-      expect(data.data?.url).toBe(`https://${subdomain}.${TEST_DOMAIN}`)
-      expect(data.data?.size).toBeGreaterThan(0)
-      expect(data.data?.deployedAt).toBeDefined()
-    })
-
-    test("should list deployed site", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites`, {
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo[]>(response)
-      expect(data.success).toBe(true)
-      expect(data.data?.length).toBe(1)
-      expect(data.data?.[0]?.subdomain).toBe(subdomain)
-    })
-
-    test("should include tls status in site listing", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites`, {
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo[]>(response)
-      expect(data.success).toBe(true)
-      // TLS status should be "pending" when Traefik is not running (skipTraefik: true)
-      expect(data.data?.[0]?.tls).toBe("pending")
-    })
-
-    test("should reject reserved subdomain 'api'", async () => {
-      const zipData = zipSync({ "index.html": new TextEncoder().encode("test") })
-
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/api`, {
-        method: "POST",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/zip",
-        },
-        body: zipData,
-      })
-
-      expect(response.status).toBe(400)
-      const data = await parseJson<null>(response)
-      expect(data.error).toContain("reserved")
-    })
-
-    test("should reject invalid subdomain", async () => {
-      const zipData = zipSync({ "index.html": new TextEncoder().encode("test") })
-
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/INVALID_NAME`, {
-        method: "POST",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/zip",
-        },
-        body: zipData,
-      })
-
-      expect(response.status).toBe(404) // Route doesn't match because of uppercase
-    })
-
-    test("should reject non-zip content type", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/testsite`, {
-        method: "POST",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: "{}",
-      })
-
-      expect(response.status).toBe(400)
-      const data = await parseJson<null>(response)
-      expect(data.error).toContain("application/zip")
-    })
-
-    test("should redeploy and replace existing site", async () => {
-      // Deploy new content
-      const files: Record<string, Uint8Array> = {
-        "index.html": new TextEncoder().encode("<html><body><h1>Updated!</h1></body></html>"),
-      }
-      const zipData = zipSync(files, { level: 6 })
-
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}`, {
-        method: "POST",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/zip",
-        },
-        body: zipData,
-      })
-
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo>(response)
-      expect(data.success).toBe(true)
-
-      // Verify still only one site
-      const listResponse = await fetch(`http://localhost:${TEST_PORT}/sites`, {
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-      const listData = await parseJson<SiteInfo[]>(listResponse)
-      expect(listData.data?.length).toBe(1)
-    })
-
-    test("should undeploy a site", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}`, {
-        method: "DELETE",
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-
-      expect(response.ok).toBe(true)
-      const data = await parseJson<null>(response)
-      expect(data.success).toBe(true)
-    })
-
-    test("should return 404 for non-existent site undeploy", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/nonexistent`, {
-        method: "DELETE",
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-
-      expect(response.status).toBe(404)
-    })
-
-    test("should list empty sites after undeploy", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites`, {
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo[]>(response)
-      expect(data.data).toEqual([])
-    })
-
-    test("should preserve domains on redeploy", async () => {
-      const deployZip = () => {
-        const files: Record<string, Uint8Array> = {
-          "index.html": new TextEncoder().encode("<html><body>Domains Test</body></html>"),
-        }
-        return zipSync(files, { level: 6 })
-      }
-
-      // Deploy initial site
-      const zipData = deployZip()
-      await fetch(`http://localhost:${TEST_PORT}/sites/domains-redeploy`, {
-        method: "POST",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/zip",
-        },
-        body: zipData,
-      })
-
-      // Set domains
-      await fetch(`http://localhost:${TEST_PORT}/sites/domains-redeploy/domains`, {
-        method: "PATCH",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ domains: ["example.com"] }),
-      })
-
-      // Redeploy
-      const zipData2 = deployZip()
-      const redeployResponse = await fetch(`http://localhost:${TEST_PORT}/sites/domains-redeploy`, {
-        method: "POST",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/zip",
-        },
-        body: zipData2,
-      })
-
-      expect(redeployResponse.ok).toBe(true)
-      const data = await parseJson<SiteInfo>(redeployResponse)
-      expect(data.data?.domains).toEqual(["example.com"])
-
-      // Cleanup
-      await fetch(`http://localhost:${TEST_PORT}/sites/domains-redeploy`, {
-        method: "DELETE",
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-    })
+  test("pocketbaseVersion is always POCKETBASE_VERSION even when client sends a different X-Site-Version", async () => {
+    const headers = { ...H, "X-Site-Version": "0.0.1-custom" }
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog", { method: "POST", headers, body: zip() })
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as ApiResponse<SiteInfo>
+    expect(body.data!.pocketbaseVersion).toBe(POCKETBASE_VERSION)
   })
 
-  describe("Site OAuth API", () => {
-    // These tests require OAuth to be configured on the server
-    // Since the main server doesn't have OAuth enabled, we'll test the rejection case
-
-    test("should reject setting OAuth when not configured on server", async () => {
-      // First deploy a site
-      const files: Record<string, Uint8Array> = {
-        "index.html": new TextEncoder().encode("<html><body>OAuth Test</body></html>"),
-      }
-      const zipData = zipSync(files, { level: 6 })
-      await fetch(`http://localhost:${TEST_PORT}/sites/oauth-test`, {
-        method: "POST",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/zip",
-        },
-        body: zipData,
-      })
-
-      // Try to set OAuth - should fail because OAuth is not configured
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/oauth-test/auth`, {
-        method: "PATCH",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ allowedEmails: ["test@example.com"] }),
-      })
-
-      expect(response.status).toBe(400)
-      const data = await parseJson<null>(response)
-      expect(data.error).toContain("not configured")
-
-      // Cleanup
-      await fetch(`http://localhost:${TEST_PORT}/sites/oauth-test`, {
-        method: "DELETE",
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-    })
-
-    test("should return 404 when setting OAuth on non-existent site", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/nonexistent/auth`, {
-        method: "PATCH",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ allowedEmails: ["test@example.com"] }),
-      })
-
-      expect(response.status).toBe(404)
-    })
-
-    test("should require allowedEmails, allowedDomain, allowedGroups, or remove", async () => {
-      // Deploy a site first
-      const files: Record<string, Uint8Array> = {
-        "index.html": new TextEncoder().encode("<html><body>Test</body></html>"),
-      }
-      const zipData = zipSync(files, { level: 6 })
-      await fetch(`http://localhost:${TEST_PORT}/sites/oauth-empty`, {
-        method: "POST",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/zip",
-        },
-        body: zipData,
-      })
-
-      // Try to set OAuth with empty body
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/oauth-empty/auth`, {
-        method: "PATCH",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({}),
-      })
-
-      expect(response.status).toBe(400)
-      const data = await parseJson<null>(response)
-      expect(data.error).toContain("Provide")
-
-      // Cleanup
-      await fetch(`http://localhost:${TEST_PORT}/sites/oauth-empty`, {
-        method: "DELETE",
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-    })
+  test("GET /sites/:name/download returns the deployed code as a zip", async () => {
+    await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get("Content-Type")).toBe("application/zip")
+    expect(res.headers.get("Content-Disposition")).toContain("blog.zip")
+    const { unzipSync } = await import("fflate")
+    const files = unzipSync(new Uint8Array(await res.arrayBuffer()))
+    expect(Object.keys(files)).toContain("public/index.html")
+    expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("<h1>hi</h1>")
   })
 
-  describe("Site Domains API", () => {
-    const subdomain = "domains-test"
-
-    beforeEach(async () => {
-      const files: Record<string, Uint8Array> = {
-        "index.html": new TextEncoder().encode("<html><body>Domains Test</body></html>"),
-      }
-      const zipData = zipSync(files, { level: 6 })
-      await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}`, {
-        method: "POST",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/zip",
-        },
-        body: zipData,
-      })
-    })
-
-    afterEach(async () => {
-      await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}`, {
-        method: "DELETE",
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-    })
-
-    test("should set custom domains", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
-        method: "PATCH",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ domains: ["example.com", "www.example.com"] }),
-      })
-
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo>(response)
-      expect(data.success).toBe(true)
-      expect(data.data?.domains).toEqual(["example.com", "www.example.com"])
-      expect(data.data?.subdomain).toBe(subdomain)
-    })
-
-    test("should include domains in site listing", async () => {
-      // Set domains first
-      await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
-        method: "PATCH",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ domains: ["listed.example.com"] }),
-      })
-
-      // List sites
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites`, {
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo[]>(response)
-      const site = data.data?.find(s => s.subdomain === subdomain)
-      expect(site).toBeDefined()
-      expect(site?.domains).toEqual(["listed.example.com"])
-    })
-
-    test("should clear domains with empty array", async () => {
-      // Set domains first
-      await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
-        method: "PATCH",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ domains: ["example.com"] }),
-      })
-
-      // Clear domains
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
-        method: "PATCH",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ domains: [] }),
-      })
-
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo>(response)
-      expect(data.data?.domains).toBeUndefined()
-    })
-
-    test("should return 404 for non-existent site", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/nonexistent/domains`, {
-        method: "PATCH",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ domains: ["example.com"] }),
-      })
-
-      expect(response.status).toBe(404)
-    })
-
-    test("should reject invalid domain format", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
-        method: "PATCH",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ domains: ["not a domain!"] }),
-      })
-
-      expect(response.status).toBe(400)
-      const data = await parseJson<null>(response)
-      expect(data.error).toContain("Invalid domain format")
-    })
-
-    test("should reject domains within the base domain space", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
-        method: "PATCH",
-        headers: {
-          "X-API-Key": TEST_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ domains: [`something.${TEST_DOMAIN}`] }),
-      })
-
-      expect(response.status).toBe(400)
-      const data = await parseJson<null>(response)
-      expect(data.error).toContain("base domain")
-    })
-
-    test("should reject domain already in use by another site", async () => {
-      // Deploy a second site and give it a domain
-      const files2 = { "index.html": new TextEncoder().encode("<html>other</html>") }
-      const zipData2 = zipSync(files2, { level: 6 })
-      await fetch(`http://localhost:${TEST_PORT}/sites/other-site`, {
-        method: "POST",
-        headers: { "X-API-Key": TEST_API_KEY, "Content-Type": "application/zip" },
-        body: zipData2,
-      })
-      await fetch(`http://localhost:${TEST_PORT}/sites/other-site/domains`, {
-        method: "PATCH",
-        headers: { "X-API-Key": TEST_API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ domains: ["taken.example.com"] }),
-      })
-
-      // Try to set the same domain on first site
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
-        method: "PATCH",
-        headers: { "X-API-Key": TEST_API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ domains: ["taken.example.com"] }),
-      })
-
-      expect(response.status).toBe(400)
-      const data = await parseJson<null>(response)
-      expect(data.error).toContain("already in use")
-
-      // Cleanup
-      await fetch(`http://localhost:${TEST_PORT}/sites/other-site`, {
-        method: "DELETE",
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-    })
-
-    test("should normalize domains to lowercase", async () => {
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}/domains`, {
-        method: "PATCH",
-        headers: { "X-API-Key": TEST_API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ domains: ["MyCoolSite.COM"] }),
-      })
-
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo>(response)
-      expect(data.data?.domains).toEqual(["mycoolsite.com"])
-    })
+  test("GET /sites/:name/download returns 404 for a missing site", async () => {
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/nope/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+    )
+    expect(res.status).toBe(404)
   })
 
   describe("Version conflict detection", () => {
-    const subdomain = "version-test"
-
-    const deployZip = (content: string = "hello") => {
-      const files: Record<string, Uint8Array> = {
-        "index.html": new TextEncoder().encode(`<html><body>${content}</body></html>`),
-      }
-      return zipSync(files, { level: 6 })
+    const deploy = (expectedVersion?: number) => {
+      const headers: Record<string, string> = { ...H }
+      if (expectedVersion !== undefined) headers["X-Expected-Version"] = String(expectedVersion)
+      return server.handleRequestForTest(
+        new Request("http://x/sites/blog", { method: "POST", headers, body: zip() })
+      )
     }
 
-    const deploySite = (zipData: Uint8Array, expectedVersion?: number) => {
-      const headers: Record<string, string> = {
-        "X-API-Key": TEST_API_KEY,
-        "Content-Type": "application/zip",
-        "Content-Length": String(zipData.length),
-      }
-      if (expectedVersion !== undefined) {
-        headers["X-Expected-Version"] = String(expectedVersion)
-      }
-      return fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}`, {
-        method: "POST",
-        headers,
-        body: zipData,
-      })
-    }
-
-    afterEach(async () => {
-      await fetch(`http://localhost:${TEST_PORT}/sites/${subdomain}`, {
-        method: "DELETE",
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-    })
-
-    test("should return version number on deploy", async () => {
-      const response = await deploySite(deployZip("v1"))
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo>(response)
-      expect(data.data?.version).toBeGreaterThanOrEqual(1)
-    })
-
-    test("should increment version on redeploy", async () => {
-      const first = await deploySite(deployZip("v1"))
-      const firstData = await parseJson<SiteInfo>(first)
-      const firstVersion = firstData.data!.version!
-
-      const response = await deploySite(deployZip("v2"))
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo>(response)
-      expect(data.data?.version).toBe(firstVersion + 1)
-    })
-
-    test("should include version in site listing", async () => {
-      const deployResponse = await deploySite(deployZip("v1"))
-      const deployData = await parseJson<SiteInfo>(deployResponse)
-      const deployedVersion = deployData.data!.version!
-
-      const response = await fetch(`http://localhost:${TEST_PORT}/sites`, {
-        headers: { "X-API-Key": TEST_API_KEY },
-      })
-      const data = await parseJson<SiteInfo[]>(response)
-      const site = data.data?.find(s => s.subdomain === subdomain)
-      expect(site?.version).toBe(deployedVersion)
+    test("deploy returns a version that increments on redeploy", async () => {
+      const first = (await (await deploy()).json()) as ApiResponse<SiteInfo>
+      expect(first.data!.version).toBeGreaterThanOrEqual(1)
+      const second = (await (await deploy()).json()) as ApiResponse<SiteInfo>
+      expect(second.data!.version).toBe(first.data!.version! + 1)
     })
 
     test("should allow deploy when expected version matches", async () => {
-      const first = await deploySite(deployZip("v1"))
-      const firstData = await parseJson<SiteInfo>(first)
-      const version = firstData.data!.version!
-
-      const response = await deploySite(deployZip("v2"), version)
-      expect(response.ok).toBe(true)
-      const data = await parseJson<SiteInfo>(response)
-      expect(data.data?.version).toBe(version + 1)
+      const first = (await (await deploy()).json()) as ApiResponse<SiteInfo>
+      const res = await deploy(first.data!.version!)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as ApiResponse<SiteInfo>
+      expect(body.data!.version).toBe(first.data!.version! + 1)
     })
 
     test("should reject deploy when expected version does not match", async () => {
-      const first = await deploySite(deployZip("v1"))
-      const firstData = await parseJson<SiteInfo>(first)
-      const firstVersion = firstData.data!.version!
-
-      await deploySite(deployZip("v2")) // version incremented
-
-      // Client still thinks version is firstVersion
-      const response = await deploySite(deployZip("v3"), firstVersion)
-      expect(response.status).toBe(409)
-      const data = await parseJson<null>(response)
-      expect(data.error).toContain("Version conflict")
-    })
-
-    test("should allow deploy without expected version header (backward compat)", async () => {
-      await deploySite(deployZip("v1"))
-      await deploySite(deployZip("v2"))
-
-      // No expected version header — should proceed
-      const response = await deploySite(deployZip("v3"))
-      expect(response.ok).toBe(true)
-    })
-
-    test("should allow first deploy with expected version header", async () => {
-      // Site doesn't exist yet, expected version doesn't matter — no existing metadata
-      const response = await deploySite(deployZip("v1"), 0)
-      expect(response.ok).toBe(true)
+      const first = (await (await deploy()).json()) as ApiResponse<SiteInfo>
+      await deploy() // version incremented by someone else
+      const res = await deploy(first.data!.version!)
+      expect(res.status).toBe(409)
+      const body = (await res.json()) as ApiResponse<null>
+      expect(body.error).toContain("Version conflict")
     })
   })
 
-  describe("SiteioClient", () => {
-    test("should work with the client library", async () => {
-      const client = new SiteioClient({
-        apiUrl: `http://localhost:${TEST_PORT}`,
-        apiKey: TEST_API_KEY,
-      })
+  describe("History and rollback", () => {
+    const deployContent = (html: string) =>
+      server.handleRequestForTest(
+        new Request("http://x/sites/blog", {
+          method: "POST", headers: H,
+          body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
+        })
+      )
 
-      // List (empty)
-      const sitesBefore = await client.listSites()
-      expect(sitesBefore).toEqual([])
-
-      // Deploy
-      const files: Record<string, Uint8Array> = {
-        "index.html": new TextEncoder().encode("<html><body>Client Test</body></html>"),
-      }
-      const zipData = zipSync(files)
-      const deployed = await client.deploySite("clienttest", zipData)
-      expect(deployed.subdomain).toBe("clienttest")
-
-      // List (has one)
-      const sitesAfter = await client.listSites()
-      expect(sitesAfter.length).toBe(1)
-
-      // Undeploy
-      await client.undeploySite("clienttest")
-
-      // List (empty again)
-      const sitesFinal = await client.listSites()
-      expect(sitesFinal).toEqual([])
+    test("GET /sites/:name/history lists archived versions newest first", async () => {
+      await deployContent("v1")
+      await deployContent("v2")
+      await deployContent("v3")
+      const res = await server.handleRequestForTest(
+        new Request("http://x/sites/blog/history", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      )
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as ApiResponse<{ version: number; deployedAt: string }[]>
+      expect(body.data!.map((v) => v.version)).toEqual([2, 1])
+      expect(body.data![0]!.deployedAt).toBeTruthy()
     })
+
+    test("GET /sites/:name/history returns 404 for a missing site", async () => {
+      const res = await server.handleRequestForTest(
+        new Request("http://x/sites/nope/history", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      )
+      expect(res.status).toBe(404)
+    })
+
+    test("POST /sites/:name/rollback restores archived code and recreates the container", async () => {
+      await deployContent("v1")
+      await deployContent("v2")
+      runtime.containerExistsReturn = true
+      runtime.calls = []
+
+      const res = await server.handleRequestForTest(
+        new Request("http://x/sites/blog/rollback", {
+          method: "POST",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1 }),
+        })
+      )
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as ApiResponse<SiteInfo>
+      expect(body.data!.version).toBe(3)
+
+      // Container recreated (mount inode changed after code restore)
+      expect(runtime.callsOf("remove")).toHaveLength(1)
+      expect(runtime.callsOf("run")).toHaveLength(1)
+
+      // The live code is v1's content again
+      const dl = await server.handleRequestForTest(
+        new Request("http://x/sites/blog/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      )
+      const { unzipSync } = await import("fflate")
+      const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
+      expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("v1")
+    })
+
+    test("POST rollback to a nonexistent version returns 404", async () => {
+      await deployContent("v1")
+      const res = await server.handleRequestForTest(
+        new Request("http://x/sites/blog/rollback", {
+          method: "POST",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 99 }),
+        })
+      )
+      expect(res.status).toBe(404)
+    })
+  })
+
+  describe("Custom domains", () => {
+    const patchDomains = (domains: unknown, name = "blog") =>
+      server.handleRequestForTest(
+        new Request(`http://x/sites/${name}/domains`, {
+          method: "PATCH",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ domains }),
+        })
+      )
+
+    test("PATCH /sites/:name/domains sets custom domains and recreates the container with new labels", async () => {
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+      runtime.containerExistsReturn = true
+      runtime.calls = []
+
+      const res = await patchDomains(["www.custom.org", "custom.org"])
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as ApiResponse<SiteInfo>
+      expect(body.data!.domains).toEqual(["www.custom.org", "custom.org"])
+      expect(body.data!.url).toBe("https://blog.example.com")
+
+      const labelCall = runtime.callsOf("buildTraefikLabels")[0]!
+      expect(labelCall.args[1]).toEqual(["blog.example.com", "www.custom.org", "custom.org"])
+    })
+
+    test("rejects domains under the base domain", async () => {
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+      const res = await patchDomains(["other.example.com"])
+      expect(res.status).toBe(400)
+    })
+
+    test("rejects a domain already used by another pocket", async () => {
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+      await server.handleRequestForTest(new Request("http://x/sites/shop", { method: "POST", headers: H, body: zip() }))
+      await patchDomains(["custom.org"], "blog")
+      const res = await patchDomains(["custom.org"], "shop")
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as ApiResponse<null>
+      expect(body.error).toContain("already in use")
+    })
+
+    test("rejects an invalid domain format", async () => {
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+      const res = await patchDomains(["not a domain"])
+      expect(res.status).toBe(400)
+    })
+  })
+
+  describe("Rename", () => {
+    test("PATCH /sites/:name/rename moves everything to the new name", async () => {
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+      runtime.containerExistsReturn = true
+      runtime.calls = []
+
+      const res = await server.handleRequestForTest(
+        new Request("http://x/sites/blog/rename", {
+          method: "PATCH",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ newSubdomain: "journal" }),
+        })
+      )
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as ApiResponse<SiteInfo>
+      expect(body.data!.name).toBe("journal")
+      expect(body.data!.url).toBe("https://journal.example.com")
+
+      // Old container removed before the dirs moved, new one started after
+      expect(runtime.callsOf("remove")[0]!.args[0]).toBe("blog")
+      const runCall = runtime.callsOf("run")[0]!
+      expect((runCall.args[0] as { name: string }).name).toBe("journal")
+
+      // Old name gone, new name resolvable
+      const old = await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+      expect(old.status).toBe(404)
+      const dl = await server.handleRequestForTest(
+        new Request("http://x/sites/journal/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      )
+      expect(dl.status).toBe(200)
+    })
+
+    test("rename to an existing site name is rejected", async () => {
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+      await server.handleRequestForTest(new Request("http://x/sites/shop", { method: "POST", headers: H, body: zip() }))
+      const res = await server.handleRequestForTest(
+        new Request("http://x/sites/blog/rename", {
+          method: "PATCH",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ newSubdomain: "shop" }),
+        })
+      )
+      expect(res.status).toBe(400)
+    })
+
+    test("rename to a reserved name is rejected", async () => {
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+      const res = await server.handleRequestForTest(
+        new Request("http://x/sites/blog/rename", {
+          method: "PATCH",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ newSubdomain: "api" }),
+        })
+      )
+      expect(res.status).toBe(400)
+    })
+  })
+
+  test("deprecated /pockets/* alias routes to the same handlers", async () => {
+    await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+    const viaAlias = await server.handleRequestForTest(new Request("http://x/pockets", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const aliasBody = (await viaAlias.json()) as ApiResponse<SiteInfo[]>
+    expect(aliasBody.data).toHaveLength(1)
+    const viaAliasGet = await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    expect(viaAliasGet.status).toBe(200)
+  })
+
+  test("legacy flat static zip deploys with files wrapped under public/", async () => {
+    const flat = zipSync({ "index.html": new TextEncoder().encode("<h1>legacy</h1>") })
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/old", { method: "POST", headers: H, body: flat })
+    )
+    expect(res.status).toBe(200)
+    const dl = await server.handleRequestForTest(
+      new Request("http://x/sites/old/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+    )
+    const { unzipSync } = await import("fflate")
+    const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
+    expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("<h1>legacy</h1>")
+  })
+
+  test("GET /health carries the agent version for CLI skew detection", async () => {
+    const res = await server.handleRequestForTest(new Request("http://x/health", { method: "GET" }))
+    const body = (await res.json()) as ApiResponse<{ status: string; version?: string }>
+    expect(body.data!.status).toBe("ok")
+    expect(body.data!.version).toMatch(/^\d+\.\d+\.\d+/)
+  })
+
+  test("DELETE /sites/:name removes it", async () => {
+    await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+    const del = await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "DELETE", headers: { "X-API-Key": "test-key" } }))
+    expect(del.status).toBe(200)
+    const list = await server.handleRequestForTest(new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const body = (await list.json()) as ApiResponse<SiteInfo[]>
+    expect(body.data).toHaveLength(0)
   })
 })

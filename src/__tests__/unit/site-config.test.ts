@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterAll } from "bun:test"
 import { mkdtempSync, rmSync, readFileSync, existsSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { loadProjectConfig, saveProjectConfig, resolveSubdomain, resolveAppName, resolvePocketName } from "../../utils/site-config.ts"
+import { loadProjectConfig, saveProjectConfig, resolveSiteName, resolveAppName } from "../../utils/site-config.ts"
 
 describe("Unit: Site Config", () => {
   let testDir: string
@@ -65,38 +65,38 @@ describe("Unit: Site Config", () => {
     })
   })
 
-  describe("resolveSubdomain", () => {
+  describe("resolveSiteName", () => {
     test("returns explicit value when provided", () => {
-      const result = resolveSubdomain("explicit", "example.com", testDir)
+      const result = resolveSiteName("explicit", "example.com", testDir)
       expect(result).toBe("explicit")
     })
 
     test("returns explicit value even when config exists", () => {
       saveProjectConfig({ site: "fromconfig", domain: "example.com" }, testDir)
-      const result = resolveSubdomain("explicit", "example.com", testDir)
+      const result = resolveSiteName("explicit", "example.com", testDir)
       expect(result).toBe("explicit")
     })
 
     test("falls back to config when no explicit value", () => {
       saveProjectConfig({ site: "fromconfig", domain: "example.com" }, testDir)
-      const result = resolveSubdomain(undefined, "example.com", testDir)
+      const result = resolveSiteName(undefined, "example.com", testDir)
       expect(result).toBe("fromconfig")
     })
 
     test("returns null when no explicit value and no config", () => {
-      const result = resolveSubdomain(undefined, "example.com", testDir)
+      const result = resolveSiteName(undefined, "example.com", testDir)
       expect(result).toBeNull()
     })
 
     test("returns null when config domain does not match server", () => {
       saveProjectConfig({ site: "fromconfig", domain: "other.com" }, testDir)
-      const result = resolveSubdomain(undefined, "example.com", testDir)
+      const result = resolveSiteName(undefined, "example.com", testDir)
       expect(result).toBeNull()
     })
 
     test("throws when config has app but not site", () => {
       saveProjectConfig({ app: "myapp", domain: "example.com" }, testDir)
-      expect(() => resolveSubdomain(undefined, "example.com", testDir)).toThrow(
+      expect(() => resolveSiteName(undefined, "example.com", testDir)).toThrow(
         "This directory is configured as an app ('myapp'), not a site"
       )
     })
@@ -139,47 +139,34 @@ describe("Unit: Site Config", () => {
     })
   })
 
-  describe("resolvePocketName", () => {
-    test("returns explicit value when provided", () => {
-      const result = resolvePocketName("explicit", "example.com", testDir)
-      expect(result).toBe("explicit")
-    })
-
-    test("returns explicit value even when config exists", () => {
-      saveProjectConfig({ pocket: "fromconfig", domain: "example.com" }, testDir)
-      const result = resolvePocketName("explicit", "example.com", testDir)
-      expect(result).toBe("explicit")
-    })
-
-    test("falls back to config when no explicit value", () => {
-      saveProjectConfig({ pocket: "fromconfig", domain: "example.com" }, testDir)
-      const result = resolvePocketName(undefined, "example.com", testDir)
-      expect(result).toBe("fromconfig")
-    })
-
-    test("returns null when no explicit value and no config", () => {
-      const result = resolvePocketName(undefined, "example.com", testDir)
-      expect(result).toBeNull()
-    })
-
-    test("returns null when config domain does not match server", () => {
-      saveProjectConfig({ pocket: "fromconfig", domain: "other.com" }, testDir)
-      const result = resolvePocketName(undefined, "example.com", testDir)
-      expect(result).toBeNull()
-    })
-
-    test("throws when config has site but not pocket", () => {
-      saveProjectConfig({ site: "mysite", domain: "example.com" }, testDir)
-      expect(() => resolvePocketName(undefined, "example.com", testDir)).toThrow(
-        "This directory is configured as a site ('mysite'), not a pocket"
+  describe("legacy pocket key", () => {
+    test("loadProjectConfig normalizes the pre-merge pocket key to site", () => {
+      const { mkdirSync, writeFileSync } = require("fs")
+      mkdirSync(join(testDir, ".siteio"), { recursive: true })
+      writeFileSync(
+        join(testDir, ".siteio", "config.json"),
+        JSON.stringify({ pocket: "legacy", domain: "example.com", pocketbaseVersion: "0.23.4" })
       )
+      const config = loadProjectConfig(testDir)
+      expect(config!.site).toBe("legacy")
+      expect(config!.pocket).toBeUndefined()
     })
 
-    test("throws when config has app but not pocket", () => {
-      saveProjectConfig({ app: "myapp", domain: "example.com" }, testDir)
-      expect(() => resolvePocketName(undefined, "example.com", testDir)).toThrow(
-        "This directory is configured as an app ('myapp'), not a pocket"
+    test("resolveSiteName resolves a project configured with the legacy pocket key", () => {
+      const { mkdirSync, writeFileSync } = require("fs")
+      mkdirSync(join(testDir, ".siteio"), { recursive: true })
+      writeFileSync(
+        join(testDir, ".siteio", "config.json"),
+        JSON.stringify({ pocket: "legacy", domain: "example.com" })
       )
+      expect(resolveSiteName(undefined, "example.com", testDir)).toBe("legacy")
+    })
+
+    test("saveProjectConfig never writes the legacy pocket key", () => {
+      saveProjectConfig({ site: "mysite", pocket: "mysite", domain: "example.com" }, testDir)
+      const raw = JSON.parse(readFileSync(join(testDir, ".siteio", "config.json"), "utf-8"))
+      expect(raw.pocket).toBeUndefined()
+      expect(raw.site).toBe("mysite")
     })
   })
 })

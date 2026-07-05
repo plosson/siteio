@@ -1,10 +1,10 @@
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
-import { formatTable, formatBytes, formatInfo, formatTls, formatDeployedDate } from "../../utils/output.ts"
+import { formatTable, formatBytes, formatInfo, formatStatus, formatTls, formatDeployedDate } from "../../utils/output.ts"
 import { handleError } from "../../utils/errors.ts"
 
-export async function listCommand(options: { json?: boolean } = {}): Promise<void> {
+export async function sitesListCommand(options: { json?: boolean } = {}): Promise<void> {
   const spinner = ora("Fetching sites").start()
 
   try {
@@ -23,14 +23,21 @@ export async function listCommand(options: { json?: boolean } = {}): Promise<voi
     }
 
     // Format the table
-    const headers = ["SUBDOMAIN", "URL", "SIZE", "TLS", "DOMAINS", "AUTH", "STORAGE", "DEPLOYED"]
+    const headers = ["NAME", "URL", "SIZE", "TLS", "DOMAINS", "STATUS", "PB", "DEPLOYED"]
     const rows = sites.map((site) => {
-      const authStr = site.oauth ? chalk.yellow("oauth") : chalk.dim("-")
       const domainsStr = site.domains && site.domains.length > 0
         ? chalk.cyan(`${site.domains.length}`)
         : chalk.dim("-")
-      const storageStr = site.persistentStorage ? chalk.green("✓") : chalk.dim("-")
-      return [site.subdomain, site.url, formatBytes(site.size), formatTls(site.tls), domainsStr, authStr, storageStr, formatDeployedDate(site.deployedAt)]
+      return [
+        site.name,
+        site.url,
+        formatBytes(site.size),
+        formatTls(site.tls),
+        domainsStr,
+        formatStatus(site.status),
+        site.pocketbaseVersion,
+        formatDeployedDate(site.deployedAt),
+      ]
     })
 
     console.log("")

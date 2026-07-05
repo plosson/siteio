@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } from "fs"
 import { join } from "path"
 
 const STARTER_INDEX = `<!DOCTYPE html>
@@ -7,60 +7,115 @@ const STARTER_INDEX = `<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>My Site</title>
+  <script src="https://cdn.jsdelivr.net/npm/pocketbase@0.22.0/dist/pocketbase.umd.js"></script>
 </head>
 <body>
   <h1>It works</h1>
-  <p>Deployed with siteio sites.</p>
+  <p>Your PocketBase backend is available at <code>/api</code>.</p>
+  <script>
+    // The SDK talks to the same origin that serves this page.
+    const pb = new PocketBase(window.location.origin)
+    console.log("PocketBase health:", pb.health.check ? "sdk ready" : "sdk missing")
+  </script>
 </body>
 </html>
 `
 
-// A guide dropped into the project so an AI assistant understands what siteio
-// static sites can do and how to deploy and configure one. Kept intentionally
-// short and practical, mirroring the pocket and app scaffold guides.
+// A starter migration that defines an example "notes" collection so the LLM
+// has a working template to copy. PocketBase applies pb_migrations on boot.
+const STARTER_MIGRATION = `/// <reference path="../pb_data/types.d.ts" />
+migrate((app) => {
+  const collection = new Collection({
+    type: "base",
+    name: "notes",
+    fields: [
+      { name: "title", type: "text", required: true },
+      { name: "body", type: "text" },
+    ],
+  })
+  app.save(collection)
+}, (app) => {
+  const collection = app.findCollectionByNameOrId("notes")
+  app.delete(collection)
+})
+`
+
+// A guide dropped into the project so an AI assistant understands how to run,
+// deploy, and add storage to a site. Kept intentionally short and practical.
 const CLAUDE_MD = `# siteio site — project guide (for the AI assistant)
 
-This folder is a **siteio static site**: plain HTML/CSS/JS deployed behind
-Traefik with automatic HTTPS. There is no build step and no server — every
-file in this folder is served as-is at \`https://<name>.<domain>\`.
+This folder is a **siteio site**: a static website that ships with its own
+backend (**PocketBase** — database, auth, file storage, REST + realtime API).
+You edit the files here; the \`siteio\` CLI runs and deploys them.
 
 ## Commands
 
-- \`siteio sites deploy\` — deploy this folder live in one command.
-- \`siteio sites info\` — live URL, size, and version.
-- \`siteio sites download\` — pull the deployed files back into a folder.
-- \`siteio sites history\` / \`siteio sites rollback\` — every deploy is versioned; roll back any time.
-- \`siteio sites list\` / \`siteio sites rm\` / \`siteio sites rename --to <new>\`
+- \`siteio sites dev\` — run locally, **no Docker**. Serves this folder plus the
+  backend API at http://127.0.0.1:8090. Use this to test changes.
+- \`siteio sites deploy\` — deploy live in one command. Ships your code only;
+  the server database (\`pb_data\`) is preserved across deploys.
+- \`siteio sites info\` — show the live URL, status, and version.
+- \`siteio sites logs\` — view backend logs.
+- \`siteio sites admin\` — print the admin dashboard URL (\`/_/\`) and superuser login.
+- \`siteio sites list\` / \`siteio sites rm\` — list / remove sites.
 
-Commands resolve the site name from \`.siteio/config.json\` in this folder;
-pass \`-s <name>\` (\`-n\` for download) to target another site.
+## Layout
 
-## Protecting the site with OAuth
+- \`index.html\` (and any other files at the folder root) = the website, served as-is.
+- \`.siteio/pb_migrations/*.js\` = your database schema, **as code**. Applied
+  automatically on \`dev\` and \`deploy\`. See \`1700000000_init.js\` for the pattern.
+- \`.siteio/pb_hooks/*.js\` = optional backend JS hooks.
+- \`.siteio/pb_data/\` = local database (git-ignored, never deployed; production
+  data lives on the server).
 
-Restrict who can open the site — login is enforced at the proxy, no code changes:
+## IMPORTANT: if the site needs storage, auth, or a database — use the PocketBase JS client
 
-- \`siteio sites auth --allowed-emails a@x.com,b@y.com\`
-- \`siteio sites auth --allowed-domain example.com\`
-- \`siteio sites auth --allowed-groups team\` (manage groups with \`siteio groups\`)
-- \`siteio sites auth --remove\` — make it public again
+Do NOT write a custom server. The backend already exists at \`/api\`. Load the
+PocketBase SDK in the browser and talk to it directly:
 
-## Custom domains
+\`\`\`html
+<script src="https://cdn.jsdelivr.net/npm/pocketbase@0.22.0/dist/pocketbase.umd.js"></script>
+<script>
+  const pb = new PocketBase(window.location.origin)
 
-- \`siteio sites domain add example.com\` (point the domain's DNS at the server first)
-- \`siteio sites set -d example.com -d www.example.com\` — replace the full list
+  // Records (define the collection in a migration first)
+  await pb.collection("notes").create({ title: "Hi", body: "..." })
+  const page = await pb.collection("notes").getList(1, 50, { sort: "-created" })
 
-## IMPORTANT: if the site needs to store data — persistent localStorage
+  // Auth (built-in \`users\` collection)
+  await pb.collection("users").create({ email, password, passwordConfirm: password })
+  await pb.collection("users").authWithPassword(email, password)
 
-A static site has no backend, but siteio can persist \`localStorage\`
-server-side: enable it with \`siteio sites set --persistent-storage\`, then use
-plain \`localStorage\` in the code as usual. siteio injects a shim that syncs
-it to the server (per logged-in user when OAuth is on, shared otherwise;
-1MB limit), so data survives across browsers and devices.
+  // Realtime — react to changes live
+  pb.collection("notes").subscribe("*", (e) => console.log(e.action, e.record))
 
-If the site needs real auth, a database, file uploads, or an API — use a
-**siteio pocket** instead (\`siteio pocket init\`): the same static hosting
-plus a PocketBase backend.
+  // Files: append a File to a FormData and pass it to .create()/.update().
+</script>
+\`\`\`
+
+## Defining data (schema)
+
+Add or change a collection by writing a migration in \`.siteio/pb_migrations/\`,
+then run \`siteio sites dev\` (or \`deploy\`) — it applies automatically. Control
+access with the collection's **API rules** in the migration:
+\`""\` = public, \`"@request.auth.id != ''"\` = logged-in only, \`null\` = admin only.
+
+## Docs
+
+PocketBase: https://pocketbase.io/docs · JS SDK: https://github.com/pocketbase/js-sdk
 `
+
+function ensureGitignoreEntry(dir: string, entry: string): void {
+  const path = join(dir, ".gitignore")
+  if (!existsSync(path)) {
+    writeFileSync(path, entry + "\n")
+    return
+  }
+  const current = readFileSync(path, "utf-8")
+  if (!current.split(/\r?\n/).includes(entry)) {
+    appendFileSync(path, (current.endsWith("\n") ? "" : "\n") + entry + "\n")
+  }
+}
 
 export function scaffoldSite(dir: string): { created: string[] } {
   const created: string[] = []
@@ -72,8 +127,15 @@ export function scaffoldSite(dir: string): { created: string[] } {
     created.push(rel)
   }
 
+  mkdirSync(join(dir, ".siteio", "pb_migrations"), { recursive: true })
+  mkdirSync(join(dir, ".siteio", "pb_hooks"), { recursive: true })
+
   write("index.html", STARTER_INDEX)
   write("CLAUDE.md", CLAUDE_MD)
+  write(join(".siteio", "pb_migrations", "1700000000_init.js"), STARTER_MIGRATION)
+  write(join(".siteio", "pb_hooks", ".gitkeep"), "")
+
+  ensureGitignoreEntry(dir, ".siteio/pb_data/")
 
   return { created }
 }

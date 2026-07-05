@@ -101,26 +101,6 @@ export async function infoAppCommand(
       console.log("")
     }
 
-    // OAuth
-    if (app.oauth) {
-      console.log(chalk.bold("Authentication:"))
-      if (app.oauth.allowedEmails && app.oauth.allowedEmails.length > 0) {
-        console.log(`  Allowed emails:`)
-        for (const email of app.oauth.allowedEmails) {
-          console.log(`    - ${chalk.cyan(email)}`)
-        }
-      }
-      if (app.oauth.allowedDomain) {
-        console.log(`  Allowed domain: ${chalk.cyan(app.oauth.allowedDomain)}`)
-      }
-      if (app.oauth.allowedGroups && app.oauth.allowedGroups.length > 0) {
-        console.log(`  Allowed groups:`)
-        for (const group of app.oauth.allowedGroups) {
-          console.log(`    - ${chalk.cyan(group)}`)
-        }
-      }
-      console.log("")
-    }
 
     if (app.containerId) {
       console.log(chalk.dim(`Container ID: ${app.containerId}`))

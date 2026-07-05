@@ -10,7 +10,14 @@ export function loadProjectConfig(dir: string = process.cwd()): SiteConfig | nul
   const configPath = join(dir, SITEIO_CONFIG_DIR, SITEIO_CONFIG_FILE)
   if (!existsSync(configPath)) return null
   try {
-    return JSON.parse(readFileSync(configPath, "utf-8"))
+    const config = JSON.parse(readFileSync(configPath, "utf-8")) as SiteConfig
+    // `pocket` is the pre-merge key for what is now a site. Normalize on read;
+    // the next save writes the canonical `site` key.
+    if (config.pocket && !config.site) {
+      config.site = config.pocket
+      delete config.pocket
+    }
+    return config
   } catch {
     return null
   }
@@ -19,17 +26,18 @@ export function loadProjectConfig(dir: string = process.cwd()): SiteConfig | nul
 export function saveProjectConfig(config: SiteConfig, dir: string = process.cwd()): void {
   const configDir = join(dir, SITEIO_CONFIG_DIR)
   if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true })
+  const { pocket: _legacy, ...canonical } = config
   writeFileSync(
     join(configDir, SITEIO_CONFIG_FILE),
-    JSON.stringify(config, null, 2) + "\n"
+    JSON.stringify(canonical, null, 2) + "\n"
   )
 }
 
 /**
- * Resolve subdomain from explicit argument or .siteio/config.json.
+ * Resolve site name from explicit argument or .siteio/config.json.
  * Returns null if neither source provides a value.
  */
-export function resolveSubdomain(explicit: string | undefined, serverDomain: string, dir?: string): string | null {
+export function resolveSiteName(explicit: string | undefined, serverDomain: string, dir?: string): string | null {
   if (explicit) return explicit
   const config = loadProjectConfig(dir)
   if (config) {
@@ -56,25 +64,6 @@ export function resolveAppName(explicit: string | undefined, serverDomain: strin
     }
     if (config.app && config.domain === serverDomain) {
       return config.app
-    }
-  }
-  return null
-}
-
-/**
- * Resolve pocket name from explicit argument or .siteio/config.json.
- * Returns null if neither source provides a value.
- */
-export function resolvePocketName(explicit: string | undefined, serverDomain: string, dir?: string): string | null {
-  if (explicit) return explicit
-  const config = loadProjectConfig(dir)
-  if (config) {
-    if ((config.site || config.app) && !config.pocket) {
-      const other = config.site ? `a site ('${config.site}')` : `an app ('${config.app}')`
-      throw new ValidationError(`This directory is configured as ${other}, not a pocket.`)
-    }
-    if (config.pocket && config.domain === serverDomain) {
-      return config.pocket
     }
   }
   return null

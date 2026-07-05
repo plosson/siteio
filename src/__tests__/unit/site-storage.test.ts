@@ -3,19 +3,19 @@ import { mkdtempSync, rmSync, existsSync, readFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
-import { PocketStorage } from "../../lib/agent/pocket-storage.ts"
-import type { Pocket } from "../../types.ts"
+import { SiteStorage } from "../../lib/agent/storage.ts"
+import type { Site } from "../../types.ts"
 
-describe("Unit: PocketStorage", () => {
+describe("Unit: SiteStorage", () => {
   let dir: string
-  let storage: PocketStorage
+  let storage: SiteStorage
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "siteio-ps-"))
-    storage = new PocketStorage(dir)
+    storage = new SiteStorage(dir)
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-  const base = (name: string): Omit<Pocket, "createdAt" | "updatedAt"> => ({
+  const base = (name: string): Omit<Site, "createdAt" | "updatedAt"> => ({
     name,
     domains: [`${name}.example.com`],
     pocketbaseVersion: "0.23.4",
@@ -50,8 +50,22 @@ describe("Unit: PocketStorage", () => {
 
   test("extractCode rejects path traversal entries", async () => {
     storage.create(base("blog"))
-    const evil = zipSync({ "../escape.txt": new TextEncoder().encode("x") })
+    const evil = zipSync({
+      "public/index.html": new TextEncoder().encode("ok"),
+      "../../escape.txt": new TextEncoder().encode("x"),
+    })
     await expect(storage.extractCode("blog", evil)).rejects.toThrow()
+  })
+
+  test("extractCode wraps a legacy flat static zip under public/", async () => {
+    storage.create(base("blog"))
+    const flat = zipSync({
+      "index.html": new TextEncoder().encode("<h1>legacy</h1>"),
+      "css/style.css": new TextEncoder().encode("body{}"),
+    })
+    await storage.extractCode("blog", flat)
+    expect(readFileSync(join(storage.getCodePath("blog"), "public", "index.html"), "utf-8")).toBe("<h1>legacy</h1>")
+    expect(existsSync(join(storage.getCodePath("blog"), "public", "css", "style.css"))).toBe(true)
   })
 
   test("delete removes metadata, code and data", async () => {

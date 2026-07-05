@@ -1,28 +1,7 @@
 #!/usr/bin/env bun
 
 import { Command } from "commander"
-import { readFileSync } from "fs"
-import { dirname, join } from "path"
-import { fileURLToPath } from "url"
-
-// BUILD_VERSION is injected at compile time via --define
-declare const BUILD_VERSION: string | undefined
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
-
-function getVersion(): string {
-  // Use build-time version if available (compiled binary)
-  if (typeof BUILD_VERSION !== "undefined") {
-    return BUILD_VERSION
-  }
-  // Fall back to package.json (development)
-  try {
-    const pkg = JSON.parse(readFileSync(join(__dirname, "../package.json"), "utf-8"))
-    return pkg.version
-  } catch {
-    return "0.0.0"
-  }
-}
+import { getVersion } from "./lib/version.ts"
 
 // Commander calls option parsers as fn(value, previous), so bare parseInt
 // would receive the option's default/previous value as its radix.
@@ -32,7 +11,7 @@ function intArg(value: string): number {
 
 const program = new Command()
   .name("siteio")
-  .description("Deploy static sites with ease")
+  .description("Deploy static sites and apps with ease")
   .version(getVersion())
   .option("--json", "Output results as JSON")
 
@@ -90,168 +69,161 @@ program
     await logoutCommand(domain)
   })
 
-// Sites commands
-const sites = program
-  .command("sites")
-  .description("Manage deployed sites")
+// Sites commands. Every site ships with a PocketBase backend (auth, database,
+// file storage) — using it is optional; a plain folder of HTML deploys as-is.
+function registerSiteCommands(sites: Command): void {
+  sites
+    .command("init [folder]")
+    .description("Scaffold a new site project (index.html + starter backend schema + AI guide)")
+    .action(async (folder) => {
+      const { sitesInitCommand } = await import("./commands/sites/init.ts")
+      await sitesInitCommand(folder, { json: program.opts().json })
+    })
 
-sites
-  .command("init [folder]")
-  .description("Scaffold a new static site project (index.html + AI guide)")
-  .action(async (folder) => {
-    const { sitesInitCommand } = await import("./commands/sites/init.ts")
-    await sitesInitCommand(folder, { json: program.opts().json })
-  })
+  sites
+    .command("dev [folder]")
+    .description("Run the site locally with its backend (no Docker required)")
+    .option("-p, --port <port>", "Local port", intArg, 8090)
+    .action(async (folder, options) => {
+      const { sitesDevCommand } = await import("./commands/sites/dev.ts")
+      await sitesDevCommand(folder, options)
+    })
 
-sites
-  .command("deploy [folder]")
-  .description("Deploy a folder as a static site")
-  .option("-s, --subdomain <subdomain>", "Subdomain to deploy to (defaults to folder name)")
-  .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses for Google OAuth")
-  .option("--allowed-domain <domain>", "Allow all emails from this domain for Google OAuth")
-  .option("--test", "Deploy a simple test page (no folder required)")
-  .option("--persistent-storage", "Enable persistent localStorage for this site")
-  .option("--force", "Deploy even if there is a version conflict")
-  .action(async (folder, options) => {
-    const { deployCommand } = await import("./commands/sites/deploy.ts")
-    await deployCommand(folder, { ...options, json: program.opts().json })
-  })
+  sites
+    .command("deploy [folder]")
+    .description("Deploy a folder as a site (frontend + backend)")
+    .option("-n, --name <name>", "Site name (defaults to .siteio/config.json, then folder name)")
+    .option("--test", "Deploy a simple test page (no folder required)")
+    .option("--force", "Deploy even if there is a version conflict")
+    .action(async (folder, options) => {
+      const { sitesDeployCommand } = await import("./commands/sites/deploy.ts")
+      await sitesDeployCommand(folder, { ...options, json: program.opts().json })
+    })
 
-sites
-  .command("list")
-  .alias("ls")
-  .description("List all deployed sites")
-  .action(async () => {
-    const { listCommand } = await import("./commands/sites/list.ts")
-    await listCommand({ json: program.opts().json })
-  })
+  sites
+    .command("list")
+    .alias("ls")
+    .description("List all deployed sites")
+    .action(async () => {
+      const { sitesListCommand } = await import("./commands/sites/list.ts")
+      await sitesListCommand({ json: program.opts().json })
+    })
 
-sites
-  .command("info")
-  .description("Show detailed info about a site")
-  .option("-s, --subdomain <subdomain>", "Site to show info for (defaults to .siteio/config.json)")
-  .action(async (options) => {
-    const { infoCommand } = await import("./commands/sites/info.ts")
-    await infoCommand(options.subdomain, { json: program.opts().json })
-  })
+  sites
+    .command("info [name]")
+    .description("Show detailed info about a site")
+    .action(async (name) => {
+      const { sitesInfoCommand } = await import("./commands/sites/info.ts")
+      await sitesInfoCommand(name, { json: program.opts().json })
+    })
 
-sites
-  .command("download [output-folder]")
-  .description("Download a deployed site to a local folder (defaults to ./<name>)")
-  .option("-n, --name <name>", "Site to download (defaults to .siteio/config.json)")
-  .option("-y, --yes", "Overwrite existing folder contents")
-  .action(async (outputFolder, options) => {
-    const { downloadCommand } = await import("./commands/sites/download.ts")
-    await downloadCommand(outputFolder, { ...options, json: program.opts().json })
-  })
+  sites
+    .command("download [output-folder]")
+    .description("Download a deployed site's code to a local folder (defaults to ./<name>)")
+    .option("-n, --name <name>", "Site to download (defaults to .siteio/config.json)")
+    .option("-y, --yes", "Overwrite existing folder contents")
+    .action(async (outputFolder, options) => {
+      const { sitesDownloadCommand } = await import("./commands/sites/download.ts")
+      await sitesDownloadCommand(outputFolder, { ...options, json: program.opts().json })
+    })
 
-sites
-  .command("rm")
-  .description("Remove a deployed site")
-  .option("-s, --subdomain <subdomain>", "Site to remove (defaults to .siteio/config.json)")
-  .option("-y, --yes", "Skip confirmation prompt")
-  .action(async (options) => {
-    const { rmCommand } = await import("./commands/sites/rm.ts")
-    await rmCommand(options.subdomain, { ...options, json: program.opts().json })
-  })
+  sites
+    .command("logs [name]")
+    .description("Show backend logs from a site")
+    .option("-t, --tail <n>", "Number of lines", intArg, 100)
+    .action(async (name, options) => {
+      const { sitesLogsCommand } = await import("./commands/sites/logs.ts")
+      await sitesLogsCommand(name, { ...options, json: program.opts().json })
+    })
 
-sites
-  .command("history")
-  .description("Show version history for a site")
-  .option("-s, --subdomain <subdomain>", "Site to show history for (defaults to .siteio/config.json)")
-  .action(async (options) => {
-    const { historyCommand } = await import("./commands/sites/history.ts")
-    await historyCommand(options.subdomain, { json: program.opts().json })
-  })
+  sites
+    .command("admin [name]")
+    .description("Show the backend admin URL and superuser credentials")
+    .action(async (name) => {
+      const { sitesAdminCommand } = await import("./commands/sites/admin.ts")
+      await sitesAdminCommand(name, { json: program.opts().json })
+    })
 
-sites
-  .command("rollback")
-  .description("Rollback a site to a previous version")
-  .option("-s, --subdomain <subdomain>", "Site to rollback (defaults to .siteio/config.json)")
-  .option("-v, --version <version>", "Version to rollback to")
-  .option("-y, --yes", "Skip confirmation prompt")
-  .action(async (options) => {
-    const { rollbackCommand } = await import("./commands/sites/rollback.ts")
-    await rollbackCommand(options.subdomain, options.version, { ...options, json: program.opts().json })
-  })
+  sites
+    .command("history [name]")
+    .description("Show code version history for a site")
+    .action(async (name, options) => {
+      const { sitesHistoryCommand } = await import("./commands/sites/history.ts")
+      await sitesHistoryCommand(name, { json: program.opts().json })
+    })
 
-sites
-  .command("auth")
-  .description("Set or remove Google OAuth for a site")
-  .option("-s, --subdomain <subdomain>", "Site to configure auth for (defaults to .siteio/config.json)")
-  .option("--allowed-emails <emails>", "Comma-separated list of allowed email addresses (replaces existing)")
-  .option("--allowed-domain <domain>", "Allow all emails from this domain (replaces existing)")
-  .option("--allowed-groups <groups>", "Comma-separated list of allowed groups (replaces existing)")
-  .option("--add-email <email>", "Add email(s) to allowed list")
-  .option("--remove-email <email>", "Remove email(s) from allowed list")
-  .option("--add-domain <domain>", "Set allowed domain")
-  .option("--remove-domain <domain>", "Remove allowed domain")
-  .option("--add-group <group>", "Add group(s) to allowed list")
-  .option("--remove-group <group>", "Remove group(s) from allowed list")
-  .option("--remove", "Remove all authentication")
-  .action(async (options) => {
-    const { authCommand } = await import("./commands/sites/auth.ts")
-    await authCommand(options.subdomain, { ...options, json: program.opts().json })
-  })
+  sites
+    .command("rollback [name]")
+    .description("Rollback a site's code to a previous version (data is untouched)")
+    .option("-v, --version <version>", "Version to rollback to")
+    .option("-y, --yes", "Skip confirmation prompt")
+    .action(async (name, options) => {
+      const { sitesRollbackCommand } = await import("./commands/sites/rollback.ts")
+      await sitesRollbackCommand(name, options.version, { ...options, json: program.opts().json })
+    })
 
-sites
-  .command("rename")
-  .description("Rename a site (changes its subdomain)")
-  .option("-s, --subdomain <subdomain>", "Site to rename (defaults to .siteio/config.json)")
-  .requiredOption("--to <new-subdomain>", "New subdomain name")
-  .action(async (options) => {
-    const { renameCommand } = await import("./commands/sites/rename.ts")
-    await renameCommand(options.subdomain, options.to, { json: program.opts().json })
-  })
+  sites
+    .command("rename <new-name>")
+    .description("Rename a site (changes its subdomain)")
+    .option("-n, --name <name>", "Site to rename (defaults to .siteio/config.json)")
+    .action(async (newName, options) => {
+      const { sitesRenameCommand } = await import("./commands/sites/rename.ts")
+      await sitesRenameCommand(options.name, newName, { json: program.opts().json })
+    })
 
-// Domain subcommands
-const siteDomain = sites
-  .command("domain")
-  .description("Manage custom domains for a site")
+  sites
+    .command("rm [name]")
+    .description("Remove a deployed site and its data")
+    .option("-y, --yes", "Skip confirmation prompt")
+    .action(async (name, options) => {
+      const { sitesRmCommand } = await import("./commands/sites/rm.ts")
+      await sitesRmCommand(name, { ...options, json: program.opts().json })
+    })
 
-siteDomain
-  .command("add <domain>")
-  .description("Add a custom domain to a site")
-  .option("-s, --subdomain <subdomain>", "Site to add domain to (defaults to .siteio/config.json)")
-  .action(async (domain, options) => {
-    const { domainAddCommand } = await import("./commands/sites/domain.ts")
-    await domainAddCommand(domain, { ...options, json: program.opts().json })
-  })
+  const siteDomain = sites
+    .command("domain")
+    .description("Manage custom domains for a site")
 
-siteDomain
-  .command("remove <domain>")
-  .description("Remove a custom domain from a site")
-  .option("-s, --subdomain <subdomain>", "Site to remove domain from (defaults to .siteio/config.json)")
-  .action(async (domain, options) => {
-    const { domainRemoveCommand } = await import("./commands/sites/domain.ts")
-    await domainRemoveCommand(domain, { ...options, json: program.opts().json })
-  })
+  siteDomain
+    .command("add <domain>")
+    .description("Add a custom domain to a site")
+    .option("-n, --name <name>", "Site to add domain to (defaults to .siteio/config.json)")
+    .action(async (domain, options) => {
+      const { domainAddCommand } = await import("./commands/sites/domain.ts")
+      await domainAddCommand(domain, { ...options, json: program.opts().json })
+    })
 
-siteDomain
-  .command("list")
-  .alias("ls")
-  .description("List custom domains for a site")
-  .option("-s, --subdomain <subdomain>", "Site to list domains for (defaults to .siteio/config.json)")
-  .action(async (options) => {
-    const { domainListCommand } = await import("./commands/sites/domain.ts")
-    await domainListCommand({ ...options, json: program.opts().json })
-  })
+  siteDomain
+    .command("remove <domain>")
+    .description("Remove a custom domain from a site")
+    .option("-n, --name <name>", "Site to remove domain from (defaults to .siteio/config.json)")
+    .action(async (domain, options) => {
+      const { domainRemoveCommand } = await import("./commands/sites/domain.ts")
+      await domainRemoveCommand(domain, { ...options, json: program.opts().json })
+    })
 
-sites
-  .command("set")
-  .description("Update site configuration")
-  .option("-s, --subdomain <subdomain>", "Site to update (defaults to .siteio/config.json)")
-  .option("-d, --domain <domain>", "Set custom domains, e.g. -d example.com -d www.example.com (repeatable)", (val: string, prev: string[]) => {
-    prev = prev || []
-    prev.push(val)
-    return prev
-  }, [])
-  .option("--persistent-storage", "Enable persistent localStorage")
-  .option("--no-persistent-storage", "Disable persistent localStorage")
-  .action(async (options) => {
-    const { setSiteCommand } = await import("./commands/sites/set.ts")
-    await setSiteCommand(options.subdomain, { ...options, json: program.opts().json })
-  })
+  siteDomain
+    .command("list")
+    .alias("ls")
+    .description("List custom domains for a site")
+    .option("-n, --name <name>", "Site to list domains for (defaults to .siteio/config.json)")
+    .action(async (options) => {
+      const { domainListCommand } = await import("./commands/sites/domain.ts")
+      await domainListCommand({ ...options, json: program.opts().json })
+    })
+}
+
+registerSiteCommands(
+  program
+    .command("sites")
+    .description("Manage deployed sites (static frontend + built-in backend)")
+)
+
+// Hidden transition alias: existing projects and scripts still say `siteio pocket`.
+const pocketAlias = new Command("pocket")
+  .description("Deprecated alias for 'sites'")
+registerSiteCommands(pocketAlias)
+program.addCommand(pocketAlias, { hidden: true })
 
 // Apps commands
 const apps = program
@@ -397,147 +369,6 @@ apps
     await unsetAppCommand(name, { ...options, json: program.opts().json })
   })
 
-// Pocket commands (PocketBase-backed sites)
-const pocket = program
-  .command("pocket")
-  .description("Manage PocketBase-backed sites (auth + storage + database)")
-
-pocket
-  .command("init [folder]")
-  .description("Scaffold a new pocket project")
-  .action(async (folder) => {
-    const { pocketInitCommand } = await import("./commands/pocket/init.ts")
-    await pocketInitCommand(folder, { json: program.opts().json })
-  })
-
-pocket
-  .command("dev [folder]")
-  .description("Run the pocket locally with PocketBase (no Docker required)")
-  .option("-p, --port <port>", "Local port", intArg, 8090)
-  .action(async (folder, options) => {
-    const { pocketDevCommand } = await import("./commands/pocket/dev.ts")
-    await pocketDevCommand(folder, options)
-  })
-
-pocket
-  .command("deploy [folder]")
-  .description("Deploy the pocket (frontend + PocketBase backend)")
-  .option("--force", "Deploy even if there is a version conflict")
-  .action(async (folder, options) => {
-    const { pocketDeployCommand } = await import("./commands/pocket/deploy.ts")
-    await pocketDeployCommand(folder, { ...options, json: program.opts().json })
-  })
-
-pocket
-  .command("download [output-folder]")
-  .description("Download a deployed pocket's code to a local folder (defaults to ./<name>)")
-  .option("-n, --name <name>", "Pocket to download (defaults to .siteio/config.json)")
-  .option("-y, --yes", "Overwrite existing folder contents")
-  .action(async (outputFolder, options) => {
-    const { pocketDownloadCommand } = await import("./commands/pocket/download.ts")
-    await pocketDownloadCommand(outputFolder, { ...options, json: program.opts().json })
-  })
-
-pocket
-  .command("list")
-  .alias("ls")
-  .description("List all pockets")
-  .action(async () => {
-    const { pocketListCommand } = await import("./commands/pocket/list.ts")
-    await pocketListCommand({ json: program.opts().json })
-  })
-
-pocket
-  .command("info [name]")
-  .description("Show detailed info about a pocket")
-  .action(async (name) => {
-    const { pocketInfoCommand } = await import("./commands/pocket/info.ts")
-    await pocketInfoCommand(name, { json: program.opts().json })
-  })
-
-pocket
-  .command("logs [name]")
-  .description("Show logs from a pocket")
-  .option("-t, --tail <n>", "Number of lines", intArg, 100)
-  .action(async (name, options) => {
-    const { pocketLogsCommand } = await import("./commands/pocket/logs.ts")
-    await pocketLogsCommand(name, { ...options, json: program.opts().json })
-  })
-
-pocket
-  .command("rm [name]")
-  .description("Remove a pocket and its data")
-  .option("-y, --yes", "Skip confirmation")
-  .action(async (name, options) => {
-    const { pocketRmCommand } = await import("./commands/pocket/rm.ts")
-    await pocketRmCommand(name, { ...options, json: program.opts().json })
-  })
-
-pocket
-  .command("admin [name]")
-  .description("Show the PocketBase admin URL and superuser credentials")
-  .action(async (name) => {
-    const { pocketAdminCommand } = await import("./commands/pocket/admin.ts")
-    await pocketAdminCommand(name, { json: program.opts().json })
-  })
-
-// Groups command
-const groups = program
-  .command("groups")
-  .description("Manage email groups for access control")
-
-groups
-  .command("list")
-  .alias("ls")
-  .description("List all groups")
-  .action(async () => {
-    const { listGroupsCommand } = await import("./commands/groups.ts")
-    await listGroupsCommand({ json: program.opts().json })
-  })
-
-groups
-  .command("show <name>")
-  .description("Show group details")
-  .action(async (name) => {
-    const { showGroupCommand } = await import("./commands/groups.ts")
-    await showGroupCommand(name, { json: program.opts().json })
-  })
-
-groups
-  .command("create <name>")
-  .description("Create a new group")
-  .option("--emails <emails>", "Comma-separated list of email addresses")
-  .action(async (name, options) => {
-    const { createGroupCommand } = await import("./commands/groups.ts")
-    await createGroupCommand(name, { ...options, json: program.opts().json })
-  })
-
-groups
-  .command("delete <name>")
-  .description("Delete a group")
-  .action(async (name) => {
-    const { deleteGroupCommand } = await import("./commands/groups.ts")
-    await deleteGroupCommand(name, { json: program.opts().json })
-  })
-
-groups
-  .command("add <name>")
-  .description("Add emails to a group")
-  .option("--email <emails>", "Comma-separated list of email addresses to add")
-  .action(async (name, options) => {
-    const { addToGroupCommand } = await import("./commands/groups.ts")
-    await addToGroupCommand(name, { ...options, json: program.opts().json })
-  })
-
-groups
-  .command("remove <name>")
-  .description("Remove emails from a group")
-  .option("--email <emails>", "Comma-separated list of email addresses to remove")
-  .action(async (name, options) => {
-    const { removeFromGroupCommand } = await import("./commands/groups.ts")
-    await removeFromGroupCommand(name, { ...options, json: program.opts().json })
-  })
-
 // Agent command (for running the server)
 const agent = program
   .command("agent")
@@ -567,14 +398,6 @@ agent
   .action(async (target, options) => {
     const { uninstallAgentCommand } = await import("./commands/agent/uninstall.ts")
     await uninstallAgentCommand(target, options)
-  })
-
-agent
-  .command("oauth")
-  .description("Configure OIDC authentication (Auth0, Okta, etc.)")
-  .action(async () => {
-    const { oauthAgentCommand } = await import("./commands/agent/oauth.ts")
-    await oauthAgentCommand()
   })
 
 agent

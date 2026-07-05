@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
-import type { App, AppInfo, SiteOAuth } from "../../types"
+import type { App, AppInfo } from "../../types"
 import { ValidationError } from "../../utils/errors"
 
 export class AppStorage {
@@ -127,7 +127,6 @@ export class AppStorage {
       status: app.status,
       domains: app.domains,
       internalPort: app.internalPort,
-      oauth: app.oauth,
       deployedAt: app.deployedAt,
       createdAt: app.createdAt,
       commitHash: app.commitHash,
@@ -135,24 +134,4 @@ export class AppStorage {
     }
   }
 
-  createStaticSiteApp(name: string, sitePath: string, oauth?: SiteOAuth): App {
-    return this.create({
-      name,
-      type: "static",
-      image: "nginx:alpine",
-      internalPort: 80,
-      restartPolicy: "unless-stopped",
-      volumes: [
-        {
-          name: sitePath,
-          mountPath: "/usr/share/nginx/html",
-          readonly: true,
-        },
-      ],
-      oauth,
-      env: {},
-      domains: [],
-      status: "pending",
-    })
-  }
 }
