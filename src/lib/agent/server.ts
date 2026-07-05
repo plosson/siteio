@@ -12,6 +12,7 @@ import { buildOverride } from "./compose-override.ts"
 import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS } from "./ui/assets.ts"
 import { POCKETBASE_IMAGE, POCKETBASE_VERSION } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
+import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 
 // Strip the git token before returning an app over the API. Clients never need
 // the raw value; they can set/clear it via PATCH. `tokenSet` is surfaced so
@@ -1070,6 +1071,54 @@ export class AgentServer {
 
   // Test seam: exercise the router directly without binding a socket.
   // Sets the host header to "localhost" so the isApiRequest check passes.
+  // Convert pre-merge static sites into site containers. Public so tests can
+  // drive it without binding a socket via start().
+  async migrateLegacy(): Promise<void> {
+    if (!hasLegacySites(this.config.dataDir)) return
+
+    console.log("> Legacy static sites detected — migrating to site containers...")
+    const outcome = migrateLegacySites(this.config.dataDir, this.config.domain, this.storage, (m) => console.log(m))
+    for (const s of outcome.skipped) {
+      console.log(`> SKIPPED '${s.name}': ${s.reason}`)
+    }
+    if (outcome.migrated.length === 0) return
+
+    if (!this.docker.isAvailable()) {
+      console.log("> Docker is not available — migrated sites will start on their next deploy")
+      return
+    }
+
+    // The shared nginx and oauth2-proxy containers belong to the old model.
+    for (const legacy of ["nginx", "oauth2-proxy"]) {
+      try {
+        if (this.docker.containerExists(legacy)) await this.docker.remove(legacy)
+      } catch {
+        // best effort — a stale container is harmless, just unrouted
+      }
+    }
+
+    try {
+      await this.docker.pull(POCKETBASE_IMAGE)
+    } catch (err) {
+      console.log(`> Failed to pull ${POCKETBASE_IMAGE} — migrated sites will start on their next deploy`)
+      return
+    }
+
+    for (const name of outcome.migrated) {
+      const site = this.storage.get(name)
+      if (!site) continue
+      try {
+        const containerId = await this.startSiteContainer(site)
+        this.storage.update(name, { status: "running", containerId })
+        console.log(`> Site '${name}' is running`)
+      } catch (err) {
+        this.storage.update(name, { status: "failed" })
+        const message = err instanceof Error ? err.message : String(err)
+        console.log(`> Failed to start migrated site '${name}': ${message}`)
+      }
+    }
+  }
+
   handleRequestForTest(req: Request): Promise<Response> {
     const headers = new Headers(req.headers)
     headers.set("host", "localhost")
@@ -1082,6 +1131,9 @@ export class AgentServer {
       await this.traefik.start()
       this.traefik.updateDynamicConfig()
     }
+
+    // One-time conversion of pre-merge shared-nginx static sites.
+    await this.migrateLegacy()
 
     const port = this.config.port || 3000
 
