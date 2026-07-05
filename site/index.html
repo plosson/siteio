@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SiteIO - Deploy Static Sites with Ease</title>
+  <title>siteio — deploy static sites with one command</title>
+  <meta name="description" content="Deploy static sites to your own server with a single command. Automatic HTTPS. Wildcard subdomains.">
+  <meta property="og:title" content="siteio — deploy static sites with one command">
+  <meta property="og:description" content="Deploy static sites to your own server with a single command. Automatic HTTPS. Wildcard subdomains.">
+  <meta property="og:url" content="https://siteio.houlahop.com">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -54,6 +59,67 @@
       max-width: 800px;
       margin: 0 auto;
       padding: 80px 24px;
+    }
+
+    /* houlahop topbar */
+    .hh-topbar {
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hh-topbar-inner {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 16px 24px;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .hh-crumbs {
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .hh-crumbs a {
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .hh-crumbs a:hover {
+      color: var(--accent);
+    }
+
+    .hh-crumbs a:first-child::before {
+      content: '~/';
+      color: var(--accent);
+    }
+
+    .hh-crumbs .hh-sep {
+      color: var(--text-muted);
+    }
+
+    .hh-crumbs::after {
+      content: '▍';
+      color: var(--accent);
+      animation: hh-blink 1.2s steps(1) infinite;
+    }
+
+    @keyframes hh-blink { 50% { opacity: 0; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      .hh-crumbs::after { animation: none; }
+    }
+
+    .hh-topnav a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.85rem;
+      margin-left: 20px;
+    }
+
+    .hh-topnav a:hover {
+      color: var(--text);
     }
 
     /* Header */
@@ -467,18 +533,26 @@
   </style>
 </head>
 <body>
+  <header class="hh-topbar">
+    <div class="hh-topbar-inner">
+      <span class="hh-crumbs"><a href="https://houlahop.com">houlahop</a><span class="hh-sep">/</span><a href="/">siteio</a></span>
+      <nav class="hh-topnav">
+        <a href="https://github.com/plosson/siteio" target="_blank" rel="noopener">GitHub ↗</a>
+      </nav>
+    </div>
+  </header>
   <div class="container">
     <header>
       <div class="logo-row">
         <div class="logo">S</div>
-        <h1>SiteIO</h1>
+        <h1>siteio</h1>
       </div>
       <p class="headline">Deploy static sites with a single command.<br>Automatic HTTPS. Wildcard subdomains.</p>
       <p class="tagline">A CLI and self-hosted agent for deploying static sites to your own domain. Perfect for personal projects, portfolios, and quick prototypes.</p>
     </header>
 
     <section>
-      <h2>Why SiteIO?</h2>
+      <h2>Why siteio?</h2>
       <div class="use-cases">
         <div class="use-case">
           <p>Deploy any folder to a subdomain in seconds</p>
@@ -527,7 +601,7 @@
           <div class="step-num">1</div>
           <div class="step-content">
             <h3>Connect to your agent</h3>
-            <p>Get a connection token from your SiteIO administrator and login.</p>
+            <p>Get a connection token from your siteio administrator and login.</p>
             <pre><code>siteio login -t &lt;token&gt;
 # Or check status with: siteio status</code></pre>
           </div>
@@ -569,7 +643,7 @@ siteio sites undeploy my-site</code></pre>
 +--------------------------------------------------------+
 |                      Your VPS                          |
 |  +------------------+    +---------------------------+ |
-|  |  SiteIO Agent    |    |        Traefik            | |
+|  |  siteio agent    |    |        Traefik            | |
 |  |  - API server    |--->|  - SSL termination        | |
 |  |  - File storage  |    |  - Wildcard routing       | |
 |  |  - Static serve  |    |  - Let's Encrypt          | |
@@ -624,11 +698,10 @@ siteio sites undeploy my-site</code></pre>
 
     <footer>
       <div class="footer-links">
-        <a href="privacy.html">Privacy</a>
-        <a href="terms.html">Terms</a>
+        <a href="https://houlahop.com">a houlahop tool</a>
         <a href="https://github.com/plosson/siteio">GitHub</a>
       </div>
-      <span class="copyright">&copy; 2026 SiteIO &middot; MIT License</span>
+      <span class="copyright">&copy; 2026 &middot; MIT License</span>
     </footer>
   </div>
 
