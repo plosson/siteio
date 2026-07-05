@@ -16,7 +16,7 @@
     Skip adding installation directory to PATH.
 
 .EXAMPLE
-    iwr -useb https://siteio.me/install.ps1 | iex
+    iwr -useb https://siteio.houlahop.com/install.ps1 | iex
 
 .EXAMPLE
     .\install.ps1 -InstallDir "C:\tools\siteio" -Version "0.1.0"

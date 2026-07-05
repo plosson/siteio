@@ -28,7 +28,7 @@ siteio apps --help         # Container app commands
 ## Installation
 
 \`\`\`sh
-curl -LsSf https://siteio.me/install | sh
+curl -LsSf https://siteio.houlahop.com/install | sh
 siteio update              # Ensure latest version
 \`\`\`
 

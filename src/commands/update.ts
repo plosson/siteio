@@ -320,9 +320,9 @@ export async function updateCommand(options: UpdateOptions = {}): Promise<void> 
       console.error("Automatic update failed. You can update manually:")
       console.error("")
       if (os.platform() === "win32") {
-        console.error("  iwr -useb https://siteio.me/install.ps1 | iex")
+        console.error("  iwr -useb https://siteio.houlahop.com/install.ps1 | iex")
       } else {
-        console.error("  curl -LsSf https://siteio.me/install | sh")
+        console.error("  curl -LsSf https://siteio.houlahop.com/install | sh")
       }
       console.error("")
       throw error

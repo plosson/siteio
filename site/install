@@ -1,6 +1,6 @@
 #!/bin/sh
 # siteio installer script
-# Usage: curl -LsSf https://siteio.me/install | sh
+# Usage: curl -LsSf https://siteio.houlahop.com/install | sh
 
 set -e
 
@@ -294,7 +294,7 @@ main() {
                 cat <<EOF
 siteio installer
 
-Usage: curl -LsSf https://siteio.me/install | sh
+Usage: curl -LsSf https://siteio.houlahop.com/install | sh
 
 Options:
   --install-dir DIR    Install to specific directory
@@ -376,7 +376,7 @@ EOF
         warn "siteio installed but not in PATH"
         warn "Add ${install_dir} to your PATH or run: ${install_dir}/siteio"
         # Output PATH export to stdout for eval support
-        # Usage: eval "$(curl -LsSf https://siteio.me/install | sh)"
+        # Usage: eval "$(curl -LsSf https://siteio.houlahop.com/install | sh)"
         printf 'export PATH="%s:$PATH"\n' "$install_dir"
     fi
 }

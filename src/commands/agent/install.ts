@@ -12,7 +12,7 @@ import { waitForDNS, waitForCertificate } from "../../lib/verification.ts"
 
 const SERVICE_NAME = "siteio-agent"
 const SERVICE_FILE = `/etc/systemd/system/${SERVICE_NAME}.service`
-const INSTALL_SCRIPT_URL = "https://siteio.me/install"
+const INSTALL_SCRIPT_URL = "https://siteio.houlahop.com/install"
 
 import type { AcmeChallengeType } from "../../types.ts"
 

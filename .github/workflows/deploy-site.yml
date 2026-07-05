@@ -9,20 +9,28 @@ on:
 
 jobs:
   deploy:
-    name: Deploy to Cloudflare Pages
+    name: Deploy to siteio.houlahop.com
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: '20'
+          bun-version: 1.3.11
 
-      - name: Deploy to Cloudflare Pages
-        run: npx wrangler pages deploy site --project-name=siteio
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build binary
+        run: bun build src/cli.ts --compile --minify --outfile siteio
+
+      - name: Login
+        run: ./siteio login --username github-actions
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SITEIO_TOKEN: ${{ vars.SITEIO_TOKEN }}
+
+      - name: Deploy site
+        run: ./siteio sites deploy site --subdomain siteio
