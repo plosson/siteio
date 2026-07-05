@@ -1,0 +1,5 @@
+# Restrict `bun test` discovery to the bun test suites. The Playwright specs
+# under tests/playwright use the Playwright runner (bunx --bun playwright test)
+# and error out under bun's test runner.
+[test]
+root = "src"
