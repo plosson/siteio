@@ -3,7 +3,7 @@ import {
 } from "fs"
 import { join, resolve, sep } from "path"
 import { unzipSync, zipSync } from "fflate"
-import type { Pocket, PocketInfo } from "../../types.ts"
+import type { Pocket, PocketInfo, SiteVersion } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
 
 const MAX_HISTORY_VERSIONS = 10
@@ -98,15 +98,90 @@ export class PocketStorage {
     if (!existsSync(h)) mkdirSync(h, { recursive: true })
     const version = this.nextVersion(name)
     cpSync(codePath, join(h, `v${version}`), { recursive: true })
+
+    // Version metadata for `history`/`rollback`. The archived code IS the
+    // currently-deployed version, so its metadata comes from the pocket meta.
+    const meta = this.get(name)
+    const versionMeta: SiteVersion = {
+      version,
+      deployedAt: meta?.deployedAt || new Date().toISOString(),
+      deployedBy: meta?.deployedBy,
+      size: meta?.size ?? 0,
+    }
+    writeFileSync(join(h, `v${version}.json`), JSON.stringify(versionMeta, null, 2))
+
     // Prune
     const versions = readdirSync(h)
       .filter((f) => f.startsWith("v") && !f.endsWith(".json"))
       .map((f) => parseInt(f.slice(1), 10)).filter((n) => !isNaN(n)).sort((a, b) => a - b)
     while (versions.length > MAX_HISTORY_VERSIONS) {
       const old = versions.shift()!
-      const p = join(h, `v${old}`)
-      if (existsSync(p)) rmSync(p, { recursive: true })
+      for (const p of [join(h, `v${old}`), join(h, `v${old}.json`)]) {
+        if (existsSync(p)) rmSync(p, { recursive: true })
+      }
     }
+  }
+
+  getHistory(name: string): SiteVersion[] {
+    const h = this.historyPath(name)
+    if (!existsSync(h)) return []
+    const versions: SiteVersion[] = []
+    for (const file of readdirSync(h).filter((f) => f.endsWith(".json"))) {
+      try {
+        versions.push(JSON.parse(readFileSync(join(h, file), "utf-8")) as SiteVersion)
+      } catch {
+        // Skip invalid files
+      }
+    }
+    return versions.sort((a, b) => b.version - a.version)
+  }
+
+  // Restore an archived code version. Archives the current code first, then
+  // copies the requested version back. NEVER touches pb_data — rollback is
+  // code-only (the design's code/data boundary). Returns null if the version
+  // is not in history. The caller must recreate the container: the bind mount
+  // references the old code dir inode.
+  restoreVersion(name: string, version: number): { size: number; version: number } | null {
+    const h = this.historyPath(name)
+    const versionPath = join(h, `v${version}`)
+    const versionMetaPath = join(h, `v${version}.json`)
+    if (!existsSync(versionPath) || !existsSync(versionMetaPath)) return null
+
+    const codePath = this.getCodePath(name)
+    if (existsSync(codePath)) {
+      this.archiveCode(name)
+      rmSync(codePath, { recursive: true })
+    }
+    cpSync(versionPath, codePath, { recursive: true })
+
+    const versionMeta = JSON.parse(readFileSync(versionMetaPath, "utf-8")) as SiteVersion
+    return { size: versionMeta.size, version: this.nextVersion(name) }
+  }
+
+  // Move metadata, code, data, and history to a new name. The caller must
+  // remove the container before calling this (the volume mounts reference the
+  // old paths) and recreate it after.
+  rename(oldName: string, newName: string): Pocket | null {
+    this.validateName(newName)
+    const pocket = this.get(oldName)
+    if (!pocket) return null
+    if (this.exists(newName)) throw new ValidationError(`Pocket '${newName}' already exists`)
+
+    for (const [from, to] of [
+      [this.getCodePath(oldName), this.getCodePath(newName)],
+      [this.getDataPath(oldName), this.getDataPath(newName)],
+      [this.historyPath(oldName), this.historyPath(newName)],
+    ] as const) {
+      if (existsSync(from)) {
+        cpSync(from, to, { recursive: true })
+        rmSync(from, { recursive: true })
+      }
+    }
+
+    const renamed: Pocket = { ...pocket, name: newName, updatedAt: new Date().toISOString() }
+    writeFileSync(this.metaPath(newName), JSON.stringify(renamed, null, 2))
+    rmSync(this.metaPath(oldName))
+    return renamed
   }
 
   // Extract an uploaded code zip (public/**, pb_migrations/**, pb_hooks/**) to
@@ -161,10 +236,21 @@ export class PocketStorage {
     return zipSync(files, { level: 6 })
   }
 
-  // The pocket's primary hostname: its first custom domain, else the default
-  // `<name>.<domain>` subdomain. Single source of truth for URL construction.
+  // The pocket's primary hostname: always the default `<name>.<domain>`
+  // subdomain. Single source of truth for URL construction.
   primaryDomain(pocket: Pocket, domain: string): string {
-    return pocket.domains[0] || `${pocket.name}.${domain}`
+    return `${pocket.name}.${domain}`
+  }
+
+  // Custom domains only. Earlier deploys stored the default subdomain inside
+  // `domains` — filter it out defensively so those records need no migration.
+  customDomains(pocket: Pocket, domain: string): string[] {
+    return pocket.domains.filter((d) => d !== `${pocket.name}.${domain}`)
+  }
+
+  // All hostnames the container should route: default subdomain + customs.
+  allDomains(pocket: Pocket, domain: string): string[] {
+    return [this.primaryDomain(pocket, domain), ...this.customDomains(pocket, domain)]
   }
 
   toInfo(pocket: Pocket, domain: string): PocketInfo {
@@ -173,7 +259,7 @@ export class PocketStorage {
       name: pocket.name,
       url: `https://${primary}`,
       adminUrl: `https://${primary}/_/`,
-      domains: pocket.domains,
+      domains: this.customDomains(pocket, domain),
       status: pocket.status,
       pocketbaseVersion: pocket.pocketbaseVersion,
       size: pocket.size,

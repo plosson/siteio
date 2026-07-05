@@ -142,6 +142,184 @@ describe("API: pockets", () => {
     })
   })
 
+  describe("History and rollback", () => {
+    const deployContent = (html: string) =>
+      server.handleRequestForTest(
+        new Request("http://x/pockets/blog", {
+          method: "POST", headers: H,
+          body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
+        })
+      )
+
+    test("GET /pockets/:name/history lists archived versions newest first", async () => {
+      await deployContent("v1")
+      await deployContent("v2")
+      await deployContent("v3")
+      const res = await server.handleRequestForTest(
+        new Request("http://x/pockets/blog/history", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      )
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as ApiResponse<{ version: number; deployedAt: string }[]>
+      expect(body.data!.map((v) => v.version)).toEqual([2, 1])
+      expect(body.data![0]!.deployedAt).toBeTruthy()
+    })
+
+    test("GET /pockets/:name/history returns 404 for a missing pocket", async () => {
+      const res = await server.handleRequestForTest(
+        new Request("http://x/pockets/nope/history", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      )
+      expect(res.status).toBe(404)
+    })
+
+    test("POST /pockets/:name/rollback restores archived code and recreates the container", async () => {
+      await deployContent("v1")
+      await deployContent("v2")
+      runtime.containerExistsReturn = true
+      runtime.calls = []
+
+      const res = await server.handleRequestForTest(
+        new Request("http://x/pockets/blog/rollback", {
+          method: "POST",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1 }),
+        })
+      )
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as ApiResponse<PocketInfo>
+      expect(body.data!.version).toBe(3)
+
+      // Container recreated (mount inode changed after code restore)
+      expect(runtime.callsOf("remove")).toHaveLength(1)
+      expect(runtime.callsOf("run")).toHaveLength(1)
+
+      // The live code is v1's content again
+      const dl = await server.handleRequestForTest(
+        new Request("http://x/pockets/blog/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      )
+      const { unzipSync } = await import("fflate")
+      const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
+      expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("v1")
+    })
+
+    test("POST rollback to a nonexistent version returns 404", async () => {
+      await deployContent("v1")
+      const res = await server.handleRequestForTest(
+        new Request("http://x/pockets/blog/rollback", {
+          method: "POST",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 99 }),
+        })
+      )
+      expect(res.status).toBe(404)
+    })
+  })
+
+  describe("Custom domains", () => {
+    const patchDomains = (domains: unknown, name = "blog") =>
+      server.handleRequestForTest(
+        new Request(`http://x/pockets/${name}/domains`, {
+          method: "PATCH",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ domains }),
+        })
+      )
+
+    test("PATCH /pockets/:name/domains sets custom domains and recreates the container with new labels", async () => {
+      await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
+      runtime.containerExistsReturn = true
+      runtime.calls = []
+
+      const res = await patchDomains(["www.custom.org", "custom.org"])
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as ApiResponse<PocketInfo>
+      expect(body.data!.domains).toEqual(["www.custom.org", "custom.org"])
+      expect(body.data!.url).toBe("https://blog.example.com")
+
+      const labelCall = runtime.callsOf("buildTraefikLabels")[0]!
+      expect(labelCall.args[1]).toEqual(["blog.example.com", "www.custom.org", "custom.org"])
+    })
+
+    test("rejects domains under the base domain", async () => {
+      await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
+      const res = await patchDomains(["other.example.com"])
+      expect(res.status).toBe(400)
+    })
+
+    test("rejects a domain already used by another pocket", async () => {
+      await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
+      await server.handleRequestForTest(new Request("http://x/pockets/shop", { method: "POST", headers: H, body: zip() }))
+      await patchDomains(["custom.org"], "blog")
+      const res = await patchDomains(["custom.org"], "shop")
+      expect(res.status).toBe(400)
+      const body = (await res.json()) as ApiResponse<null>
+      expect(body.error).toContain("already in use")
+    })
+
+    test("rejects an invalid domain format", async () => {
+      await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
+      const res = await patchDomains(["not a domain"])
+      expect(res.status).toBe(400)
+    })
+  })
+
+  describe("Rename", () => {
+    test("PATCH /pockets/:name/rename moves everything to the new name", async () => {
+      await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
+      runtime.containerExistsReturn = true
+      runtime.calls = []
+
+      const res = await server.handleRequestForTest(
+        new Request("http://x/pockets/blog/rename", {
+          method: "PATCH",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ newSubdomain: "journal" }),
+        })
+      )
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as ApiResponse<PocketInfo>
+      expect(body.data!.name).toBe("journal")
+      expect(body.data!.url).toBe("https://journal.example.com")
+
+      // Old container removed before the dirs moved, new one started after
+      expect(runtime.callsOf("remove")[0]!.args[0]).toBe("blog")
+      const runCall = runtime.callsOf("run")[0]!
+      expect((runCall.args[0] as { name: string }).name).toBe("journal")
+
+      // Old name gone, new name resolvable
+      const old = await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+      expect(old.status).toBe(404)
+      const dl = await server.handleRequestForTest(
+        new Request("http://x/pockets/journal/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      )
+      expect(dl.status).toBe(200)
+    })
+
+    test("rename to an existing pocket name is rejected", async () => {
+      await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
+      await server.handleRequestForTest(new Request("http://x/pockets/shop", { method: "POST", headers: H, body: zip() }))
+      const res = await server.handleRequestForTest(
+        new Request("http://x/pockets/blog/rename", {
+          method: "PATCH",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ newSubdomain: "shop" }),
+        })
+      )
+      expect(res.status).toBe(400)
+    })
+
+    test("rename to a reserved name is rejected", async () => {
+      await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
+      const res = await server.handleRequestForTest(
+        new Request("http://x/pockets/blog/rename", {
+          method: "PATCH",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ newSubdomain: "api" }),
+        })
+      )
+      expect(res.status).toBe(400)
+    })
+  })
+
   test("DELETE /pockets/:name removes it", async () => {
     await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "POST", headers: H, body: zip() }))
     const del = await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "DELETE", headers: { "X-API-Key": "test-key" } }))

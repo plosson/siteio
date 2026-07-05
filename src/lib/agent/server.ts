@@ -1,5 +1,5 @@
 import { mkdirSync } from "fs"
-import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteMetadata, SiteOAuth, Group, App, AppInfo, ContainerLogs } from "../../types.ts"
+import type { AgentConfig, AgentOAuthConfig, ApiResponse, SiteInfo, SiteMetadata, SiteOAuth, Group, App, AppInfo, ContainerLogs, Pocket } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { loadOAuthConfig, ensureDiscoveredConfig } from "../../config/oauth.ts"
@@ -336,6 +336,30 @@ export class AgentServer {
     const pocketDownloadMatch = path.match(/^\/pockets\/([a-z0-9-]+)\/download$/)
     if (pocketDownloadMatch && req.method === "GET") {
       return this.handleDownloadPocket(pocketDownloadMatch[1]!)
+    }
+
+    // GET /pockets/:name/history - code version history
+    const pocketHistoryMatch = path.match(/^\/pockets\/([a-z0-9-]+)\/history$/)
+    if (pocketHistoryMatch && req.method === "GET") {
+      return this.handleGetPocketHistory(pocketHistoryMatch[1]!)
+    }
+
+    // POST /pockets/:name/rollback - restore a previous code version
+    const pocketRollbackMatch = path.match(/^\/pockets\/([a-z0-9-]+)\/rollback$/)
+    if (pocketRollbackMatch && req.method === "POST") {
+      return this.handleRollbackPocket(pocketRollbackMatch[1]!, req)
+    }
+
+    // PATCH /pockets/:name/domains - replace custom domains
+    const pocketDomainsMatch = path.match(/^\/pockets\/([a-z0-9-]+)\/domains$/)
+    if (pocketDomainsMatch && req.method === "PATCH") {
+      return this.handleUpdatePocketDomains(pocketDomainsMatch[1]!, req)
+    }
+
+    // PATCH /pockets/:name/rename - rename a pocket
+    const pocketRenameMatch = path.match(/^\/pockets\/([a-z0-9-]+)\/rename$/)
+    if (pocketRenameMatch && req.method === "PATCH") {
+      return this.handleRenamePocket(pocketRenameMatch[1]!, req)
     }
 
     return this.error("Not found", 404)
@@ -1464,7 +1488,7 @@ export class AgentServer {
     if (!pocket) {
       pocket = this.pocketStorage.create({
         name,
-        domains: [`${name}.${this.config.domain}`],
+        domains: [],
         pocketbaseVersion: POCKETBASE_VERSION,
         status: "pending",
         size: 0,
@@ -1477,34 +1501,8 @@ export class AgentServer {
       // Extract code (archives previous version); never touches pb_data.
       const { size, version: codeVersion } = await this.pocketStorage.extractCode(name, zipData)
 
-      this.docker.ensureNetwork()
       await this.docker.pull(POCKETBASE_IMAGE)
-      if (this.docker.containerExists(name)) await this.docker.remove(name)
-
-      const domains = pocket.domains.length > 0 ? pocket.domains : [`${name}.${this.config.domain}`]
-      const labels = this.docker.buildTraefikLabels(name, domains, 8090)
-
-      const env: Record<string, string> = {
-        POCKET_SUPERUSER_EMAIL: pocket.superuserEmail!,
-        POCKET_SUPERUSER_PASSWORD: pocket.superuserPassword!,
-      }
-
-      // Ensure the pb_data dir exists before building the volume mount.
-      mkdirSync(this.pocketStorage.getDataPath(name), { recursive: true, mode: 0o755 })
-
-      const containerId = await this.docker.run({
-        name,
-        image: POCKETBASE_IMAGE,
-        internalPort: 8090,
-        env,
-        volumes: [
-          { name: this.pocketStorage.getCodePath(name), mountPath: "/pb-code", readonly: true },
-          { name: this.pocketStorage.getDataPath(name), mountPath: "/pb-data" },
-        ],
-        restartPolicy: "unless-stopped",
-        network: "siteio-network",
-        labels,
-      })
+      const containerId = await this.startPocketContainer(pocket)
 
       const updated = this.pocketStorage.update(name, {
         status: "running",
@@ -1519,6 +1517,183 @@ export class AgentServer {
     } catch (err) {
       this.pocketStorage.update(name, { status: "failed" })
       const message = err instanceof Error ? err.message : "Failed to deploy pocket"
+      return this.error(message, 500)
+    }
+  }
+
+  // (Re)create the pocket's container: remove any existing one, then run the
+  // pinned image with Traefik labels for all its hostnames. Used by deploy,
+  // rollback, domain updates, and rename — anything that invalidates the
+  // container's bind mounts or routing labels.
+  private async startPocketContainer(pocket: Pocket): Promise<string> {
+    const name = pocket.name
+    this.docker.ensureNetwork()
+    if (this.docker.containerExists(name)) await this.docker.remove(name)
+
+    const domains = this.pocketStorage.allDomains(pocket, this.config.domain)
+    const labels = this.docker.buildTraefikLabels(name, domains, 8090)
+
+    const env: Record<string, string> = {
+      POCKET_SUPERUSER_EMAIL: pocket.superuserEmail!,
+      POCKET_SUPERUSER_PASSWORD: pocket.superuserPassword!,
+    }
+
+    // Ensure the pb_data dir exists before building the volume mount.
+    mkdirSync(this.pocketStorage.getDataPath(name), { recursive: true, mode: 0o755 })
+
+    return this.docker.run({
+      name,
+      image: POCKETBASE_IMAGE,
+      internalPort: 8090,
+      env,
+      volumes: [
+        { name: this.pocketStorage.getCodePath(name), mountPath: "/pb-code", readonly: true },
+        { name: this.pocketStorage.getDataPath(name), mountPath: "/pb-data" },
+      ],
+      restartPolicy: "unless-stopped",
+      network: "siteio-network",
+      labels,
+    })
+  }
+
+  private handleGetPocketHistory(name: string): Response {
+    if (!this.pocketStorage.exists(name)) return this.error("Pocket not found", 404)
+    return this.json(this.pocketStorage.getHistory(name))
+  }
+
+  private async handleRollbackPocket(name: string, req: Request): Promise<Response> {
+    const pocket = this.pocketStorage.get(name)
+    if (!pocket) return this.error("Pocket not found", 404)
+
+    try {
+      const body = (await req.json()) as { version: number }
+      if (!body.version || typeof body.version !== "number") {
+        return this.error("Version number is required")
+      }
+
+      if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+
+      const restored = this.pocketStorage.restoreVersion(name, body.version)
+      if (!restored) {
+        return this.error(`Version ${body.version} not found in history`, 404)
+      }
+
+      const containerId = await this.startPocketContainer(pocket)
+      const updated = this.pocketStorage.update(name, {
+        status: "running",
+        containerId,
+        size: restored.size,
+        version: restored.version,
+        deployedAt: new Date().toISOString(),
+      })!
+      return this.json(this.pocketStorage.toInfo(updated, this.config.domain))
+    } catch (err) {
+      if (err instanceof SyntaxError) return this.error("Invalid request body")
+      this.pocketStorage.update(name, { status: "failed" })
+      const message = err instanceof Error ? err.message : "Failed to rollback"
+      return this.error(message, 500)
+    }
+  }
+
+  private async handleUpdatePocketDomains(name: string, req: Request): Promise<Response> {
+    const pocket = this.pocketStorage.get(name)
+    if (!pocket) return this.error("Pocket not found", 404)
+
+    try {
+      const body = (await req.json()) as { domains?: string[] }
+      if (!body.domains || !Array.isArray(body.domains)) {
+        return this.error("'domains' array is required")
+      }
+
+      const domains = body.domains.map((d) => d.toLowerCase())
+
+      const domainRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/
+      for (const domain of domains) {
+        if (!domainRegex.test(domain)) {
+          return this.error(`Invalid domain format: ${domain}`)
+        }
+      }
+
+      // Reject subdomains within the base domain space (e.g., api.example.com)
+      // but allow the apex domain itself (e.g., example.com) as a custom domain
+      const baseDomainSuffix = `.${this.config.domain}`
+      for (const domain of domains) {
+        if (domain.endsWith(baseDomainSuffix)) {
+          return this.error(`Cannot use '${domain}' as a custom domain — it conflicts with the base domain subdomains`)
+        }
+      }
+
+      // Check for conflicts with other pockets
+      for (const other of this.pocketStorage.list()) {
+        if (other.name === name) continue
+        const overlap = domains.filter((d) => this.pocketStorage.customDomains(other, this.config.domain).includes(d))
+        if (overlap.length > 0) {
+          return this.error(`Domain(s) already in use by '${other.name}': ${overlap.join(", ")}`)
+        }
+      }
+
+      // Check for conflicts with apps
+      for (const app of this.appStorage.list()) {
+        const overlap = domains.filter((d) => app.domains.includes(d))
+        if (overlap.length > 0) {
+          return this.error(`Domain(s) already in use by app '${app.name}': ${overlap.join(", ")}`)
+        }
+      }
+
+      const updated = this.pocketStorage.update(name, { domains })!
+
+      // Recreate the container so Traefik picks up the new host rules. A pocket
+      // that was never deployed (no container) just keeps the metadata change.
+      if (this.docker.isAvailable() && this.docker.containerExists(name)) {
+        const containerId = await this.startPocketContainer(updated)
+        this.pocketStorage.update(name, { containerId })
+      }
+
+      return this.json(this.pocketStorage.toInfo(this.pocketStorage.get(name)!, this.config.domain))
+    } catch (err) {
+      if (err instanceof SyntaxError) return this.error("Invalid request body")
+      const message = err instanceof Error ? err.message : "Failed to update domains"
+      return this.error(message, 500)
+    }
+  }
+
+  private async handleRenamePocket(name: string, req: Request): Promise<Response> {
+    const pocket = this.pocketStorage.get(name)
+    if (!pocket) return this.error("Pocket not found", 404)
+
+    try {
+      const body = (await req.json()) as { newSubdomain?: string }
+      if (!body.newSubdomain || typeof body.newSubdomain !== "string") {
+        return this.error("'newSubdomain' is required")
+      }
+
+      const newName = body.newSubdomain.toLowerCase()
+      if (!/^[a-z0-9-]+$/.test(newName)) {
+        return this.error("Name must contain only lowercase letters, numbers, and hyphens")
+      }
+      if (newName === "api") return this.error("'api' is a reserved name")
+      if (newName === name) return this.error("New name is the same as the current one")
+      if (this.pocketStorage.exists(newName)) {
+        return this.error(`'${newName}' already exists`)
+      }
+
+      // The container mounts pocket-code/<name> and pocket-data/<name> — it
+      // must be gone before the directories move.
+      const hadContainer = this.docker.isAvailable() && this.docker.containerExists(name)
+      if (hadContainer) await this.docker.remove(name)
+
+      const renamed = this.pocketStorage.rename(name, newName)
+      if (!renamed) return this.error("Failed to rename", 500)
+
+      if (hadContainer) {
+        const containerId = await this.startPocketContainer(renamed)
+        this.pocketStorage.update(newName, { containerId })
+      }
+
+      return this.json(this.pocketStorage.toInfo(this.pocketStorage.get(newName)!, this.config.domain))
+    } catch (err) {
+      if (err instanceof SyntaxError) return this.error("Invalid request body")
+      const message = err instanceof Error ? err.message : "Failed to rename"
       return this.error(message, 500)
     }
   }

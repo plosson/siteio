@@ -77,4 +77,58 @@ describe("Unit: PocketStorage", () => {
     expect(raw.superuserPassword).toBeUndefined()
     expect(raw.superuserEmail).toBeUndefined()
   })
+
+  test("toInfo filters the legacy default-subdomain entry out of domains", () => {
+    // Older deploys stored the default subdomain inside `domains`
+    const p = storage.create({ ...base("blog"), domains: ["blog.example.com", "custom.org"] })
+    const info = storage.toInfo(p, "example.com")
+    expect(info.domains).toEqual(["custom.org"])
+    expect(storage.allDomains(p, "example.com")).toEqual(["blog.example.com", "custom.org"])
+  })
+
+  test("history keeps at most 10 versions and prunes v<N>.json alongside", async () => {
+    storage.create({ ...base("blog"), domains: [] })
+    for (let i = 1; i <= 12; i++) {
+      const zip = zipSync({ "public/index.html": new TextEncoder().encode(`v${i}`) })
+      const { version } = await storage.extractCode("blog", zip)
+      storage.update("blog", { version, size: i, deployedAt: new Date().toISOString() })
+    }
+    const history = storage.getHistory("blog")
+    expect(history).toHaveLength(10)
+    expect(history[0]!.version).toBe(11)
+    expect(history[9]!.version).toBe(2)
+    // Pruned versions leave no orphan metadata
+    expect(existsSync(join(dir, "pocket-history", "blog", "v1.json"))).toBe(false)
+    expect(existsSync(join(dir, "pocket-history", "blog", "v1"))).toBe(false)
+  })
+
+  test("restoreVersion brings back archived code without touching pb_data", async () => {
+    storage.create({ ...base("blog"), domains: [] })
+    const v1 = await storage.extractCode("blog", zipSync({ "public/index.html": new TextEncoder().encode("one") }))
+    storage.update("blog", { version: v1.version, size: 3 })
+    const v2 = await storage.extractCode("blog", zipSync({ "public/index.html": new TextEncoder().encode("two") }))
+    storage.update("blog", { version: v2.version, size: 3 })
+
+    const restored = storage.restoreVersion("blog", 1)
+    expect(restored).not.toBeNull()
+    expect(restored!.version).toBe(3)
+    const content = readFileSync(join(storage.getCodePath("blog"), "public", "index.html"), "utf-8")
+    expect(content).toBe("one")
+
+    expect(storage.restoreVersion("blog", 99)).toBeNull()
+  })
+
+  test("rename moves metadata, code, data, and history", async () => {
+    storage.create({ ...base("blog"), domains: ["custom.org"] })
+    await storage.extractCode("blog", zipSync({ "public/index.html": new TextEncoder().encode("one") }))
+    await storage.extractCode("blog", zipSync({ "public/index.html": new TextEncoder().encode("two") }))
+
+    const renamed = storage.rename("blog", "journal")
+    expect(renamed!.name).toBe("journal")
+    expect(renamed!.domains).toEqual(["custom.org"])
+    expect(storage.get("blog")).toBeNull()
+    expect(existsSync(join(storage.getCodePath("journal"), "public", "index.html"))).toBe(true)
+    expect(storage.getHistory("journal")).toHaveLength(1)
+    expect(() => storage.rename("journal", "api")).toThrow()
+  })
 })
