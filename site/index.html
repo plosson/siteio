@@ -154,8 +154,16 @@
       letter-spacing: -0.02em;
     }
 
+    .hero-eyebrow {
+      font-size: 0.78rem;
+      font-weight: 500;
+      color: var(--accent);
+      letter-spacing: 0.04em;
+      margin-bottom: 12px;
+    }
+
     .headline {
-      font-size: 1.5rem;
+      font-size: clamp(1.3rem, 3vw, 1.7rem);
       font-weight: 600;
       color: var(--text);
       margin-bottom: 12px;
@@ -588,11 +596,8 @@
   </header>
   <div class="container">
     <header>
-      <div class="logo-row">
-        <div class="logo">S</div>
-        <h1>siteio</h1>
-      </div>
-      <p class="headline">Your agent ships sites, backends, and full apps to your own server — one command.</p>
+      <p class="hero-eyebrow">siteio</p>
+      <h1 class="headline">Your agent ships sites, backends, and full apps to your own server — one command.</h1>
       <p class="tagline">Static sites, PocketBase backends, or full Docker apps — on your VPS, your domain, with automatic HTTPS. No vendor in the middle.</p>
     </header>
 
