@@ -287,9 +287,10 @@ describe("Integration: Docker", () => {
     })
     expect(deleteRes.ok).toBe(true)
 
-    // Wait for Traefik to remove the route (file watcher reload can be slow in CI)
+    // Wait for Traefik to remove the route. Depending on timing this surfaces
+    // as a 404 from Traefik or a dropped TLS connection (helper returns 0).
     const status = await waitForSiteRemoval(TEST_HTTPS_PORT, `${siteName}.${TEST_DOMAIN}`)
-    expect(status).toBe(404)
+    expect([0, 404]).toContain(status)
   })
 
   it("should update content on redeploy", async () => {

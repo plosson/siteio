@@ -5,7 +5,7 @@ import { connect as tlsConnect, type PeerCertificate } from "tls"
 import type { AcmeConfig } from "../../types.ts"
 
 const TRAEFIK_CONTAINER_NAME = "siteio-traefik"
-const TRAEFIK_IMAGE = "traefik:v3.0"
+const TRAEFIK_IMAGE = "traefik:v3.7"
 
 export interface TraefikConfig {
   dataDir: string
