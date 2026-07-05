@@ -9,6 +9,7 @@
   <meta property="og:description" content="Deploy static sites to your own server with a single command. Automatic HTTPS. Wildcard subdomains.">
   <meta property="og:url" content="https://siteio.houlahop.com">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="hh-terminal.css?v=1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -172,6 +173,11 @@
     /* Sections */
     section {
       margin-bottom: 56px;
+    }
+
+    section h2::before {
+      content: '# ';
+      color: var(--accent);
     }
 
     section h2 {
@@ -547,27 +553,14 @@
         <div class="logo">S</div>
         <h1>siteio</h1>
       </div>
-      <p class="headline">Deploy static sites with a single command.<br>Automatic HTTPS. Wildcard subdomains.</p>
-      <p class="tagline">A CLI and self-hosted agent for deploying static sites to your own domain. Perfect for personal projects, portfolios, and quick prototypes.</p>
+      <p class="headline">Your agent ships a folder to a live HTTPS site — one command.</p>
+      <p class="tagline">A CLI and self-hosted agent. Your VPS, your domain, automatic HTTPS, wildcard subdomains. No vendor in the middle.</p>
     </header>
 
-    <section>
-      <h2>Why siteio?</h2>
-      <div class="use-cases">
-        <div class="use-case">
-          <p>Deploy any folder to a subdomain in seconds</p>
-        </div>
-        <div class="use-case">
-          <p>Self-hosted on your own VPS with Traefik</p>
-        </div>
-        <div class="use-case">
-          <p>Automatic Let's Encrypt SSL certificates</p>
-        </div>
-        <div class="use-case">
-          <p>No vendor lock-in. Own your infrastructure.</p>
-        </div>
-      </div>
-    </section>
+    <div class="hh-term">
+      <div class="hh-term-bar"><span class="hh-term-dot"></span><span class="hh-term-dot"></span><span class="hh-term-dot"></span></div>
+      <pre class="hh-term-body" data-hh-terminal></pre>
+    </div>
 
     <section>
       <h2>Install CLI</h2>
@@ -590,6 +583,24 @@
         </div>
         <div class="update-hint">
           Already installed? Run <code>siteio update</code> to get the latest version.
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Why siteio?</h2>
+      <div class="use-cases">
+        <div class="use-case">
+          <p>Deploy any folder to a subdomain in seconds</p>
+        </div>
+        <div class="use-case">
+          <p>Self-hosted on your own VPS with Traefik</p>
+        </div>
+        <div class="use-case">
+          <p>Automatic Let's Encrypt SSL certificates</p>
+        </div>
+        <div class="use-case">
+          <p>No vendor lock-in. Own your infrastructure.</p>
         </div>
       </div>
     </section>
@@ -727,5 +738,39 @@ siteio sites undeploy my-site</code></pre>
       });
     }
   </script>
+  <script>
+    window.hhTerminalFrames = [
+      {
+        cmd: "siteio sites deploy ./site --subdomain demo",
+        output: [
+          "> Deploying site to demo",
+          "✔ Zipped 12 files",
+          "✔ Uploaded",
+          "",
+          "+ Site deployed successfully!",
+          "  URL: https://demo.yourdomain.com",
+        ],
+      },
+      {
+        cmd: "siteio sites list",
+        output: [
+          "site      url                              deployed",
+          "─────────────────────────────────────────────────────",
+          "demo      https://demo.yourdomain.com      just now",
+          "blog      https://blog.yourdomain.com      2 days ago",
+          "docs      https://docs.yourdomain.com      3 weeks ago",
+        ],
+      },
+      {
+        cmd: "siteio sites rollback demo 3",
+        output: [
+          "> Rolling back demo to version 3",
+          "✔ Restored",
+          "  https://demo.yourdomain.com is live",
+        ],
+      },
+    ];
+  </script>
+  <script src="hh-terminal.js?v=1"></script>
 </body>
 </html>

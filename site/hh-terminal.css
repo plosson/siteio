@@ -1,0 +1,56 @@
+/* houlahop shared animated terminal — pair with hh-terminal.js.
+   Sites set --hh-accent (and optionally --hh-term-min) to theme it. */
+
+.hh-term {
+  border: 1px solid var(--hh-border, #21262d);
+  border-radius: 10px;
+  background: var(--hh-surface, #161b22);
+  overflow: hidden;
+  margin: 32px 0;
+}
+
+.hh-term-bar {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hh-border, #21262d);
+}
+
+.hh-term-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.hh-term-body {
+  margin: 0;
+  padding: 18px 20px;
+  font-family: var(--hh-font-mono, 'JetBrains Mono', 'SF Mono', Menlo, monospace);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  white-space: pre;
+  overflow-x: auto;
+  min-height: var(--hh-term-min, 12em);
+  color: var(--hh-term-fg, #e6edf3);
+}
+
+.hh-term-prompt {
+  color: var(--hh-accent, #3fb950);
+  font-weight: 600;
+}
+
+.hh-term-dim {
+  color: var(--hh-term-dim, #9198a1);
+}
+
+.hh-term-cursor {
+  color: var(--hh-accent, #3fb950);
+  animation: hh-term-blink 1s steps(1) infinite;
+}
+
+@keyframes hh-term-blink { 50% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .hh-term-cursor { display: none; }
+}
