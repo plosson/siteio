@@ -33,7 +33,7 @@ This repo includes working examples you can deploy immediately:
 
 ```bash
 # Deploy the example static site
-siteio sites deploy examples/static --subdomain hello
+siteio sites deploy examples/static -n hello
 
 # Deploy a pre-built Docker image
 siteio apps create nginx-demo --image nginx:alpine --port 80
@@ -54,30 +54,28 @@ After deployment:
 
 ---
 
-## Static Site Examples
+## Site Examples
 
-### Example 1: Deploy a Public Static Site
+### Example 1: Deploy a Website
 
-Deploy a folder as a public website:
+Deploy a folder as a website:
 
 ```bash
-siteio sites deploy ./my-website --subdomain blog
+siteio sites deploy ./my-website -n blog
 ```
 
-This deploys your static files to `https://blog.yourdomain.com`.
+This deploys your files to `https://blog.yourdomain.com`.
 
-### Example 2: Deploy a Protected Static Site with OAuth
+### Example 2: A Site with Auth, Database, and Storage
 
-Deploy a site that requires Google authentication, restricted to specific users:
-
-```bash
-siteio sites deploy ./internal-docs --subdomain docs --allowed-emails "alice@company.com,bob@company.com"
-```
-
-Or restrict access to an entire domain:
+Every site ships with a PocketBase backend at `/api` — auth, database, file
+storage, and realtime, no server code required:
 
 ```bash
-siteio sites deploy ./team-portal --subdomain portal --allowed-domain company.com
+siteio sites init ./todo   # scaffold: index.html + starter schema + AI guide
+siteio sites dev           # run locally with the backend, no Docker
+siteio sites deploy        # ship it
+siteio sites admin         # backend dashboard URL + credentials
 ```
 
 ---
@@ -245,8 +243,8 @@ siteio apps restart myapp
 # Remove an app
 siteio apps rm myapp
 
-# Undeploy a site
-siteio sites undeploy mysite
+# Remove a site
+siteio sites rm mysite
 ```
 
 ## JSON Output

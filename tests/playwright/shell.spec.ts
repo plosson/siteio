@@ -23,6 +23,5 @@ test("with a session-storage key, sidebar renders", async ({ page, context }) =>
   await expect(page.locator("aside")).toBeVisible()
   await expect(page.locator('aside a[href="#/apps"]')).toBeVisible()
   await expect(page.locator('aside a[href="#/sites"]')).toBeVisible()
-  await expect(page.locator('aside a[href="#/groups"]')).toBeVisible()
   await expect(page.locator("aside button", { hasText: "Logout" })).toBeVisible()
 })

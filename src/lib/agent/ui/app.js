@@ -13,7 +13,7 @@ function siteioAdmin() {
     route: { view: "apps", param: null, subtab: null },
 
     // data
-    sites: null, apps: null, groups: null,
+    sites: null, apps: null,
     selectedSite: null, selectedApp: null,
     siteHistory: null,
 
@@ -66,12 +66,11 @@ function siteioAdmin() {
       }
       if (this.route.view === "sites" && !this.route.param) this.loadSites()
       if (this.route.view === "sites" && this.route.param) {
-        if (!this.selectedSite || (this.selectedSite !== "not-found" && this.selectedSite.subdomain !== this.route.param)) {
+        if (!this.selectedSite || (this.selectedSite !== "not-found" && this.selectedSite.name !== this.route.param)) {
           this.loadSite(this.route.param)
         }
         if (this.route.subtab === "history") this.loadSiteHistory(this.route.param)
       }
-      if (this.route.view === "groups") this.loadGroups()
     },
 
     navClass(view) {
@@ -268,15 +267,13 @@ function siteioAdmin() {
       }
     },
 
-    async loadSite(subdomain) {
-      // Site detail fetched by listing and picking (no GET /sites/:subdomain exists).
+    async loadSite(name) {
       this.selectedSite = null
       try {
-        const res = await this.apiFetch("/sites")
+        const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}`)
+        if (res.status === 404) { this.selectedSite = "not-found"; return }
         const body = await res.json()
-        if (!body.success) { this.selectedSite = "not-found"; return }
-        const match = (body.data || []).find(s => s.subdomain === subdomain)
-        this.selectedSite = match || "not-found"
+        this.selectedSite = body.success ? body.data : "not-found"
       } catch (err) {
         if (err && err.message !== "Unauthenticated") {
           this.selectedSite = "not-found"
@@ -285,10 +282,10 @@ function siteioAdmin() {
       }
     },
 
-    async loadSiteHistory(subdomain) {
+    async loadSiteHistory(name) {
       this.siteHistory = null
       try {
-        const res = await this.apiFetch(`/sites/${encodeURIComponent(subdomain)}/history`)
+        const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}/history`)
         if (res.status === 404) { this.siteHistory = []; return }
         const body = await res.json()
         this.siteHistory = body.success ? body.data : []
@@ -300,17 +297,17 @@ function siteioAdmin() {
       }
     },
 
-    async undeploySite(subdomain) {
-      if (!confirm(`Undeploy site '${subdomain}'? Files will be deleted.`)) return
+    async undeploySite(name) {
+      if (!confirm(`Remove site '${name}'? Its files AND data will be deleted.`)) return
       this._pendAdd("undeploy")
       try {
-        const res = await this.apiFetch(`/sites/${encodeURIComponent(subdomain)}`, { method: "DELETE" })
+        const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}`, { method: "DELETE" })
         const body = await res.json()
         if (!body.success) {
           this.toast("error", body.error || "Failed to undeploy")
           return
         }
-        this.toast("success", `Site ${subdomain} undeployed`)
+        this.toast("success", `Site ${name} removed`)
         window.location.hash = "#/sites"
       } catch (err) {
         if (err && err.message !== "Unauthenticated") this.toast("error", "Could not reach server")
@@ -319,10 +316,10 @@ function siteioAdmin() {
       }
     },
 
-    async rollbackSite(subdomain, version) {
+    async rollbackSite(name, version) {
       this._pendAdd("rollback-" + version)
       try {
-        const res = await this.apiFetch(`/sites/${encodeURIComponent(subdomain)}/rollback`, {
+        const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}/rollback`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ version }),
@@ -333,8 +330,8 @@ function siteioAdmin() {
           return
         }
         this.toast("success", `Rolled back to v${version}`)
-        await this.loadSite(subdomain)
-        await this.loadSiteHistory(subdomain)
+        await this.loadSite(name)
+        await this.loadSiteHistory(name)
       } catch (err) {
         if (err && err.message !== "Unauthenticated") this.toast("error", "Could not reach server")
       } finally {
@@ -348,25 +345,6 @@ function siteioAdmin() {
       if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB"
       if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB"
       return (n / 1024 / 1024 / 1024).toFixed(1) + " GB"
-    },
-
-    // --- Groups ---
-
-    async loadGroups() {
-      this._pendAdd("groups-list")
-      try {
-        const res = await this.apiFetch("/groups")
-        const body = await res.json()
-        this.groups = body.success ? body.data : []
-        if (!body.success) this.toast("error", body.error || "Failed to load groups")
-      } catch (err) {
-        if (err && err.message !== "Unauthenticated") {
-          this.groups = []
-          this.toast("error", "Could not reach server")
-        }
-      } finally {
-        this._pendDel("groups-list")
-      }
     },
 
     async loadAppLogs(name) {

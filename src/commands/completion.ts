@@ -4,11 +4,10 @@ _siteio() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="status login sites apps groups agent update skill completion"
-    local sites_cmds="deploy list ls info download rm auth"
-    local apps_cmds="create list ls info deploy stop restart rm logs set"
-    local groups_cmds="list ls show create delete add remove"
-    local agent_cmds="install oauth start stop restart status"
+    local commands="status login logout config sites apps agent update skill completion"
+    local sites_cmds="init dev deploy list ls info download logs admin history rollback rename rm domain"
+    local apps_cmds="init create list ls info deploy stop restart rm logs set unset"
+    local agent_cmds="install uninstall start stop restart status config"
     local skill_cmds="install uninstall"
 
     if [[ $cword -eq 1 ]]; then
@@ -25,11 +24,6 @@ _siteio() {
         apps)
             if [[ $cword -eq 2 ]]; then
                 COMPREPLY=($(compgen -W "$apps_cmds" -- "$cur"))
-            fi
-            ;;
-        groups)
-            if [[ $cword -eq 2 ]]; then
-                COMPREPLY=($(compgen -W "$groups_cmds" -- "$cur"))
             fi
             ;;
         agent)
@@ -57,14 +51,15 @@ const ZSH_COMPLETION = `
 #compdef siteio
 
 _siteio() {
-    local -a commands sites_cmds apps_cmds groups_cmds agent_cmds skill_cmds
+    local -a commands sites_cmds apps_cmds agent_cmds skill_cmds
 
     commands=(
         'status:Show connection status'
         'login:Configure API credentials'
+        'logout:Remove a saved server'
+        'config:Manage client configuration'
         'sites:Manage deployed sites'
         'apps:Manage containerized applications'
-        'groups:Manage email groups for access control'
         'agent:Run the siteio agent server'
         'update:Update siteio to the latest version'
         'skill:Manage Claude Code skill integration'
@@ -72,16 +67,24 @@ _siteio() {
     )
 
     sites_cmds=(
-        'deploy:Deploy a folder as a static site'
+        'init:Scaffold a new site project'
+        'dev:Run the site locally with its backend'
+        'deploy:Deploy a folder as a site'
         'list:List all deployed sites'
         'ls:List all deployed sites'
         'info:Show detailed info about a site'
         'download:Download a deployed site to a local folder'
+        'logs:Show backend logs from a site'
+        'admin:Show the backend admin URL and credentials'
+        'history:Show code version history'
+        'rollback:Rollback code to a previous version'
+        'rename:Rename a site'
         'rm:Remove a deployed site'
-        'auth:Set or remove Google OAuth for a site'
+        'domain:Manage custom domains'
     )
 
     apps_cmds=(
+        'init:Scaffold a new app project'
         'create:Create a new app'
         'list:List all apps'
         'ls:List all apps'
@@ -92,25 +95,17 @@ _siteio() {
         'rm:Remove an app'
         'logs:View app container logs'
         'set:Update app configuration'
-    )
-
-    groups_cmds=(
-        'list:List all groups'
-        'ls:List all groups'
-        'show:Show group details'
-        'create:Create a new group'
-        'delete:Delete a group'
-        'add:Add emails to a group'
-        'remove:Remove emails from a group'
+        'unset:Remove app configuration values'
     )
 
     agent_cmds=(
         'install:Install and start the agent as a systemd service'
-        'oauth:Configure OIDC authentication'
+        'uninstall:Uninstall the agent'
         'start:Start the agent server'
         'stop:Stop the agent server'
         'restart:Restart the agent server'
         'status:Check agent server status'
+        'config:Manage agent configuration'
     )
 
     skill_cmds=(
@@ -124,7 +119,6 @@ _siteio() {
         case "\\$words[2]" in
             sites) _describe -t sites_cmds 'sites commands' sites_cmds ;;
             apps) _describe -t apps_cmds 'apps commands' apps_cmds ;;
-            groups) _describe -t groups_cmds 'groups commands' groups_cmds ;;
             agent) _describe -t agent_cmds 'agent commands' agent_cmds ;;
             skill) _describe -t skill_cmds 'skill commands' skill_cmds ;;
             completion) _values 'shell' bash zsh fish ;;
@@ -146,20 +140,27 @@ complete -c siteio -n "__fish_use_subcommand" -a status -d "Show connection stat
 complete -c siteio -n "__fish_use_subcommand" -a login -d "Configure API credentials"
 complete -c siteio -n "__fish_use_subcommand" -a sites -d "Manage deployed sites"
 complete -c siteio -n "__fish_use_subcommand" -a apps -d "Manage containerized applications"
-complete -c siteio -n "__fish_use_subcommand" -a groups -d "Manage email groups for access control"
+complete -c siteio -n "__fish_use_subcommand" -a logout -d "Remove a saved server"
 complete -c siteio -n "__fish_use_subcommand" -a agent -d "Run the siteio agent server"
 complete -c siteio -n "__fish_use_subcommand" -a update -d "Update siteio to the latest version"
 complete -c siteio -n "__fish_use_subcommand" -a skill -d "Manage Claude Code skill integration"
 complete -c siteio -n "__fish_use_subcommand" -a completion -d "Output shell completion script"
 
 # Sites subcommands
-complete -c siteio -n "__fish_seen_subcommand_from sites" -a deploy -d "Deploy a folder as a static site"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a init -d "Scaffold a new site project"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a dev -d "Run the site locally with its backend"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a deploy -d "Deploy a folder as a site"
 complete -c siteio -n "__fish_seen_subcommand_from sites" -a list -d "List all deployed sites"
 complete -c siteio -n "__fish_seen_subcommand_from sites" -a ls -d "List all deployed sites"
 complete -c siteio -n "__fish_seen_subcommand_from sites" -a info -d "Show detailed info about a site"
 complete -c siteio -n "__fish_seen_subcommand_from sites" -a download -d "Download a deployed site to a local folder"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a logs -d "Show backend logs from a site"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a admin -d "Show the backend admin URL and credentials"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a history -d "Show code version history"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a rollback -d "Rollback code to a previous version"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a rename -d "Rename a site"
 complete -c siteio -n "__fish_seen_subcommand_from sites" -a rm -d "Remove a deployed site"
-complete -c siteio -n "__fish_seen_subcommand_from sites" -a auth -d "Set or remove Google OAuth for a site"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a domain -d "Manage custom domains"
 
 # Apps subcommands
 complete -c siteio -n "__fish_seen_subcommand_from apps" -a create -d "Create a new app"
@@ -172,19 +173,12 @@ complete -c siteio -n "__fish_seen_subcommand_from apps" -a restart -d "Restart 
 complete -c siteio -n "__fish_seen_subcommand_from apps" -a rm -d "Remove an app"
 complete -c siteio -n "__fish_seen_subcommand_from apps" -a logs -d "View app container logs"
 complete -c siteio -n "__fish_seen_subcommand_from apps" -a set -d "Update app configuration"
-
-# Groups subcommands
-complete -c siteio -n "__fish_seen_subcommand_from groups" -a list -d "List all groups"
-complete -c siteio -n "__fish_seen_subcommand_from groups" -a ls -d "List all groups"
-complete -c siteio -n "__fish_seen_subcommand_from groups" -a show -d "Show group details"
-complete -c siteio -n "__fish_seen_subcommand_from groups" -a create -d "Create a new group"
-complete -c siteio -n "__fish_seen_subcommand_from groups" -a delete -d "Delete a group"
-complete -c siteio -n "__fish_seen_subcommand_from groups" -a add -d "Add emails to a group"
-complete -c siteio -n "__fish_seen_subcommand_from groups" -a remove -d "Remove emails from a group"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a unset -d "Remove app configuration values"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a init -d "Scaffold a new app project"
 
 # Agent subcommands
 complete -c siteio -n "__fish_seen_subcommand_from agent" -a install -d "Install and start the agent as a systemd service"
-complete -c siteio -n "__fish_seen_subcommand_from agent" -a oauth -d "Configure OIDC authentication"
+complete -c siteio -n "__fish_seen_subcommand_from agent" -a uninstall -d "Uninstall the agent"
 complete -c siteio -n "__fish_seen_subcommand_from agent" -a start -d "Start the agent server"
 complete -c siteio -n "__fish_seen_subcommand_from agent" -a stop -d "Stop the agent server"
 complete -c siteio -n "__fish_seen_subcommand_from agent" -a restart -d "Restart the agent server"
