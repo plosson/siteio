@@ -27,15 +27,16 @@
 
 ## What is siteio?
 
-A self-hosted deployment platform for **static websites** and **Docker containers** with automatic HTTPS via Traefik.
+A self-hosted deployment platform for **websites** and **Docker containers** with automatic HTTPS via Traefik.
 
 ### Features
-- **Static sites**: Deploy folders as websites (`siteio sites deploy ./folder`)
+- **Sites**: Deploy folders as websites (`siteio sites deploy ./folder`). Every site runs in its own PocketBase container: static frontend plus optional backend (auth, database, file storage, realtime) at `/api`
+- **Local dev**: `siteio sites dev` runs a site + backend locally without Docker
 - **Container apps**: Deploy Docker images (`siteio apps create myapp -i nginx -p 80`)
 - **Git deployments**: Build from Git repos (`siteio apps create myapp --git <url> -p 3000`)
 - **Monorepo support**: Specify build context with `--context <path>`
+- **Custom domains, history/rollback, rename**: `siteio sites domain|history|rollback|rename`
 - **Automatic HTTPS**: Traefik handles Let's Encrypt certificates
-- **OAuth protection**: Restrict access by email, domain, or groups
 - **Two modes**: CLI client talks to a remote agent server
 
 ### Not Yet Supported

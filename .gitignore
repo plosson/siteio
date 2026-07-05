@@ -43,3 +43,6 @@ Thumbs.db
 test-results/
 playwright-report/
 .playwright/
+
+# Local deploy state written by the siteio CLI
+.siteio/

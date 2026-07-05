@@ -7,99 +7,91 @@ import { unzipSync } from "fflate"
 import syncDirectory from "sync-directory"
 import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
+import { saveProjectConfig } from "../../utils/site-config.ts"
 import { formatSuccess, formatBytes } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
-import { resolveSubdomain, saveProjectConfig } from "../../utils/site-config.ts"
+import { resolveSiteName } from "../../utils/site-config.ts"
+import { POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
+import { toLocalPath } from "../../lib/site-layout.ts"
 
-export async function downloadCommand(
+export async function sitesDownloadCommand(
   outputFolder: string | undefined,
   options: { name?: string; yes?: boolean; json?: boolean }
 ): Promise<void> {
   const spinner = ora()
-  const tempDir = join(tmpdir(), `siteio-download-${Date.now()}`)
+  const tempDir = join(tmpdir(), `siteio-site-download-${Date.now()}`)
 
   try {
     const server = getCurrentServer()
-    const subdomain = resolveSubdomain(options.name, server?.domain ?? "")
-    if (!subdomain) {
+    const name = resolveSiteName(options.name, server?.domain ?? "")
+    if (!name) {
       throw new ValidationError("Site name required. Use -n <name> or run from a directory with .siteio/config.json")
     }
     if (!options.name) {
-      console.error(chalk.dim(`Using site '${subdomain}' from .siteio/config.json`))
+      console.error(chalk.dim(`Using site '${name}' from .siteio/config.json`))
     }
 
     // Default to a subfolder named after the site when no folder is given.
-    const targetFolder = outputFolder ?? subdomain
+    const targetFolder = outputFolder ?? name
     const outputPath = resolve(targetFolder)
 
-    // Check if output folder exists (unless -y flag is set)
+    // Guard against clobbering a non-empty folder unless -y is given.
     if (!options.yes && existsSync(outputPath)) {
-      const isCurrentDir = outputPath === resolve(".")
-      if (!isCurrentDir) {
+      if (outputPath !== resolve(".")) {
         throw new ValidationError(`Output folder already exists: ${outputPath}\nUse -y to overwrite.`)
       }
-      // For current directory, check if it has any files
-      const files = readdirSync(outputPath)
-      if (files.length > 0) {
+      if (readdirSync(outputPath).length > 0) {
         throw new ValidationError(`Output folder is not empty: ${outputPath}\nUse -y to overwrite.`)
       }
     }
 
-    console.error(chalk.cyan(`> Downloading ${subdomain} to ${targetFolder}`))
+    console.error(chalk.cyan(`> Downloading site ${name} to ${targetFolder}`))
 
     const client = new SiteioClient()
 
-    // Fetch the zip and the site info (for the regenerated config) concurrently
-    // — the two round-trips are independent.
+    // Fetch the code zip and the site info (for the regenerated config)
+    // concurrently — the two round-trips are independent.
     spinner.start("Downloading")
     const [zipData, siteInfo] = await Promise.all([
-      client.downloadSite(subdomain),
-      client.getSite(subdomain).catch(() => null),
+      client.downloadSite(name),
+      client.getSite(name).catch(() => null),
     ])
     spinner.succeed(`Downloaded ${formatBytes(zipData.length)}`)
 
-    // Extract to temp directory first
+    // Extract to a temp dir first, translating the server layout back to the
+    // local project layout as we go.
     spinner.start("Extracting")
     const files = unzipSync(zipData)
-    const fileCount = Object.keys(files).length
+    let fileCount = 0
 
-    // Create temp directory
     mkdirSync(tempDir, { recursive: true })
-
-    // Write files to temp directory
-    for (const [filename, data] of Object.entries(files)) {
-      // Skip directories (they end with /)
-      if (filename.endsWith("/")) continue
-
-      const filePath = join(tempDir, filename)
-      const dirPath = join(tempDir, filename.split("/").slice(0, -1).join("/"))
-
-      // Ensure parent directory exists
-      if (dirPath !== tempDir && !existsSync(dirPath)) {
-        mkdirSync(dirPath, { recursive: true })
-      }
-
+    for (const [entry, data] of Object.entries(files)) {
+      if (entry.endsWith("/")) continue // skip directory records
+      const filePath = join(tempDir, toLocalPath(entry))
+      mkdirSync(join(filePath, ".."), { recursive: true })
       await Bun.write(filePath, data)
+      fileCount++
     }
     spinner.succeed(`Extracted ${fileCount} files`)
 
-    // Regenerate the local-only .siteio/config.json, recording the downloaded
-    // version so a later deploy can detect conflicts.
+    // Regenerate the local-only .siteio/config.json (never shipped to the server).
+    // Records the downloaded version so a later deploy can detect conflicts.
     saveProjectConfig({
-      site: subdomain,
+      site: name,
       domain: server?.domain ?? "",
+      pocketbaseVersion: siteInfo?.pocketbaseVersion ?? POCKETBASE_VERSION,
       version: siteInfo?.version,
     }, tempDir)
 
-    // Sync to output directory (creates it if needed, syncs if exists)
+    // Sync to the output directory. Preserve any local .siteio/pb_data (dev DB)
+    // that the download never carries, so refreshing a project can't wipe it.
     spinner.start("Syncing to output folder")
     mkdirSync(outputPath, { recursive: true })
-    syncDirectory(tempDir, outputPath, { deleteOrphaned: true })
+    syncDirectory(tempDir, outputPath, { deleteOrphaned: true, exclude: [/(^|[\/\\])\.siteio[\/\\]pb_data([\/\\]|$)/] })
     spinner.succeed("Synced to output folder")
 
-    // Done
     if (options.json) {
-      console.log(JSON.stringify({ success: true, data: { subdomain, path: outputPath, files: fileCount } }, null, 2))
+      console.log(JSON.stringify({ success: true, data: { site: name, path: outputPath, files: fileCount } }, null, 2))
     } else {
       console.log("")
       console.log(formatSuccess("Site downloaded successfully!"))
@@ -107,13 +99,14 @@ export async function downloadCommand(
       console.log(`  Path: ${chalk.cyan(outputPath)}`)
       console.log(`  Files: ${fileCount}`)
       console.log("")
+      console.log(chalk.dim("  Note: the server database (pb_data) stays on the server and is not downloaded."))
+      console.log("")
     }
     process.exit(0)
   } catch (err) {
     spinner.stop()
     handleError(err)
   } finally {
-    // Clean up temp directory
     if (existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true })
     }

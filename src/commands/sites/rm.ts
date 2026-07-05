@@ -1,59 +1,26 @@
-import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
+import { resolveSiteName } from "../../utils/site-config.ts"
+import { confirm } from "../../utils/prompt.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
-import { confirm } from "../../utils/prompt.ts"
-import { resolveSubdomain } from "../../utils/site-config.ts"
 
-export interface RemoveSiteOptions {
-  yes?: boolean
-  json?: boolean
-}
-
-export async function rmCommand(subdomain: string | undefined, options: RemoveSiteOptions = {}): Promise<void> {
-  const spinner = ora()
-
+export async function sitesRmCommand(name: string | undefined, options: { yes?: boolean; json?: boolean } = {}): Promise<void> {
   try {
     const server = getCurrentServer()
-    const resolved = resolveSubdomain(subdomain, server?.domain ?? "")
-    if (!resolved) {
-      throw new ValidationError("Subdomain required. Use -s <subdomain> or run from a directory with .siteio/config.json")
-    }
-    if (!subdomain) {
-      console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))
-    }
-    subdomain = resolved
-
-    if (!/^[a-z0-9-]+$/.test(subdomain)) {
-      throw new ValidationError("Invalid subdomain format")
-    }
-
+    const resolved = resolveSiteName(name, server?.domain ?? "")
+    if (!resolved) throw new ValidationError("Site name required (argument or .siteio/config.json)")
     if (!options.yes) {
-      const confirmed = await confirm(`Remove site ${chalk.bold(subdomain)}?`)
-      if (!confirmed) {
-        console.error("Cancelled")
-        process.exit(0)
-      }
+      const ok = await confirm(`Remove site '${resolved}' and its data? This cannot be undone.`)
+      if (!ok) process.exit(0)
     }
-
-    spinner.start(`Removing ${subdomain}`)
-
-    const client = new SiteioClient()
-    await client.undeploySite(subdomain)
-
-    spinner.succeed(`Removed ${subdomain}`)
-
+    await new SiteioClient().deleteSite(resolved)
     if (options.json) {
-      console.log(JSON.stringify({ success: true, data: { subdomain } }, null, 2))
+      console.log(JSON.stringify({ success: true, data: { deleted: resolved } }, null, 2))
     } else {
-      console.log("")
-      console.log(formatSuccess(`Site ${subdomain} has been removed.`))
+      console.error(formatSuccess(`Removed site ${chalk.bold(resolved)}`))
     }
     process.exit(0)
-  } catch (err) {
-    spinner.stop()
-    handleError(err)
-  }
+  } catch (err) { handleError(err) }
 }

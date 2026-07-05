@@ -7,21 +7,14 @@ export interface ApiResponse<T> {
   error?: string
 }
 
-// OAuth settings for a site
-export interface SiteOAuth {
-  allowedEmails?: string[]
-  allowedDomain?: string
-  allowedGroups?: string[]
-}
-
 // Container restart policies
 export type RestartPolicy = "always" | "unless-stopped" | "on-failure" | "no"
 
 // Container status
 export type ContainerStatus = "pending" | "running" | "stopped" | "failed"
 
-// App types (static sites vs containers)
-export type AppType = "static" | "container"
+// App types
+export type AppType = "container"
 
 // Volume mount configuration
 export interface VolumeMount {
@@ -82,9 +75,6 @@ export interface App {
   // Routing
   domains: string[]
 
-  // OAuth (same as current sites)
-  oauth?: SiteOAuth
-
   // State
   containerId?: string
   status: ContainerStatus
@@ -109,7 +99,6 @@ export interface AppInfo {
   status: ContainerStatus
   domains: string[]
   internalPort: number
-  oauth?: SiteOAuth
   deployedAt?: string
   createdAt: string
   commitHash?: string
@@ -138,27 +127,8 @@ export interface ContainerInspect {
   ports: Record<string, string>
 }
 
-// Group of emails for access control
-export interface Group {
-  name: string
-  emails: string[]
-}
-
 // TLS certificate status
 export type TlsStatus = "valid" | "pending" | "error" | "none"
-
-// Site information
-export interface SiteInfo {
-  subdomain: string
-  url: string
-  domains?: string[]
-  size: number
-  version?: number
-  deployedAt: string
-  oauth?: SiteOAuth
-  persistentStorage?: boolean
-  tls?: TlsStatus
-}
 
 // Single server config
 export interface ServerConfig {
@@ -203,39 +173,23 @@ export interface AgentConfig {
   port?: number // Override internal API port
 }
 
-// Deploy request payload
-export interface DeployRequest {
-  subdomain: string
-}
-
-// Internal site metadata stored by agent
-export interface SiteMetadata {
-  subdomain: string
-  domains?: string[]
-  size: number
-  version?: number
-  deployedAt: string
-  deployedBy?: string
-  files: string[]
-  oauth?: SiteOAuth
-  persistentStorage?: boolean
-}
-
 // Site config stored in .siteio/config.json (remembers site/app name and server)
 export interface SiteConfig {
-  site?: string   // for static sites
+  site?: string   // for sites
   app?: string    // for container apps
-  pocket?: string // for pocketbase-backed sites
+  pocket?: string // legacy alias for `site` — read but never written
   domain: string
   version?: number // last deployed version (for optimistic concurrency)
   pocketbaseVersion?: string // pinned PocketBase version for this project
 }
 
-// Pocket: PocketBase-backed site (third primitive, alongside site and app).
-// Stored server-side, one container per pocket. Code is mounted read-only;
-// pb_data lives on a persistent volume and is never rolled back.
-export interface Pocket {
+// Site: a PocketBase-backed site — static frontend plus optional backend
+// (auth, database, file storage). Stored server-side, one container per site.
+// Code is mounted read-only; pb_data lives on a persistent volume and is
+// never rolled back.
+export interface Site {
   name: string
+  // Custom domains only; the default `<name>.<domain>` subdomain is derived.
   domains: string[]
   pocketbaseVersion: string
   status: ContainerStatus
@@ -246,13 +200,13 @@ export interface Pocket {
   deployedBy?: string
   createdAt: string
   updatedAt: string
-  // Auto-generated on first deploy; surfaced via `siteio pocket admin`.
+  // Auto-generated on first deploy; surfaced via `siteio sites admin`.
   superuserEmail?: string
   superuserPassword?: string
 }
 
-// Pocket info returned to clients (secrets stripped).
-export interface PocketInfo {
+// Site info returned to clients (secrets stripped).
+export interface SiteInfo {
   name: string
   url: string
   adminUrl: string
@@ -274,27 +228,6 @@ export interface SiteVersion {
   size: number
 }
 
-// Command options
-export interface DeployOptions {
-  subdomain?: string
-  allowedEmails?: string
-  allowedDomain?: string
-  test?: boolean
-}
-
-export interface AuthOptions {
-  allowedEmails?: string
-  allowedDomain?: string
-  allowedGroups?: string
-  addEmail?: string
-  removeEmail?: string
-  addDomain?: string
-  removeDomain?: string
-  addGroup?: string
-  removeGroup?: string
-  remove?: boolean
-}
-
 export interface LoginOptions {
   apiUrl?: string
   apiKey?: string
@@ -305,17 +238,4 @@ export interface LoginOptions {
 
 export interface AgentStartOptions {
   port?: number
-}
-
-// OAuth configuration for the agent (any OIDC provider)
-export interface AgentOAuthConfig {
-  issuerUrl: string
-  clientId: string
-  clientSecret: string
-  cookieSecret: string
-  cookieDomain: string
-  /** Optional RP-initiated logout endpoint discovered from .well-known/openid-configuration. Absent for providers like Google that don't support OIDC end-session. */
-  endSessionEndpoint?: string
-  /** Timestamp of the most recent successful OIDC discovery run. Used to avoid re-fetching on every agent boot. */
-  discoveredAt?: string
 }

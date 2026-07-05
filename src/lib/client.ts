@@ -1,6 +1,6 @@
-import { loadConfig, getUsername } from "../config/loader.ts"
+import { loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
-import type { ApiResponse, SiteInfo, SiteOAuth, SiteVersion, Group, App, AppInfo, ContainerLogs, PocketInfo } from "../types.ts"
+import type { ApiResponse, SiteInfo, SiteVersion, App, AppInfo, ContainerLogs } from "../types.ts"
 
 export interface ClientOptions {
   apiUrl?: string
@@ -77,155 +77,93 @@ export class SiteioClient {
     return new Uint8Array(await response.arrayBuffer())
   }
 
+  // Sites API
+
+  async deploySite(
+    name: string,
+    zipData: Uint8Array,
+    opts?: { deployedBy?: string; expectedVersion?: number }
+  ): Promise<SiteInfo> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/zip",
+      "Content-Length": String(zipData.length),
+    }
+    if (opts?.deployedBy) headers["X-Deployed-By"] = opts.deployedBy
+    if (opts?.expectedVersion !== undefined) {
+      headers["X-Expected-Version"] = String(opts.expectedVersion)
+    }
+    const response = await this.request<ApiResponse<SiteInfo>>("POST", `/sites/${name}`, zipData, headers)
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
   async listSites(): Promise<SiteInfo[]> {
     const response = await this.request<ApiResponse<SiteInfo[]>>("GET", "/sites")
     return response.data || []
   }
 
-  async getSite(subdomain: string): Promise<SiteInfo | null> {
-    const sites = await this.listSites()
-    return sites.find((s) => s.subdomain === subdomain) || null
-  }
-
-  async deploySite(
-    subdomain: string,
-    zipData: Uint8Array,
-    onProgress?: (uploaded: number, total: number) => void,
-    oauth?: SiteOAuth,
-    options?: { persistentStorage?: boolean; expectedVersion?: number }
-  ): Promise<SiteInfo> {
-    // For progress tracking, we'll use XMLHttpRequest-like approach
-    // But fetch doesn't support upload progress, so we'll just call onProgress at start and end
-    onProgress?.(0, zipData.length)
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/zip",
-      "Content-Length": String(zipData.length),
-    }
-
-    // Add username for attribution
-    const username = getUsername()
-    if (username) {
-      headers["X-Deployed-By"] = username
-    }
-
-    // Add OAuth headers if provided
-    if (oauth) {
-      if (oauth.allowedEmails && oauth.allowedEmails.length > 0) {
-        headers["X-Site-OAuth-Emails"] = oauth.allowedEmails.join(",")
-      }
-      if (oauth.allowedDomain) {
-        headers["X-Site-OAuth-Domain"] = oauth.allowedDomain
-      }
-    }
-
-    // Add persistent storage header if enabled
-    if (options?.persistentStorage) {
-      headers["X-Site-Persistent-Storage"] = "true"
-    }
-
-    // Add expected version header for optimistic concurrency control
-    if (options?.expectedVersion !== undefined) {
-      headers["X-Expected-Version"] = String(options.expectedVersion)
-    }
-
-    const response = await this.request<ApiResponse<SiteInfo>>(
-      "POST",
-      `/sites/${subdomain}`,
-      zipData,
-      headers
-    )
-
-    onProgress?.(zipData.length, zipData.length)
-
-    if (!response.data) {
-      throw new ApiError("Invalid response from server")
-    }
-
+  async getSite(name: string): Promise<SiteInfo> {
+    const response = await this.request<ApiResponse<SiteInfo>>("GET", `/sites/${name}`)
+    if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
   }
 
-  async undeploySite(subdomain: string): Promise<void> {
-    await this.request<ApiResponse<null>>("DELETE", `/sites/${subdomain}`)
+  async deleteSite(name: string): Promise<void> {
+    await this.request<ApiResponse<{ deleted: boolean }>>("DELETE", `/sites/${name}`)
   }
 
-  async downloadSite(subdomain: string): Promise<Uint8Array> {
-    return this.requestBytes(`/sites/${subdomain}/download`)
+  async downloadSite(name: string): Promise<Uint8Array> {
+    return this.requestBytes(`/sites/${name}/download`)
   }
 
-  async updateSiteOAuth(subdomain: string, oauth: SiteOAuth | null): Promise<void> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    }
-
-    await this.request<ApiResponse<null>>(
-      "PATCH",
-      `/sites/${subdomain}/auth`,
-      JSON.stringify(oauth ? oauth : { remove: true }),
-      headers
-    )
-  }
-
-  async updateSiteDomains(subdomain: string, domains: string[]): Promise<SiteInfo> {
-    const response = await this.request<ApiResponse<SiteInfo>>(
-      "PATCH",
-      `/sites/${subdomain}/domains`,
-      JSON.stringify({ domains }),
-      { "Content-Type": "application/json" }
-    )
-    if (!response.data) {
-      throw new ApiError("Invalid response from server")
-    }
+  async getSiteLogs(name: string, tail: number = 100): Promise<ContainerLogs> {
+    const response = await this.request<ApiResponse<ContainerLogs>>("GET", `/sites/${name}/logs?tail=${tail}`)
+    if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
   }
 
-  async renameSite(subdomain: string, newSubdomain: string): Promise<SiteInfo> {
-    const response = await this.request<ApiResponse<SiteInfo>>(
-      "PATCH",
-      `/sites/${subdomain}/rename`,
-      JSON.stringify({ newSubdomain }),
-      { "Content-Type": "application/json" }
-    )
-    if (!response.data) {
-      throw new ApiError("Invalid response from server")
-    }
+  async getSiteAdmin(name: string): Promise<{ email: string; password: string; adminUrl: string }> {
+    const response = await this.request<ApiResponse<{ email: string; password: string; adminUrl: string }>>("GET", `/sites/${name}/admin`)
+    if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
   }
 
-  async updateSitePersistentStorage(subdomain: string, enabled: boolean): Promise<void> {
-    await this.request<ApiResponse<null>>(
-      "PATCH",
-      `/sites/${subdomain}/storage`,
-      JSON.stringify({ enabled }),
-      { "Content-Type": "application/json" }
-    )
-  }
-
-  async getSiteHistory(subdomain: string): Promise<SiteVersion[]> {
-    const response = await this.request<ApiResponse<SiteVersion[]>>("GET", `/sites/${subdomain}/history`)
+  async getSiteHistory(name: string): Promise<SiteVersion[]> {
+    const response = await this.request<ApiResponse<SiteVersion[]>>("GET", `/sites/${name}/history`)
     return response.data || []
   }
 
-  async rollbackSite(subdomain: string, version: number): Promise<SiteInfo> {
+  async rollbackSite(name: string, version: number): Promise<SiteInfo> {
     const response = await this.request<ApiResponse<SiteInfo>>(
       "POST",
-      `/sites/${subdomain}/rollback`,
+      `/sites/${name}/rollback`,
       JSON.stringify({ version }),
       { "Content-Type": "application/json" }
     )
-    if (!response.data) {
-      throw new ApiError("Invalid response from server")
-    }
+    if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
   }
 
-  async getOAuthStatus(): Promise<boolean> {
-    try {
-      const response = await this.request<ApiResponse<{ enabled: boolean }>>("GET", "/oauth/status")
-      return response.data?.enabled ?? false
-    } catch {
-      return false
-    }
+  async updateSiteDomains(name: string, domains: string[]): Promise<SiteInfo> {
+    const response = await this.request<ApiResponse<SiteInfo>>(
+      "PATCH",
+      `/sites/${name}/domains`,
+      JSON.stringify({ domains }),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
+  async renameSite(name: string, newName: string): Promise<SiteInfo> {
+    const response = await this.request<ApiResponse<SiteInfo>>(
+      "PATCH",
+      `/sites/${name}/rename`,
+      JSON.stringify({ newSubdomain: newName }),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
   }
 
   async healthCheck(): Promise<boolean> {
@@ -237,75 +175,16 @@ export class SiteioClient {
     }
   }
 
-  // Group methods
-  async listGroups(): Promise<Group[]> {
-    const response = await this.request<ApiResponse<Group[]>>("GET", "/groups")
-    return response.data || []
-  }
-
-  async getGroup(name: string): Promise<Group | null> {
+  // The agent's software version, or null for pre-merge agents whose /health
+  // response carried no version. Used to fail fast before deploying with a
+  // zip layout an old agent would extract literally.
+  async getServerVersion(): Promise<string | null> {
     try {
-      const response = await this.request<ApiResponse<Group>>("GET", `/groups/${name}`)
-      return response.data || null
+      const response = await this.request<ApiResponse<{ status: string; version?: string }>>("GET", "/health")
+      return response.data?.version ?? null
     } catch {
       return null
     }
-  }
-
-  async createGroup(name: string, emails: string[] = []): Promise<Group> {
-    const response = await this.request<ApiResponse<Group>>(
-      "POST",
-      "/groups",
-      JSON.stringify({ name, emails }),
-      { "Content-Type": "application/json" }
-    )
-    if (!response.data) {
-      throw new ApiError("Invalid response from server")
-    }
-    return response.data
-  }
-
-  async updateGroup(name: string, emails: string[]): Promise<Group> {
-    const response = await this.request<ApiResponse<Group>>(
-      "PUT",
-      `/groups/${name}`,
-      JSON.stringify({ emails }),
-      { "Content-Type": "application/json" }
-    )
-    if (!response.data) {
-      throw new ApiError("Invalid response from server")
-    }
-    return response.data
-  }
-
-  async deleteGroup(name: string): Promise<void> {
-    await this.request<ApiResponse<null>>("DELETE", `/groups/${name}`)
-  }
-
-  async addEmailsToGroup(name: string, emails: string[]): Promise<Group> {
-    const response = await this.request<ApiResponse<Group>>(
-      "PATCH",
-      `/groups/${name}/emails`,
-      JSON.stringify({ add: emails }),
-      { "Content-Type": "application/json" }
-    )
-    if (!response.data) {
-      throw new ApiError("Invalid response from server")
-    }
-    return response.data
-  }
-
-  async removeEmailsFromGroup(name: string, emails: string[]): Promise<Group> {
-    const response = await this.request<ApiResponse<Group>>(
-      "PATCH",
-      `/groups/${name}/emails`,
-      JSON.stringify({ remove: emails }),
-      { "Content-Type": "application/json" }
-    )
-    if (!response.data) {
-      throw new ApiError("Invalid response from server")
-    }
-    return response.data
   }
 
   // Apps API
@@ -437,54 +316,4 @@ export class SiteioClient {
     return response.data
   }
 
-  // Pockets API
-
-  async deployPocket(
-    name: string,
-    zipData: Uint8Array,
-    opts?: { deployedBy?: string; expectedVersion?: number }
-  ): Promise<PocketInfo> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/zip",
-      "Content-Length": String(zipData.length),
-    }
-    if (opts?.deployedBy) headers["X-Deployed-By"] = opts.deployedBy
-    if (opts?.expectedVersion !== undefined) {
-      headers["X-Expected-Version"] = String(opts.expectedVersion)
-    }
-    const response = await this.request<ApiResponse<PocketInfo>>("POST", `/pockets/${name}`, zipData, headers)
-    if (!response.data) throw new ApiError("Invalid response from server")
-    return response.data
-  }
-
-  async downloadPocket(name: string): Promise<Uint8Array> {
-    return this.requestBytes(`/pockets/${name}/download`)
-  }
-
-  async listPockets(): Promise<PocketInfo[]> {
-    const response = await this.request<ApiResponse<PocketInfo[]>>("GET", "/pockets")
-    return response.data || []
-  }
-
-  async getPocket(name: string): Promise<PocketInfo> {
-    const response = await this.request<ApiResponse<PocketInfo>>("GET", `/pockets/${name}`)
-    if (!response.data) throw new ApiError("Invalid response from server")
-    return response.data
-  }
-
-  async deletePocket(name: string): Promise<void> {
-    await this.request<ApiResponse<{ deleted: boolean }>>("DELETE", `/pockets/${name}`)
-  }
-
-  async getPocketLogs(name: string, tail: number = 100): Promise<ContainerLogs> {
-    const response = await this.request<ApiResponse<ContainerLogs>>("GET", `/pockets/${name}/logs?tail=${tail}`)
-    if (!response.data) throw new ApiError("Invalid response from server")
-    return response.data
-  }
-
-  async getPocketAdmin(name: string): Promise<{ email: string; password: string; adminUrl: string }> {
-    const response = await this.request<ApiResponse<{ email: string; password: string; adminUrl: string }>>("GET", `/pockets/${name}/admin`)
-    if (!response.data) throw new ApiError("Invalid response from server")
-    return response.data
-  }
 }

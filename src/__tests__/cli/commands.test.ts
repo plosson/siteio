@@ -4,6 +4,7 @@ import { join } from "path"
 import { tmpdir } from "os"
 import { spawn } from "bun"
 import { AgentServer } from "../../lib/agent/server.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig } from "../../types.ts"
 
 const TEST_PORT = 4568
@@ -48,7 +49,7 @@ describe("CLI: Commands", () => {
       port: TEST_PORT,
     }
 
-    server = new AgentServer(config)
+    server = new AgentServer(config, new FakeRuntime())
     await server.start()
   })
 
@@ -86,7 +87,7 @@ describe("CLI: Commands", () => {
   test("should show help", async () => {
     const result = await runCli(["--help"])
     expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("Deploy static sites with ease")
+    expect(result.stdout).toContain("Deploy static sites and apps with ease")
     expect(result.stdout).toContain("login")
     expect(result.stdout).toContain("sites")
     expect(result.stdout).toContain("agent")
@@ -122,14 +123,14 @@ describe("CLI: Commands", () => {
   })
 
   test("should deploy site via CLI", async () => {
-    const result = await runCli(["--json", "sites", "deploy", testSiteDir, "--subdomain", "inttest"])
+    const result = await runCli(["--json", "sites", "deploy", testSiteDir, "-n", "inttest"])
 
     expect(result.exitCode).toBe(0)
 
     // Verify JSON output
     const jsonOutput = JSON.parse(result.stdout)
     expect(jsonOutput.success).toBe(true)
-    expect(jsonOutput.data.subdomain).toBe("inttest")
+    expect(jsonOutput.data.name).toBe("inttest")
   })
 
   test("should list deployed site via CLI", async () => {
@@ -138,11 +139,11 @@ describe("CLI: Commands", () => {
 
     const jsonOutput = JSON.parse(result.stdout)
     expect(jsonOutput.data.length).toBe(1)
-    expect(jsonOutput.data[0].subdomain).toBe("inttest")
+    expect(jsonOutput.data[0].name).toBe("inttest")
   })
 
   test("should undeploy site via CLI", async () => {
-    const result = await runCli(["sites", "rm", "-s", "inttest", "-y"])
+    const result = await runCli(["sites", "rm", "inttest", "-y"])
     expect(result.exitCode).toBe(0)
 
     // Verify it's gone
@@ -164,10 +165,10 @@ describe("CLI: Commands", () => {
       expect(result.exitCode).toBe(0)
 
       const jsonOutput = JSON.parse(result.stdout)
-      expect(jsonOutput.data.subdomain).toBe("my-cool-site")
+      expect(jsonOutput.data.name).toBe("my-cool-site")
 
       // Cleanup
-      await runCli(["sites", "rm", "-s", "my-cool-site", "-y"])
+      await runCli(["sites", "rm", "my-cool-site", "-y"])
     } finally {
       rmSync(namedDir, { recursive: true })
     }

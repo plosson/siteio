@@ -3,10 +3,10 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync
 import { join } from "path"
 import { tmpdir } from "os"
 import { zipSync, unzipSync } from "fflate"
-import { collectPocketFiles } from "../../commands/pocket/deploy.ts"
-import { toLocalPath } from "../../lib/pocket-layout.ts"
-import { PocketStorage } from "../../lib/agent/pocket-storage.ts"
-import type { Pocket } from "../../types.ts"
+import { collectSiteFiles } from "../../commands/sites/deploy.ts"
+import { toLocalPath } from "../../lib/site-layout.ts"
+import { SiteStorage } from "../../lib/agent/storage.ts"
+import type { Site } from "../../types.ts"
 
 // Full layout round-trip: local project -> deploy artifact -> server code store
 // -> download zip -> reconstructed local project. Proves download is the exact
@@ -15,13 +15,13 @@ describe("Unit: pocket download round-trip", () => {
   let projectDir: string
   let serverDir: string
   let outDir: string
-  let storage: PocketStorage
+  let storage: SiteStorage
 
   beforeEach(() => {
     projectDir = mkdtempSync(join(tmpdir(), "siteio-dl-src-"))
     serverDir = mkdtempSync(join(tmpdir(), "siteio-dl-srv-"))
     outDir = mkdtempSync(join(tmpdir(), "siteio-dl-out-"))
-    storage = new PocketStorage(serverDir)
+    storage = new SiteStorage(serverDir)
 
     // A representative pocket project.
     writeFileSync(join(projectDir, "index.html"), "<h1>home</h1>")
@@ -42,13 +42,13 @@ describe("Unit: pocket download round-trip", () => {
     for (const d of [projectDir, serverDir, outDir]) rmSync(d, { recursive: true, force: true })
   })
 
-  const base = (name: string): Omit<Pocket, "createdAt" | "updatedAt"> => ({
+  const base = (name: string): Omit<Site, "createdAt" | "updatedAt"> => ({
     name, domains: [`${name}.example.com`], pocketbaseVersion: "0.23.4", status: "pending", size: 0,
   })
 
   test("reconstructs the original project layout", async () => {
     // Deploy: collect -> zip -> server extractCode.
-    const artifact = await collectPocketFiles(projectDir)
+    const artifact = await collectSiteFiles(projectDir)
     storage.create(base("demo"))
     await storage.extractCode("demo", zipSync(artifact, { level: 6 }))
 
@@ -76,7 +76,7 @@ describe("Unit: pocket download round-trip", () => {
   })
 
   test("never carries pb_data through the round-trip", async () => {
-    const artifact = await collectPocketFiles(projectDir)
+    const artifact = await collectSiteFiles(projectDir)
     storage.create(base("demo"))
     await storage.extractCode("demo", zipSync(artifact, { level: 6 }))
     const codeZip = await storage.zipCode("demo")

@@ -4,45 +4,43 @@ import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
-import { resolveSubdomain, loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts"
+import { resolveSiteName, loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts"
 
-export async function renameCommand(
-  subdomain: string | undefined,
-  newSubdomain: string,
+export async function sitesRenameCommand(
+  name: string | undefined,
+  newName: string,
   options: { json?: boolean } = {}
 ): Promise<void> {
   const spinner = ora()
 
   try {
     const server = getCurrentServer()
-    const resolved = resolveSubdomain(subdomain, server?.domain ?? "")
+    const resolved = resolveSiteName(name, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("Subdomain required. Use -s <subdomain> or run from a directory with .siteio/config.json")
+      throw new ValidationError("Site name required. Pass it as an argument or run from a directory with .siteio/config.json")
     }
-    if (!subdomain) {
+    if (!name) {
       console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))
     }
-    subdomain = resolved
 
-    if (!/^[a-z0-9-]+$/.test(newSubdomain)) {
-      throw new ValidationError("New subdomain must contain only lowercase letters, numbers, and hyphens")
+    if (!/^[a-z0-9-]+$/.test(newName)) {
+      throw new ValidationError("New name must contain only lowercase letters, numbers, and hyphens")
+    }
+    if (newName === resolved) {
+      throw new ValidationError("New name is the same as the current one")
     }
 
-    if (newSubdomain === subdomain) {
-      throw new ValidationError("New subdomain is the same as the current one")
-    }
-
-    spinner.start(`Renaming ${subdomain} → ${newSubdomain}`)
+    spinner.start(`Renaming ${resolved} → ${newName}`)
 
     const client = new SiteioClient()
-    const site = await client.renameSite(subdomain, newSubdomain)
+    const site = await client.renameSite(resolved, newName)
 
-    spinner.succeed(`Renamed ${subdomain} → ${newSubdomain}`)
+    spinner.succeed(`Renamed ${resolved} → ${newName}`)
 
-    // Update .siteio/config.json if it references the old subdomain
+    // Update .siteio/config.json if it references the old name
     const localConfig = loadProjectConfig()
-    if (localConfig && localConfig.site === subdomain) {
-      localConfig.site = newSubdomain
+    if (localConfig && localConfig.site === resolved) {
+      localConfig.site = newName
       saveProjectConfig(localConfig)
       if (!options.json) {
         console.error(chalk.dim("Updated .siteio/config.json"))
@@ -53,7 +51,7 @@ export async function renameCommand(
       console.log(JSON.stringify({ success: true, data: site }, null, 2))
     } else {
       console.log("")
-      console.log(formatSuccess(`Site renamed to ${chalk.bold(newSubdomain)}`))
+      console.log(formatSuccess(`Site renamed to ${chalk.bold(newName)}`))
       console.log(`  ${chalk.cyan(site.url)}`)
       console.log("")
     }

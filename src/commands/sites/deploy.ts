@@ -1,37 +1,63 @@
 import { existsSync, readdirSync, statSync } from "fs"
-import { join, basename, resolve } from "path"
+import { join, resolve, basename } from "path"
 import ora from "ora"
 import chalk from "chalk"
 import { zipSync } from "fflate"
 import { SiteioClient } from "../../lib/client.ts"
-import { getCurrentServer } from "../../config/loader.ts"
-import { text, confirm } from "../../utils/prompt.ts"
-import { formatSuccess, formatBytes } from "../../utils/output.ts"
-import { handleError, ValidationError, ApiError } from "../../utils/errors.ts"
+import { getCurrentServer, getUsername } from "../../config/loader.ts"
 import { loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts"
-import type { DeployOptions, SiteOAuth } from "../../types.ts"
+import { formatSuccess, formatBytes } from "../../utils/output.ts"
+import { handleError, ApiError, ValidationError } from "../../utils/errors.ts"
+import { POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
+import { PUBLIC_DIR, SITEIO_DIR, BACKEND_DIRS } from "../../lib/site-layout.ts"
 
-function sanitizeSubdomain(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
+// Recursively collect files from `dir` into the zip map under `prefix`.
+async function addTree(dir: string, prefix: string, out: Record<string, Uint8Array>): Promise<void> {
+  if (!existsSync(dir)) return
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry)
+    const rel = prefix ? `${prefix}/${entry}` : entry
+    if (statSync(full).isDirectory()) {
+      await addTree(full, rel, out)
+    } else {
+      out[rel] = await Bun.file(full).bytes()
+    }
+  }
 }
 
-function generateTestSubdomain(): string {
+// Build the deploy artifact: web root -> public/, plus pb_migrations and
+// pb_hooks. NEVER includes .siteio/pb_data or the .siteio dir wholesale.
+export async function collectSiteFiles(folder: string): Promise<Record<string, Uint8Array>> {
+  const out: Record<string, Uint8Array> = {}
+  // Web root = folder contents minus the .siteio plumbing dir.
+  for (const entry of readdirSync(folder)) {
+    if (entry === SITEIO_DIR) continue
+    const full = join(folder, entry)
+    if (statSync(full).isDirectory()) {
+      await addTree(full, `${PUBLIC_DIR}/${entry}`, out)
+    } else {
+      out[`${PUBLIC_DIR}/${entry}`] = await Bun.file(full).bytes()
+    }
+  }
+  for (const dir of BACKEND_DIRS) {
+    await addTree(join(folder, SITEIO_DIR, dir), dir, out)
+  }
+  return out
+}
+
+function generateTestName(): string {
   const randomId = Math.random().toString(36).substring(2, 8)
   return `test-${randomId}`
 }
 
-function generateTestHtml(subdomain: string): string {
+function generateTestHtml(name: string): string {
   const timestamp = new Date().toISOString()
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Test Site - ${subdomain}</title>
+  <title>Test Site - ${name}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -48,226 +74,102 @@ function generateTestHtml(subdomain: string): string {
 <body>
   <div class="success">✓</div>
   <h1>Test Site Deployed</h1>
-  <p>This is a test deployment for <strong>${subdomain}</strong></p>
+  <p>This is a test deployment for <strong>${name}</strong></p>
   <p class="info">Deployed at: ${timestamp}</p>
 </body>
 </html>`
 }
 
-async function collectFiles(dir: string, baseDir: string = dir): Promise<Record<string, Uint8Array>> {
-  const files: Record<string, Uint8Array> = {}
-
-  const entries = readdirSync(dir)
-  for (const entry of entries) {
-    const fullPath = join(dir, entry)
-    const relativePath = fullPath.slice(baseDir.length + 1)
-    const stat = statSync(fullPath)
-
-    if (stat.isDirectory()) {
-      // Recursively collect files from subdirectories
-      const subFiles = await collectFiles(fullPath, baseDir)
-      Object.assign(files, subFiles)
-    } else {
-      // Read file content
-      const content = await Bun.file(fullPath).bytes()
-      files[relativePath] = content
-    }
-  }
-
-  return files
+export interface SitesDeployOptions {
+  json?: boolean
+  force?: boolean
+  name?: string
+  test?: boolean
 }
 
-export async function deployCommand(folder: string | undefined, options: DeployOptions & { json?: boolean; persistentStorage?: boolean; force?: boolean }): Promise<void> {
+export async function sitesDeployCommand(folder: string | undefined, options: SitesDeployOptions = {}): Promise<void> {
   const spinner = ora()
-
   try {
+    const server = getCurrentServer()
+    if (!server) throw new ValidationError("Not logged in. Run 'siteio login' first.")
+
+    let name: string
     let files: Record<string, Uint8Array>
-    let subdomain: string
-    let fileCount: number
-    let localConfig: ReturnType<typeof loadProjectConfig> = null
-    let serverDomain: string | undefined
+    let config: ReturnType<typeof loadProjectConfig> = null
+    let folderPath: string | null = null
 
     if (options.test) {
-      // Test mode: generate a simple test site
-      subdomain = options.subdomain || generateTestSubdomain()
-
-      if (!/^[a-z0-9-]+$/.test(subdomain)) {
-        throw new ValidationError("Subdomain must contain only lowercase letters, numbers, and hyphens")
-      }
-
-      if (subdomain === "api") {
-        throw new ValidationError("'api' is a reserved subdomain")
-      }
-
-      console.error(chalk.cyan(`> Deploying test site to ${subdomain}`))
-
-      spinner.start("Generating test site")
-      const htmlContent = generateTestHtml(subdomain)
-      files = {
-        "index.html": new TextEncoder().encode(htmlContent),
-      }
-      fileCount = 1
-      spinner.succeed("Generated test site")
+      // Test mode: deploy a generated throwaway page, no folder required.
+      name = options.name || generateTestName()
+      files = { [`${PUBLIC_DIR}/index.html`]: new TextEncoder().encode(generateTestHtml(name)) }
     } else {
-      // Normal mode: deploy from folder
-      // Get server info first
-      const server = getCurrentServer()
-      if (!server) {
-        throw new ValidationError("Not logged in. Run 'siteio login' first.")
+      folderPath = resolve(folder || ".")
+      if (!existsSync(folderPath)) throw new ValidationError(`Folder not found: ${folderPath}`)
+
+      config = loadProjectConfig(folderPath)
+      if (config?.app && !config?.site) {
+        throw new ValidationError("This directory is an app, not a site. Use 'siteio apps' commands instead.")
       }
-      serverDomain = server.domain
-
-      // Default to current directory if no folder provided
-      const folderPath = resolve(folder || ".")
-      if (!existsSync(folderPath)) {
-        throw new ValidationError(`Folder not found: ${folderPath}`)
-      }
-
-      const stat = statSync(folderPath)
-      if (!stat.isDirectory()) {
-        throw new ValidationError(`Not a directory: ${folderPath}`)
-      }
-
-      // Load or create site config
-      localConfig = loadProjectConfig(folderPath)
-
-      if (localConfig?.app && !localConfig?.site) {
-        throw new ValidationError(`This directory is configured as an app ('${localConfig.app}'), not a site. Use 'siteio apps' commands instead.`)
-      }
-
-      if (localConfig?.site) {
-        subdomain = localConfig.site
-
-        // Warn if domain mismatch
-        if (localConfig.domain !== server.domain) {
-          console.error(chalk.yellow(`Warning: Config is for ${localConfig.domain}, current server is ${server.domain}`))
-          const proceed = await confirm(`Deploy to ${server.domain} instead?`)
-          if (!proceed) process.exit(0)
-          localConfig = null
-        }
-      } else {
-        subdomain = options.subdomain || sanitizeSubdomain(basename(folderPath))
-        if (!subdomain) {
-          subdomain = sanitizeSubdomain(await text("Site name"))
-        }
-      }
-
-      // --subdomain overrides config
-      if (options.subdomain) {
-        subdomain = options.subdomain
-      }
-
-      if (!subdomain) {
-        throw new ValidationError("Could not determine subdomain. Please specify one with --subdomain")
-      }
-
-      if (!/^[a-z0-9-]+$/.test(subdomain)) {
-        throw new ValidationError("Subdomain must contain only lowercase letters, numbers, and hyphens")
-      }
-
-      if (subdomain === "api") {
-        throw new ValidationError("'api' is a reserved subdomain")
-      }
-
-      console.error(chalk.cyan(`> Deploying ${folder || "."} to ${subdomain}`))
-
-      // Save config (remembers site name and server for next time)
-      saveProjectConfig({ site: subdomain, domain: server.domain }, folderPath)
-
-      spinner.start("Zipping files")
-      files = await collectFiles(folderPath)
-      fileCount = Object.keys(files).length
-
-      if (fileCount === 0) {
-        spinner.fail("No files found")
-        throw new ValidationError("Folder is empty")
-      }
-      spinner.succeed(`Zipped ${fileCount} files`)
+      name = options.name || config?.site || basename(folderPath)
+      files = await collectSiteFiles(folderPath)
     }
 
-    const zipData = zipSync(files, { level: 6 })
-    console.error(chalk.dim(`  ${fileCount} file(s), ${formatBytes(zipData.length)}`))
+    if (!/^[a-z0-9-]+$/.test(name)) {
+      throw new ValidationError("Site name must contain only lowercase letters, numbers, and hyphens")
+    }
+    if (name === "api") throw new ValidationError("'api' is a reserved name")
 
-    // Step 2: Check OAuth if auth options are provided
+    console.error(chalk.cyan(`> Deploying site ${name}`))
+
+    const fileCount = Object.keys(files).length
+    if (fileCount === 0) throw new ValidationError("Nothing to deploy (folder is empty)")
+
+    spinner.start("Packaging")
+    const zipData = zipSync(files, { level: 6 })
+    spinner.succeed(`Packaged ${fileCount} files (${formatBytes(zipData.length)})`)
+
     const client = new SiteioClient()
 
-    let oauth: SiteOAuth | undefined
-    if (options.allowedEmails || options.allowedDomain) {
-      spinner.start("Checking OAuth status")
-      const oauthEnabled = await client.getOAuthStatus()
-      spinner.stop()
-
-      if (!oauthEnabled) {
-        console.error(chalk.red("Google authentication not configured on the server."))
-        console.error("")
-        console.error(chalk.yellow("Run 'siteio agent oauth' on the server to enable Google authentication."))
-        console.error(chalk.yellow("Or deploy without auth options to create a public site."))
-        console.error("")
-        process.exit(1)
-      }
-
-      oauth = {}
-      if (options.allowedEmails) {
-        oauth.allowedEmails = options.allowedEmails.split(",").map((e) => e.trim().toLowerCase())
-      }
-      if (options.allowedDomain) {
-        oauth.allowedDomain = options.allowedDomain.toLowerCase()
-      }
+    // Pre-merge agents extract this zip layout literally (public/index.html
+    // as a file path instead of a web root) — refuse rather than deploy junk.
+    const serverVersion = await client.getServerVersion()
+    if (serverVersion === null) {
+      throw new ValidationError(
+        "The agent on this server is older than this CLI and does not understand the current deploy format.\n" +
+        "Update it first: ssh into the server and run 'siteio update -y && siteio agent restart'."
+      )
     }
 
-    // Step 3: Upload
+    if (folderPath) {
+      saveProjectConfig({ site: name, domain: server.domain, pocketbaseVersion: config?.pocketbaseVersion || POCKETBASE_VERSION, version: config?.version }, folderPath)
+    }
+
     spinner.start("Uploading")
 
     // Determine expected version for optimistic concurrency control
-    const expectedVersion = (!options.force && !options.test && localConfig?.version !== undefined)
-      ? localConfig.version
+    const expectedVersion = (!options.force && !options.test && config?.version !== undefined)
+      ? config.version
       : undefined
 
-    const site = await client.deploySite(
-      subdomain,
-      zipData,
-      (uploaded, total) => {
-        const percent = Math.round((uploaded / total) * 100)
-        spinner.text = `Uploading (${percent}%)`
-      },
-      oauth,
-      { persistentStorage: options.persistentStorage, expectedVersion }
-    )
-    spinner.succeed("Uploaded")
+    const info = await client.deploySite(name, zipData, {
+      deployedBy: getUsername() || undefined,
+      expectedVersion,
+    })
+    spinner.succeed("Deployed")
 
     // Save version to local config for future concurrency checks
-    if (!options.test && serverDomain) {
-      saveProjectConfig({ site: subdomain, domain: serverDomain, version: site.version }, resolve(folder || "."))
+    if (folderPath) {
+      saveProjectConfig({ site: name, domain: server.domain, pocketbaseVersion: config?.pocketbaseVersion || POCKETBASE_VERSION, version: info.version }, folderPath)
     }
 
-    // Step 4: Done
     if (options.json) {
-      console.log(JSON.stringify({ success: true, data: site }, null, 2))
+      console.log(JSON.stringify({ success: true, data: info }, null, 2))
     } else {
-      console.log("")
-      console.log(formatSuccess("Site deployed successfully!"))
-      console.log("")
-      console.log(`  URL: ${chalk.cyan(site.url)}`)
-      if (site.domains && site.domains.length > 0) {
-        console.log(`  Domains:`)
-        for (const d of site.domains) {
-          console.log(`    ${chalk.cyan(`https://${d}`)}`)
-        }
-      }
-      console.log(`  Size: ${formatBytes(site.size)}`)
-      if (site.persistentStorage) {
-        console.log(`  Storage: ${chalk.green("persistent localStorage enabled")}`)
-      }
-      if (site.oauth) {
-        console.log(`  Auth: ${chalk.yellow("Google OAuth enabled")}`)
-        if (site.oauth.allowedEmails) {
-          console.log(`    Allowed emails: ${chalk.cyan(site.oauth.allowedEmails.join(", "))}`)
-        }
-        if (site.oauth.allowedDomain) {
-          console.log(`    Allowed domain: ${chalk.cyan(site.oauth.allowedDomain)}`)
-        }
-      }
-      console.log("")
+      console.error("")
+      console.error(formatSuccess("Site deployed successfully!"))
+      console.error(`  URL:   ${chalk.cyan(info.url)}`)
+      console.error(`  Admin: ${chalk.cyan(info.adminUrl)} ${chalk.dim("(run 'siteio sites admin' for credentials)")}`)
+      console.error("")
     }
     process.exit(0)
   } catch (err) {

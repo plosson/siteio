@@ -59,7 +59,7 @@
     .container {
       max-width: 800px;
       margin: 0 auto;
-      padding: 80px 24px;
+      padding: 0 24px 80px;
     }
 
     /* houlahop topbar */
@@ -188,12 +188,10 @@
     }
 
     section h2 {
-      font-size: 0.8rem;
+      font-size: 1.05rem;
       font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
-      margin-bottom: 16px;
+      color: var(--text);
+      margin-bottom: 14px;
     }
 
     /* Use cases */
@@ -597,7 +595,7 @@
     <header>
       <p class="hero-eyebrow">siteio</p>
       <h1 class="headline">Your agent ships sites, backends, and full apps to your own server — one command.</h1>
-      <p class="tagline">Static sites, PocketBase backends, or full Docker apps — on your VPS, your domain, with automatic HTTPS. No vendor in the middle.</p>
+      <p class="tagline">Websites with a built-in backend, or full Docker apps — on your VPS, your domain, with automatic HTTPS. No vendor in the middle.</p>
     </header>
 
     <div class="hh-term">
@@ -631,17 +629,12 @@
     </section>
 
     <section>
-      <h2>Three ways to deploy</h2>
+      <h2>Two ways to deploy</h2>
       <div class="deploy-kinds">
         <div class="deploy-kind">
           <h3>$ siteio sites</h3>
-          <p>Static sites. A folder of HTML, deployed to its own subdomain in seconds.</p>
-          <code>siteio sites deploy ./folder --subdomain demo</code>
-        </div>
-        <div class="deploy-kind">
-          <h3>$ siteio pocket</h3>
-          <p>PocketBase-backed sites. Auth, database, file storage, and realtime — scaffold, develop locally, deploy.</p>
-          <code>siteio pocket init todo && siteio pocket deploy</code>
+          <p>Websites. A folder of HTML deploys in seconds — and every site ships with auth, database, file storage, and realtime built in, if it wants them.</p>
+          <code>siteio sites deploy ./folder -n demo</code>
         </div>
         <div class="deploy-kind">
           <h3>$ siteio apps</h3>
@@ -696,7 +689,7 @@
             <h3>Manage your sites</h3>
             <p>List, redeploy, or remove sites anytime.</p>
             <pre><code>siteio sites list
-siteio sites undeploy my-site</code></pre>
+siteio sites rm my-site</code></pre>
           </div>
         </div>
       </div>
@@ -805,22 +798,22 @@ siteio sites undeploy my-site</code></pre>
   <script>
     window.hhTerminalFrames = [
       {
-        cmd: "siteio sites deploy ./site --subdomain demo",
+        cmd: "siteio sites deploy ./site -n demo",
         output: [
-          "> Deploying site to demo",
-          "\u2714 Zipped 12 files",
-          "\u2714 Uploaded",
+          "> Deploying site demo",
+          "\u2714 Packaged 12 files",
+          "\u2714 Deployed",
           "",
           "+ Site deployed successfully!",
           "  URL: https://demo.yourdomain.com",
         ],
       },
       {
-        cmd: "siteio pocket deploy ./todo",
+        cmd: "siteio sites deploy ./todo",
         output: [
-          "> Deploying pocket todo",
+          "> Deploying site todo",
           "\u2714 Frontend uploaded",
-          "\u2714 PocketBase backend running",
+          "\u2714 Backend running",
           "",
           "+ https://todo.yourdomain.com is live",
           "  auth \u00b7 database \u00b7 file storage \u00b7 realtime",

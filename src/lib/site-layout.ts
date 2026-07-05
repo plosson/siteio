@@ -1,6 +1,6 @@
 import { join } from "path"
 
-// Single source of truth for how a local pocket project maps to the code that
+// Single source of truth for how a local site project maps to the code that
 // gets deployed to the server — so the forward (deploy) and reverse (download)
 // translations can never drift.
 //
