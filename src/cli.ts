@@ -490,17 +490,19 @@ const skill = program
 skill
   .command("install")
   .description("Install the siteio skill for Claude Code")
-  .action(async () => {
+  .option("-s, --scope <scope>", "Install scope: user (~/.claude) or project (./.claude)")
+  .action(async (options) => {
     const { installSkillCommand } = await import("./commands/skill.ts")
-    await installSkillCommand({ json: program.opts().json })
+    await installSkillCommand({ json: program.opts().json, scope: options.scope })
   })
 
 skill
   .command("uninstall")
   .description("Remove the siteio skill from Claude Code")
-  .action(async () => {
+  .option("-s, --scope <scope>", "Uninstall scope: user (~/.claude) or project (./.claude)")
+  .action(async (options) => {
     const { uninstallSkillCommand } = await import("./commands/skill.ts")
-    await uninstallSkillCommand({ json: program.opts().json })
+    await uninstallSkillCommand({ json: program.opts().json, scope: options.scope })
   })
 
 // Completion command
