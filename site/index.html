@@ -123,6 +123,21 @@
       color: var(--text);
     }
 
+    /* Accent pill CTA — jump to the install section */
+    .hh-topnav .hh-cta {
+      background: var(--accent);
+      color: var(--bg);
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+
+    .hh-topnav .hh-cta:hover {
+      color: var(--bg);
+      opacity: 0.85;
+    }
+
     /* Header */
     header {
       margin-bottom: 64px;
@@ -588,6 +603,7 @@
       <span class="hh-crumbs"><a href="https://houlahop.com">houlahop</a><span class="hh-sep">/</span><a href="/">siteio</a></span>
       <nav class="hh-topnav">
         <a href="https://github.com/plosson/siteio" target="_blank" rel="noopener">GitHub ↗</a>
+        <a href="#install" class="hh-cta">curl … | sh</a>
       </nav>
     </div>
   </header>
@@ -603,7 +619,7 @@
       <pre class="hh-term-body" data-hh-terminal></pre>
     </div>
 
-    <section>
+    <section id="install">
       <h2>Install CLI</h2>
       <div class="install-card">
         <div class="install-tabs">
