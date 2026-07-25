@@ -903,6 +903,13 @@ export class AgentServer {
 
     const domains = this.storage.allDomains(site, this.config.domain)
     const labels = this.docker.buildTraefikLabels(name, domains, 8090)
+    const containerName = this.docker.containerName(name)
+    const cacheMiddleware = `${containerName}-cache`
+    labels[`traefik.http.routers.${containerName}.middlewares`] = cacheMiddleware
+    labels[`traefik.http.middlewares.${cacheMiddleware}.headers.customresponseheaders.Cache-Control`] =
+      "no-cache, max-age=0, must-revalidate"
+    labels[`traefik.http.middlewares.${cacheMiddleware}.headers.customresponseheaders.Pragma`] = "no-cache"
+    labels[`traefik.http.middlewares.${cacheMiddleware}.headers.customresponseheaders.Expires`] = "0"
 
     const env: Record<string, string> = {
       POCKET_SUPERUSER_EMAIL: site.superuserEmail!,

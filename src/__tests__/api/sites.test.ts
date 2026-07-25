@@ -45,6 +45,19 @@ describe("API: sites", () => {
 
     const runCall = runtime.calls.find((c) => c.method === "run")
     expect(runCall).toBeDefined()
+    const runConfig = runCall!.args[0] as { labels: Record<string, string> }
+    expect(runConfig.labels["traefik.http.routers.siteio-blog.middlewares"]).toBe("siteio-blog-cache")
+    expect(
+      runConfig.labels[
+        "traefik.http.middlewares.siteio-blog-cache.headers.customresponseheaders.Cache-Control"
+      ]
+    ).toBe("no-cache, max-age=0, must-revalidate")
+    expect(
+      runConfig.labels["traefik.http.middlewares.siteio-blog-cache.headers.customresponseheaders.Pragma"]
+    ).toBe("no-cache")
+    expect(
+      runConfig.labels["traefik.http.middlewares.siteio-blog-cache.headers.customresponseheaders.Expires"]
+    ).toBe("0")
     const pullCall = runtime.calls.find((c) => c.method === "pull")
     expect(pullCall!.args[0]).toBe(POCKETBASE_IMAGE)
   })
