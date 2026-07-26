@@ -189,7 +189,7 @@ function registerSiteCommands(sites: Command): void {
   siteShare
     .argument("[name]", "Site to share (defaults to .siteio/config.json)")
     .option("--deploys <n>", "Max number of deploys the link allows (default: 1)")
-    .option("--expires <duration>", "Expiry window, e.g. 30m, 24h, 7d (default/max: 7d)")
+    .option("--expires <duration>", "Expiry window, e.g. 30m, 24h, 7d, or 'never' (default/max: 7d)")
     .option("--label <label>", "Attribution label shown in the site's deploy history")
     .action(async (name, options) => {
       const { sitesShareCommand } = await import("./commands/sites/share.ts")

@@ -53,8 +53,28 @@ describe("Unit: GrantStore", () => {
 
   test("expiry is capped at the hard max TTL", () => {
     const { grant } = store.create({ site: "blog", expiresInMs: 999 * 24 * 60 * 60 * 1000 })
-    const ttl = Date.parse(grant.expiresAt) - Date.parse(grant.createdAt)
+    expect(grant.expiresAt).toBeTruthy()
+    const ttl = Date.parse(grant.expiresAt!) - Date.parse(grant.createdAt)
     expect(ttl).toBeLessThanOrEqual(HARD_MAX_TTL_MS)
+  })
+
+  test("neverExpires creates a grant with no expiry that stays active", () => {
+    const { grant, token } = store.create({ site: "blog", neverExpires: true })
+    expect(grant.expiresAt).toBeUndefined()
+    expect(store.toInfo(grant).expiresAt).toBeUndefined()
+    expect(store.resolveByToken(token)?.id).toBe(grant.id)
+  })
+
+  test("a never-expiring grant is still gated by its deploy budget", () => {
+    const { grant, token } = store.create({ site: "blog", neverExpires: true, maxDeploys: 1 })
+    store.recordDeploy(grant.id)
+    expect(store.resolveByToken(token)).toBeNull() // budget, not time, retires it
+  })
+
+  test("gc keeps a never-expiring grant with budget remaining", () => {
+    const { grant } = store.create({ site: "blog", neverExpires: true, maxDeploys: 2 })
+    expect(store.gc()).toEqual([])
+    expect(store.get(grant.id)).not.toBeNull()
   })
 
   test("resolveByToken returns null for an exhausted budget", () => {

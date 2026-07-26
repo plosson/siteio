@@ -12,6 +12,9 @@ export interface CreateGrantInput {
   site: string
   maxDeploys?: number // default 1
   expiresInMs?: number // capped at HARD_MAX_TTL_MS
+  neverExpires?: boolean // explicit opt-in; overrides expiresInMs. The deploy
+  // budget still bounds abuse — a never-expiring link with the default 1-deploy
+  // budget still dies on first publish.
   label?: string
 }
 
@@ -35,10 +38,15 @@ export class GrantStore {
     if (!Number.isInteger(maxDeploys) || maxDeploys < 1) {
       throw new ValidationError("maxDeploys must be a positive integer")
     }
-    const ttl = Math.min(input.expiresInMs ?? HARD_MAX_TTL_MS, HARD_MAX_TTL_MS)
-    if (ttl <= 0) throw new ValidationError("expiry must be in the future")
 
     const now = Date.now()
+    let expiresAt: string | undefined
+    if (!input.neverExpires) {
+      const ttl = Math.min(input.expiresInMs ?? HARD_MAX_TTL_MS, HARD_MAX_TTL_MS)
+      if (ttl <= 0) throw new ValidationError("expiry must be in the future")
+      expiresAt = new Date(now + ttl).toISOString()
+    }
+
     const token = generateGrantToken()
     const grant: ShareGrant = {
       id: generateGrantId(),
@@ -48,7 +56,7 @@ export class GrantStore {
       maxDeploys,
       deploysUsed: 0,
       createdAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + ttl).toISOString(),
+      expiresAt,
       revoked: false,
     }
     writeFileSync(this.grantPath(grant.id), JSON.stringify(grant, null, 2), { mode: 0o600 })
@@ -95,11 +103,8 @@ export class GrantStore {
   }
 
   isActive(grant: ShareGrant): boolean {
-    return (
-      !grant.revoked &&
-      Date.now() < Date.parse(grant.expiresAt) &&
-      grant.deploysUsed < grant.maxDeploys
-    )
+    const notExpired = !grant.expiresAt || Date.now() < Date.parse(grant.expiresAt)
+    return !grant.revoked && notExpired && grant.deploysUsed < grant.maxDeploys
   }
 
   // Record a successful deploy against the budget. Returns the updated grant,

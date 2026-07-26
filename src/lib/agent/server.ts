@@ -957,12 +957,14 @@ export class AgentServer {
       const body = (await req.json().catch(() => ({}))) as {
         maxDeploys?: number
         expiresInMs?: number
+        neverExpires?: boolean
         label?: string
       }
       const input: CreateGrantInput = {
         site: name,
         maxDeploys: body.maxDeploys,
         expiresInMs: body.expiresInMs,
+        neverExpires: body.neverExpires,
         label: body.label,
       }
       const { grant, token } = this.grants.create(input)

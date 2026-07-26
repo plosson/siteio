@@ -172,7 +172,7 @@ export class SiteioClient {
 
   async createGrant(
     site: string,
-    opts: { maxDeploys?: number; expiresInMs?: number; label?: string } = {}
+    opts: { maxDeploys?: number; expiresInMs?: number; neverExpires?: boolean; label?: string } = {}
   ): Promise<ShareGrantCreated> {
     const response = await this.request<ApiResponse<ShareGrantCreated>>(
       "POST",

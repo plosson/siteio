@@ -240,7 +240,7 @@ export interface ShareGrant {
   maxDeploys: number // owner-set budget; default 1
   deploysUsed: number
   createdAt: string
-  expiresAt: string // owner-set OR createdAt + hard max TTL, whichever is sooner
+  expiresAt?: string // owner-set OR createdAt + hard max TTL; omitted = never expires
   lastUsedAt?: string
   revoked: boolean
 }
@@ -253,7 +253,7 @@ export interface ShareGrantInfo {
   maxDeploys: number
   deploysUsed: number
   createdAt: string
-  expiresAt: string
+  expiresAt?: string // omitted = never expires
   lastUsedAt?: string
   revoked: boolean
   active: boolean // computed: not revoked, not expired, budget remaining
