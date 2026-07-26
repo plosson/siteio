@@ -54,6 +54,7 @@ export class AgentServer {
       grants: this.grants,
       staging: this.staging,
       sites: this.storage,
+      domain: config.domain,
       deploy: (siteName, zipData, deployedBy) => this.deploySiteViaGrant(siteName, zipData, deployedBy),
     })
 

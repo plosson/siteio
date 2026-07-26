@@ -77,6 +77,28 @@ describe("API: MCP share endpoint", () => {
     expect(body.result!.serverInfo!.name).toBe("siteio-site-editor")
   })
 
+  test("initialize reports the default <name>.<domain> URL when no custom domain is set", async () => {
+    const token = await mintGrant("blog")
+    const res = await mcp(token, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} })
+    const body = (await res.json()) as { result: { instructions: string } }
+    expect(body.result.instructions).toContain("https://blog.example.com")
+  })
+
+  test("initialize reports ONLY the custom domain once one is set (default subdomain suppressed)", async () => {
+    await server.handleRequestForTest(
+      new Request("http://x/sites/blog/domains", {
+        method: "PATCH", headers: JSONH, body: JSON.stringify({ domains: ["www.myblog.org", "myblog.org"] }),
+      })
+    )
+    const token = await mintGrant("blog")
+    const res = await mcp(token, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} })
+    const body = (await res.json()) as { result: { instructions: string } }
+    expect(body.result.instructions).toContain("https://www.myblog.org")
+    expect(body.result.instructions).toContain("https://myblog.org")
+    // The default subdomain must NOT be advertised once a custom domain exists.
+    expect(body.result.instructions).not.toContain("blog.example.com")
+  })
+
   test("tools/list advertises the five file tools", async () => {
     const token = await mintGrant("blog")
     const res = await mcp(token, { jsonrpc: "2.0", id: 2, method: "tools/list" })

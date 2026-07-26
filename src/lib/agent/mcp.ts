@@ -20,6 +20,7 @@ export interface McpDeps {
   grants: GrantStore
   staging: StagingStore
   sites: SiteStorage
+  domain: string // base domain, for building the site's public URL(s)
   // Deploy a merged web+backend zip as a new version of `siteName`. Throws on
   // failure (missing site, Docker down, …). Provided by AgentServer.
   deploy: (siteName: string, zipData: Uint8Array, deployedBy: string) => Promise<SiteInfo>
@@ -99,16 +100,27 @@ export class McpHandler {
     if (msg.method.startsWith("notifications/")) return null
 
     switch (msg.method) {
-      case "initialize":
+      case "initialize": {
+        const site = this.deps.sites.get(grant.site)
+        const info = site ? this.deps.sites.toInfo(site, this.deps.domain) : null
+        // Report the custom domain(s) once set — that becomes the canonical
+        // public URL; otherwise fall back to the default <name>.<domain>.
+        const liveUrls = info
+          ? info.domains.length
+            ? info.domains.map((d) => `https://${d}`)
+            : [info.url]
+          : []
+        const liveAt = liveUrls.length ? ` It is live at ${liveUrls.join(", ")}.` : ""
         return this.ok(msg.id, {
           protocolVersion: MCP_PROTOCOL_VERSION,
           capabilities: { tools: {} },
           serverInfo: { name: "siteio-site-editor", version: getVersion() },
           instructions:
-            `You can edit and publish the website "${grant.site}". Use list_files/read_file to inspect it, ` +
+            `You can edit and publish the website "${grant.site}".${liveAt} Use list_files/read_file to inspect it, ` +
             `write_file/delete_file to change the web files, then deploy_site to publish. ` +
             `Only website files can be changed here; the site's backend (database, hooks) is managed by the owner.`,
         })
+      }
       case "ping":
         return this.ok(msg.id, {})
       case "tools/list":
