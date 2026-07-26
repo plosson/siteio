@@ -228,6 +228,44 @@ export interface SiteVersion {
   size: number
 }
 
+// A single-use (by default) share grant: authorizes an anonymous invitee to
+// edit and redeploy ONE site's web root via an MCP link, bounded by a deploy
+// budget and a hard expiry. The raw token is shown to the owner exactly once
+// (on creation); only its hash is persisted.
+export interface ShareGrant {
+  id: string // short public id (e.g. "grt_ab12cd") — used in `share list/revoke`
+  site: string // site this grant is scoped to
+  tokenHash: string // sha-256 hex of the raw token; the raw token is never stored
+  label?: string // optional; surfaced as the deploy author (X-Deployed-By)
+  maxDeploys: number // owner-set budget; default 1
+  deploysUsed: number
+  createdAt: string
+  expiresAt: string // owner-set OR createdAt + hard max TTL, whichever is sooner
+  lastUsedAt?: string
+  revoked: boolean
+}
+
+// Grant returned to the owner over the API — the tokenHash is stripped.
+export interface ShareGrantInfo {
+  id: string
+  site: string
+  label?: string
+  maxDeploys: number
+  deploysUsed: number
+  createdAt: string
+  expiresAt: string
+  lastUsedAt?: string
+  revoked: boolean
+  active: boolean // computed: not revoked, not expired, budget remaining
+}
+
+// Response to grant creation — carries the one-time token and the MCP link.
+export interface ShareGrantCreated {
+  grant: ShareGrantInfo
+  token: string // raw token, shown once
+  url: string // full MCP link: https://<site>.<domain>/mcp/<token>
+}
+
 export interface LoginOptions {
   apiUrl?: string
   apiKey?: string

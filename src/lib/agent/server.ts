@@ -3,6 +3,9 @@ import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, S
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { AppStorage } from "./app-storage.ts"
+import { GrantStore, type CreateGrantInput } from "./grant-store.ts"
+import { StagingStore } from "./staging-store.ts"
+import { McpHandler } from "./mcp.ts"
 import { DockerManager } from "./docker.ts"
 import type { Runtime } from "./runtime.ts"
 import { GitManager } from "./git.ts"
@@ -27,6 +30,9 @@ export class AgentServer {
   private config: AgentConfig
   private storage: SiteStorage
   private appStorage: AppStorage
+  private grants: GrantStore
+  private staging: StagingStore
+  private mcp: McpHandler
   private docker: Runtime
   private git: GitManager
   private dockerfiles: DockerfileStorage
@@ -38,10 +44,18 @@ export class AgentServer {
     this.config = config
     this.storage = new SiteStorage(config.dataDir)
     this.appStorage = new AppStorage(config.dataDir)
+    this.grants = new GrantStore(config.dataDir)
+    this.staging = new StagingStore(config.dataDir)
     this.docker = runtime ?? new DockerManager(config.dataDir)
     this.git = new GitManager(config.dataDir)
     this.dockerfiles = new DockerfileStorage(config.dataDir)
     this.compose = new ComposeStorage(config.dataDir)
+    this.mcp = new McpHandler({
+      grants: this.grants,
+      staging: this.staging,
+      sites: this.storage,
+      deploy: (siteName, zipData, deployedBy) => this.deploySiteViaGrant(siteName, zipData, deployedBy),
+    })
 
     if (!config.skipTraefik) {
       this.traefik = new TraefikManager({
@@ -74,6 +88,13 @@ export class AgentServer {
     let path = url.pathname
     const host = req.headers.get("host") || ""
     const hostWithoutPort = host.split(":")[0] || ""
+
+    // MCP share endpoint: authenticated by the grant token in the path, not by
+    // host or the god API key. Traefik forwards `<site>.<domain>/mcp/*` here, so
+    // this must run BEFORE the api-host gate (the host is a site host, not api.).
+    if (path.startsWith("/mcp/")) {
+      return this.mcp.handle(req, path)
+    }
 
     // Check if this is an API request (api.domain)
     const isApiRequest = hostWithoutPort === `api.${this.config.domain}` ||
@@ -164,6 +185,20 @@ export class AgentServer {
     const siteRenameMatch = path.match(/^\/sites\/([a-z0-9-]+)\/rename$/)
     if (siteRenameMatch && req.method === "PATCH") {
       return this.handleRenameSite(siteRenameMatch[1]!, req)
+    }
+
+    // /sites/:name/grants - manage MCP share links for a site
+    const siteGrantsMatch = path.match(/^\/sites\/([a-z0-9-]+)\/grants$/)
+    if (siteGrantsMatch) {
+      const siteName = siteGrantsMatch[1]!
+      if (req.method === "POST") return this.handleCreateGrant(siteName, req)
+      if (req.method === "GET") return this.handleListGrants(siteName)
+    }
+
+    // DELETE /sites/:name/grants/:id - revoke a share link
+    const siteGrantMatch = path.match(/^\/sites\/([a-z0-9-]+)\/grants\/(grt_[a-z0-9]+)$/)
+    if (siteGrantMatch && req.method === "DELETE") {
+      return this.handleRevokeGrant(siteGrantMatch[1]!, siteGrantMatch[2]!)
     }
 
     // GET /apps - list all apps
@@ -869,27 +904,87 @@ export class AgentServer {
     }
 
     try {
-      // Extract code (archives previous version); never touches pb_data.
-      const { size, version: codeVersion } = await this.storage.extractCode(name, zipData)
-
-      await this.docker.pull(POCKETBASE_IMAGE)
-      const containerId = await this.startSiteContainer(site)
-
-      const updated = this.storage.update(name, {
-        status: "running",
-        containerId,
-        size,
-        version: codeVersion,
-        pocketbaseVersion: POCKETBASE_VERSION,
-        deployedAt: new Date().toISOString(),
-        deployedBy,
-      })!
-      return this.json(this.storage.toInfo(updated, this.config.domain))
+      const info = await this.runSiteDeploy(site, zipData, deployedBy)
+      return this.json(info)
     } catch (err) {
       this.storage.update(name, { status: "failed" })
       const message = err instanceof Error ? err.message : "Failed to deploy site"
       return this.error(message, 500)
     }
+  }
+
+  // Deploy core, shared by the zip-upload route and the MCP share endpoint:
+  // extract merged code (archives previous version; never touches pb_data),
+  // pull the pinned image, (re)create the container, and persist the new
+  // version. Throws on failure — callers own status-failed bookkeeping.
+  private async runSiteDeploy(site: Site, zipData: Uint8Array, deployedBy?: string): Promise<SiteInfo> {
+    const { size, version: codeVersion } = await this.storage.extractCode(site.name, zipData)
+
+    await this.docker.pull(POCKETBASE_IMAGE)
+    const containerId = await this.startSiteContainer(site)
+
+    const updated = this.storage.update(site.name, {
+      status: "running",
+      containerId,
+      size,
+      version: codeVersion,
+      pocketbaseVersion: POCKETBASE_VERSION,
+      deployedAt: new Date().toISOString(),
+      deployedBy,
+    })!
+    return this.storage.toInfo(updated, this.config.domain)
+  }
+
+  // Invoked by McpHandler's deploy callback. The zip is pre-merged (invitee's
+  // web root + the site's existing backend dirs), so this is a straight deploy.
+  private async deploySiteViaGrant(siteName: string, zipData: Uint8Array, deployedBy: string): Promise<SiteInfo> {
+    const site = this.storage.get(siteName)
+    if (!site) throw new Error(`Site "${siteName}" no longer exists`)
+    if (!this.docker.isAvailable()) throw new Error("Docker is not available")
+    try {
+      return await this.runSiteDeploy(site, zipData, deployedBy)
+    } catch (err) {
+      this.storage.update(siteName, { status: "failed" })
+      throw err
+    }
+  }
+
+  // Share-grant (MCP link) handlers
+
+  private async handleCreateGrant(name: string, req: Request): Promise<Response> {
+    if (!this.storage.exists(name)) return this.error("Site not found", 404)
+    try {
+      const body = (await req.json().catch(() => ({}))) as {
+        maxDeploys?: number
+        expiresInMs?: number
+        label?: string
+      }
+      const input: CreateGrantInput = {
+        site: name,
+        maxDeploys: body.maxDeploys,
+        expiresInMs: body.expiresInMs,
+        label: body.label,
+      }
+      const { grant, token } = this.grants.create(input)
+      const url = `https://${name}.${this.config.domain}/mcp/${token}`
+      return this.json({ grant: this.grants.toInfo(grant), token, url })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create share link"
+      return this.error(message, 400)
+    }
+  }
+
+  private handleListGrants(name: string): Response {
+    if (!this.storage.exists(name)) return this.error("Site not found", 404)
+    return this.json(this.grants.listForSite(name).map((g) => this.grants.toInfo(g)))
+  }
+
+  private handleRevokeGrant(name: string, id: string): Response {
+    const grant = this.grants.get(id)
+    if (!grant || grant.site !== name) return this.error("Share link not found", 404)
+    this.grants.revoke(id)
+    this.staging.remove(id)
+    return this.json({ revoked: true })
   }
 
   // (Re)create the site's container: remove any existing one, then run the
@@ -1141,6 +1236,9 @@ export class AgentServer {
 
     // One-time conversion of pre-merge shared-nginx static sites.
     await this.migrateLegacy()
+
+    // Reclaim dead share links (revoked / expired / used up) and their staging.
+    for (const id of this.grants.gc()) this.staging.remove(id)
 
     const port = this.config.port || 3000
 
