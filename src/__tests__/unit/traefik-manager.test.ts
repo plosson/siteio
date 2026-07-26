@@ -64,6 +64,22 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).not.toContain("oauth")
   })
 
+  it("dynamic config exposes the MCP share router in front of site containers", () => {
+    const dynamicConfig = makeTraefik().generateDynamicConfig()
+    expect(dynamicConfig).toContain("mcp-router")
+    // Matches any site subdomain + the /mcp path, routed to the agent. The
+    // domain dots are regex-escaped (YAML double-quote unescapes \\. to \.).
+    expect(dynamicConfig).toContain("HostRegexp(`^[a-z0-9-]+")
+    expect(dynamicConfig).toContain("PathPrefix(`/mcp`)")
+    // Domain dots are regex-escaped (String.raw so the two backslashes match).
+    expect(dynamicConfig).toContain(String.raw`test\\.siteio\\.me$`)
+    // High priority so it beats the site container's Host-only router.
+    expect(dynamicConfig).toContain("priority: 1000")
+    // Reuses the agent's own service (and thus its Let's Encrypt cert).
+    const mcpBlock = dynamicConfig.slice(dynamicConfig.indexOf("mcp-router"))
+    expect(mcpBlock).toContain('service: "api-service"')
+  })
+
   it("creates config and certs directories with acme.json", () => {
     makeTraefik()
     expect(existsSync(join(TEST_DATA_DIR, "traefik"))).toBe(true)

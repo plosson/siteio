@@ -1,6 +1,8 @@
 import { loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
-import type { ApiResponse, SiteInfo, SiteVersion, App, AppInfo, ContainerLogs } from "../types.ts"
+import type {
+  ApiResponse, SiteInfo, SiteVersion, App, AppInfo, ContainerLogs, ShareGrantInfo, ShareGrantCreated,
+} from "../types.ts"
 
 export interface ClientOptions {
   apiUrl?: string
@@ -164,6 +166,31 @@ export class SiteioClient {
     )
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
+  }
+
+  // Share links (MCP grants)
+
+  async createGrant(
+    site: string,
+    opts: { maxDeploys?: number; expiresInMs?: number; neverExpires?: boolean; label?: string } = {}
+  ): Promise<ShareGrantCreated> {
+    const response = await this.request<ApiResponse<ShareGrantCreated>>(
+      "POST",
+      `/sites/${site}/grants`,
+      JSON.stringify(opts),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
+  async listGrants(site: string): Promise<ShareGrantInfo[]> {
+    const response = await this.request<ApiResponse<ShareGrantInfo[]>>("GET", `/sites/${site}/grants`)
+    return response.data || []
+  }
+
+  async revokeGrant(site: string, id: string): Promise<void> {
+    await this.request<ApiResponse<{ revoked: boolean }>>("DELETE", `/sites/${site}/grants/${id}`)
   }
 
   async healthCheck(): Promise<boolean> {

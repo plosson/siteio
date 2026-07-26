@@ -180,6 +180,40 @@ function registerSiteCommands(sites: Command): void {
       await sitesRmCommand(name, { ...options, json: program.opts().json })
     })
 
+  const siteShare = sites
+    .command("share")
+    .description("Create and manage single-use MCP links to let others edit a site")
+
+  // Bare `siteio sites share [name]` mints a link (the common case). The
+  // list/revoke subcommands hang off the same group.
+  siteShare
+    .argument("[name]", "Site to share (defaults to .siteio/config.json)")
+    .option("--deploys <n>", "Max number of deploys the link allows (default: 1)")
+    .option("--expires <duration>", "Expiry window, e.g. 30m, 24h, 7d, or 'never' (default/max: 7d)")
+    .option("--label <label>", "Attribution label shown in the site's deploy history")
+    .action(async (name, options) => {
+      const { sitesShareCommand } = await import("./commands/sites/share.ts")
+      await sitesShareCommand(name, { ...options, json: program.opts().json })
+    })
+
+  siteShare
+    .command("list [name]")
+    .alias("ls")
+    .description("List active share links for a site")
+    .action(async (name, options) => {
+      const { sitesShareListCommand } = await import("./commands/sites/share.ts")
+      await sitesShareListCommand(name, { ...options, json: program.opts().json })
+    })
+
+  siteShare
+    .command("revoke <id>")
+    .description("Revoke a share link by id")
+    .option("-n, --name <name>", "Site the link belongs to (defaults to .siteio/config.json)")
+    .action(async (id, options) => {
+      const { sitesShareRevokeCommand } = await import("./commands/sites/share.ts")
+      await sitesShareRevokeCommand(id, { ...options, json: program.opts().json })
+    })
+
   const siteDomain = sites
     .command("domain")
     .description("Manage custom domains for a site")

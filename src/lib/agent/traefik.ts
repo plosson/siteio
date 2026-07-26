@@ -109,12 +109,19 @@ log:
 `.trim()
   }
 
-  // The file provider carries only the `api.<domain>` router to the agent's
-  // own HTTP server on the host. Everything else (sites and apps alike)
-  // routes via docker-label discovery.
+  // The file provider carries the agent's own host-side routers:
+  //   - `api-router`: the full API at `api.<domain>`.
+  //   - `mcp-router`: the MCP share endpoint at `<site>.<domain>/mcp/*`. It sits
+  //     in front of each site container's `Host(<site>.<domain>)` router (which
+  //     is discovered via docker labels) using a longer rule + explicit high
+  //     priority, so only the `/mcp` path is siphoned to the agent; every other
+  //     path on that host still reaches the site container. The site's own
+  //     router already provisions the Let's Encrypt cert this reuses.
+  // Everything else (sites and apps alike) routes via docker-label discovery.
   generateDynamicConfig(): string {
     const { domain, fileServerPort } = this.config
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
+    const escapedDomain = domain.replace(/\./g, "\\.")
 
     const config: Record<string, unknown> = {
       http: {
@@ -123,6 +130,15 @@ log:
             rule: `Host(\`api.${domain}\`)`,
             entryPoints: ["websecure"],
             service: "api-service",
+            tls: {
+              certResolver: "letsencrypt",
+            },
+          },
+          "mcp-router": {
+            rule: `HostRegexp(\`^[a-z0-9-]+\\.${escapedDomain}$\`) && PathPrefix(\`/mcp\`)`,
+            entryPoints: ["websecure"],
+            service: "api-service",
+            priority: 1000,
             tls: {
               certResolver: "letsencrypt",
             },
