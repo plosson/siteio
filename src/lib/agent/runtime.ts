@@ -29,6 +29,7 @@ export interface Runtime {
   isAvailable(): boolean
   ensureNetwork(networkName?: string): void
   imageTag(appName: string): string
+  containerName(appName: string): string
   pull(image: string): Promise<void>
   build(config: BuildConfig): Promise<string>
   run(config: ContainerRunConfig): Promise<string>

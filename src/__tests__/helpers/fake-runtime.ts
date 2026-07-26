@@ -53,6 +53,11 @@ export class FakeRuntime implements Runtime {
     return `siteio-${appName}:latest`
   }
 
+  containerName(appName: string): string {
+    this.record("containerName", [appName])
+    return `siteio-${appName}`
+  }
+
   async pull(image: string): Promise<void> {
     this.record("pull", [image])
   }
