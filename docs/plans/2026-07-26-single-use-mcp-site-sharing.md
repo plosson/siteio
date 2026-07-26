@@ -145,11 +145,18 @@ Streamable HTTP MCP (single `POST /mcp/<token>` accepting JSON-RPC, optional SSE
 
 | Tool | Input | Behavior |
 |------|-------|----------|
+| `site_info` | — | Report the site's canonical public URL(s) (custom domain if set, else default subdomain) + current published version. |
 | `list_files` | — | List staging files (relative paths). Seeds staging from current site code on first call. |
 | `read_file` | `path` | Return file contents (text; base64 for binary). |
 | `write_file` | `path`, `content` | Create/overwrite in staging. **Path hardening** (see §8). |
 | `delete_file` | `path` | Remove from staging. |
 | `deploy_site` | — | Merge + deploy (see §7). Consumes one deploy from the budget. Returns live URL + remaining deploys. |
+
+Every tool result also carries a second content block — a compact context line
+(`[editing site "x" · live at https://… · N deploy(s) left]`) — so a client that
+drops `initialize` instructions still keeps the model aware of the site, its live
+URL, and remaining budget. The primary tool output stays in the first block, so
+`read_file` content is never polluted.
 
 Tool descriptions tell the invitee's LLM the constraints ("web files only; backend is managed by the owner and cannot be changed here") so it doesn't try to touch schema.
 

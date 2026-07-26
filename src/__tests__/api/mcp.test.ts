@@ -99,13 +99,52 @@ describe("API: MCP share endpoint", () => {
     expect(body.result.instructions).not.toContain("blog.example.com")
   })
 
-  test("tools/list advertises the five file tools", async () => {
+  test("tools/list advertises the file tools plus site_info", async () => {
     const token = await mintGrant("blog")
     const res = await mcp(token, { jsonrpc: "2.0", id: 2, method: "tools/list" })
     const body = (await res.json()) as { result: { tools: { name: string }[] } }
     expect(body.result.tools.map((t) => t.name).sort()).toEqual(
-      ["delete_file", "deploy_site", "list_files", "read_file", "write_file"]
+      ["delete_file", "deploy_site", "list_files", "read_file", "site_info", "write_file"]
     )
+  })
+
+  test("site_info reports the default subdomain when no custom domain is set", async () => {
+    const token = await mintGrant("blog")
+    const { body } = await call(token, "site_info")
+    expect(toolText(body)).toContain("https://blog.example.com")
+    expect(toolText(body)).toContain("Current published version: 1")
+  })
+
+  test("site_info reports ONLY the custom domain once one is set", async () => {
+    await server.handleRequestForTest(
+      new Request("http://x/sites/blog/domains", {
+        method: "PATCH", headers: JSONH, body: JSON.stringify({ domains: ["shop.example.org"] }),
+      })
+    )
+    const token = await mintGrant("blog")
+    const { body } = await call(token, "site_info")
+    expect(toolText(body)).toContain("https://shop.example.org")
+    expect(toolText(body)).not.toContain("blog.example.com")
+  })
+
+  test("every tool response carries a site-context block with the live URL", async () => {
+    const token = await mintGrant("blog", { maxDeploys: 3 })
+    const res = await mcp(token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {} } })
+    const body = (await res.json()) as { result: { content: { type: string; text: string }[] } }
+    // content[0] is the tool's primary output; content[1] is the context block.
+    expect(body.result.content).toHaveLength(2)
+    expect(body.result.content[1]!.text).toContain("https://blog.example.com")
+    expect(body.result.content[1]!.text).toContain("deploy(s) left")
+  })
+
+  test("read_file keeps the raw file in content[0] — context is a separate block", async () => {
+    const token = await mintGrant("blog")
+    const res = await mcp(token, {
+      jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "read_file", arguments: { path: "index.html" } },
+    })
+    const body = (await res.json()) as { result: { content: { text: string }[] } }
+    expect(body.result.content[0]!.text).toBe("<h1>original</h1>") // not polluted
+    expect(body.result.content[1]!.text).toContain("editing site \"blog\"")
   })
 
   test("list_files seeds the web root only (no backend, no public/ prefix)", async () => {

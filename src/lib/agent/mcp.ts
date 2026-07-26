@@ -137,8 +137,32 @@ export class McpHandler {
     return { jsonrpc: "2.0", id: id ?? null, result }
   }
 
-  private toolText(id: JsonRpcRequest["id"], text: string, isError = false): unknown {
-    return { jsonrpc: "2.0", id: id ?? null, result: { content: [{ type: "text", text }], isError } }
+  // The site's canonical public URL(s): the custom domain(s) once set, else the
+  // default <name>.<domain> subdomain (never both).
+  private liveUrls(grant: ShareGrant): string[] {
+    const site = this.deps.sites.get(grant.site)
+    if (!site) return []
+    const info = this.deps.sites.toInfo(site, this.deps.domain)
+    return info.domains.length ? info.domains.map((d) => `https://${d}`) : [info.url]
+  }
+
+  // A compact context line attached to EVERY tool result as a second content
+  // block — so a client that drops `initialize` instructions still keeps the
+  // model aware of which site it's editing, where it's live, and its budget.
+  private siteContextBlock(grant: ShareGrant): { type: "text"; text: string } {
+    const g = this.deps.grants.get(grant.id) ?? grant // fresh budget after a deploy
+    const urls = this.liveUrls(g)
+    const where = urls.length ? ` · live at ${urls.join(", ")}` : ""
+    const remaining = Math.max(0, g.maxDeploys - g.deploysUsed)
+    return { type: "text", text: `[editing site "${g.site}"${where} · ${remaining} deploy(s) left on this link]` }
+  }
+
+  private toolText(id: JsonRpcRequest["id"], grant: ShareGrant, text: string, isError = false): unknown {
+    return {
+      jsonrpc: "2.0",
+      id: id ?? null,
+      result: { content: [{ type: "text", text }, this.siteContextBlock(grant)], isError },
+    }
   }
 
   private async handleToolCall(msg: JsonRpcRequest, grant: ShareGrant): Promise<unknown> {
@@ -148,43 +172,63 @@ export class McpHandler {
 
     try {
       switch (name) {
+        case "site_info":
+          return this.toolText(msg.id, grant, this.siteInfoText(grant))
         case "list_files": {
           this.ensureSeeded(grant)
           const files = this.deps.staging.listFiles(grant.id)
-          return this.toolText(msg.id, files.length ? files.join("\n") : "(no files)")
+          return this.toolText(msg.id, grant, files.length ? files.join("\n") : "(no files)")
         }
         case "read_file": {
           this.ensureSeeded(grant)
           const { content, encoding } = this.deps.staging.readFile(grant.id, String(args.path ?? ""))
           const prefix = encoding === "base64" ? "[base64-encoded binary file]\n" : ""
-          return this.toolText(msg.id, prefix + content)
+          return this.toolText(msg.id, grant, prefix + content)
         }
         case "write_file": {
           this.ensureSeeded(grant)
           const encoding = args.encoding === "base64" ? "base64" : "utf8"
           this.deps.staging.writeFile(grant.id, String(args.path ?? ""), String(args.content ?? ""), encoding)
-          return this.toolText(msg.id, `Wrote ${args.path}. Run deploy_site to publish.`)
+          return this.toolText(msg.id, grant, `Wrote ${args.path}. Run deploy_site to publish.`)
         }
         case "delete_file": {
           this.ensureSeeded(grant)
           const removed = this.deps.staging.deleteFile(grant.id, String(args.path ?? ""))
-          return this.toolText(msg.id, removed ? `Deleted ${args.path}.` : `File not found: ${args.path}`, !removed)
+          return this.toolText(msg.id, grant, removed ? `Deleted ${args.path}.` : `File not found: ${args.path}`, !removed)
         }
         case "deploy_site":
           return this.handleDeployTool(msg, grant)
         default:
-          return this.toolText(msg.id, `Unknown tool: ${name}`, true)
+          return this.toolText(msg.id, grant, `Unknown tool: ${name}`, true)
       }
     } catch (err) {
       const message = err instanceof ValidationError ? err.message : err instanceof Error ? err.message : String(err)
-      return this.toolText(msg.id, message, true)
+      return this.toolText(msg.id, grant, message, true)
     }
+  }
+
+  // Structured summary for the site_info tool: where it's live plus the current
+  // published version, so the model can reference the URL without deploying.
+  private siteInfoText(grant: ShareGrant): string {
+    const site = this.deps.sites.get(grant.site)
+    if (!site) return `Site "${grant.site}" no longer exists.`
+    const info = this.deps.sites.toInfo(site, this.deps.domain)
+    const canonical = info.domains.length ? info.domains.map((d) => `https://${d}`) : [info.url]
+    const lines = [
+      `Site: ${grant.site}`,
+      `Live at: ${canonical.join(", ")}`,
+      info.domains.length
+        ? `Custom domains: ${info.domains.join(", ")}`
+        : `Default subdomain: ${info.url}`,
+      `Current published version: ${info.version ?? "not yet published"}`,
+    ]
+    return lines.join("\n")
   }
 
   private async handleDeployTool(msg: JsonRpcRequest, grant: ShareGrant): Promise<unknown> {
     this.ensureSeeded(grant)
     const site = this.deps.sites.get(grant.site)
-    if (!site) return this.toolText(msg.id, `Site "${grant.site}" no longer exists.`, true)
+    if (!site) return this.toolText(msg.id, grant, `Site "${grant.site}" no longer exists.`, true)
 
     const seeded = this.deps.staging.seededVersion(grant.id)
     const current = site.version ?? 0
@@ -204,7 +248,7 @@ export class McpHandler {
         `\n\nNote: the site had changed since you started editing — your web changes were published on top of the latest version. ` +
         `If something looks off, re-run list_files/read_file to review the current files.`
     }
-    return this.toolText(msg.id, text)
+    return this.toolText(msg.id, grant, text)
   }
 
   private ensureSeeded(grant: ShareGrant): void {
@@ -217,6 +261,12 @@ export class McpHandler {
 }
 
 const TOOL_DEFINITIONS = [
+  {
+    name: "site_info",
+    description:
+      "Get the site's public URL(s) and current published version. The URL is the custom domain if one is set, otherwise the default subdomain.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
   {
     name: "list_files",
     description: "List all web files of the site you can edit (relative paths).",
