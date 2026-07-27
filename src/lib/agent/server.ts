@@ -5,6 +5,8 @@ import { TraefikManager } from "./traefik.ts"
 import { AppStorage } from "./app-storage.ts"
 import { GrantStore, type CreateGrantInput } from "./grant-store.ts"
 import { StagingStore } from "./staging-store.ts"
+import { OAuthStore } from "./oauth-store.ts"
+import { OAuthProvider } from "./oauth-provider.ts"
 import { McpHandler } from "./mcp.ts"
 import { DockerManager } from "./docker.ts"
 import type { Runtime } from "./runtime.ts"
@@ -32,6 +34,8 @@ export class AgentServer {
   private appStorage: AppStorage
   private grants: GrantStore
   private staging: StagingStore
+  private oauth: OAuthStore
+  private oauthProvider: OAuthProvider
   private mcp: McpHandler
   private docker: Runtime
   private git: GitManager
@@ -46,14 +50,17 @@ export class AgentServer {
     this.appStorage = new AppStorage(config.dataDir)
     this.grants = new GrantStore(config.dataDir)
     this.staging = new StagingStore(config.dataDir)
+    this.oauth = new OAuthStore(config.dataDir)
     this.docker = runtime ?? new DockerManager(config.dataDir)
     this.git = new GitManager(config.dataDir)
     this.dockerfiles = new DockerfileStorage(config.dataDir)
     this.compose = new ComposeStorage(config.dataDir)
+    this.oauthProvider = new OAuthProvider({ grants: this.grants, oauth: this.oauth, domain: config.domain })
     this.mcp = new McpHandler({
       grants: this.grants,
       staging: this.staging,
       sites: this.storage,
+      oauth: this.oauth,
       domain: config.domain,
       deploy: (siteName, zipData, deployedBy) => this.deploySiteViaGrant(siteName, zipData, deployedBy),
     })
@@ -90,11 +97,37 @@ export class AgentServer {
     const host = req.headers.get("host") || ""
     const hostWithoutPort = host.split(":")[0] || ""
 
-    // MCP share endpoint: authenticated by the grant token in the path, not by
-    // host or the god API key. Traefik forwards `<site>.<domain>/mcp/*` here, so
-    // this must run BEFORE the api-host gate (the host is a site host, not api.).
-    if (path.startsWith("/mcp/")) {
-      return this.mcp.handle(req, path)
+    // MCP share endpoint + its per-site OAuth authorization server. Served under
+    // the site host (`<site>.<domain>`), authenticated by OAuth bearer tokens —
+    // never under `api.<domain>` and never behind the god key. Traefik forwards
+    // `<site>.<domain>/mcp/*` and the oauth `.well-known/*` here, so this runs
+    // BEFORE the api-host gate.
+    if (path === "/mcp" || path.startsWith("/mcp/") || path.startsWith("/.well-known/oauth-")) {
+      const ctx = this.oauthProvider.hostContext(host)
+      if (!ctx) return this.error("Not found", 404)
+      if (req.method === "OPTIONS") return this.oauthProvider.preflight()
+
+      if (
+        path === "/.well-known/oauth-protected-resource" ||
+        path === "/.well-known/oauth-protected-resource/mcp"
+      ) {
+        return this.oauthProvider.protectedResourceMetadata(ctx)
+      }
+      if (
+        path === "/.well-known/oauth-authorization-server" ||
+        path === "/.well-known/oauth-authorization-server/mcp"
+      ) {
+        return this.oauthProvider.authorizationServerMetadata(ctx)
+      }
+      if (path === "/mcp/oauth/register" && req.method === "POST") return this.oauthProvider.handleRegister(req)
+      if (path === "/mcp/oauth/authorize") {
+        if (req.method === "GET") return this.oauthProvider.handleAuthorizeGet(url, ctx)
+        if (req.method === "POST") return this.oauthProvider.handleAuthorizePost(req, ctx)
+      }
+      if (path === "/mcp/oauth/token" && req.method === "POST") return this.oauthProvider.handleToken(req, ctx)
+      if (path === "/mcp") return this.mcp.handle(req, ctx)
+
+      return this.error("Not found", 404)
     }
 
     // Check if this is an API request (api.domain)
@@ -969,8 +1002,8 @@ export class AgentServer {
         label: body.label,
       }
       const { grant, token } = this.grants.create(input)
-      const url = `https://${name}.${this.config.domain}/mcp/${token}`
-      return this.json({ grant: this.grants.toInfo(grant), token, url })
+      const url = `https://${name}.${this.config.domain}/mcp`
+      return this.json({ grant: this.grants.toInfo(grant), url, code: token })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create share link"
       return this.error(message, 400)
@@ -987,6 +1020,8 @@ export class AgentServer {
     if (!grant || grant.site !== name) return this.error("Share link not found", 404)
     this.grants.revoke(id)
     this.staging.remove(id)
+    // Kill any outstanding OAuth access tokens so live connectors stop at once.
+    this.oauth.revokeTokensForGrant(id)
     return this.json({ revoked: true })
   }
 
@@ -1224,9 +1259,11 @@ export class AgentServer {
     }
   }
 
-  handleRequestForTest(req: Request): Promise<Response> {
+  // `host` defaults to "localhost" so existing api-route tests pass the api gate;
+  // MCP/OAuth tests pass a real site host (e.g. "blog.example.com").
+  handleRequestForTest(req: Request, host = "localhost"): Promise<Response> {
     const headers = new Headers(req.headers)
-    headers.set("host", "localhost")
+    headers.set("host", host)
     return this.handleRequest(new Request(req.url, { method: req.method, headers, body: req.body }))
   }
 
@@ -1240,8 +1277,10 @@ export class AgentServer {
     // One-time conversion of pre-merge shared-nginx static sites.
     await this.migrateLegacy()
 
-    // Reclaim dead share links (revoked / expired / used up) and their staging.
+    // Reclaim dead share links (revoked / expired / used up) and their staging,
+    // plus expired OAuth codes/tokens.
     for (const id of this.grants.gc()) this.staging.remove(id)
+    this.oauth.gc()
 
     const port = this.config.port || 3000
 

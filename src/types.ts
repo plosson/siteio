@@ -259,11 +259,13 @@ export interface ShareGrantInfo {
   active: boolean // computed: not revoked, not expired, budget remaining
 }
 
-// Response to grant creation — carries the one-time token and the MCP link.
+// Response to grant creation. The connector URL is the same for every grant on
+// a site; the per-invitee secret is the `code`, entered on the OAuth consent
+// page. The code is shown only once.
 export interface ShareGrantCreated {
   grant: ShareGrantInfo
-  token: string // raw token, shown once
-  url: string // full MCP link: https://<site>.<domain>/mcp/<token>
+  url: string // connector URL: https://<site>.<domain>/mcp (same for everyone)
+  code: string // one-time share code the invitee enters to authorize
 }
 
 export interface LoginOptions {

@@ -43,12 +43,13 @@ describe("API: share grants", () => {
       new Request(`http://x/sites/${name}/grants`, { method: "POST", headers: JSONH, body: JSON.stringify(body) })
     )
 
-  test("POST /sites/:name/grants returns a one-time token and the MCP url", async () => {
+  test("POST /sites/:name/grants returns a one-time code and the shared connector url", async () => {
     const res = await createGrant({ deploys: 2 })
     expect(res.status).toBe(200)
     const body = (await res.json()) as ApiResponse<ShareGrantCreated>
-    expect(body.data!.token).toStartWith("grt_")
-    expect(body.data!.url).toBe(`https://blog.example.com/mcp/${body.data!.token}`)
+    expect(body.data!.code).toStartWith("grt_")
+    // Same URL for every grant — the code (not the URL) is the per-invitee secret.
+    expect(body.data!.url).toBe("https://blog.example.com/mcp")
     expect(body.data!.grant.site).toBe("blog")
     expect(body.data!.grant.active).toBe(true)
   })

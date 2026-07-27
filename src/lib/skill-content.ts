@@ -85,21 +85,24 @@ When a user wants to edit a site by giving its URL (e.g., \`https://mysite.examp
 3. Edit the files in \`/tmp/mysite-edit/\`
 4. Re-deploy: \`siteio sites deploy /tmp/mysite-edit -n mysite\`
 
-## Sharing a site for editing (single-use MCP link)
+## Sharing a site for editing (MCP connector)
 
 Let someone else edit and redeploy a site without giving them your credentials:
 
 \`\`\`sh
-siteio sites share mysite                    # prints an MCP link (1 deploy, expires in 7d)
+siteio sites share mysite                    # prints a connector URL + a share code (1 deploy, 7d)
 siteio sites share mysite --deploys 3 --expires 24h --label "Sam"
-siteio sites share list mysite               # see active links
-siteio sites share revoke <id> -n mysite     # kill a link early
+siteio sites share mysite --expires never    # non-expiring
+siteio sites share list mysite               # see active grants
+siteio sites share revoke <id> -n mysite     # kill a grant early
 \`\`\`
 
-The link (\`https://mysite.<domain>/mcp/<token>\`) is pasted into an MCP client.
-The invitee's AI can only edit that one site's **web files** and publish, bounded
-by the deploy budget and expiry — never the backend, data, or other sites. The
-link is shown once; copy it immediately.
+This prints a **connector URL** (\`https://mysite.<domain>/mcp\`, the same for
+everyone) and a one-time **share code**. The invitee adds the URL as a custom
+MCP connector in their AI app and pastes the code when asked to authorize (a
+standard OAuth flow). Their AI can then only edit that one site's **web files**
+and publish, bounded by the deploy budget and expiry — never the backend, data,
+or other sites. Each code is a separate, revocable grant; the code is shown once.
 
 ## Key Features
 

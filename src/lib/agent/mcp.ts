@@ -2,8 +2,8 @@ import type { ShareGrant, SiteInfo } from "../../types.ts"
 import type { GrantStore } from "./grant-store.ts"
 import type { StagingStore } from "./staging-store.ts"
 import type { SiteStorage } from "./storage.ts"
+import type { OAuthStore } from "./oauth-store.ts"
 import { ValidationError } from "../../utils/errors.ts"
-import { isWellFormedGrantToken } from "../../utils/grant-token.ts"
 import { getVersion } from "../version.ts"
 
 const MCP_PROTOCOL_VERSION = "2024-11-05"
@@ -16,21 +16,29 @@ interface JsonRpcRequest {
   params?: Record<string, unknown>
 }
 
+// Site context resolved from the request Host by the server (never api.<domain>).
+export interface McpHostCtx {
+  baseUrl: string // https://<site>.<domain>
+  site: string
+}
+
 export interface McpDeps {
   grants: GrantStore
   staging: StagingStore
   sites: SiteStorage
+  oauth: OAuthStore
   domain: string // base domain, for building the site's public URL(s)
   // Deploy a merged web+backend zip as a new version of `siteName`. Throws on
   // failure (missing site, Docker down, …). Provided by AgentServer.
   deploy: (siteName: string, zipData: Uint8Array, deployedBy: string) => Promise<SiteInfo>
 }
 
-// A minimal Model Context Protocol server over Streamable HTTP, authenticated
-// by a share-grant token in the URL path (`/mcp/<token>`). Exposes five
+// A minimal Model Context Protocol server over Streamable HTTP, served per-site
+// at `https://<site>.<domain>/mcp` and authenticated by an OAuth bearer token
+// (obtained by the client via the share-code flow — see OAuthProvider). Exposes
 // file-level tools scoped to one site's web root, backed by a per-grant staging
-// copy. Deliberately hand-rolled (initialize / tools/list / tools/call) to
-// match the project's dependency-light HTTP layer.
+// copy. Hand-rolled (initialize / tools/list / tools/call) to match the
+// project's dependency-light HTTP layer.
 export class McpHandler {
   constructor(private deps: McpDeps) {}
 
@@ -38,28 +46,21 @@ export class McpHandler {
     return Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } })
   }
 
-  private jsonRpcResult(id: JsonRpcRequest["id"], result: unknown): Response {
-    return Response.json({ jsonrpc: "2.0", id: id ?? null, result })
-  }
-
-  // Entry point. `path` is the request pathname (e.g. "/mcp/grt_...").
-  async handle(req: Request, path: string): Promise<Response> {
-    const match = path.match(/^\/mcp\/([^/]+)\/?$/)
-    if (!match) return this.unauthorized("Malformed MCP endpoint")
-    const token = decodeURIComponent(match[1]!)
-
-    if (!isWellFormedGrantToken(token)) return this.unauthorized("Invalid share link")
-
-    const grant = this.deps.grants.resolveByToken(token)
-    if (!grant) return this.unauthorized("This share link is invalid, expired, revoked, or used up")
-
-    // Streamable HTTP: clients POST JSON-RPC. We don't offer a server-initiated
-    // GET stream — tell compliant clients so explicitly.
-    if (req.method === "GET") {
+  // Entry point. `ctx` is the site resolved from the request Host by the server.
+  async handle(req: Request, ctx: McpHostCtx): Promise<Response> {
+    if (req.method !== "POST") {
+      // We don't offer a server-initiated GET stream; tell compliant clients.
       return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } })
     }
-    if (req.method !== "POST") {
-      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } })
+
+    // Bearer auth: the client obtained this token via the OAuth share-code flow.
+    const auth = req.headers.get("authorization") || ""
+    const bearer = auth.startsWith("Bearer ") ? auth.slice(7).trim() : ""
+    const record = bearer ? this.deps.oauth.resolveAccessToken(bearer) : null
+    const grant = record ? this.deps.grants.get(record.grantId) : null
+    // The token must map to a live grant for THIS site.
+    if (!grant || !this.deps.grants.isActive(grant) || grant.site !== ctx.site) {
+      return this.challenge(ctx)
     }
 
     let payload: unknown
@@ -85,8 +86,16 @@ export class McpHandler {
     return Response.json(single)
   }
 
-  private unauthorized(message: string): Response {
-    return Response.json({ error: message }, { status: 401 })
+  // 401 that points the client at this site's protected-resource metadata, so
+  // it can discover the OAuth authorization server and start the flow.
+  private challenge(ctx: McpHostCtx): Response {
+    return new Response(JSON.stringify({ error: "unauthorized", error_description: "Authorization required" }), {
+      status: 401,
+      headers: {
+        "Content-Type": "application/json",
+        "WWW-Authenticate": `Bearer resource_metadata="${ctx.baseUrl}/.well-known/oauth-protected-resource"`,
+      },
+    })
   }
 
   // Returns a JSON-RPC response object, or null for a notification (no reply).

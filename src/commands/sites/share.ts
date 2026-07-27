@@ -51,10 +51,13 @@ export async function sitesShareCommand(name: string | undefined, options: Share
     } else {
       console.error(formatSuccess(`Share link created for site '${resolved}'`))
       console.error("")
-      console.error(`  ${chalk.cyan(created.url)}`)
+      console.error(`  Connector URL:  ${chalk.cyan(created.url)}`)
+      console.error(`  Share code:     ${chalk.bold(created.code)}`)
       console.error("")
-      console.error(formatDim("  Paste this into an MCP client (e.g. Claude Desktop, Cursor) to let"))
-      console.error(formatDim("  someone edit and redeploy this site's web files."))
+      console.error(formatDim("  Send both to the person editing the site. They add the Connector URL"))
+      console.error(formatDim("  as a custom connector in their AI app (Claude, Cursor, …) and paste the"))
+      console.error(formatDim("  share code when asked to authorize. The URL is the same for everyone;"))
+      console.error(formatDim("  each code is a separate, revocable grant."))
       const expiryText = created.grant.expiresAt
         ? new Date(created.grant.expiresAt).toLocaleString()
         : "never"
@@ -62,7 +65,7 @@ export async function sitesShareCommand(name: string | undefined, options: Share
         formatDim(`  Budget: ${created.grant.maxDeploys} deploy(s) · Expires: ${expiryText}`)
       )
       console.error("")
-      console.error(chalk.yellow("  ! This link is shown only once. Copy it now."))
+      console.error(chalk.yellow("  ! The share code is shown only once. Copy it now."))
     }
     process.exit(0)
   } catch (err) {

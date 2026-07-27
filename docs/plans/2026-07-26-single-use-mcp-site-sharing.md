@@ -2,7 +2,37 @@
 
 **Status:** Architecture / design
 **Date:** 2026-07-26
-**Goal:** Let a site owner mint a shareable **MCP link** that a second person (via their own AI client) can use to edit and redeploy *one* site — with owner-set usage limits, real revocation, and no exposure of the god API key.
+**Goal:** Let a site owner mint a shareable **MCP connector** that a second person (via their own AI client) can use to edit and redeploy *one* site — with owner-set usage limits, real revocation, and no exposure of the god API key.
+
+---
+
+## v2 (2026-07-27): OAuth per-site — supersedes token-in-URL
+
+Shipped as `1.20.0` with a **token-in-URL** auth model (`…/mcp/<token>`). That works with Claude Code / Cursor / `mcp-remote`, but **claude.ai's connector UI requires OAuth** (it does Dynamic Client Registration and fails against a token URL). v2 replaces the auth model entirely (no backward compat) with a **minimal per-site OAuth 2.0 authorization server**, so a share link works as a first-class claude.ai / Claude Desktop custom connector. Sections §4/§8 (StagingStore, deploy merge, staging GC, path/size hardening) are unchanged; the auth/transport sections below are superseded by this one.
+
+**Model.** `siteio sites share <site>` now prints a **connector URL** (`https://<site>.<domain>/mcp`, identical for everyone) **and a one-time share code** (the grant token). The per-invitee secret moved out of the URL into the OAuth consent step — so the URL is stable/shareable and each code is its own revocable grant.
+
+**Everything is per-site; `api.<domain>` is never exposed.** All OAuth endpoints are served under the site host, and every URL in metadata/redirects is built from the request `Host` (never the api host). The agent refuses these paths on `api.<domain>`.
+
+**Endpoints** (served by `OAuthProvider`, dispatched before the api-host gate, no god key):
+
+| Path (under `<site>.<domain>`) | Purpose |
+|---|---|
+| `GET /.well-known/oauth-protected-resource[/mcp]` | RFC 9728 — points at the AS (the site host itself) |
+| `GET /.well-known/oauth-authorization-server[/mcp]` | RFC 8414 — advertises the endpoints below + `S256` PKCE |
+| `POST /mcp/oauth/register` | Dynamic Client Registration (RFC 7591) → `client_id` |
+| `GET /mcp/oauth/authorize` | Consent page: "enter your share code" |
+| `POST /mcp/oauth/authorize` | Validate code → grant (must match host's site) → 302 with single-use auth code |
+| `POST /mcp/oauth/token` | Auth code + PKCE verifier → bearer **access token** (leased to the grant) |
+| `POST /mcp` | JSON-RPC MCP, `Authorization: Bearer <token>`; 401 + `WWW-Authenticate` when missing |
+
+**Flow.** discover → DCR → authorize (paste code) → token → MCP over Bearer. The access token is a *lease* on the grant: every MCP call re-checks the grant, so revoke/expiry/budget bite immediately; token lifetime tracks the grant (long-lived for `--expires never`), so no refresh tokens are needed.
+
+**New stores/files:** `OAuthStore` (`oauth/{clients,authcodes,tokens}`), `oauth.ts` (PKCE S256 + id/token gen), `OAuthProvider` (endpoints + consent page). `GrantStore`/`StagingStore` reused as-is; the grant token is now the "code".
+
+**Traefik:** the `mcp-router` rule additionally routes `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource` (alongside `/mcp`) on the site host to the agent.
+
+**Security:** PKCE S256 mandatory; single-use, short-TTL auth codes; strict `redirect_uri` match per registered client; a code for site A can't authorize on site B's host; revoking a grant drops its access tokens; the code is entered in a form (not left in a URL/history). Follow-up worth considering: rate-limit the `authorize` endpoint.
 
 ---
 
