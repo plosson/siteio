@@ -267,6 +267,15 @@ export class SiteStorage {
     return [this.primaryDomain(site, domain), ...this.customDomains(site, domain)]
   }
 
+  // Reverse lookup: the site that owns a custom domain host (e.g. the sharing
+  // endpoints resolve which site a request on a vanity domain belongs to).
+  findByCustomDomain(host: string, domain: string): Site | null {
+    for (const site of this.list()) {
+      if (this.customDomains(site, domain).includes(host)) return site
+    }
+    return null
+  }
+
   toInfo(site: Site, domain: string): SiteInfo {
     const primary = this.primaryDomain(site, domain)
     return {

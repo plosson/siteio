@@ -67,19 +67,20 @@ describe("Unit: TraefikManager", () => {
   it("dynamic config exposes the MCP share router in front of site containers", () => {
     const dynamicConfig = makeTraefik().generateDynamicConfig()
     expect(dynamicConfig).toContain("mcp-router")
-    // Matches any site subdomain + the /mcp path, routed to the agent. The
-    // domain dots are regex-escaped (YAML double-quote unescapes \\. to \.).
-    expect(dynamicConfig).toContain("HostRegexp(`^[a-z0-9-]+")
+    // Host-agnostic (matches subdomains AND sites' custom/vanity domains); the
+    // agent resolves the host to a site. Only the reserved paths are siphoned.
     expect(dynamicConfig).toContain("PathPrefix(`/mcp`)")
-    // Also routes the per-site OAuth discovery endpoints to the agent.
+    expect(dynamicConfig).toContain("PathPrefix(`/cli`)")
+    expect(dynamicConfig).toContain("PathPrefix(`/_siteio`)")
     expect(dynamicConfig).toContain("PathPrefix(`/.well-known/oauth-authorization-server`)")
     expect(dynamicConfig).toContain("PathPrefix(`/.well-known/oauth-protected-resource`)")
-    // Domain dots are regex-escaped (String.raw so the two backslashes match).
-    expect(dynamicConfig).toContain(String.raw`test\\.siteio\\.me$`)
-    // High priority so it beats the site container's Host-only router.
+    // No host constraint on the rule (so custom domains are covered too).
+    const mcpBlock = dynamicConfig.slice(dynamicConfig.indexOf("mcp-router"))
+    const mcpRule = mcpBlock.slice(0, mcpBlock.indexOf("\n", mcpBlock.indexOf("rule:")))
+    expect(mcpRule).not.toContain("HostRegexp")
+    // High priority so it beats the site container's Host router.
     expect(dynamicConfig).toContain("priority: 1000")
     // Reuses the agent's own service (and thus its Let's Encrypt cert).
-    const mcpBlock = dynamicConfig.slice(dynamicConfig.indexOf("mcp-router"))
     expect(mcpBlock).toContain('service: "api-service"')
   })
 

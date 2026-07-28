@@ -1,5 +1,6 @@
 import type { GrantStore } from "./grant-store.ts"
 import type { OAuthStore } from "./oauth-store.ts"
+import type { SiteStorage } from "./storage.ts"
 import { verifyPkceS256 } from "../../utils/oauth.ts"
 
 // Access tokens are leases on a grant, re-checked (for revocation) on every MCP
@@ -10,6 +11,7 @@ const TOKEN_TTL_MS = 3650 * 24 * 60 * 60 * 1000 // ~10 years
 export interface OAuthDeps {
   grants: GrantStore
   oauth: OAuthStore
+  sites: SiteStorage // for resolving custom-domain hosts to their owning site
   domain: string // base domain; the site is derived from the request host
 }
 
@@ -34,14 +36,21 @@ export class OAuthProvider {
   constructor(private deps: OAuthDeps) {}
 
   // Resolve the site context from a host header, or null if the host isn't a
-  // site under this agent's base domain.
+  // servable site. Two cases: the default `<site>.<domain>` subdomain, or a
+  // site's custom domain (resolved via SiteStorage). `baseUrl` is always the
+  // host the client actually connected to, so every OAuth URL stays on it.
   hostContext(host: string): HostCtx | null {
     const bare = host.split(":")[0] || ""
     const suffix = `.${this.deps.domain}`
-    if (!bare.endsWith(suffix)) return null
-    const site = bare.slice(0, bare.length - suffix.length)
-    if (!site || site === "api" || !/^[a-z0-9-]+$/.test(site)) return null
-    return { baseUrl: `https://${bare}`, site }
+    if (bare.endsWith(suffix)) {
+      const site = bare.slice(0, bare.length - suffix.length)
+      if (!site || site === "api" || !/^[a-z0-9-]+$/.test(site)) return null
+      return { baseUrl: `https://${bare}`, site }
+    }
+    // Custom (vanity) domain → its owning site.
+    const owner = this.deps.sites.findByCustomDomain(bare, this.deps.domain)
+    if (!owner) return null
+    return { baseUrl: `https://${bare}`, site: owner.name }
   }
 
   private cors(headers: Record<string, string> = {}): Record<string, string> {
