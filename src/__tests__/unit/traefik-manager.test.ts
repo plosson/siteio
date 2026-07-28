@@ -70,7 +70,6 @@ describe("Unit: TraefikManager", () => {
     // Host-agnostic (matches subdomains AND sites' custom/vanity domains); the
     // agent resolves the host to a site. Only the reserved paths are siphoned.
     expect(dynamicConfig).toContain("PathPrefix(`/mcp`)")
-    expect(dynamicConfig).toContain("PathPrefix(`/cli`)")
     expect(dynamicConfig).toContain("PathPrefix(`/_siteio`)")
     expect(dynamicConfig).toContain("PathPrefix(`/.well-known/oauth-authorization-server`)")
     expect(dynamicConfig).toContain("PathPrefix(`/.well-known/oauth-protected-resource`)")

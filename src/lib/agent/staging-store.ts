@@ -151,6 +151,35 @@ export class StagingStore {
     writeFileSync(full, bytes)
   }
 
+  // Replace an exact snippet in a staged text file (like a code editor's
+  // find-and-replace). `oldString` must match verbatim; unless `replaceAll` is
+  // set it must occur exactly once, so an ambiguous edit never silently changes
+  // the wrong place. Returns the number of replacements made. Refuses binary
+  // files — edit those by re-uploading via writeBytes/write_url.
+  editFile(grantId: string, relPath: string, oldString: string, newString: string, replaceAll = false): number {
+    if (oldString === "") throw new ValidationError("old_string is required")
+    if (oldString === newString) throw new ValidationError("old_string and new_string are identical")
+    const full = this.safePath(grantId, relPath)
+    if (!existsSync(full) || statSync(full).isDirectory()) {
+      throw new ValidationError(`File not found: ${relPath}`)
+    }
+    const bytes = readFileSync(full)
+    const text = bytes.toString("utf-8")
+    if (text.includes("�") || bytes.includes(0)) {
+      throw new ValidationError(`Cannot edit binary file: ${relPath}`)
+    }
+    const count = text.split(oldString).length - 1
+    if (count === 0) throw new ValidationError(`old_string not found in ${relPath}`)
+    if (count > 1 && !replaceAll) {
+      throw new ValidationError(
+        `old_string occurs ${count} times in ${relPath} — include more surrounding context to make it unique, or set replace_all.`
+      )
+    }
+    const updated = replaceAll ? text.split(oldString).join(newString) : text.replace(oldString, newString)
+    this.writeBytes(grantId, relPath, Buffer.from(updated, "utf-8"))
+    return replaceAll ? count : 1
+  }
+
   deleteFile(grantId: string, relPath: string): boolean {
     const full = this.safePath(grantId, relPath)
     if (!existsSync(full) || statSync(full).isDirectory()) return false

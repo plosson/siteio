@@ -104,17 +104,9 @@ export class AgentServer {
     const key = req.headers.get("X-API-Key") || ""
     if (!key) return null
     if (key === this.config.apiKey) return { kind: "god" }
-    // A raw share code (grant token) …
+    // A raw share code (grant token), as sent by a scoped CLI login.
     const grant = this.grants.resolveByToken(key)
     if (grant) return { kind: "grant", grant }
-    // … or an OAuth bearer access token, so a client that connected via the MCP
-    // connector can use the same credential with the CLI (the get_started
-    // bridge). Both resolve to the same live grant.
-    const rec = this.oauth.resolveAccessToken(key)
-    if (rec) {
-      const g = this.grants.get(rec.grantId)
-      if (g && this.grants.isActive(g)) return { kind: "grant", grant: g }
-    }
     return null
   }
 
@@ -124,35 +116,27 @@ export class AgentServer {
     const host = req.headers.get("host") || ""
     const hostWithoutPort = host.split(":")[0] || ""
 
-    // Two MCP surfaces + their shared per-site OAuth authorization server, all
-    // served under the SITE host (`<site>.<domain>`) — never under api.<domain>
-    // and never behind the god key. Traefik forwards `/mcp/*`, `/cli/*` and the
-    // oauth `.well-known/*` here, so this runs BEFORE the api-host gate.
-    //   /mcp — full web-file editing tools.
-    //   /cli — a single get_started tool that hands off to the siteio CLI.
-    // Both authenticate identically (OAuth bearer → grant for this site).
+    // The MCP surface (`/mcp`, full web-file editing tools) + its per-site OAuth
+    // authorization server, served under the SITE host (`<site>.<domain>`) —
+    // never under api.<domain> and never behind the god key. Traefik forwards
+    // `/mcp/*` and the oauth `.well-known/*` here, so this runs BEFORE the
+    // api-host gate. Authenticated by an OAuth bearer → grant for this site.
     const isMcpSurface =
       path === "/mcp" || path.startsWith("/mcp/") ||
-      path === "/cli" || path.startsWith("/cli/") ||
       path.startsWith("/.well-known/oauth-")
     if (isMcpSurface) {
       const ctx = this.oauthProvider.hostContext(host)
       if (!ctx) return this.error("Not found", 404)
       if (req.method === "OPTIONS") return this.oauthProvider.preflight()
 
-      // Per-surface protected-resource metadata (RFC 9728). The bare path
-      // defaults to the /mcp resource for back-compat.
+      // Protected-resource metadata (RFC 9728). The bare path and the /mcp
+      // suffix both resolve to the MCP resource.
       if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") {
-        return this.oauthProvider.protectedResourceMetadata(ctx, "mcp")
+        return this.oauthProvider.protectedResourceMetadata(ctx)
       }
-      if (path === "/.well-known/oauth-protected-resource/cli") {
-        return this.oauthProvider.protectedResourceMetadata(ctx, "cli")
-      }
-      // One shared authorization server for both surfaces.
       if (
         path === "/.well-known/oauth-authorization-server" ||
-        path === "/.well-known/oauth-authorization-server/mcp" ||
-        path === "/.well-known/oauth-authorization-server/cli"
+        path === "/.well-known/oauth-authorization-server/mcp"
       ) {
         return this.oauthProvider.authorizationServerMetadata(ctx)
       }
@@ -162,8 +146,7 @@ export class AgentServer {
         if (req.method === "POST") return this.oauthProvider.handleAuthorizePost(req, ctx)
       }
       if (path === "/mcp/oauth/token" && req.method === "POST") return this.oauthProvider.handleToken(req, ctx)
-      if (path === "/mcp") return this.mcp.handle(req, ctx, "mcp")
-      if (path === "/cli") return this.mcp.handle(req, ctx, "cli")
+      if (path === "/mcp") return this.mcp.handle(req, ctx)
 
       return this.error("Not found", 404)
     }

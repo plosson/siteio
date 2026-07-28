@@ -35,7 +35,7 @@ function toolText(body: { result?: { content?: { text: string }[]; isError?: boo
   return body.result?.content?.[0]?.text ?? ""
 }
 
-describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth", () => {
+describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
   let dataDir: string
   let runtime: FakeRuntime
   let server: AgentServer
@@ -58,8 +58,8 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
     return ((await res.json()) as ApiResponse<ShareGrantCreated>).data!.code
   }
 
-  // Run the OAuth share-code dance once (on `host`) → a bearer usable on BOTH
-  // surfaces. Grants are minted on the api host; the dance runs on the site host.
+  // Run the OAuth share-code dance once (on `host`) → a bearer for /mcp.
+  // Grants are minted on the api host; the dance runs on the site host.
   const connect = async (name: string, grantBody: Record<string, unknown> = {}, host = HOST): Promise<string> => {
     const code = await mintCode(name, grantBody)
     const reg = await on(
@@ -95,7 +95,7 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
     return ((await tokRes.json()) as { access_token: string }).access_token
   }
 
-  const rpc = (endpoint: "/mcp" | "/cli", bearer: string, message: unknown, host = HOST) =>
+  const rpc = (endpoint: "/mcp", bearer: string, message: unknown, host = HOST) =>
     on(
       new Request(`http://x${endpoint}`, {
         method: "POST",
@@ -104,11 +104,11 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
       }),
       host
     )
-  const call = async (endpoint: "/mcp" | "/cli", bearer: string, name: string, args: Record<string, unknown> = {}, host = HOST) => {
+  const call = async (endpoint: "/mcp", bearer: string, name: string, args: Record<string, unknown> = {}, host = HOST) => {
     const res = await rpc(endpoint, bearer, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, host)
     return { status: res.status, body: (await res.json()) as { result?: { content?: { text: string }[]; isError?: boolean } } }
   }
-  const listTools = async (endpoint: "/mcp" | "/cli", bearer: string) => {
+  const listTools = async (endpoint: "/mcp", bearer: string) => {
     const res = await rpc(endpoint, bearer, { jsonrpc: "2.0", id: 2, method: "tools/list" })
     return ((await res.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name).sort()
   }
@@ -121,56 +121,41 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
 
-  // --- Auth (shared) ---
+  // --- Auth ---
 
-  test("unauthenticated /mcp and /cli each 401 to their own protected-resource", async () => {
+  test("unauthenticated /mcp 401s to its protected-resource metadata", async () => {
     const mcp = await on(new Request("http://x/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }))
     expect(mcp.status).toBe(401)
     expect(mcp.headers.get("WWW-Authenticate")).toContain("/.well-known/oauth-protected-resource/mcp")
-    const cli = await on(new Request("http://x/cli", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }))
-    expect(cli.status).toBe(401)
-    expect(cli.headers.get("WWW-Authenticate")).toContain("/.well-known/oauth-protected-resource/cli")
   })
 
-  test("protected-resource metadata differs per surface but names the same auth server", async () => {
-    const mcp = (await (await on(new Request("http://x/.well-known/oauth-protected-resource/mcp", { method: "GET" }))).json()) as { resource: string; authorization_servers: string[] }
-    const cli = (await (await on(new Request("http://x/.well-known/oauth-protected-resource/cli", { method: "GET" }))).json()) as { resource: string; authorization_servers: string[] }
-    expect(mcp.resource).toBe("https://blog.example.com/mcp")
-    expect(cli.resource).toBe("https://blog.example.com/cli")
-    expect(cli.authorization_servers).toEqual(mcp.authorization_servers)
-    expect(cli.authorization_servers).toEqual(["https://blog.example.com"])
+  test("protected-resource metadata (bare path and /mcp) names the site's auth server", async () => {
+    for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"]) {
+      const meta = (await (await on(new Request(`http://x${path}`, { method: "GET" }))).json()) as { resource: string; authorization_servers: string[] }
+      expect(meta.resource).toBe("https://blog.example.com/mcp")
+      expect(meta.authorization_servers).toEqual(["https://blog.example.com"])
+    }
   })
 
-  test("one bearer from the OAuth dance works on BOTH surfaces", async () => {
+  test("a bearer from the OAuth dance authenticates /mcp", async () => {
     const bearer = await connect("blog")
     expect((await rpc("/mcp", bearer, { jsonrpc: "2.0", id: 1, method: "ping" })).status).toBe(200)
-    expect((await rpc("/cli", bearer, { jsonrpc: "2.0", id: 1, method: "ping" })).status).toBe(200)
   })
 
-  // --- Tool surfaces ---
+  // --- Tool surface ---
 
-  test("/mcp exposes the editing tools (no get_started)", async () => {
+  test("/mcp exposes the editing tools", async () => {
     const bearer = await connect("blog")
     expect(await listTools("/mcp", bearer)).toEqual(
-      ["delete_file", "deploy_site", "list_files", "list_history", "read_file", "site_info", "write_file", "write_url"]
+      ["delete_file", "deploy_site", "edit_file", "list_files", "list_history", "read_file", "site_info", "write_file", "write_url"]
     )
   })
 
-  test("/cli exposes exactly one tool: get_started", async () => {
+  test("/mcp rejects an unknown tool", async () => {
     const bearer = await connect("blog")
-    expect(await listTools("/cli", bearer)).toEqual(["get_started"])
-  })
-
-  test("each surface rejects the other surface's tools", async () => {
-    const bearer = await connect("blog")
-    // get_started is not on /mcp
-    expect((await call("/mcp", bearer, "get_started")).body.result!.isError).toBe(true)
-    // editing tools are not on /cli
-    for (const t of ["list_files", "write_file", "deploy_site", "site_info"]) {
-      const { body } = await call("/cli", bearer, t)
-      expect(body.result!.isError).toBe(true)
-      expect(toolText(body)).toContain("Unknown tool")
-    }
+    const { body } = await call("/mcp", bearer, "get_started")
+    expect(body.result!.isError).toBe(true)
+    expect(toolText(body)).toContain("Unknown tool")
   })
 
   // --- /mcp editing behavior ---
@@ -187,6 +172,59 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
     const dec = (k: string) => new TextDecoder().decode(files[k]!)
     expect(dec("public/index.html")).toBe("<h1>edited</h1>")
     expect(dec("pb_migrations/1_init.js")).toBe("// schema")
+  })
+
+  test("/mcp: edit_file replaces an exact snippet, staged then published", async () => {
+    const bearer = await connect("blog")
+    const res = await call("/mcp", bearer, "edit_file", {
+      path: "index.html",
+      old_string: "<h1>original</h1>",
+      new_string: "<h1>edited via edit_file</h1>",
+    })
+    expect(res.body.result!.isError).toBeFalsy()
+    expect(toolText(res.body)).toContain("1 replacement")
+    await call("/mcp", bearer, "deploy_site")
+
+    const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }))
+    const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
+    expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("<h1>edited via edit_file</h1>")
+  })
+
+  test("/mcp: edit_file errors when old_string is missing or ambiguous", async () => {
+    const bearer = await connect("blog")
+    await call("/mcp", bearer, "write_file", { path: "dup.html", content: "x\nx\n" })
+    const missing = await call("/mcp", bearer, "edit_file", { path: "dup.html", old_string: "nope", new_string: "y" })
+    expect(missing.body.result!.isError).toBe(true)
+    expect(toolText(missing.body)).toContain("not found")
+    const ambiguous = await call("/mcp", bearer, "edit_file", { path: "dup.html", old_string: "x", new_string: "y" })
+    expect(ambiguous.body.result!.isError).toBe(true)
+    expect(toolText(ambiguous.body)).toContain("occurs 2 times")
+    // replace_all resolves the ambiguity.
+    const all = await call("/mcp", bearer, "edit_file", { path: "dup.html", old_string: "x", new_string: "y", replace_all: true })
+    expect(all.body.result!.isError).toBeFalsy()
+    expect(toolText(all.body)).toContain("2 replacements")
+  })
+
+  test("/mcp exposes guidance resources; resources/read returns markdown", async () => {
+    const bearer = await connect("blog")
+    const listRes = await rpc("/mcp", bearer, { jsonrpc: "2.0", id: 1, method: "resources/list" })
+    const list = (await listRes.json()) as { result: { resources: { uri: string; text?: string }[] } }
+    const uris = list.result.resources.map((r) => r.uri).sort()
+    expect(uris).toEqual(["siteio://guide/conventions", "siteio://guide/editing"])
+    // list must NOT leak the body.
+    expect(list.result.resources.every((r) => r.text === undefined)).toBe(true)
+
+    const readRes = await rpc("/mcp", bearer, {
+      jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri: "siteio://guide/editing" },
+    })
+    const read = (await readRes.json()) as { result: { contents: { uri: string; mimeType: string; text: string }[] } }
+    expect(read.result.contents[0]!.mimeType).toBe("text/markdown")
+    expect(read.result.contents[0]!.text).toContain("deploy_site")
+
+    const missing = (await (await rpc("/mcp", bearer, {
+      jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: "siteio://nope" },
+    })).json()) as { error?: { code: number } }
+    expect(missing.error!.code).toBe(-32602)
   })
 
   test("/mcp: list_history returns the deployment changelog, newest first, with attribution", async () => {
@@ -214,34 +252,6 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
     const body = (await res.json()) as { result: { instructions: string } }
     expect(body.result.instructions).toContain("write_file")
     expect(body.result.instructions).toContain("https://blog.example.com")
-  })
-
-  // --- /cli bridge behavior ---
-
-  test("/cli: get_started returns a scoped CLI login that decodes to /_siteio + works", async () => {
-    const bearer = await connect("blog")
-    const { body } = await call("/cli", bearer, "get_started")
-    const text = toolText(body)
-    expect(text).toContain("siteio login -t ")
-    expect(text).toContain("siteio sites download -n blog")
-    expect(text).toContain("macOS and Linux only")
-    expect(text).not.toContain("install.ps1")
-
-    const loginToken = text.match(/siteio login -t (\S+)/)![1]!
-    const { decodeToken } = await import("../../utils/token.ts")
-    const decoded = decodeToken(loginToken)
-    expect(decoded.url).toBe("https://blog.example.com/_siteio")
-    const dl = await on(
-      new Request("http://x/_siteio/sites/blog/download", { method: "GET", headers: { "X-API-Key": decoded.apiKey } })
-    )
-    expect(dl.status).toBe(200)
-  })
-
-  test("/cli initialize points the client at get_started", async () => {
-    const bearer = await connect("blog")
-    const res = await rpc("/cli", bearer, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} })
-    const body = (await res.json()) as { result: { instructions: string } }
-    expect(body.result.instructions).toContain("get_started")
   })
 
   // --- write_url (server-side asset fetch, /mcp only) ---
@@ -278,12 +288,6 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
       expect(toolText(res.body)).toMatch(/unsafe path/i)
     })
 
-    test("is not available on /cli", async () => {
-      const bearer = await connect("blog")
-      const res = await call("/cli", bearer, "write_url", { path: "img/x.png", url: "https://cdn.example.com/x.png" })
-      expect(res.body.result!.isError).toBe(true)
-      expect(toolText(res.body)).toContain("Unknown tool")
-    })
   })
 
   describe("write_url SSRF guard (real fetcher)", () => {
@@ -318,15 +322,12 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
       expect(body.authorization_servers).toEqual([`https://${CUSTOM}`])
     })
 
-    test("the full OAuth dance + both surfaces work over the vanity host", async () => {
+    test("the full OAuth dance + /mcp editing work over the vanity host", async () => {
       const bearer = await connect("blog", {}, CUSTOM)
       expect((await rpc("/mcp", bearer, { jsonrpc: "2.0", id: 1, method: "tools/list" }, CUSTOM)).status).toBe(200)
-      // get_started on the vanity host hands back a login token pointing at it.
-      const gs = await call("/cli", bearer, "get_started", {}, CUSTOM)
-      const text = gs.body.result!.content![0]!.text
-      const loginToken = text.match(/siteio login -t (\S+)/)![1]!
-      const { decodeToken } = await import("../../utils/token.ts")
-      expect(decodeToken(loginToken).url).toBe(`https://${CUSTOM}/_siteio`)
+      // site_info on the vanity host reports the custom domain as the live URL.
+      const info = await call("/mcp", bearer, "site_info", {}, CUSTOM)
+      expect(toolText(info.body)).toContain(`https://${CUSTOM}`)
     })
 
     test("an unknown host (not a site or custom domain) is 404", async () => {
@@ -338,9 +339,9 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
     })
   })
 
-  // --- Revocation (shared) ---
+  // --- Revocation ---
 
-  test("revoking the grant invalidates the bearer on both surfaces", async () => {
+  test("revoking the grant invalidates the bearer", async () => {
     const bearer = await connect("blog")
     expect((await rpc("/mcp", bearer, { jsonrpc: "2.0", id: 1, method: "ping" })).status).toBe(200)
     // Owner/god endpoints live on the api host (default localhost), not the site host.
@@ -351,6 +352,5 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
       new Request(`http://x/sites/blog/grants/${list.data![0]!.id}`, { method: "DELETE", headers: AUTH })
     )
     expect((await rpc("/mcp", bearer, { jsonrpc: "2.0", id: 2, method: "ping" })).status).toBe(401)
-    expect((await rpc("/cli", bearer, { jsonrpc: "2.0", id: 2, method: "ping" })).status).toBe(401)
   })
 })

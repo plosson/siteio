@@ -103,11 +103,9 @@ share the same one-time **share code** and OAuth, and all are confined to that o
 
 - **CLI** (coding agents with a shell — Codex, Claude Code, Cursor): a \`siteio login -t <token>\`
   they paste, then \`siteio sites download\` / edit locally (images and all) / \`siteio sites deploy\`.
-- **MCP connector — two endpoints** on \`https://mysite.<domain>\` (same for everyone; the code is
-  entered when the connector authorizes via OAuth):
-  - \`/mcp\` — full web-file editing tools (list/read/write/delete/deploy) directly in the AI.
-  - \`/cli\` — a single \`get_started\` tool that hands back the scoped CLI login (for shell-capable
-    clients that prefer editing local files; on Windows, WSL).
+- **MCP connector** at \`https://mysite.<domain>/mcp\` (same for everyone; the code is entered when
+  the connector authorizes via OAuth): full web-file editing tools (list/read/write/edit/delete/deploy)
+  directly in the AI.
 
 Access stays valid until you revoke it; the token/code is shown once.
 
