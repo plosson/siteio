@@ -5,6 +5,7 @@ import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { AppStorage } from "./app-storage.ts"
 import { GrantStore, type CreateGrantInput } from "./grant-store.ts"
+import { StagingStore } from "./staging-store.ts"
 import { mergeScopedDeploy } from "./deploy-merge.ts"
 import { OAuthStore } from "./oauth-store.ts"
 import { OAuthProvider } from "./oauth-provider.ts"
@@ -35,6 +36,7 @@ export class AgentServer {
   private storage: SiteStorage
   private appStorage: AppStorage
   private grants: GrantStore
+  private staging: StagingStore
   private oauth: OAuthStore
   private oauthProvider: OAuthProvider
   private mcp: McpHandler
@@ -50,6 +52,7 @@ export class AgentServer {
     this.storage = new SiteStorage(config.dataDir)
     this.appStorage = new AppStorage(config.dataDir)
     this.grants = new GrantStore(config.dataDir)
+    this.staging = new StagingStore(config.dataDir)
     this.oauth = new OAuthStore(config.dataDir)
     this.docker = runtime ?? new DockerManager(config.dataDir)
     this.git = new GitManager(config.dataDir)
@@ -58,9 +61,11 @@ export class AgentServer {
     this.oauthProvider = new OAuthProvider({ grants: this.grants, oauth: this.oauth, domain: config.domain })
     this.mcp = new McpHandler({
       grants: this.grants,
+      staging: this.staging,
       sites: this.storage,
       oauth: this.oauth,
       domain: config.domain,
+      deploy: (siteName, zipData, deployedBy) => this.deploySiteViaGrant(siteName, zipData, deployedBy),
     })
 
     if (!config.skipTraefik) {
@@ -111,25 +116,35 @@ export class AgentServer {
     const host = req.headers.get("host") || ""
     const hostWithoutPort = host.split(":")[0] || ""
 
-    // MCP share endpoint + its per-site OAuth authorization server. Served under
-    // the site host (`<site>.<domain>`), authenticated by OAuth bearer tokens —
-    // never under `api.<domain>` and never behind the god key. Traefik forwards
-    // `<site>.<domain>/mcp/*` and the oauth `.well-known/*` here, so this runs
-    // BEFORE the api-host gate.
-    if (path === "/mcp" || path.startsWith("/mcp/") || path.startsWith("/.well-known/oauth-")) {
+    // Two MCP surfaces + their shared per-site OAuth authorization server, all
+    // served under the SITE host (`<site>.<domain>`) — never under api.<domain>
+    // and never behind the god key. Traefik forwards `/mcp/*`, `/cli/*` and the
+    // oauth `.well-known/*` here, so this runs BEFORE the api-host gate.
+    //   /mcp — full web-file editing tools.
+    //   /cli — a single get_started tool that hands off to the siteio CLI.
+    // Both authenticate identically (OAuth bearer → grant for this site).
+    const isMcpSurface =
+      path === "/mcp" || path.startsWith("/mcp/") ||
+      path === "/cli" || path.startsWith("/cli/") ||
+      path.startsWith("/.well-known/oauth-")
+    if (isMcpSurface) {
       const ctx = this.oauthProvider.hostContext(host)
       if (!ctx) return this.error("Not found", 404)
       if (req.method === "OPTIONS") return this.oauthProvider.preflight()
 
-      if (
-        path === "/.well-known/oauth-protected-resource" ||
-        path === "/.well-known/oauth-protected-resource/mcp"
-      ) {
-        return this.oauthProvider.protectedResourceMetadata(ctx)
+      // Per-surface protected-resource metadata (RFC 9728). The bare path
+      // defaults to the /mcp resource for back-compat.
+      if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") {
+        return this.oauthProvider.protectedResourceMetadata(ctx, "mcp")
       }
+      if (path === "/.well-known/oauth-protected-resource/cli") {
+        return this.oauthProvider.protectedResourceMetadata(ctx, "cli")
+      }
+      // One shared authorization server for both surfaces.
       if (
         path === "/.well-known/oauth-authorization-server" ||
-        path === "/.well-known/oauth-authorization-server/mcp"
+        path === "/.well-known/oauth-authorization-server/mcp" ||
+        path === "/.well-known/oauth-authorization-server/cli"
       ) {
         return this.oauthProvider.authorizationServerMetadata(ctx)
       }
@@ -139,7 +154,8 @@ export class AgentServer {
         if (req.method === "POST") return this.oauthProvider.handleAuthorizePost(req, ctx)
       }
       if (path === "/mcp/oauth/token" && req.method === "POST") return this.oauthProvider.handleToken(req, ctx)
-      if (path === "/mcp") return this.mcp.handle(req, ctx)
+      if (path === "/mcp") return this.mcp.handle(req, ctx, "mcp")
+      if (path === "/cli") return this.mcp.handle(req, ctx, "cli")
 
       return this.error("Not found", 404)
     }
@@ -1077,6 +1093,20 @@ export class AgentServer {
     }
   }
 
+  // Invoked by the /mcp deploy_site tool. The zip is pre-merged (invitee's web
+  // root + the site's existing backend dirs), so this is a straight deploy.
+  private async deploySiteViaGrant(siteName: string, zipData: Uint8Array, deployedBy: string): Promise<SiteInfo> {
+    const site = this.storage.get(siteName)
+    if (!site) throw new Error(`Site "${siteName}" no longer exists`)
+    if (!this.docker.isAvailable()) throw new Error("Docker is not available")
+    try {
+      return await this.runSiteDeploy(site, zipData, deployedBy)
+    } catch (err) {
+      this.storage.update(siteName, { status: "failed" })
+      throw err
+    }
+  }
+
   // Share-grant (MCP link) handlers
 
   private async handleCreateGrant(name: string, req: Request): Promise<Response> {
@@ -1112,6 +1142,7 @@ export class AgentServer {
     const grant = this.grants.get(id)
     if (!grant || grant.site !== name) return this.error("Share link not found", 404)
     this.grants.revoke(id)
+    this.staging.remove(id)
     // Kill any outstanding OAuth access tokens so live connectors stop at once.
     this.oauth.revokeTokensForGrant(id)
     return this.json({ revoked: true })
@@ -1369,8 +1400,8 @@ export class AgentServer {
     // One-time conversion of pre-merge shared-nginx static sites.
     await this.migrateLegacy()
 
-    // Reclaim revoked share links and expired OAuth codes/tokens.
-    this.grants.gc()
+    // Reclaim revoked share links (and their staging) and expired OAuth tokens.
+    for (const id of this.grants.gc()) this.staging.remove(id)
     this.oauth.gc()
 
     const port = this.config.port || 3000
