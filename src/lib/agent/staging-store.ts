@@ -131,9 +131,15 @@ export class StagingStore {
   }
 
   writeFile(grantId: string, relPath: string, content: string, encoding: "utf8" | "base64" = "utf8"): void {
+    const bytes = encoding === "base64" ? Buffer.from(content, "base64") : Buffer.from(content, "utf-8")
+    this.writeBytes(grantId, relPath, bytes)
+  }
+
+  // Write raw bytes to a staged web file, with the same path/size hardening as
+  // writeFile. Used by the server-side URL fetch (write_url).
+  writeBytes(grantId: string, relPath: string, bytes: Uint8Array): void {
     if (!this.isSeeded(grantId)) mkdirSync(this.filesDir(grantId), { recursive: true, mode: 0o700 })
     const full = this.safePath(grantId, relPath)
-    const bytes = encoding === "base64" ? Buffer.from(content, "base64") : Buffer.from(content, "utf-8")
     if (bytes.length > MAX_STAGING_FILE_SIZE) {
       throw new ValidationError(`File too large (max ${MAX_STAGING_FILE_SIZE} bytes): ${relPath}`)
     }

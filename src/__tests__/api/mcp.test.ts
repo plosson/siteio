@@ -8,12 +8,16 @@ import { AgentServer } from "../../lib/agent/server.ts"
 import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ApiResponse, ShareGrantCreated } from "../../types.ts"
 
-function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
+function makeServer(
+  dataDir: string,
+  runtime: FakeRuntime,
+  hooks?: { fetchAsset?: (url: string) => Promise<Uint8Array> }
+): AgentServer {
   const config: AgentConfig = {
     apiKey: "test-key", dataDir, domain: "example.com",
     maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
   }
-  return new AgentServer(config, runtime)
+  return new AgentServer(config, runtime, hooks)
 }
 
 const AUTH = { "X-API-Key": "test-key" }
@@ -148,7 +152,7 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
   test("/mcp exposes the editing tools (no get_started)", async () => {
     const bearer = await connect("blog")
     expect(await listTools("/mcp", bearer)).toEqual(
-      ["delete_file", "deploy_site", "list_files", "read_file", "site_info", "write_file"]
+      ["delete_file", "deploy_site", "list_files", "read_file", "site_info", "write_file", "write_url"]
     )
   })
 
@@ -219,6 +223,59 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
     const res = await rpc("/cli", bearer, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} })
     const body = (await res.json()) as { result: { instructions: string } }
     expect(body.result.instructions).toContain("get_started")
+  })
+
+  // --- write_url (server-side asset fetch, /mcp only) ---
+
+  describe("write_url", () => {
+    const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+    // Rebuild the shared server with a stubbed asset fetcher for the happy path.
+    beforeEach(async () => {
+      server = makeServer(dataDir, runtime, {
+        fetchAsset: async (url: string) => {
+          if (url.includes("bad")) throw new Error("stub should not be called for blocked URLs")
+          return PNG
+        },
+      })
+      await deploySite("blog", { "public/index.html": "<h1>original</h1>", "pb_migrations/1_init.js": "// schema" })
+    })
+
+    test("fetches a URL server-side and stages it, published on deploy", async () => {
+      const bearer = await connect("blog")
+      const res = await call("/mcp", bearer, "write_url", { path: "img/logo.png", url: "https://cdn.example.com/logo.png" })
+      expect(res.body.result!.isError).toBeFalsy()
+      expect(toolText(res.body)).toContain("img/logo.png")
+
+      await call("/mcp", bearer, "deploy_site")
+      const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }))
+      const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
+      expect(files["public/img/logo.png"]).toEqual(PNG)
+    })
+
+    test("path traversal is rejected", async () => {
+      const bearer = await connect("blog")
+      const res = await call("/mcp", bearer, "write_url", { path: "../../evil", url: "https://cdn.example.com/x.png" })
+      expect(res.body.result!.isError).toBe(true)
+      expect(toolText(res.body)).toMatch(/unsafe path/i)
+    })
+
+    test("is not available on /cli", async () => {
+      const bearer = await connect("blog")
+      const res = await call("/cli", bearer, "write_url", { path: "img/x.png", url: "https://cdn.example.com/x.png" })
+      expect(res.body.result!.isError).toBe(true)
+      expect(toolText(res.body)).toContain("Unknown tool")
+    })
+  })
+
+  describe("write_url SSRF guard (real fetcher)", () => {
+    // No stub — exercises the server's real SSRF-guarded fetch.
+    test("refuses internal/private and non-http targets before fetching", async () => {
+      const bearer = await connect("blog")
+      for (const url of ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8080/api", "file:///etc/passwd"]) {
+        const res = await call("/mcp", bearer, "write_url", { path: "x", url })
+        expect(res.body.result!.isError).toBe(true)
+      }
+    })
   })
 
   // --- Custom (vanity) domains ---

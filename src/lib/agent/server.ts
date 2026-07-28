@@ -20,6 +20,8 @@ import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS } from "./ui/assets.ts"
 import { POCKETBASE_IMAGE, POCKETBASE_VERSION } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
 import { encodeToken } from "../../utils/token.ts"
+import { assertSafePublicUrl } from "../../utils/ssrf.ts"
+import { ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 
 // Strip the git token before returning an app over the API. Clients never need
@@ -47,7 +49,7 @@ export class AgentServer {
   private traefik: TraefikManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
 
-  constructor(config: AgentConfig, runtime?: Runtime) {
+  constructor(config: AgentConfig, runtime?: Runtime, hooks?: { fetchAsset?: (url: string) => Promise<Uint8Array> }) {
     this.config = config
     this.storage = new SiteStorage(config.dataDir)
     this.appStorage = new AppStorage(config.dataDir)
@@ -71,6 +73,7 @@ export class AgentServer {
       oauth: this.oauth,
       domain: config.domain,
       deploy: (siteName, zipData, deployedBy) => this.deploySiteViaGrant(siteName, zipData, deployedBy),
+      fetchAsset: hooks?.fetchAsset ?? ((url) => this.fetchExternalAsset(url)),
     })
 
     if (!config.skipTraefik) {
@@ -1110,6 +1113,27 @@ export class AgentServer {
       this.storage.update(siteName, { status: "failed" })
       throw err
     }
+  }
+
+  // SSRF-guarded, size-capped fetch backing the write_url MCP tool. Rejects
+  // non-public targets, refuses redirects (so a public URL can't bounce to an
+  // internal one), and enforces a timeout + max body size.
+  private async fetchExternalAsset(url: string): Promise<Uint8Array> {
+    await assertSafePublicUrl(url)
+    const maxBytes = 25 * 1024 * 1024 // aligns with StagingStore's per-file cap
+    let res: Response
+    try {
+      res = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(15000) })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new ValidationError(`Could not fetch URL: ${msg}`)
+    }
+    if (!res.ok) throw new ValidationError(`Fetch failed: ${res.status} ${res.statusText}`)
+    const declared = Number(res.headers.get("content-length") || "0")
+    if (declared && declared > maxBytes) throw new ValidationError(`Remote file too large (max ${maxBytes} bytes)`)
+    const buf = new Uint8Array(await res.arrayBuffer())
+    if (buf.length > maxBytes) throw new ValidationError(`Remote file too large (max ${maxBytes} bytes)`)
+    return buf
   }
 
   // Share-grant (MCP link) handlers
