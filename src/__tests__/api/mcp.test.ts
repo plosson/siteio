@@ -171,6 +171,9 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
     const text = toolText(body)
     expect(text).toContain("siteio login -t ")
     expect(text).toContain("siteio sites download -n blog")
+    // Install instructions cover both Unix and Windows.
+    expect(text).toContain("curl -LsSf https://siteio.houlahop.com/install | sh")
+    expect(text).toContain("iwr -useb https://siteio.houlahop.com/install.ps1 | iex")
     // Extract the login token and verify it points at the scoped site-host channel.
     const loginToken = text.match(/siteio login -t (\S+)/)![1]!
     const { decodeToken } = await import("../../utils/token.ts")
