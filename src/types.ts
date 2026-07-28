@@ -198,6 +198,9 @@ export interface Site {
   version?: number
   deployedAt?: string
   deployedBy?: string
+  // Change description for the current version. Required for MCP share deploys;
+  // absent for owner/CLI deploys that don't supply one.
+  message?: string
   createdAt: string
   updatedAt: string
   // Auto-generated on first deploy; surfaced via `siteio sites admin`.
@@ -225,6 +228,8 @@ export interface SiteVersion {
   version: number
   deployedAt: string
   deployedBy?: string
+  // Change description captured for this version at deploy time (see Site.message).
+  message?: string
   size: number
 }
 

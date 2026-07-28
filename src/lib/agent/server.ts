@@ -72,7 +72,7 @@ export class AgentServer {
       sites: this.storage,
       oauth: this.oauth,
       domain: config.domain,
-      deploy: (siteName, zipData, deployedBy) => this.deploySiteViaGrant(siteName, zipData, deployedBy),
+      deploy: (siteName, zipData, deployedBy, message) => this.deploySiteViaGrant(siteName, zipData, deployedBy, message),
       fetchAsset: hooks?.fetchAsset ?? ((url) => this.fetchExternalAsset(url)),
     })
 
@@ -1004,7 +1004,12 @@ export class AgentServer {
   // extract merged code (archives previous version; never touches pb_data),
   // pull the pinned image, (re)create the container, and persist the new
   // version. Throws on failure — callers own status-failed bookkeeping.
-  private async runSiteDeploy(site: Site, zipData: Uint8Array, deployedBy?: string): Promise<SiteInfo> {
+  private async runSiteDeploy(
+    site: Site,
+    zipData: Uint8Array,
+    deployedBy?: string,
+    message?: string
+  ): Promise<SiteInfo> {
     const { size, version: codeVersion } = await this.storage.extractCode(site.name, zipData)
 
     await this.docker.pull(POCKETBASE_IMAGE)
@@ -1018,6 +1023,9 @@ export class AgentServer {
       pocketbaseVersion: POCKETBASE_VERSION,
       deployedAt: new Date().toISOString(),
       deployedBy,
+      // Always set (even to undefined) so the current version's message
+      // reflects THIS deploy rather than lingering from the previous one.
+      message,
     })!
     return this.storage.toInfo(updated, this.config.domain)
   }
@@ -1086,12 +1094,18 @@ export class AgentServer {
 
   // Invoked by the /mcp deploy_site tool. The zip is pre-merged (invitee's web
   // root + the site's existing backend dirs), so this is a straight deploy.
-  private async deploySiteViaGrant(siteName: string, zipData: Uint8Array, deployedBy: string): Promise<SiteInfo> {
+  // `message` is the invitee's change description, recorded in the site history.
+  private async deploySiteViaGrant(
+    siteName: string,
+    zipData: Uint8Array,
+    deployedBy: string,
+    message: string
+  ): Promise<SiteInfo> {
     const site = this.storage.get(siteName)
     if (!site) throw new Error(`Site "${siteName}" no longer exists`)
     if (!this.docker.isAvailable()) throw new Error("Docker is not available")
     try {
-      return await this.runSiteDeploy(site, zipData, deployedBy)
+      return await this.runSiteDeploy(site, zipData, deployedBy, message)
     } catch (err) {
       this.storage.update(siteName, { status: "failed" })
       throw err

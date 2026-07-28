@@ -163,7 +163,7 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
   test("/mcp: write_file + deploy_site publishes web changes, preserves backend", async () => {
     const bearer = await connect("blog")
     await call("/mcp", bearer, "write_file", { path: "index.html", content: "<h1>edited</h1>" })
-    const deploy = await call("/mcp", bearer, "deploy_site")
+    const deploy = await call("/mcp", bearer, "deploy_site", { message: "Edit the heading" })
     expect(deploy.body.result!.isError).toBeFalsy()
     expect(toolText(deploy.body)).toContain("https://blog.example.com")
 
@@ -183,11 +183,28 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
     })
     expect(res.body.result!.isError).toBeFalsy()
     expect(toolText(res.body)).toContain("1 replacement")
-    await call("/mcp", bearer, "deploy_site")
+    await call("/mcp", bearer, "deploy_site", { message: "Swap heading via edit_file" })
 
     const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }))
     const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
     expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("<h1>edited via edit_file</h1>")
+  })
+
+  test("/mcp: deploy_site requires a change message and records it in history", async () => {
+    const bearer = await connect("blog")
+    await call("/mcp", bearer, "write_file", { path: "index.html", content: "<h1>v2</h1>" })
+    // Missing message → rejected, nothing published.
+    const missing = await call("/mcp", bearer, "deploy_site")
+    expect(missing.body.result!.isError).toBe(true)
+    expect(toolText(missing.body)).toContain("message is required")
+    // Blank/whitespace is also rejected.
+    const blank = await call("/mcp", bearer, "deploy_site", { message: "   " })
+    expect(blank.body.result!.isError).toBe(true)
+    // With a message → published, and the message shows up in list_history.
+    const ok = await call("/mcp", bearer, "deploy_site", { message: "Rewrite the homepage heading" })
+    expect(ok.body.result!.isError).toBeFalsy()
+    const history = await call("/mcp", bearer, "list_history")
+    expect(toolText(history.body)).toContain("Rewrite the homepage heading")
   })
 
   test("/mcp: edit_file errors when old_string is missing or ambiguous", async () => {
@@ -232,15 +249,18 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
     await deploySite("blog", { "public/index.html": "v-owner" })
     const bearer = await connect("blog", { label: "Sam" })
     await call("/mcp", bearer, "write_file", { path: "index.html", content: "v-sam-1" })
-    await call("/mcp", bearer, "deploy_site")
+    await call("/mcp", bearer, "deploy_site", { message: "First Sam edit" })
     await call("/mcp", bearer, "write_file", { path: "index.html", content: "v-sam-2" })
-    await call("/mcp", bearer, "deploy_site")
+    await call("/mcp", bearer, "deploy_site", { message: "Second Sam edit" })
 
     const { body } = await call("/mcp", bearer, "list_history")
     const text = toolText(body)
     expect(text).toContain("Deployment history")
     expect(text).toContain("(current)")
     expect(text).toContain("by Sam")
+    // Each share deploy's message is attributed to its version.
+    expect(text).toContain("Second Sam edit")
+    expect(text).toContain("First Sam edit")
     // Newest-first: the current line comes before older version lines.
     const versions = [...text.matchAll(/v(\d+)/g)].map((m) => Number(m[1]))
     expect(versions[0]).toBeGreaterThan(versions[versions.length - 1]!)
@@ -275,7 +295,7 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
       expect(res.body.result!.isError).toBeFalsy()
       expect(toolText(res.body)).toContain("img/logo.png")
 
-      await call("/mcp", bearer, "deploy_site")
+      await call("/mcp", bearer, "deploy_site", { message: "Add logo image" })
       const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }))
       const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
       expect(files["public/img/logo.png"]).toEqual(PNG)
