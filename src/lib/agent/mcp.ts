@@ -37,6 +37,9 @@ export interface McpDeps {
   // Deploy a merged web+backend zip as a new version of `siteName`. Throws on
   // failure (missing site, Docker down, …). Provided by AgentServer.
   deploy: (siteName: string, zipData: Uint8Array, deployedBy: string) => Promise<SiteInfo>
+  // Fetch an external asset by URL for write_url. SSRF-guarded + size-capped by
+  // the server; throws on a disallowed or oversized target.
+  fetchAsset: (url: string) => Promise<Uint8Array>
 }
 
 // A minimal Model Context Protocol server over Streamable HTTP, served per-site
@@ -232,6 +235,15 @@ export class McpHandler {
           this.deps.staging.writeFile(grant.id, String(args.path ?? ""), String(args.content ?? ""), encoding)
           return this.toolText(msg.id, grant, `Wrote ${args.path}. Run deploy_site to publish.`)
         }
+        case "write_url": {
+          this.ensureSeeded(grant)
+          const path = String(args.path ?? "")
+          const url = String(args.url ?? "")
+          if (!url) return this.toolText(msg.id, grant, "url is required", true)
+          const bytes = await this.deps.fetchAsset(url)
+          this.deps.staging.writeBytes(grant.id, path, bytes)
+          return this.toolText(msg.id, grant, `Fetched ${url} → ${path} (${bytes.length} bytes). Run deploy_site to publish.`)
+        }
         case "delete_file": {
           this.ensureSeeded(grant)
           const removed = this.deps.staging.deleteFile(grant.id, String(args.path ?? ""))
@@ -371,6 +383,20 @@ const MCP_TOOLS = [
         encoding: { type: "string", enum: ["utf8", "base64"], description: "Content encoding (default utf8)" },
       },
       required: ["path", "content"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "write_url",
+    description:
+      "Add a web file by having the server download it from a URL — the right way to add images, fonts, or other binary assets (no need to inline/base64 them). Staged, not published until deploy_site.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Destination path relative to the web root, e.g. img/hero.jpg" },
+        url: { type: "string", description: "Public http(s) URL to fetch the file contents from" },
+      },
+      required: ["path", "url"],
       additionalProperties: false,
     },
   },
