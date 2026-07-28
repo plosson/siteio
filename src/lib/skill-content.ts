@@ -101,8 +101,10 @@ This prints access that works two ways (send the invitee whichever fits their AI
 
 - **Coding agents with a shell** (Codex, Claude Code, Cursor): a \`siteio login -t <token>\`
   they paste, then \`siteio sites download\` / edit locally (images and all) / \`siteio sites deploy\`.
-- **claude.ai / Claude Desktop**: an MCP **connector URL** (\`https://mysite.<domain>/mcp\`,
-  same for everyone) plus a one-time **share code** entered when the connector authorizes (OAuth).
+- **MCP connector** (\`https://mysite.<domain>/mcp\`, same for everyone) plus a one-time
+  **share code** entered when the connector authorizes (OAuth). The connector exposes a single
+  \`get_started\` tool that hands the AI the same scoped CLI login — all editing happens through
+  the siteio CLI, so the invitee needs a shell (on Windows, WSL).
 
 Either way the invitee is confined to that one site's **web files** — never other sites,
 admin, or (unless \`--allow-backend\`) the backend. Access stays valid until you revoke it;

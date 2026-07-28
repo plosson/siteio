@@ -2,11 +2,11 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { mkdtempSync, rmSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { zipSync, unzipSync } from "fflate"
+import { zipSync } from "fflate"
 import { randomBytes, createHash } from "crypto"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { FakeRuntime } from "../helpers/fake-runtime.ts"
-import type { AgentConfig, ApiResponse, ShareGrantCreated, SiteVersion } from "../../types.ts"
+import type { AgentConfig, ApiResponse, ShareGrantCreated } from "../../types.ts"
 
 function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
   const config: AgentConfig = {
@@ -32,7 +32,7 @@ function toolText(body: { result?: { content?: { text: string }[]; isError?: boo
   return body.result?.content?.[0]?.text ?? ""
 }
 
-describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
+describe("API: MCP share endpoint (single get_started tool, OAuth bearer)", () => {
   let dataDir: string
   let runtime: FakeRuntime
   let server: AgentServer
@@ -55,7 +55,7 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
     return ((await res.json()) as ApiResponse<ShareGrantCreated>).data!.code
   }
 
-  // Run the full OAuth share-code dance and return a bearer access token.
+  // Full OAuth share-code dance → bearer access token.
   const connect = async (name: string, grantBody: Record<string, unknown> = {}, host = HOST): Promise<string> => {
     const code = await mintCode(name, grantBody)
     const reg = await on(
@@ -110,10 +110,7 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
     dataDir = mkdtempSync(join(tmpdir(), "siteio-mcp-"))
     runtime = new FakeRuntime()
     server = makeServer(dataDir, runtime)
-    await deploySite("blog", {
-      "public/index.html": "<h1>original</h1>",
-      "pb_migrations/1_init.js": "// schema",
-    })
+    await deploySite("blog", { "public/index.html": "<h1>original</h1>", "pb_migrations/1_init.js": "// schema" })
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
 
@@ -127,42 +124,21 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
     )
   })
 
-  test("initialize returns protocol + server info", async () => {
+  test("initialize points the client at get_started + reports the live URL", async () => {
     const token = await connect("blog")
     const res = await mcp(token, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} })
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { result?: { protocolVersion?: string; serverInfo?: { name: string } } }
-    expect(body.result!.protocolVersion).toBeTruthy()
+    const body = (await res.json()) as { result?: { serverInfo?: { name: string }; instructions?: string } }
     expect(body.result!.serverInfo!.name).toBe("siteio-site-editor")
+    expect(body.result!.instructions).toContain("get_started")
+    expect(body.result!.instructions).toContain("https://blog.example.com")
   })
 
-  test("initialize reports the default <name>.<domain> URL when no custom domain is set", async () => {
-    const token = await connect("blog")
-    const res = await mcp(token, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} })
-    const body = (await res.json()) as { result: { instructions: string } }
-    expect(body.result.instructions).toContain("https://blog.example.com")
-  })
-
-  test("initialize reports ONLY the custom domain once set (default subdomain suppressed)", async () => {
-    await server.handleRequestForTest(
-      new Request("http://x/sites/blog/domains", {
-        method: "PATCH", headers: JSONH, body: JSON.stringify({ domains: ["www.myblog.org", "myblog.org"] }),
-      })
-    )
-    const token = await connect("blog")
-    const res = await mcp(token, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} })
-    const body = (await res.json()) as { result: { instructions: string } }
-    expect(body.result.instructions).toContain("https://www.myblog.org")
-    expect(body.result.instructions).not.toContain("blog.example.com")
-  })
-
-  test("tools/list advertises the file tools plus site_info and get_started", async () => {
+  test("tools/list advertises exactly one tool: get_started", async () => {
     const token = await connect("blog")
     const res = await mcp(token, { jsonrpc: "2.0", id: 2, method: "tools/list" })
     const body = (await res.json()) as { result: { tools: { name: string }[] } }
-    expect(body.result.tools.map((t) => t.name).sort()).toEqual(
-      ["delete_file", "deploy_site", "get_started", "list_files", "read_file", "site_info", "write_file"]
-    )
+    expect(body.result.tools.map((t) => t.name)).toEqual(["get_started"])
   })
 
   test("get_started returns a scoped siteio CLI login that decodes to /_siteio + a working key", async () => {
@@ -175,96 +151,48 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
     expect(text).toContain("curl -LsSf https://siteio.houlahop.com/install | sh")
     expect(text).toContain("macOS and Linux only")
     expect(text).not.toContain("install.ps1")
-    // Extract the login token and verify it points at the scoped site-host channel.
+
+    // The embedded login token points at the scoped site-host channel …
     const loginToken = text.match(/siteio login -t (\S+)/)![1]!
     const { decodeToken } = await import("../../utils/token.ts")
     const decoded = decodeToken(loginToken)
     expect(decoded.url).toBe("https://blog.example.com/_siteio")
-    // The embedded key (the session bearer) actually authorizes a scoped deploy.
-    const dl = await server.handleRequestForTest(
+    // … and the embedded key (the session bearer) actually authorizes a scoped download.
+    const dl = await on(
       new Request("http://x/_siteio/sites/blog/download", { method: "GET", headers: { "X-API-Key": decoded.apiKey } }),
       HOST
     )
     expect(dl.status).toBe(200)
   })
 
-  test("site_info reports the default subdomain when no custom domain is set", async () => {
-    const token = await connect("blog")
-    const { body } = await call(token, "site_info")
-    expect(toolText(body)).toContain("https://blog.example.com")
-    expect(toolText(body)).toContain("Current published version: 1")
+  test("get_started mentions backend access only when the grant allows it", async () => {
+    const webOnly = await connect("blog")
+    expect(toolText((await call(webOnly, "get_started")).body)).toContain("web files")
+    const backend = await connect("blog", { allowBackend: true })
+    expect(toolText((await call(backend, "get_started")).body)).toContain("web files and backend")
   })
 
-  test("list_files seeds the web root only (no backend, no public/ prefix)", async () => {
+  test("get_started response carries the site-context block", async () => {
     const token = await connect("blog")
-    const { body } = await call(token, "list_files")
-    expect(toolText(body)).toBe("index.html")
+    const res = await mcp(token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_started", arguments: {} } })
+    const body = (await res.json()) as { result: { content: { type: string; text: string }[] } }
+    expect(body.result.content).toHaveLength(2)
+    expect(body.result.content[1]!.text).toContain(`editing site "blog"`)
+    expect(body.result.content[1]!.text).toContain("https://blog.example.com")
   })
 
-  test("read_file keeps the raw file in content[0]; context rides in content[1]", async () => {
+  test("the removed file/deploy tools are gone", async () => {
     const token = await connect("blog")
-    const res = await mcp(token, {
-      jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "read_file", arguments: { path: "index.html" } },
-    })
-    const body = (await res.json()) as { result: { content: { text: string }[] } }
-    expect(body.result.content[0]!.text).toBe("<h1>original</h1>")
-    expect(body.result.content[1]!.text).toContain("editing site \"blog\"")
-  })
-
-  test("write_file + deploy_site publishes web changes and preserves the backend", async () => {
-    const token = await connect("blog")
-    await call(token, "write_file", { path: "index.html", content: "<h1>edited by invitee</h1>" })
-    await call(token, "write_file", { path: "about.html", content: "<h1>about</h1>" })
-    const deploy = await call(token, "deploy_site")
-    expect(deploy.body.result!.isError).toBeFalsy()
-    expect(toolText(deploy.body)).toContain("https://blog.example.com")
-
-    const dl = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH })
-    )
-    const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
-    const dec = (k: string) => new TextDecoder().decode(files[k]!)
-    expect(dec("public/index.html")).toBe("<h1>edited by invitee</h1>")
-    expect(dec("public/about.html")).toBe("<h1>about</h1>")
-    expect(dec("pb_migrations/1_init.js")).toBe("// schema")
-  })
-
-  test("a share allows repeated deploys — it stays valid until revoked", async () => {
-    const token = await connect("blog")
-    for (let i = 0; i < 3; i++) {
-      const deploy = await call(token, "deploy_site")
-      expect(deploy.body.result!.isError).toBeFalsy()
+    for (const name of ["list_files", "read_file", "write_file", "delete_file", "deploy_site", "site_info"]) {
+      const { body } = await call(token, name)
+      expect(body.result!.isError).toBe(true)
+      expect(toolText(body)).toContain("Unknown tool")
     }
-    // Still live after several deploys.
-    expect((await mcp(token, { jsonrpc: "2.0", id: 3, method: "ping" })).status).toBe(200)
-  })
-
-  test("deploys are attributed to the grant label in history", async () => {
-    const token = await connect("blog", { label: "Sam" })
-    await call(token, "write_file", { path: "index.html", content: "v-sam-1" })
-    await call(token, "deploy_site")
-    await call(token, "deploy_site")
-    const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/history", { method: "GET", headers: AUTH })
-    )
-    const body = (await res.json()) as ApiResponse<SiteVersion[]>
-    expect(body.data!.some((v) => v.deployedBy === "Sam")).toBe(true)
-  })
-
-  test("a mid-session external deploy is auto-rebased with a note", async () => {
-    const token = await connect("blog")
-    await call(token, "list_files")
-    await call(token, "write_file", { path: "index.html", content: "<h1>invitee change</h1>" })
-    await deploySite("blog", { "public/index.html": "<h1>owner change</h1>", "pb_migrations/1_init.js": "// schema" })
-    const deploy = await call(token, "deploy_site")
-    expect(deploy.body.result!.isError).toBeFalsy()
-    expect(toolText(deploy.body)).toContain("had changed since you started editing")
   })
 
   test("revoking the grant immediately invalidates a live bearer token", async () => {
     const token = await connect("blog")
     expect((await mcp(token, { jsonrpc: "2.0", id: 1, method: "ping" })).status).toBe(200)
-
     const list = (await (
       await server.handleRequestForTest(new Request("http://x/sites/blog/grants", { method: "GET", headers: AUTH }))
     ).json()) as ApiResponse<{ id: string }[]>
@@ -279,25 +207,9 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
     expect((await mcp("", { jsonrpc: "2.0", id: 1, method: "ping" })).status).toBe(401)
   })
 
-  test("path traversal in write_file is rejected as a tool error", async () => {
-    const token = await connect("blog")
-    const { body } = await call(token, "write_file", { path: "../../etc/pwned", content: "x" })
-    expect(body.result!.isError).toBe(true)
-    expect(toolText(body)).toContain("Unsafe path")
-  })
-
   test("notifications get a 202 with no body", async () => {
     const token = await connect("blog")
     const res = await mcp(token, { jsonrpc: "2.0", method: "notifications/initialized" })
     expect(res.status).toBe(202)
-  })
-
-  test("every tool response carries a site-context block with the live URL", async () => {
-    const token = await connect("blog")
-    const res = await mcp(token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {} } })
-    const body = (await res.json()) as { result: { content: { type: string; text: string }[] } }
-    expect(body.result.content).toHaveLength(2)
-    expect(body.result.content[1]!.text).toContain("https://blog.example.com")
-    expect(body.result.content[1]!.text).toContain(`editing site "blog"`)
   })
 })
