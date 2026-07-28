@@ -216,6 +216,8 @@ export class McpHandler {
       switch (name) {
         case "site_info":
           return this.toolText(msg.id, grant, this.siteInfoText(grant))
+        case "list_history":
+          return this.toolText(msg.id, grant, this.historyText(grant))
         case "get_started":
           return this.toolText(msg.id, grant, this.getStartedText(grant, ctx, bearer))
         case "list_files": {
@@ -276,6 +278,21 @@ export class McpHandler {
       `Current published version: ${info.version ?? "not yet published"}`,
     ]
     return lines.join("\n")
+  }
+
+  // The site's deployment changelog: the current published version plus the
+  // archived previous versions (newest first), each with when it was published
+  // and by whom (share deploys show the grant's label).
+  private historyText(grant: ShareGrant): string {
+    const site = this.deps.sites.get(grant.site)
+    if (!site) return `Site "${grant.site}" no longer exists.`
+    const fmt = (v: number | undefined, at?: string, by?: string, suffix = "") =>
+      `  v${v ?? "?"}  ${at ? new Date(at).toISOString() : "unknown"}  by ${by || "unknown"}${suffix}`
+    const lines: string[] = []
+    if (site.version !== undefined) lines.push(fmt(site.version, site.deployedAt, site.deployedBy, "  (current)"))
+    for (const v of this.deps.sites.getHistory(grant.site)) lines.push(fmt(v.version, v.deployedAt, v.deployedBy))
+    if (lines.length === 0) return `No deployments yet for "${grant.site}".`
+    return `Deployment history for "${grant.site}" (newest first):\n${lines.join("\n")}`
   }
 
   // Bridge for shell-capable clients (Codex, Claude Code, Cursor): hand back a
@@ -354,6 +371,12 @@ const MCP_TOOLS = [
     name: "site_info",
     description:
       "Get the site's public URL(s) and current published version. The URL is the custom domain if one is set, otherwise the default subdomain.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "list_history",
+    description:
+      "List the site's deployment history (changelog): the current published version plus previous versions, newest first, each with when it was published and by whom.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
