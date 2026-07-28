@@ -152,7 +152,7 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
   test("/mcp exposes the editing tools (no get_started)", async () => {
     const bearer = await connect("blog")
     expect(await listTools("/mcp", bearer)).toEqual(
-      ["delete_file", "deploy_site", "list_files", "read_file", "site_info", "write_file", "write_url"]
+      ["delete_file", "deploy_site", "list_files", "list_history", "read_file", "site_info", "write_file", "write_url"]
     )
   })
 
@@ -187,6 +187,25 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
     const dec = (k: string) => new TextDecoder().decode(files[k]!)
     expect(dec("public/index.html")).toBe("<h1>edited</h1>")
     expect(dec("pb_migrations/1_init.js")).toBe("// schema")
+  })
+
+  test("/mcp: list_history returns the deployment changelog, newest first, with attribution", async () => {
+    // Owner deploys, then two share deploys labelled "Sam".
+    await deploySite("blog", { "public/index.html": "v-owner" })
+    const bearer = await connect("blog", { label: "Sam" })
+    await call("/mcp", bearer, "write_file", { path: "index.html", content: "v-sam-1" })
+    await call("/mcp", bearer, "deploy_site")
+    await call("/mcp", bearer, "write_file", { path: "index.html", content: "v-sam-2" })
+    await call("/mcp", bearer, "deploy_site")
+
+    const { body } = await call("/mcp", bearer, "list_history")
+    const text = toolText(body)
+    expect(text).toContain("Deployment history")
+    expect(text).toContain("(current)")
+    expect(text).toContain("by Sam")
+    // Newest-first: the current line comes before older version lines.
+    const versions = [...text.matchAll(/v(\d+)/g)].map((m) => Number(m[1]))
+    expect(versions[0]).toBeGreaterThan(versions[versions.length - 1]!)
   })
 
   test("/mcp initialize describes the file-editing workflow", async () => {
