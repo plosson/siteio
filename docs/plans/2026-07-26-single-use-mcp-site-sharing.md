@@ -45,9 +45,9 @@ v2 added the MCP-over-OAuth connector for **tool-only** clients (claude.ai). But
 - **Agent auth (`authenticate()`):** the god key → full access; a **grant token** *or* an **OAuth bearer** (as `X-API-Key`) → a narrow per-site scope (`handleScopedRequest`): only `GET download` and `POST deploy` for the grant's own site; everything else 403. Deploys are budget-counted and label-attributed.
 - **Backend safety = one shared rule (`mergeScopedDeploy`)** used by both tiers: web root from the invitee, backend (`pb_migrations`/`pb_hooks`) preserved from current code — unless the grant has `allowBackend` (owner opt-in via `share --allow-backend`), which lets the invitee replace a backend dir they actually supplied.
 
-**Tier B — MCP connector (claude.ai).** Unchanged from v2, plus a `get_started` bridge tool: a shell-capable client that connected via MCP calls it and gets a ready `siteio login` (built from the session bearer) to drop into Tier A — which is how images/assets get handled without base64-through-the-model.
+**Tier B — MCP connector.** Per-site OAuth (from v2) fronting a **single tool**, `get_started`, which returns a ready `siteio login` (built from the session bearer) plus the download/edit/deploy recipe. There are **no file/deploy MCP tools** — the MCP is a pure bootstrap/hand-off into Tier A (the "MCP-as-CLI-bridge" pattern: expose one thin delegation tool rather than reimplementing every operation). This means the invitee needs a shell; a tool-only client that can't run the CLI can't edit. `StagingStore` and the MCP-side deploy path were removed as dead code.
 
-**Result:** Codex/Claude Code/Cursor → Tier A (native, assets just work); claude.ai/Claude Desktop → Tier B. Same `GrantStore`, budget, expiry, revocation, `--expires never` across both.
+**Result:** Codex/Claude Code/Cursor → Tier A directly, or Tier B → `get_started` → Tier A. Same `GrantStore` and revoke-only lifetime across both. (Superseded the earlier v3 draft that also exposed MCP file tools.)
 
 ---
 

@@ -5,7 +5,6 @@ import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { AppStorage } from "./app-storage.ts"
 import { GrantStore, type CreateGrantInput } from "./grant-store.ts"
-import { StagingStore } from "./staging-store.ts"
 import { mergeScopedDeploy } from "./deploy-merge.ts"
 import { OAuthStore } from "./oauth-store.ts"
 import { OAuthProvider } from "./oauth-provider.ts"
@@ -36,7 +35,6 @@ export class AgentServer {
   private storage: SiteStorage
   private appStorage: AppStorage
   private grants: GrantStore
-  private staging: StagingStore
   private oauth: OAuthStore
   private oauthProvider: OAuthProvider
   private mcp: McpHandler
@@ -52,7 +50,6 @@ export class AgentServer {
     this.storage = new SiteStorage(config.dataDir)
     this.appStorage = new AppStorage(config.dataDir)
     this.grants = new GrantStore(config.dataDir)
-    this.staging = new StagingStore(config.dataDir)
     this.oauth = new OAuthStore(config.dataDir)
     this.docker = runtime ?? new DockerManager(config.dataDir)
     this.git = new GitManager(config.dataDir)
@@ -61,11 +58,9 @@ export class AgentServer {
     this.oauthProvider = new OAuthProvider({ grants: this.grants, oauth: this.oauth, domain: config.domain })
     this.mcp = new McpHandler({
       grants: this.grants,
-      staging: this.staging,
       sites: this.storage,
       oauth: this.oauth,
       domain: config.domain,
-      deploy: (siteName, zipData, deployedBy) => this.deploySiteViaGrant(siteName, zipData, deployedBy),
     })
 
     if (!config.skipTraefik) {
@@ -1082,20 +1077,6 @@ export class AgentServer {
     }
   }
 
-  // Invoked by McpHandler's deploy callback. The zip is pre-merged (invitee's
-  // web root + the site's existing backend dirs), so this is a straight deploy.
-  private async deploySiteViaGrant(siteName: string, zipData: Uint8Array, deployedBy: string): Promise<SiteInfo> {
-    const site = this.storage.get(siteName)
-    if (!site) throw new Error(`Site "${siteName}" no longer exists`)
-    if (!this.docker.isAvailable()) throw new Error("Docker is not available")
-    try {
-      return await this.runSiteDeploy(site, zipData, deployedBy)
-    } catch (err) {
-      this.storage.update(siteName, { status: "failed" })
-      throw err
-    }
-  }
-
   // Share-grant (MCP link) handlers
 
   private async handleCreateGrant(name: string, req: Request): Promise<Response> {
@@ -1131,7 +1112,6 @@ export class AgentServer {
     const grant = this.grants.get(id)
     if (!grant || grant.site !== name) return this.error("Share link not found", 404)
     this.grants.revoke(id)
-    this.staging.remove(id)
     // Kill any outstanding OAuth access tokens so live connectors stop at once.
     this.oauth.revokeTokensForGrant(id)
     return this.json({ revoked: true })
@@ -1389,9 +1369,8 @@ export class AgentServer {
     // One-time conversion of pre-merge shared-nginx static sites.
     await this.migrateLegacy()
 
-    // Reclaim dead share links (revoked / expired / used up) and their staging,
-    // plus expired OAuth codes/tokens.
-    for (const id of this.grants.gc()) this.staging.remove(id)
+    // Reclaim revoked share links and expired OAuth codes/tokens.
+    this.grants.gc()
     this.oauth.gc()
 
     const port = this.config.port || 3000
