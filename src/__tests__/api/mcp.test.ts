@@ -156,13 +156,32 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
     expect(body.result.instructions).not.toContain("blog.example.com")
   })
 
-  test("tools/list advertises the file tools plus site_info", async () => {
+  test("tools/list advertises the file tools plus site_info and get_started", async () => {
     const token = await connect("blog")
     const res = await mcp(token, { jsonrpc: "2.0", id: 2, method: "tools/list" })
     const body = (await res.json()) as { result: { tools: { name: string }[] } }
     expect(body.result.tools.map((t) => t.name).sort()).toEqual(
-      ["delete_file", "deploy_site", "list_files", "read_file", "site_info", "write_file"]
+      ["delete_file", "deploy_site", "get_started", "list_files", "read_file", "site_info", "write_file"]
     )
+  })
+
+  test("get_started returns a scoped siteio CLI login that decodes to /_siteio + a working key", async () => {
+    const token = await connect("blog")
+    const { body } = await call(token, "get_started")
+    const text = toolText(body)
+    expect(text).toContain("siteio login -t ")
+    expect(text).toContain("siteio sites download -n blog")
+    // Extract the login token and verify it points at the scoped site-host channel.
+    const loginToken = text.match(/siteio login -t (\S+)/)![1]!
+    const { decodeToken } = await import("../../utils/token.ts")
+    const decoded = decodeToken(loginToken)
+    expect(decoded.url).toBe("https://blog.example.com/_siteio")
+    // The embedded key (the session bearer) actually authorizes a scoped deploy.
+    const dl = await server.handleRequestForTest(
+      new Request("http://x/_siteio/sites/blog/download", { method: "GET", headers: { "X-API-Key": decoded.apiKey } }),
+      HOST
+    )
+    expect(dl.status).toBe(200)
   })
 
   test("site_info reports the default subdomain when no custom domain is set", async () => {
@@ -189,7 +208,7 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
   })
 
   test("write_file + deploy_site publishes web changes and preserves the backend", async () => {
-    const token = await connect("blog", { maxDeploys: 1 })
+    const token = await connect("blog")
     await call(token, "write_file", { path: "index.html", content: "<h1>edited by invitee</h1>" })
     await call(token, "write_file", { path: "about.html", content: "<h1>about</h1>" })
     const deploy = await call(token, "deploy_site")
@@ -206,23 +225,18 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
     expect(dec("pb_migrations/1_init.js")).toBe("// schema")
   })
 
-  test("the deploy budget is consumed — an exhausted grant kills the bearer token", async () => {
-    const token = await connect("blog", { maxDeploys: 1 })
-    await call(token, "deploy_site")
-    // Grant exhausted → token no longer maps to a live grant.
-    const res = await mcp(token, { jsonrpc: "2.0", id: 9, method: "tools/list" })
-    expect(res.status).toBe(401)
-  })
-
-  test("multiple deploys allowed up to the budget", async () => {
-    const token = await connect("blog", { maxDeploys: 2 })
-    expect(toolText((await call(token, "deploy_site")).body)).toContain("1 deploy(s) remaining")
-    expect(toolText((await call(token, "deploy_site")).body)).toContain("0 deploy(s) remaining")
-    expect((await mcp(token, { jsonrpc: "2.0", id: 3, method: "ping" })).status).toBe(401)
+  test("a share allows repeated deploys — it stays valid until revoked", async () => {
+    const token = await connect("blog")
+    for (let i = 0; i < 3; i++) {
+      const deploy = await call(token, "deploy_site")
+      expect(deploy.body.result!.isError).toBeFalsy()
+    }
+    // Still live after several deploys.
+    expect((await mcp(token, { jsonrpc: "2.0", id: 3, method: "ping" })).status).toBe(200)
   })
 
   test("deploys are attributed to the grant label in history", async () => {
-    const token = await connect("blog", { maxDeploys: 2, label: "Sam" })
+    const token = await connect("blog", { label: "Sam" })
     await call(token, "write_file", { path: "index.html", content: "v-sam-1" })
     await call(token, "deploy_site")
     await call(token, "deploy_site")
@@ -234,7 +248,7 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
   })
 
   test("a mid-session external deploy is auto-rebased with a note", async () => {
-    const token = await connect("blog", { maxDeploys: 2 })
+    const token = await connect("blog")
     await call(token, "list_files")
     await call(token, "write_file", { path: "index.html", content: "<h1>invitee change</h1>" })
     await deploySite("blog", { "public/index.html": "<h1>owner change</h1>", "pb_migrations/1_init.js": "// schema" })
@@ -244,7 +258,7 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
   })
 
   test("revoking the grant immediately invalidates a live bearer token", async () => {
-    const token = await connect("blog", { maxDeploys: 5 })
+    const token = await connect("blog")
     expect((await mcp(token, { jsonrpc: "2.0", id: 1, method: "ping" })).status).toBe(200)
 
     const list = (await (
@@ -275,11 +289,11 @@ describe("API: MCP share endpoint (OAuth bearer, per-site)", () => {
   })
 
   test("every tool response carries a site-context block with the live URL", async () => {
-    const token = await connect("blog", { maxDeploys: 3 })
+    const token = await connect("blog")
     const res = await mcp(token, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {} } })
     const body = (await res.json()) as { result: { content: { type: string; text: string }[] } }
     expect(body.result.content).toHaveLength(2)
     expect(body.result.content[1]!.text).toContain("https://blog.example.com")
-    expect(body.result.content[1]!.text).toContain("deploy(s) left")
+    expect(body.result.content[1]!.text).toContain(`editing site "blog"`)
   })
 })

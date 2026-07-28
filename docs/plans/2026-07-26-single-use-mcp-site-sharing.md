@@ -36,6 +36,21 @@ Shipped as `1.20.0` with a **token-in-URL** auth model (`…/mcp/<token>`). That
 
 ---
 
+## v3 (2026-07-28): two tiers — scoped CLI + MCP connector
+
+v2 added the MCP-over-OAuth connector for **tool-only** clients (claude.ai). But **shell-capable coding agents** (Codex, Claude Code, Cursor) are better served editing real local files with the **standard CLI** — native file ops, images-as-files, local preview — than through reimplemented MCP file tools. v3 adds that as a second tier on the same grant foundation. Both tiers ship together.
+
+**Tier A — scoped CLI (coding agents).** The share **code becomes a scoped credential** for the *standard* `siteio` CLI (no custom client). `sites share` now also emits a `siteio login -t <cliToken>`. The invitee runs `login` → `sites download` → edit → `sites deploy`.
+- **Transport keeps `api.<domain>` hidden:** the CLI logs in against `https://<site>.<domain>/_siteio` (a reserved prefix Traefik siphons to the agent alongside `/mcp`), so scoped REST never touches the api host and never steals `/sites`/`/health` from the site container.
+- **Agent auth (`authenticate()`):** the god key → full access; a **grant token** *or* an **OAuth bearer** (as `X-API-Key`) → a narrow per-site scope (`handleScopedRequest`): only `GET download` and `POST deploy` for the grant's own site; everything else 403. Deploys are budget-counted and label-attributed.
+- **Backend safety = one shared rule (`mergeScopedDeploy`)** used by both tiers: web root from the invitee, backend (`pb_migrations`/`pb_hooks`) preserved from current code — unless the grant has `allowBackend` (owner opt-in via `share --allow-backend`), which lets the invitee replace a backend dir they actually supplied.
+
+**Tier B — MCP connector (claude.ai).** Unchanged from v2, plus a `get_started` bridge tool: a shell-capable client that connected via MCP calls it and gets a ready `siteio login` (built from the session bearer) to drop into Tier A — which is how images/assets get handled without base64-through-the-model.
+
+**Result:** Codex/Claude Code/Cursor → Tier A (native, assets just work); claude.ai/Claude Desktop → Tier B. Same `GrantStore`, budget, expiry, revocation, `--expires never` across both.
+
+---
+
 ## 1. What we're building (one paragraph)
 
 `siteio sites share <name>` prints a URL like `https://<site>.<domain>/mcp/<grant-token>`. The invitee pastes it into an MCP client (Claude Desktop, Cursor, …). Their AI gets a small tool set — `list_files`, `read_file`, `write_file`, `delete_file`, `deploy_site` — operating on a **server-side staging copy** of the site's **web root only**. On deploy, the agent merges the edited `public/` with the site's existing backend (`pb_migrations`, `pb_hooks`) and runs the normal site-deploy path. The grant is a stored, hashed, revocable record with an owner-set deploy budget and TTL; the default is single-use (1 deploy).

@@ -1,9 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, readdirSync } from "fs"
+import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { GrantStore, HARD_MAX_TTL_MS } from "../../lib/agent/grant-store.ts"
-import type { ShareGrant } from "../../types.ts"
+import { GrantStore } from "../../lib/agent/grant-store.ts"
 
 describe("Unit: GrantStore", () => {
   let dataDir: string
@@ -16,17 +15,12 @@ describe("Unit: GrantStore", () => {
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
 
   const grantFile = (id: string) => join(dataDir, "share-grants", `${id}.json`)
-  const rewrite = (id: string, patch: Partial<ShareGrant>) => {
-    const g = JSON.parse(readFileSync(grantFile(id), "utf-8")) as ShareGrant
-    writeFileSync(grantFile(id), JSON.stringify({ ...g, ...patch }))
-  }
 
   test("create returns a raw token that resolves back to the grant", () => {
     const { grant, token } = store.create({ site: "blog" })
     expect(token).toStartWith("grt_")
     expect(grant.site).toBe("blog")
-    expect(grant.maxDeploys).toBe(1)
-    expect(grant.deploysUsed).toBe(0)
+    expect(grant.revoked).toBe(false)
 
     const resolved = store.resolveByToken(token)
     expect(resolved?.id).toBe(grant.id)
@@ -46,41 +40,22 @@ describe("Unit: GrantStore", () => {
     expect(info.active).toBe(true)
   })
 
-  test("maxDeploys must be a positive integer", () => {
-    expect(() => store.create({ site: "blog", maxDeploys: 0 })).toThrow()
-    expect(() => store.create({ site: "blog", maxDeploys: -2 })).toThrow()
+  test("allowBackend is persisted when set", () => {
+    const { grant } = store.create({ site: "blog", allowBackend: true })
+    expect(grant.allowBackend).toBe(true)
+    expect(store.toInfo(grant).allowBackend).toBe(true)
+    // Omitted by default (not stored as false).
+    const { grant: plain } = store.create({ site: "blog" })
+    expect(plain.allowBackend).toBeUndefined()
   })
 
-  test("expiry is capped at the hard max TTL", () => {
-    const { grant } = store.create({ site: "blog", expiresInMs: 999 * 24 * 60 * 60 * 1000 })
-    expect(grant.expiresAt).toBeTruthy()
-    const ttl = Date.parse(grant.expiresAt!) - Date.parse(grant.createdAt)
-    expect(ttl).toBeLessThanOrEqual(HARD_MAX_TTL_MS)
-  })
-
-  test("neverExpires creates a grant with no expiry that stays active", () => {
-    const { grant, token } = store.create({ site: "blog", neverExpires: true })
-    expect(grant.expiresAt).toBeUndefined()
-    expect(store.toInfo(grant).expiresAt).toBeUndefined()
+  test("a share stays active indefinitely until revoked", () => {
+    const { token, grant } = store.create({ site: "blog" })
+    // No budget, no expiry — repeated resolution keeps working.
     expect(store.resolveByToken(token)?.id).toBe(grant.id)
-  })
-
-  test("a never-expiring grant is still gated by its deploy budget", () => {
-    const { grant, token } = store.create({ site: "blog", neverExpires: true, maxDeploys: 1 })
-    store.recordDeploy(grant.id)
-    expect(store.resolveByToken(token)).toBeNull() // budget, not time, retires it
-  })
-
-  test("gc keeps a never-expiring grant with budget remaining", () => {
-    const { grant } = store.create({ site: "blog", neverExpires: true, maxDeploys: 2 })
-    expect(store.gc()).toEqual([])
-    expect(store.get(grant.id)).not.toBeNull()
-  })
-
-  test("resolveByToken returns null for an exhausted budget", () => {
-    const { token, grant } = store.create({ site: "blog", maxDeploys: 1 })
-    store.recordDeploy(grant.id)
-    expect(store.resolveByToken(token)).toBeNull()
+    expect(store.resolveByToken(token)?.id).toBe(grant.id)
+    store.touch(grant.id)
+    expect(store.resolveByToken(token)?.id).toBe(grant.id)
   })
 
   test("resolveByToken returns null after revoke", () => {
@@ -90,22 +65,17 @@ describe("Unit: GrantStore", () => {
     expect(store.toInfo(store.get(grant.id)!).active).toBe(false)
   })
 
-  test("resolveByToken returns null for an expired grant", () => {
-    const { token, grant } = store.create({ site: "blog" })
-    rewrite(grant.id, { expiresAt: new Date(Date.now() - 1000).toISOString() })
-    expect(store.resolveByToken(token)).toBeNull()
-  })
-
   test("resolveByToken returns null for an unknown token", () => {
     store.create({ site: "blog" })
     expect(store.resolveByToken("grt_nonexistenttokenvalue123456")).toBeNull()
   })
 
-  test("recordDeploy increments usage and stamps lastUsedAt", () => {
-    const { grant } = store.create({ site: "blog", maxDeploys: 3 })
-    const updated = store.recordDeploy(grant.id)!
-    expect(updated.deploysUsed).toBe(1)
+  test("touch stamps lastUsedAt without otherwise changing the grant", () => {
+    const { grant } = store.create({ site: "blog" })
+    expect(grant.lastUsedAt).toBeUndefined()
+    const updated = store.touch(grant.id)!
     expect(updated.lastUsedAt).toBeTruthy()
+    expect(updated.revoked).toBe(false)
   })
 
   test("listForSite scopes to one site", () => {
@@ -116,17 +86,15 @@ describe("Unit: GrantStore", () => {
     expect(store.listForSite("shop")).toHaveLength(1)
   })
 
-  test("gc removes revoked / expired / exhausted grants and returns their ids", () => {
-    const live = store.create({ site: "blog", maxDeploys: 5 })
-    const expired = store.create({ site: "blog" })
+  test("gc removes revoked grants and returns their ids, keeping live ones", () => {
+    const live = store.create({ site: "blog" })
     const revoked = store.create({ site: "blog" })
-    rewrite(expired.grant.id, { expiresAt: new Date(Date.now() - 1000).toISOString() })
     store.revoke(revoked.grant.id)
 
     const removed = store.gc()
-    expect(removed.sort()).toEqual([expired.grant.id, revoked.grant.id].sort())
+    expect(removed).toEqual([revoked.grant.id])
     expect(existsSync(grantFile(live.grant.id))).toBe(true)
-    expect(existsSync(grantFile(expired.grant.id))).toBe(false)
+    expect(existsSync(grantFile(revoked.grant.id))).toBe(false)
     expect(readdirSync(join(dataDir, "share-grants"))).toHaveLength(1)
   })
 })

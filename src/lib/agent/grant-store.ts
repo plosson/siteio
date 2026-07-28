@@ -4,17 +4,9 @@ import type { ShareGrant, ShareGrantInfo } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
 import { generateGrantId, generateGrantToken, hashGrantToken } from "../../utils/grant-token.ts"
 
-// Every grant expires within this window even if the owner sets no explicit
-// expiry — a leaked link can never live forever.
-export const HARD_MAX_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
-
 export interface CreateGrantInput {
   site: string
-  maxDeploys?: number // default 1
-  expiresInMs?: number // capped at HARD_MAX_TTL_MS
-  neverExpires?: boolean // explicit opt-in; overrides expiresInMs. The deploy
-  // budget still bounds abuse — a never-expiring link with the default 1-deploy
-  // budget still dies on first publish.
+  allowBackend?: boolean // let scoped deploys change backend (default false)
   label?: string
 }
 
@@ -34,29 +26,14 @@ export class GrantStore {
   }
 
   create(input: CreateGrantInput): { grant: ShareGrant; token: string } {
-    const maxDeploys = input.maxDeploys ?? 1
-    if (!Number.isInteger(maxDeploys) || maxDeploys < 1) {
-      throw new ValidationError("maxDeploys must be a positive integer")
-    }
-
-    const now = Date.now()
-    let expiresAt: string | undefined
-    if (!input.neverExpires) {
-      const ttl = Math.min(input.expiresInMs ?? HARD_MAX_TTL_MS, HARD_MAX_TTL_MS)
-      if (ttl <= 0) throw new ValidationError("expiry must be in the future")
-      expiresAt = new Date(now + ttl).toISOString()
-    }
-
     const token = generateGrantToken()
     const grant: ShareGrant = {
       id: generateGrantId(),
       site: input.site,
       tokenHash: hashGrantToken(token),
       label: input.label,
-      maxDeploys,
-      deploysUsed: 0,
-      createdAt: new Date(now).toISOString(),
-      expiresAt,
+      allowBackend: input.allowBackend || undefined,
+      createdAt: new Date().toISOString(),
       revoked: false,
     }
     writeFileSync(this.grantPath(grant.id), JSON.stringify(grant, null, 2), { mode: 0o600 })
@@ -93,7 +70,7 @@ export class GrantStore {
   }
 
   // The single chokepoint deciding a grant is *live*. Returns the grant only if
-  // it exists, matches the token hash, and is not revoked / expired / exhausted.
+  // it exists, matches the token hash, and is not revoked.
   resolveByToken(token: string): ShareGrant | null {
     const hash = hashGrantToken(token)
     const grant = this.list().find((g) => g.tokenHash === hash)
@@ -103,21 +80,14 @@ export class GrantStore {
   }
 
   isActive(grant: ShareGrant): boolean {
-    const notExpired = !grant.expiresAt || Date.now() < Date.parse(grant.expiresAt)
-    return !grant.revoked && notExpired && grant.deploysUsed < grant.maxDeploys
+    return !grant.revoked
   }
 
-  // Record a successful deploy against the budget. Returns the updated grant,
-  // or null if it vanished. Does not itself enforce the budget — callers gate
-  // on resolveByToken() first.
-  recordDeploy(id: string): ShareGrant | null {
+  // Stamp the grant's last-used time after a deploy (informational only).
+  touch(id: string): ShareGrant | null {
     const grant = this.get(id)
     if (!grant) return null
-    const updated: ShareGrant = {
-      ...grant,
-      deploysUsed: grant.deploysUsed + 1,
-      lastUsedAt: new Date().toISOString(),
-    }
+    const updated: ShareGrant = { ...grant, lastUsedAt: new Date().toISOString() }
     writeFileSync(this.grantPath(id), JSON.stringify(updated, null, 2), { mode: 0o600 })
     return updated
   }
@@ -137,8 +107,8 @@ export class GrantStore {
     return true
   }
 
-  // Garbage-collect dead grants (revoked / expired / budget-exhausted). Returns
-  // the ids removed so the caller can reclaim their staging dirs.
+  // Garbage-collect dead (revoked) grants. Returns the ids removed so the
+  // caller can reclaim their staging dirs.
   gc(): string[] {
     const removed: string[] = []
     for (const grant of this.list()) {

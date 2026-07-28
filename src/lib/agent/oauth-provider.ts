@@ -2,9 +2,10 @@ import type { GrantStore } from "./grant-store.ts"
 import type { OAuthStore } from "./oauth-store.ts"
 import { verifyPkceS256 } from "../../utils/oauth.ts"
 
-// Access tokens are leases on a grant (re-checked every MCP call), so a
-// non-expiring grant just gets a long-lived token rather than needing refresh.
-const MAX_TOKEN_TTL_MS = 3650 * 24 * 60 * 60 * 1000 // ~10 years
+// Access tokens are leases on a grant, re-checked (for revocation) on every MCP
+// call — so they're long-lived and there are no refresh tokens. Revoking the
+// grant drops its tokens immediately.
+const TOKEN_TTL_MS = 3650 * 24 * 60 * 60 * 1000 // ~10 years
 
 export interface OAuthDeps {
   grants: GrantStore
@@ -225,11 +226,10 @@ export class OAuthProvider {
       return this.oauthError("invalid_grant", "The share code is no longer valid")
     }
 
-    // Token lifetime tracks the grant: fixed grants expire with the grant;
-    // never-expiring grants get a long-lived token. Either way the grant is
-    // re-checked on every MCP call, so revocation bites immediately.
+    // Long-lived token; the grant is re-checked on every MCP call, so a revoke
+    // bites immediately regardless of token lifetime.
     const now = Date.now()
-    const expiresAtMs = grant.expiresAt ? Date.parse(grant.expiresAt) : now + MAX_TOKEN_TTL_MS
+    const expiresAtMs = now + TOKEN_TTL_MS
     const token = this.deps.oauth.createAccessToken({
       grantId: grant.id,
       expiresAt: new Date(expiresAtMs).toISOString(),

@@ -1,10 +1,12 @@
 import { mkdirSync } from "fs"
-import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, Site } from "../../types.ts"
+import { unzipSync, zipSync } from "fflate"
+import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, Site, ShareGrant } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { AppStorage } from "./app-storage.ts"
 import { GrantStore, type CreateGrantInput } from "./grant-store.ts"
 import { StagingStore } from "./staging-store.ts"
+import { mergeScopedDeploy } from "./deploy-merge.ts"
 import { OAuthStore } from "./oauth-store.ts"
 import { OAuthProvider } from "./oauth-provider.ts"
 import { McpHandler } from "./mcp.ts"
@@ -17,6 +19,7 @@ import { buildOverride } from "./compose-override.ts"
 import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS } from "./ui/assets.ts"
 import { POCKETBASE_IMAGE, POCKETBASE_VERSION } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
+import { encodeToken } from "../../utils/token.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 
 // Strip the git token before returning an app over the API. Clients never need
@@ -86,9 +89,25 @@ export class AgentServer {
     return Response.json({ success: false, error: message } as ApiResponse<null>, { status })
   }
 
-  private checkAuth(req: Request): boolean {
-    const apiKey = req.headers.get("X-API-Key")
-    return apiKey === this.config.apiKey
+  // Resolve who is calling. The god API key grants full access; a share-grant
+  // token (sent as X-API-Key by a scoped CLI login) grants a narrow, per-site
+  // scope enforced in handleScopedRequest.
+  private authenticate(req: Request): { kind: "god" } | { kind: "grant"; grant: ShareGrant } | null {
+    const key = req.headers.get("X-API-Key") || ""
+    if (!key) return null
+    if (key === this.config.apiKey) return { kind: "god" }
+    // A raw share code (grant token) …
+    const grant = this.grants.resolveByToken(key)
+    if (grant) return { kind: "grant", grant }
+    // … or an OAuth bearer access token, so a client that connected via the MCP
+    // connector can use the same credential with the CLI (the get_started
+    // bridge). Both resolve to the same live grant.
+    const rec = this.oauth.resolveAccessToken(key)
+    if (rec) {
+      const g = this.grants.get(rec.grantId)
+      if (g && this.grants.isActive(g)) return { kind: "grant", grant: g }
+    }
+    return null
   }
 
   private async handleRequest(req: Request): Promise<Response> {
@@ -130,6 +149,30 @@ export class AgentServer {
       return this.error("Not found", 404)
     }
 
+    // Scoped-CLI REST channel, served under the SITE host so api.<domain> stays
+    // hidden. Traefik routes `<site>.<domain>/_siteio/*` here. The standard
+    // siteio CLI reaches it by logging in with a scoped token whose URL is
+    // `https://<site>.<domain>/_siteio` — it then appends /sites/... etc. as
+    // usual. Authenticated by a share code (grant token) as X-API-Key.
+    if (path === "/_siteio" || path.startsWith("/_siteio/")) {
+      const ctx = this.oauthProvider.hostContext(host)
+      if (!ctx) return this.error("Not found", 404)
+      const rest = path.slice("/_siteio".length) || "/"
+      // Health is unauthenticated (CLI version-skew probe), like /health.
+      if (rest === "/health" && req.method === "GET") {
+        return this.json({ status: "ok", version: getVersion() })
+      }
+      const auth = this.authenticate(req)
+      if (!auth) return this.error("Unauthorized", 401)
+      if (auth.kind !== "grant") {
+        return this.error("The management API is not available here; use a share code", 403)
+      }
+      if (auth.grant.site !== ctx.site) {
+        return this.error("This share code is not valid for that site", 403)
+      }
+      return this.handleScopedRequest(auth.grant, rest, req)
+    }
+
     // Check if this is an API request (api.domain)
     const isApiRequest = hostWithoutPort === `api.${this.config.domain}` ||
       hostWithoutPort === "localhost" ||
@@ -156,13 +199,21 @@ export class AgentServer {
     }
 
     // All other routes require auth
-    if (!this.checkAuth(req)) {
+    const auth = this.authenticate(req)
+    if (!auth) {
       return this.error("Unauthorized", 401)
     }
 
     // Deprecated alias kept for pre-merge CLIs: /pockets/* is /sites/*.
     if (path === "/pockets" || path.startsWith("/pockets/")) {
       path = path.replace(/^\/pockets/, "/sites")
+    }
+
+    // Scoped share-code credentials get a narrow per-site surface (download +
+    // deploy their own site); everything else is 403. The god key falls through
+    // to the full route table below.
+    if (auth.kind === "grant") {
+      return this.handleScopedRequest(auth.grant, path, req)
     }
 
     // GET /sites - list all sites
@@ -969,6 +1020,68 @@ export class AgentServer {
     return this.storage.toInfo(updated, this.config.domain)
   }
 
+  // Narrow surface for a scoped share-code credential: it may only download or
+  // (re)deploy its own site. Anything else — other sites, apps, admin creds,
+  // delete/rename/domains — is refused.
+  private async handleScopedRequest(grant: ShareGrant, path: string, req: Request): Promise<Response> {
+    const notAllowed = () =>
+      this.error(`This share code can only download or deploy the site '${grant.site}'`, 403)
+
+    const siteMatch = path.match(/^\/sites\/([a-z0-9-]+)$/)
+    if (siteMatch) {
+      if (siteMatch[1] !== grant.site) return this.error("This share code is not valid for that site", 403)
+      if (req.method === "POST") return this.handleScopedDeploy(grant, req)
+      if (req.method === "GET") return this.handleGetSite(grant.site)
+      return notAllowed()
+    }
+
+    const downloadMatch = path.match(/^\/sites\/([a-z0-9-]+)\/download$/)
+    if (downloadMatch) {
+      if (downloadMatch[1] !== grant.site) return this.error("This share code is not valid for that site", 403)
+      if (req.method === "GET") return this.handleDownloadSite(grant.site)
+      return notAllowed()
+    }
+
+    return notAllowed()
+  }
+
+  // Deploy an invitee's uploaded code under a scoped share code. The upload is
+  // merged with the site's current backend (preserved unless the grant allows
+  // backend edits), then deployed via the shared core; the deploy is attributed
+  // to the grant label and counts against the grant's budget.
+  private async handleScopedDeploy(grant: ShareGrant, req: Request): Promise<Response> {
+    const name = grant.site
+    const site = this.storage.get(name)
+    if (!site) return this.error("Site not found", 404)
+
+    const contentType = req.headers.get("Content-Type") || ""
+    if (!contentType.includes("application/zip")) return this.error("Expected application/zip body", 400)
+    const zipData = new Uint8Array(await req.arrayBuffer())
+    if (zipData.length === 0) return this.error("Empty upload", 400)
+    if (zipData.length > this.config.maxUploadSize) return this.error("Upload too large", 413)
+    if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+
+    try {
+      const incoming: Record<string, Uint8Array> = {}
+      for (const [k, v] of Object.entries(unzipSync(zipData))) {
+        if (!k.endsWith("/")) incoming[k] = v
+      }
+      const merged = mergeScopedDeploy({
+        incoming,
+        currentCodePath: this.storage.getCodePath(name),
+        allowBackend: !!grant.allowBackend,
+      })
+      const mergedZip = zipSync(merged, { level: 6 })
+      const info = await this.runSiteDeploy(site, mergedZip, grant.label || "shared link")
+      this.grants.touch(grant.id)
+      return this.json(info)
+    } catch (err) {
+      this.storage.update(name, { status: "failed" })
+      const message = err instanceof Error ? err.message : "Failed to deploy site"
+      return this.error(message, 500)
+    }
+  }
+
   // Invoked by McpHandler's deploy callback. The zip is pre-merged (invitee's
   // web root + the site's existing backend dirs), so this is a straight deploy.
   private async deploySiteViaGrant(siteName: string, zipData: Uint8Array, deployedBy: string): Promise<SiteInfo> {
@@ -989,21 +1102,20 @@ export class AgentServer {
     if (!this.storage.exists(name)) return this.error("Site not found", 404)
     try {
       const body = (await req.json().catch(() => ({}))) as {
-        maxDeploys?: number
-        expiresInMs?: number
-        neverExpires?: boolean
+        allowBackend?: boolean
         label?: string
       }
       const input: CreateGrantInput = {
         site: name,
-        maxDeploys: body.maxDeploys,
-        expiresInMs: body.expiresInMs,
-        neverExpires: body.neverExpires,
+        allowBackend: body.allowBackend,
         label: body.label,
       }
       const { grant, token } = this.grants.create(input)
-      const url = `https://${name}.${this.config.domain}/mcp`
-      return this.json({ grant: this.grants.toInfo(grant), url, code: token })
+      const siteHost = `https://${name}.${this.config.domain}`
+      // CLI tier logs in with a token pointing at the scoped REST channel on the
+      // site host, so the standard CLI never touches api.<domain>.
+      const cliToken = encodeToken(`${siteHost}/_siteio`, token)
+      return this.json({ grant: this.grants.toInfo(grant), url: `${siteHost}/mcp`, code: token, cliToken })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create share link"
       return this.error(message, 400)

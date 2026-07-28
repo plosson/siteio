@@ -182,15 +182,14 @@ function registerSiteCommands(sites: Command): void {
 
   const siteShare = sites
     .command("share")
-    .description("Create and manage single-use MCP links to let others edit a site")
+    .description("Grant and manage revocable access for others to edit a site")
 
   // Bare `siteio sites share [name]` mints a link (the common case). The
   // list/revoke subcommands hang off the same group.
   siteShare
     .argument("[name]", "Site to share (defaults to .siteio/config.json)")
-    .option("--deploys <n>", "Max number of deploys the link allows (default: 1)")
-    .option("--expires <duration>", "Expiry window, e.g. 30m, 24h, 7d, or 'never' (default/max: 7d)")
     .option("--label <label>", "Attribution label shown in the site's deploy history")
+    .option("--allow-backend", "Let the invitee also change backend code (pb_migrations, pb_hooks) — can affect live data")
     .action(async (name, options) => {
       const { sitesShareCommand } = await import("./commands/sites/share.ts")
       await sitesShareCommand(name, { ...options, json: program.opts().json })

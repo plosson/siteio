@@ -50,15 +50,21 @@ describe("API: share grants", () => {
     expect(body.data!.code).toStartWith("grt_")
     // Same URL for every grant — the code (not the URL) is the per-invitee secret.
     expect(body.data!.url).toBe("https://blog.example.com/mcp")
+    // CLI tier: a login token that decodes to the scoped site-host channel + code.
+    expect(body.data!.cliToken).toBeTruthy()
+    const { decodeToken } = await import("../../utils/token.ts")
+    const decoded = decodeToken(body.data!.cliToken)
+    expect(decoded.url).toBe("https://blog.example.com/_siteio")
+    expect(decoded.apiKey).toBe(body.data!.code)
     expect(body.data!.grant.site).toBe("blog")
     expect(body.data!.grant.active).toBe(true)
   })
 
-  test("owner-set deploy budget and label are honored", async () => {
-    const res = await createGrant({ maxDeploys: 5, label: "Sam" })
+  test("label and allow-backend are honored", async () => {
+    const res = await createGrant({ label: "Sam", allowBackend: true })
     const body = (await res.json()) as ApiResponse<ShareGrantCreated>
-    expect(body.data!.grant.maxDeploys).toBe(5)
     expect(body.data!.grant.label).toBe("Sam")
+    expect(body.data!.grant.allowBackend).toBe(true)
   })
 
   test("GET /sites/:name/grants lists grants without leaking the token hash", async () => {
