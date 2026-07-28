@@ -3,9 +3,9 @@ import type { GrantStore } from "./grant-store.ts"
 import type { StagingStore } from "./staging-store.ts"
 import type { SiteStorage } from "./storage.ts"
 import type { OAuthStore } from "./oauth-store.ts"
+import { MAX_STAGING_FILE_SIZE, MAX_STAGING_TOTAL_SIZE } from "./staging-store.ts"
 import { ValidationError } from "../../utils/errors.ts"
 import { getVersion } from "../version.ts"
-import { encodeToken } from "../../utils/token.ts"
 
 const MCP_PROTOCOL_VERSION = "2024-11-05"
 
@@ -23,11 +23,6 @@ export interface McpHostCtx {
   site: string
 }
 
-// The two deliberately-distinct MCP surfaces, sharing one OAuth:
-//   "mcp" — full editing tools (edit the site through MCP functions).
-//   "cli" — a single get_started tool that hands off to the siteio CLI.
-export type McpMode = "mcp" | "cli"
-
 export interface McpDeps {
   grants: GrantStore
   staging: StagingStore
@@ -43,12 +38,10 @@ export interface McpDeps {
 }
 
 // A minimal Model Context Protocol server over Streamable HTTP, served per-site
-// under the site host and authenticated by an OAuth bearer token (obtained via
-// the share-code flow — see OAuthProvider). Two surfaces share the same auth:
-//   - mode "mcp"  (`/mcp`): file-level editing tools over a per-grant staging copy.
-//   - mode "cli"  (`/cli`): a single get_started tool that hands off to the CLI.
-// Hand-rolled (initialize / tools/list / tools/call) to match the project's
-// dependency-light HTTP layer.
+// under the site host at `/mcp` and authenticated by an OAuth bearer token
+// (obtained via the share-code flow — see OAuthProvider). Exposes file-level
+// editing tools over a per-grant staging copy. Hand-rolled (initialize /
+// tools/list / tools/call) to match the project's dependency-light HTTP layer.
 export class McpHandler {
   constructor(private deps: McpDeps) {}
 
@@ -56,9 +49,8 @@ export class McpHandler {
     return Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } })
   }
 
-  // Entry point. `ctx` is the site resolved from the request Host by the server;
-  // `mode` selects the tool surface. Auth is identical for both modes.
-  async handle(req: Request, ctx: McpHostCtx, mode: McpMode): Promise<Response> {
+  // Entry point. `ctx` is the site resolved from the request Host by the server.
+  async handle(req: Request, ctx: McpHostCtx): Promise<Response> {
     if (req.method !== "POST") {
       // We don't offer a server-initiated GET stream; tell compliant clients.
       return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } })
@@ -71,7 +63,7 @@ export class McpHandler {
     const grant = record ? this.deps.grants.get(record.grantId) : null
     // The token must map to a live grant for THIS site.
     if (!grant || !this.deps.grants.isActive(grant) || grant.site !== ctx.site) {
-      return this.challenge(ctx, mode)
+      return this.challenge(ctx)
     }
 
     let payload: unknown
@@ -85,38 +77,32 @@ export class McpHandler {
     if (Array.isArray(payload)) {
       const responses: unknown[] = []
       for (const msg of payload) {
-        const res = await this.dispatch(msg as JsonRpcRequest, grant, ctx, bearer, mode)
+        const res = await this.dispatch(msg as JsonRpcRequest, grant)
         if (res !== null) responses.push(res)
       }
       if (responses.length === 0) return new Response(null, { status: 202 })
       return Response.json(responses)
     }
 
-    const single = await this.dispatch(payload as JsonRpcRequest, grant, ctx, bearer, mode)
+    const single = await this.dispatch(payload as JsonRpcRequest, grant)
     if (single === null) return new Response(null, { status: 202 })
     return Response.json(single)
   }
 
-  // 401 that points the client at this surface's protected-resource metadata,
-  // so it can discover the OAuth authorization server and start the flow.
-  private challenge(ctx: McpHostCtx, mode: McpMode): Response {
+  // 401 that points the client at the protected-resource metadata, so it can
+  // discover the OAuth authorization server and start the flow.
+  private challenge(ctx: McpHostCtx): Response {
     return new Response(JSON.stringify({ error: "unauthorized", error_description: "Authorization required" }), {
       status: 401,
       headers: {
         "Content-Type": "application/json",
-        "WWW-Authenticate": `Bearer resource_metadata="${ctx.baseUrl}/.well-known/oauth-protected-resource/${mode}"`,
+        "WWW-Authenticate": `Bearer resource_metadata="${ctx.baseUrl}/.well-known/oauth-protected-resource/mcp"`,
       },
     })
   }
 
   // Returns a JSON-RPC response object, or null for a notification (no reply).
-  private async dispatch(
-    msg: JsonRpcRequest,
-    grant: ShareGrant,
-    ctx: McpHostCtx,
-    bearer: string,
-    mode: McpMode
-  ): Promise<unknown | null> {
+  private async dispatch(msg: JsonRpcRequest, grant: ShareGrant): Promise<unknown | null> {
     if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") {
       return { jsonrpc: "2.0", id: (msg && msg.id) ?? null, error: { code: -32600, message: "Invalid Request" } }
     }
@@ -138,16 +124,13 @@ export class McpHandler {
           : []
         const liveAt = liveUrls.length ? ` It is live at ${liveUrls.join(", ")}.` : ""
         const instructions =
-          mode === "cli"
-            ? `You can edit and publish the website "${grant.site}".${liveAt} ` +
-              `Call the get_started tool first — it returns a scoped siteio CLI login and the exact ` +
-              `commands to download the site, edit it locally (including images and other assets), and deploy.`
-            : `You can edit and publish the website "${grant.site}".${liveAt} Use list_files/read_file to inspect it, ` +
-              `write_file/delete_file to change the web files, then deploy_site to publish. ` +
-              `Only website files can be changed here; the site's backend (database, hooks) is managed by the owner.`
+          `You can edit and publish the website "${grant.site}".${liveAt} Use list_files/read_file to inspect it, ` +
+          `write_file/edit_file/delete_file to change the web files, then deploy_site to publish. ` +
+          `Prefer edit_file for small changes to large files. ` +
+          `Only website files can be changed here; the site's backend (database, hooks) is managed by the owner.`
         return this.ok(msg.id, {
           protocolVersion: MCP_PROTOCOL_VERSION,
-          capabilities: { tools: {} },
+          capabilities: { tools: {}, resources: {} },
           serverInfo: { name: "siteio-site-editor", version: getVersion() },
           instructions,
         })
@@ -155,9 +138,17 @@ export class McpHandler {
       case "ping":
         return this.ok(msg.id, {})
       case "tools/list":
-        return this.ok(msg.id, { tools: mode === "cli" ? CLI_TOOLS : MCP_TOOLS })
+        return this.ok(msg.id, { tools: MCP_TOOLS })
       case "tools/call":
-        return this.handleToolCall(msg, grant, ctx, bearer, mode)
+        return this.handleToolCall(msg, grant)
+      case "resources/list":
+        return this.ok(msg.id, { resources: MCP_RESOURCES.map(({ text: _text, ...meta }) => meta) })
+      case "resources/read": {
+        const uri = String((msg.params as { uri?: string } | undefined)?.uri ?? "")
+        const found = MCP_RESOURCES.find((r) => r.uri === uri)
+        if (!found) return { jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: `Resource not found: ${uri}` } }
+        return this.ok(msg.id, { contents: [{ uri: found.uri, mimeType: found.mimeType, text: found.text }] })
+      }
       default:
         if (isNotification) return null
         return { jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `Method not found: ${msg.method}` } }
@@ -194,23 +185,10 @@ export class McpHandler {
     }
   }
 
-  private async handleToolCall(
-    msg: JsonRpcRequest,
-    grant: ShareGrant,
-    ctx: McpHostCtx,
-    bearer: string,
-    mode: McpMode
-  ): Promise<unknown> {
+  private async handleToolCall(msg: JsonRpcRequest, grant: ShareGrant): Promise<unknown> {
     const params = (msg.params ?? {}) as { name?: string; arguments?: Record<string, unknown> }
     const name = params.name
     const args = params.arguments ?? {}
-
-    // The /cli surface exposes only get_started; the /mcp surface exposes only
-    // the editing tools. Reject anything outside the active surface.
-    const allowed = mode === "cli" ? name === "get_started" : name !== "get_started"
-    if (!allowed) {
-      return this.toolText(msg.id, grant, `Unknown tool: ${name}`, true)
-    }
 
     try {
       switch (name) {
@@ -218,8 +196,6 @@ export class McpHandler {
           return this.toolText(msg.id, grant, this.siteInfoText(grant))
         case "list_history":
           return this.toolText(msg.id, grant, this.historyText(grant))
-        case "get_started":
-          return this.toolText(msg.id, grant, this.getStartedText(grant, ctx, bearer))
         case "list_files": {
           this.ensureSeeded(grant)
           const files = this.deps.staging.listFiles(grant.id)
@@ -236,6 +212,18 @@ export class McpHandler {
           const encoding = args.encoding === "base64" ? "base64" : "utf8"
           this.deps.staging.writeFile(grant.id, String(args.path ?? ""), String(args.content ?? ""), encoding)
           return this.toolText(msg.id, grant, `Wrote ${args.path}. Run deploy_site to publish.`)
+        }
+        case "edit_file": {
+          this.ensureSeeded(grant)
+          const path = String(args.path ?? "")
+          const n = this.deps.staging.editFile(
+            grant.id,
+            path,
+            String(args.old_string ?? ""),
+            String(args.new_string ?? ""),
+            args.replace_all === true
+          )
+          return this.toolText(msg.id, grant, `Edited ${path} (${n} replacement${n === 1 ? "" : "s"}). Run deploy_site to publish.`)
         }
         case "write_url": {
           this.ensureSeeded(grant)
@@ -295,32 +283,6 @@ export class McpHandler {
     return `Deployment history for "${grant.site}" (newest first):\n${lines.join("\n")}`
   }
 
-  // Bridge for shell-capable clients (Codex, Claude Code, Cursor): hand back a
-  // ready `siteio login` using the current session's bearer as a scoped key, so
-  // the model can drop into the native CLI — download the real files, edit them
-  // (images and all) with local tools, and deploy — instead of the MCP file
-  // tools. The bearer is scoped to this one site exactly like the MCP session.
-  private getStartedText(grant: ShareGrant, ctx: McpHostCtx, bearer: string): string {
-    const site = grant.site
-    const loginToken = encodeToken(`${ctx.baseUrl}/_siteio`, bearer)
-    return [
-      `You can edit and publish the website "${site}" (${ctx.baseUrl}) with the siteio CLI.`,
-      "The CLI runs on macOS and Linux only (on Windows, use WSL).",
-      "",
-      "1. Install (once):",
-      "   curl -LsSf https://siteio.houlahop.com/install | sh",
-      "2. Log in with your scoped access (this token only works for this one site):",
-      `   siteio login -t ${loginToken}`,
-      "3. Download the current site, edit locally, and deploy:",
-      `   siteio sites download -n ${site} ./${site}`,
-      `   cd ${site}    # edit files; add images/fonts under the web root as normal files`,
-      `   siteio sites deploy`,
-      "",
-      `Your access is limited to this one site's web files${grant.allowBackend ? " and backend" : ""}`,
-      "and can be revoked by the owner at any time.",
-    ].join("\n")
-  }
-
   private async handleDeployTool(msg: JsonRpcRequest, grant: ShareGrant): Promise<unknown> {
     this.ensureSeeded(grant)
     const site = this.deps.sites.get(grant.site)
@@ -354,16 +316,6 @@ export class McpHandler {
     }
   }
 }
-
-// The /cli surface: a single hand-off tool.
-const CLI_TOOLS = [
-  {
-    name: "get_started",
-    description:
-      "How to edit and publish this website. Returns a ready-to-run, scoped siteio CLI login plus the exact download/edit/deploy commands. Call this first; all editing happens through the siteio CLI.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-  },
-]
 
 // The /mcp surface: full web-file editing tools.
 const MCP_TOOLS = [
@@ -410,6 +362,25 @@ const MCP_TOOLS = [
     },
   },
   {
+    name: "edit_file",
+    description:
+      "Make a targeted edit to an existing text file by replacing an exact snippet — cheaper and less error-prone than rewriting the whole file with write_file. old_string must match verbatim (including whitespace/indentation) and be unique unless replace_all is set. Staged, not published until deploy_site.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "File path relative to the web root, e.g. index.html" },
+        old_string: { type: "string", description: "Exact text to replace (must match verbatim, including indentation)" },
+        new_string: { type: "string", description: "Replacement text" },
+        replace_all: {
+          type: "boolean",
+          description: "Replace every occurrence instead of requiring a unique match (default false)",
+        },
+      },
+      required: ["path", "old_string", "new_string"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "write_url",
     description:
       "Add a web file by having the server download it from a URL — the right way to add images, fonts, or other binary assets (no need to inline/base64 them). Staged, not published until deploy_site.",
@@ -437,5 +408,62 @@ const MCP_TOOLS = [
     name: "deploy_site",
     description: "Publish all staged web changes as a new live version of the site.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+]
+
+const MB = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
+
+// MCP Resources: static markdown guidance the client can load into context
+// alongside the `initialize` instructions. `text` is the body returned by
+// resources/read; resources/list returns only the metadata (uri/name/…).
+interface McpResource {
+  uri: string
+  name: string
+  description: string
+  mimeType: string
+  text: string
+}
+
+// Guidance for the /mcp editing surface.
+const MCP_RESOURCES: McpResource[] = [
+  {
+    uri: "siteio://guide/editing",
+    name: "Editing & publishing guide",
+    description: "How to inspect, edit, and publish this website through the siteio MCP tools.",
+    mimeType: "text/markdown",
+    text: [
+      "# Editing this website",
+      "",
+      "Your changes are staged on the server and are **not live until you call `deploy_site`**.",
+      "",
+      "## Workflow",
+      "1. `list_files` — see every web file you can edit (paths relative to the web root).",
+      "2. `read_file` — read a file before changing it.",
+      "3. Change files:",
+      "   - `edit_file` — replace an exact snippet in an existing file. Prefer this for small changes to large files.",
+      "   - `write_file` — create a file or fully overwrite one.",
+      "   - `write_url` — add an image/font/other binary asset by URL (the server downloads it).",
+      "   - `delete_file` — remove a file.",
+      "4. `deploy_site` — publish all staged changes as a new live version.",
+      "",
+      "## Good to know",
+      "- `site_info` reports the live URL and current published version; `list_history` is the deployment changelog.",
+      "- Only website files can be changed here. The backend (database, hooks, migrations) is managed by the owner and is off-limits.",
+      "- If the owner (or another link) deploys while you are editing, `deploy_site` publishes your web changes on top of the latest version and tells you so — re-read the files if something looks off.",
+    ].join("\n"),
+  },
+  {
+    uri: "siteio://guide/conventions",
+    name: "File conventions",
+    description: "Paths, routing, binary assets, and size limits for this site's web files.",
+    mimeType: "text/markdown",
+    text: [
+      "# File conventions",
+      "",
+      "- Paths are relative to the web root, e.g. `index.html`, `css/style.css`, `img/hero.jpg`. Absolute paths and `..` traversal are rejected.",
+      "- `index.html` at the web root is the site's entry page.",
+      "- Add images, fonts, and other binary assets with `write_url` (the server downloads them) rather than base64-inlining. `write_file` with `encoding: base64` also works for small binaries.",
+      `- Limits: up to ${MB(MAX_STAGING_FILE_SIZE)} per file and ${MB(MAX_STAGING_TOTAL_SIZE)} total across all staged files.`,
+    ].join("\n"),
   },
 ]

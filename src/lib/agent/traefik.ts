@@ -137,7 +137,6 @@ log:
           "mcp-router": {
             rule:
               "PathPrefix(`/mcp`) || " +
-              "PathPrefix(`/cli`) || " +
               "PathPrefix(`/_siteio`) || " +
               "PathPrefix(`/.well-known/oauth-authorization-server`) || " +
               "PathPrefix(`/.well-known/oauth-protected-resource`)",

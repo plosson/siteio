@@ -79,11 +79,9 @@ export class OAuthProvider {
 
   // ---- Discovery metadata ----
 
-  // `surface` selects which MCP resource this metadata describes ("mcp" | "cli").
-  // Both list the same authorization server — auth is identical for both.
-  protectedResourceMetadata(ctx: HostCtx, surface: "mcp" | "cli" = "mcp"): Response {
+  protectedResourceMetadata(ctx: HostCtx): Response {
     return this.jsonCors({
-      resource: `${ctx.baseUrl}/${surface}`,
+      resource: `${ctx.baseUrl}/mcp`,
       authorization_servers: [ctx.baseUrl],
       scopes_supported: ["site:edit"],
       bearer_methods_supported: ["header"],
