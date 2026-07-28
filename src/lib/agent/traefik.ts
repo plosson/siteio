@@ -112,16 +112,16 @@ log:
   // The file provider carries the agent's own host-side routers:
   //   - `api-router`: the full API at `api.<domain>`.
   //   - `mcp-router`: the MCP share endpoint at `<site>.<domain>/mcp/*`. It sits
-  //     in front of each site container's `Host(<site>.<domain>)` router (which
-  //     is discovered via docker labels) using a longer rule + explicit high
-  //     priority, so only the `/mcp` path is siphoned to the agent; every other
-  //     path on that host still reaches the site container. The site's own
-  //     router already provisions the Let's Encrypt cert this reuses.
+  //     in front of each site container's `Host(...)` router (discovered via
+  //     docker labels) using an explicit high priority, so only these reserved
+  //     paths are siphoned to the agent; every other path on the host still
+  //     reaches the site container. The rule is host-agnostic so it also covers
+  //     sites' custom (vanity) domains — the agent resolves the host to a site.
+  //     Each site's own router already provisions the Let's Encrypt cert reused.
   // Everything else (sites and apps alike) routes via docker-label discovery.
   generateDynamicConfig(): string {
     const { domain, fileServerPort } = this.config
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
-    const escapedDomain = domain.replace(/\./g, "\\.")
 
     const config: Record<string, unknown> = {
       http: {
@@ -136,12 +136,11 @@ log:
           },
           "mcp-router": {
             rule:
-              `HostRegexp(\`^[a-z0-9-]+\\.${escapedDomain}$\`) && ` +
-              "(PathPrefix(`/mcp`) || " +
+              "PathPrefix(`/mcp`) || " +
               "PathPrefix(`/cli`) || " +
               "PathPrefix(`/_siteio`) || " +
               "PathPrefix(`/.well-known/oauth-authorization-server`) || " +
-              "PathPrefix(`/.well-known/oauth-protected-resource`))",
+              "PathPrefix(`/.well-known/oauth-protected-resource`)",
             entryPoints: ["websecure"],
             service: "api-service",
             priority: 1000,

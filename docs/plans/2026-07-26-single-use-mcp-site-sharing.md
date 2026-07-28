@@ -51,6 +51,8 @@ v2 added the MCP-over-OAuth connector for **tool-only** clients (claude.ai). But
 
 Both endpoints authenticate identically (OAuth bearer → grant for this site); a single bearer from the dance works on both. Each advertises its own RFC 9728 protected-resource (`/.well-known/oauth-protected-resource/{mcp,cli}`) pointing at the one shared authorization server. `tools/call` on a surface rejects the other surface's tools.
 
+**Custom (vanity) domains.** The sharing endpoints work on a site's custom domain too, not only `<site>.<domain>`. The Traefik `mcp-router` rule is host-agnostic (matches the reserved path prefixes on *any* host, high priority) and `OAuthProvider.hostContext` resolves a custom-domain host to its owning site via `SiteStorage.findByCustomDomain`. Every OAuth/MCP URL is built from the host the client actually connected to, so a connector added on the vanity domain stays on it end-to-end. Reserved paths (`/mcp`, `/cli`, `/_siteio`, `/.well-known/oauth-*`) are therefore not usable as site content on any host.
+
 **Result:** the owner sends whichever fits the invitee's client — CLI login (Tier A), the `/mcp` connector (edit-in-AI), or the `/cli` connector (bridge to CLI). Same `GrantStore` and revoke-only lifetime across all. (This split supersedes the single-tool-only v3 draft.)
 
 ---

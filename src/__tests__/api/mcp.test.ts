@@ -54,14 +54,16 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
     return ((await res.json()) as ApiResponse<ShareGrantCreated>).data!.code
   }
 
-  // Run the OAuth share-code dance once → a bearer usable on BOTH surfaces.
-  const connect = async (name: string, grantBody: Record<string, unknown> = {}): Promise<string> => {
+  // Run the OAuth share-code dance once (on `host`) → a bearer usable on BOTH
+  // surfaces. Grants are minted on the api host; the dance runs on the site host.
+  const connect = async (name: string, grantBody: Record<string, unknown> = {}, host = HOST): Promise<string> => {
     const code = await mintCode(name, grantBody)
     const reg = await on(
       new Request("http://x/mcp/oauth/register", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ redirect_uris: [REDIRECT] }),
-      })
+      }),
+      host
     )
     const clientId = ((await reg.json()) as { client_id: string }).client_id
     const { verifier, challenge } = pkce()
@@ -72,7 +74,8 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
           response_type: "code", client_id: clientId, redirect_uri: REDIRECT,
           code_challenge: challenge, code_challenge_method: "S256", code,
         }).toString(),
-      })
+      }),
+      host
     )
     const authCode = new URL(authRes.headers.get("Location")!).searchParams.get("code")!
     const tokRes = await on(
@@ -82,21 +85,23 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
           grant_type: "authorization_code", code: authCode, redirect_uri: REDIRECT,
           client_id: clientId, code_verifier: verifier,
         }).toString(),
-      })
+      }),
+      host
     )
     return ((await tokRes.json()) as { access_token: string }).access_token
   }
 
-  const rpc = (endpoint: "/mcp" | "/cli", bearer: string, message: unknown) =>
+  const rpc = (endpoint: "/mcp" | "/cli", bearer: string, message: unknown, host = HOST) =>
     on(
       new Request(`http://x${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${bearer}` },
         body: JSON.stringify(message),
-      })
+      }),
+      host
     )
-  const call = async (endpoint: "/mcp" | "/cli", bearer: string, name: string, args: Record<string, unknown> = {}) => {
-    const res = await rpc(endpoint, bearer, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } })
+  const call = async (endpoint: "/mcp" | "/cli", bearer: string, name: string, args: Record<string, unknown> = {}, host = HOST) => {
+    const res = await rpc(endpoint, bearer, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, host)
     return { status: res.status, body: (await res.json()) as { result?: { content?: { text: string }[]; isError?: boolean } } }
   }
   const listTools = async (endpoint: "/mcp" | "/cli", bearer: string) => {
@@ -214,6 +219,47 @@ describe("API: MCP surfaces — /mcp (editing) and /cli (bridge), shared OAuth",
     const res = await rpc("/cli", bearer, { jsonrpc: "2.0", id: 1, method: "initialize", params: {} })
     const body = (await res.json()) as { result: { instructions: string } }
     expect(body.result.instructions).toContain("get_started")
+  })
+
+  // --- Custom (vanity) domains ---
+
+  describe("on a site's custom domain", () => {
+    const CUSTOM = "beatrice.example.org"
+    beforeEach(async () => {
+      const res = await server.handleRequestForTest(
+        new Request("http://x/sites/blog/domains", {
+          method: "PATCH", headers: JSONH, body: JSON.stringify({ domains: [CUSTOM] }),
+        })
+      )
+      expect(res.status).toBe(200)
+    })
+
+    test("discovery resolves the vanity host to its site and stays on that host", async () => {
+      const res = await on(new Request("http://x/.well-known/oauth-protected-resource/mcp", { method: "GET" }), CUSTOM)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { resource: string; authorization_servers: string[] }
+      expect(body.resource).toBe(`https://${CUSTOM}/mcp`)
+      expect(body.authorization_servers).toEqual([`https://${CUSTOM}`])
+    })
+
+    test("the full OAuth dance + both surfaces work over the vanity host", async () => {
+      const bearer = await connect("blog", {}, CUSTOM)
+      expect((await rpc("/mcp", bearer, { jsonrpc: "2.0", id: 1, method: "tools/list" }, CUSTOM)).status).toBe(200)
+      // get_started on the vanity host hands back a login token pointing at it.
+      const gs = await call("/cli", bearer, "get_started", {}, CUSTOM)
+      const text = gs.body.result!.content![0]!.text
+      const loginToken = text.match(/siteio login -t (\S+)/)![1]!
+      const { decodeToken } = await import("../../utils/token.ts")
+      expect(decodeToken(loginToken).url).toBe(`https://${CUSTOM}/_siteio`)
+    })
+
+    test("an unknown host (not a site or custom domain) is 404", async () => {
+      const res = await on(
+        new Request("http://x/.well-known/oauth-protected-resource/mcp", { method: "GET" }),
+        "nobody.example.net"
+      )
+      expect(res.status).toBe(404)
+    })
   })
 
   // --- Revocation (shared) ---

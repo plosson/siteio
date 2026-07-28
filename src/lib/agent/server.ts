@@ -58,7 +58,12 @@ export class AgentServer {
     this.git = new GitManager(config.dataDir)
     this.dockerfiles = new DockerfileStorage(config.dataDir)
     this.compose = new ComposeStorage(config.dataDir)
-    this.oauthProvider = new OAuthProvider({ grants: this.grants, oauth: this.oauth, domain: config.domain })
+    this.oauthProvider = new OAuthProvider({
+      grants: this.grants,
+      oauth: this.oauth,
+      sites: this.storage,
+      domain: config.domain,
+    })
     this.mcp = new McpHandler({
       grants: this.grants,
       staging: this.staging,
