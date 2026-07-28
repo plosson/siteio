@@ -45,9 +45,13 @@ v2 added the MCP-over-OAuth connector for **tool-only** clients (claude.ai). But
 - **Agent auth (`authenticate()`):** the god key → full access; a **grant token** *or* an **OAuth bearer** (as `X-API-Key`) → a narrow per-site scope (`handleScopedRequest`): only `GET download` and `POST deploy` for the grant's own site; everything else 403. Deploys are budget-counted and label-attributed.
 - **Backend safety = one shared rule (`mergeScopedDeploy`)** used by both tiers: web root from the invitee, backend (`pb_migrations`/`pb_hooks`) preserved from current code — unless the grant has `allowBackend` (owner opt-in via `share --allow-backend`), which lets the invitee replace a backend dir they actually supplied.
 
-**Tier B — MCP connector.** Per-site OAuth (from v2) fronting a **single tool**, `get_started`, which returns a ready `siteio login` (built from the session bearer) plus the download/edit/deploy recipe. There are **no file/deploy MCP tools** — the MCP is a pure bootstrap/hand-off into Tier A (the "MCP-as-CLI-bridge" pattern: expose one thin delegation tool rather than reimplementing every operation). This means the invitee needs a shell; a tool-only client that can't run the CLI can't edit. `StagingStore` and the MCP-side deploy path were removed as dead code.
+**Tier B — MCP connector, two deliberate surfaces** (per-site OAuth from v2, shared across both):
+- **`/mcp`** — the full web-file editing tools (`site_info`, `list_files`, `read_file`, `write_file`, `delete_file`, `deploy_site`) over a per-grant `StagingStore`. Pure MCP functions: the AI edits through tool calls.
+- **`/cli`** — a single `get_started` tool returning a scoped `siteio login` (built from the session bearer) + the download/edit/deploy recipe. The "MCP-as-CLI-bridge" pattern: one thin delegation tool that hands off to the CLI (for shell-capable clients; images/assets are just local files).
 
-**Result:** Codex/Claude Code/Cursor → Tier A directly, or Tier B → `get_started` → Tier A. Same `GrantStore` and revoke-only lifetime across both. (Superseded the earlier v3 draft that also exposed MCP file tools.)
+Both endpoints authenticate identically (OAuth bearer → grant for this site); a single bearer from the dance works on both. Each advertises its own RFC 9728 protected-resource (`/.well-known/oauth-protected-resource/{mcp,cli}`) pointing at the one shared authorization server. `tools/call` on a surface rejects the other surface's tools.
+
+**Result:** the owner sends whichever fits the invitee's client — CLI login (Tier A), the `/mcp` connector (edit-in-AI), or the `/cli` connector (bridge to CLI). Same `GrantStore` and revoke-only lifetime across all. (This split supersedes the single-tool-only v3 draft.)
 
 ---
 

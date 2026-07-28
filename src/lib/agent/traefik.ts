@@ -138,6 +138,7 @@ log:
             rule:
               `HostRegexp(\`^[a-z0-9-]+\\.${escapedDomain}$\`) && ` +
               "(PathPrefix(`/mcp`) || " +
+              "PathPrefix(`/cli`) || " +
               "PathPrefix(`/_siteio`) || " +
               "PathPrefix(`/.well-known/oauth-authorization-server`) || " +
               "PathPrefix(`/.well-known/oauth-protected-resource`))",

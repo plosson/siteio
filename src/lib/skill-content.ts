@@ -97,18 +97,19 @@ siteio sites share list mysite               # see active grants
 siteio sites share revoke <id> -n mysite     # revoke access
 \`\`\`
 
-This prints access that works two ways (send the invitee whichever fits their AI):
+This prints access that works several ways (send the invitee whichever fits their AI). All
+share the same one-time **share code** and OAuth, and all are confined to that one site's
+**web files** — never other sites, admin, or (unless \`--allow-backend\`) the backend:
 
-- **Coding agents with a shell** (Codex, Claude Code, Cursor): a \`siteio login -t <token>\`
+- **CLI** (coding agents with a shell — Codex, Claude Code, Cursor): a \`siteio login -t <token>\`
   they paste, then \`siteio sites download\` / edit locally (images and all) / \`siteio sites deploy\`.
-- **MCP connector** (\`https://mysite.<domain>/mcp\`, same for everyone) plus a one-time
-  **share code** entered when the connector authorizes (OAuth). The connector exposes a single
-  \`get_started\` tool that hands the AI the same scoped CLI login — all editing happens through
-  the siteio CLI, so the invitee needs a shell (on Windows, WSL).
+- **MCP connector — two endpoints** on \`https://mysite.<domain>\` (same for everyone; the code is
+  entered when the connector authorizes via OAuth):
+  - \`/mcp\` — full web-file editing tools (list/read/write/delete/deploy) directly in the AI.
+  - \`/cli\` — a single \`get_started\` tool that hands back the scoped CLI login (for shell-capable
+    clients that prefer editing local files; on Windows, WSL).
 
-Either way the invitee is confined to that one site's **web files** — never other sites,
-admin, or (unless \`--allow-backend\`) the backend. Access stays valid until you revoke it;
-the token/code is shown once.
+Access stays valid until you revoke it; the token/code is shown once.
 
 ## Key Features
 
