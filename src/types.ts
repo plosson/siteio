@@ -263,9 +263,10 @@ export interface ShareGrantInfo {
 // page. The code is shown only once.
 export interface ShareGrantCreated {
   grant: ShareGrantInfo
-  url: string // MCP connector URL: https://<site>.<domain>/mcp (for claude.ai etc.)
+  url: string // primary MCP connector URL — the site's custom domain if it has one, else <site>.<domain>
   code: string // one-time share code the invitee enters to authorize (also the CLI key)
-  cliToken: string // `siteio login -t <cliToken>` for the CLI tier (Codex, Claude Code, …)
+  cliToken: string // `siteio login -t <cliToken>` for the CLI tier (points at the same primary host)
+  fallbackUrl?: string // the platform subdomain connector URL, when `url` is a custom domain
 }
 
 export interface LoginOptions {

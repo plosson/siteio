@@ -1115,7 +1115,8 @@ export class AgentServer {
   // Share-grant (MCP link) handlers
 
   private async handleCreateGrant(name: string, req: Request): Promise<Response> {
-    if (!this.storage.exists(name)) return this.error("Site not found", 404)
+    const site = this.storage.get(name)
+    if (!site) return this.error("Site not found", 404)
     try {
       const body = (await req.json().catch(() => ({}))) as {
         allowBackend?: boolean
@@ -1127,11 +1128,23 @@ export class AgentServer {
         label: body.label,
       }
       const { grant, token } = this.grants.create(input)
-      const siteHost = `https://${name}.${this.config.domain}`
-      // CLI tier logs in with a token pointing at the scoped REST channel on the
-      // site host, so the standard CLI never touches api.<domain>.
-      const cliToken = encodeToken(`${siteHost}/_siteio`, token)
-      return this.json({ grant: this.grants.toInfo(grant), url: `${siteHost}/mcp`, code: token, cliToken })
+
+      // Prefer the site's own custom domain as the primary sharing host — that's
+      // the site's real identity — and keep the platform subdomain as a fallback
+      // (in case the custom domain's DNS/cert isn't ready yet). The CLI login
+      // token points at the same primary host's scoped REST channel; either host
+      // works, since the agent resolves the host to the site.
+      const subdomain = `${name}.${this.config.domain}`
+      const customs = this.storage.customDomains(site, this.config.domain)
+      const primaryHost = customs[0] ?? subdomain
+      const cliToken = encodeToken(`https://${primaryHost}/_siteio`, token)
+      return this.json({
+        grant: this.grants.toInfo(grant),
+        url: `https://${primaryHost}/mcp`,
+        code: token,
+        cliToken,
+        ...(primaryHost !== subdomain ? { fallbackUrl: `https://${subdomain}/mcp` } : {}),
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create share link"
       return this.error(message, 400)

@@ -60,6 +60,26 @@ describe("API: share grants", () => {
     expect(body.data!.grant.active).toBe(true)
   })
 
+  test("when the site has a custom domain, that is the primary connector URL (subdomain is fallback)", async () => {
+    await server.handleRequestForTest(
+      new Request("http://x/sites/blog/domains", {
+        method: "PATCH", headers: JSONH, body: JSON.stringify({ domains: ["beatrice.example.org"] }),
+      })
+    )
+    const res = await createGrant()
+    const body = (await res.json()) as ApiResponse<ShareGrantCreated>
+    expect(body.data!.url).toBe("https://beatrice.example.org/mcp")
+    expect(body.data!.fallbackUrl).toBe("https://blog.example.com/mcp")
+    const { decodeToken } = await import("../../utils/token.ts")
+    expect(decodeToken(body.data!.cliToken).url).toBe("https://beatrice.example.org/_siteio")
+  })
+
+  test("with no custom domain, the subdomain is primary and there is no fallback", async () => {
+    const body = (await (await createGrant()).json()) as ApiResponse<ShareGrantCreated>
+    expect(body.data!.url).toBe("https://blog.example.com/mcp")
+    expect(body.data!.fallbackUrl).toBeUndefined()
+  })
+
   test("label and allow-backend are honored", async () => {
     const res = await createGrant({ label: "Sam", allowBackend: true })
     const body = (await res.json()) as ApiResponse<ShareGrantCreated>

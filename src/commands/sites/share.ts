@@ -18,23 +18,13 @@ export async function sitesShareCommand(name: string | undefined, options: Share
     const resolved = resolveSiteName(name, server?.domain ?? "")
     if (!resolved) throw new ValidationError("Site name required (argument or .siteio/config.json)")
 
-    const client = new SiteioClient()
-    const created = await client.createGrant(resolved, {
+    const created = await new SiteioClient().createGrant(resolved, {
       allowBackend: options.allowBackend,
       label: options.label,
     })
 
-    // The connector also works on the site's custom domain(s); surface them so
-    // the owner can hand out a vanity URL if they prefer.
-    let customDomains: string[] = []
-    try {
-      customDomains = (await client.getSite(resolved)).domains ?? []
-    } catch {
-      // Non-fatal — just omit the custom-domain hint.
-    }
-
     if (options.json) {
-      console.log(JSON.stringify({ success: true, data: { ...created, customDomains } }, null, 2))
+      console.log(JSON.stringify({ success: true, data: created }, null, 2))
     } else {
       console.error(formatSuccess(`Share access created for site '${resolved}'`))
       console.error("")
@@ -45,8 +35,8 @@ export async function sitesShareCommand(name: string | undefined, options: Share
       console.error(chalk.bold("  For claude.ai / Claude Desktop — an MCP connector:"))
       console.error(`    URL:  ${chalk.cyan(created.url)}`)
       console.error(`    Code: ${chalk.bold(created.code)}   ${chalk.dim("(paste when the connector asks to authorize)")}`)
-      if (customDomains.length > 0) {
-        console.error(formatDim(`    Also works on your custom domain(s): ${customDomains.map((d) => `https://${d}/mcp`).join(", ")}`))
+      if (created.fallbackUrl) {
+        console.error(formatDim(`    (also reachable at ${created.fallbackUrl} if the custom domain isn't ready)`))
       }
       console.error("")
       console.error(
