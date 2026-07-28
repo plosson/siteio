@@ -2,7 +2,52 @@
 
 **Status:** Architecture / design
 **Date:** 2026-07-26
-**Goal:** Let a site owner mint a shareable **MCP link** that a second person (via their own AI client) can use to edit and redeploy *one* site — with owner-set usage limits, real revocation, and no exposure of the god API key.
+**Goal:** Let a site owner mint a shareable **MCP connector** that a second person (via their own AI client) can use to edit and redeploy *one* site — with owner-set usage limits, real revocation, and no exposure of the god API key.
+
+---
+
+## v2 (2026-07-27): OAuth per-site — supersedes token-in-URL
+
+Shipped as `1.20.0` with a **token-in-URL** auth model (`…/mcp/<token>`). That works with Claude Code / Cursor / `mcp-remote`, but **claude.ai's connector UI requires OAuth** (it does Dynamic Client Registration and fails against a token URL). v2 replaces the auth model entirely (no backward compat) with a **minimal per-site OAuth 2.0 authorization server**, so a share link works as a first-class claude.ai / Claude Desktop custom connector. Sections §4/§8 (StagingStore, deploy merge, staging GC, path/size hardening) are unchanged; the auth/transport sections below are superseded by this one.
+
+**Model.** `siteio sites share <site>` now prints a **connector URL** (`https://<site>.<domain>/mcp`, identical for everyone) **and a one-time share code** (the grant token). The per-invitee secret moved out of the URL into the OAuth consent step — so the URL is stable/shareable and each code is its own revocable grant.
+
+**Everything is per-site; `api.<domain>` is never exposed.** All OAuth endpoints are served under the site host, and every URL in metadata/redirects is built from the request `Host` (never the api host). The agent refuses these paths on `api.<domain>`.
+
+**Endpoints** (served by `OAuthProvider`, dispatched before the api-host gate, no god key):
+
+| Path (under `<site>.<domain>`) | Purpose |
+|---|---|
+| `GET /.well-known/oauth-protected-resource[/mcp]` | RFC 9728 — points at the AS (the site host itself) |
+| `GET /.well-known/oauth-authorization-server[/mcp]` | RFC 8414 — advertises the endpoints below + `S256` PKCE |
+| `POST /mcp/oauth/register` | Dynamic Client Registration (RFC 7591) → `client_id` |
+| `GET /mcp/oauth/authorize` | Consent page: "enter your share code" |
+| `POST /mcp/oauth/authorize` | Validate code → grant (must match host's site) → 302 with single-use auth code |
+| `POST /mcp/oauth/token` | Auth code + PKCE verifier → bearer **access token** (leased to the grant) |
+| `POST /mcp` | JSON-RPC MCP, `Authorization: Bearer <token>`; 401 + `WWW-Authenticate` when missing |
+
+**Flow.** discover → DCR → authorize (paste code) → token → MCP over Bearer. The access token is a *lease* on the grant: every MCP call re-checks the grant, so revoke/expiry/budget bite immediately; token lifetime tracks the grant (long-lived for `--expires never`), so no refresh tokens are needed.
+
+**New stores/files:** `OAuthStore` (`oauth/{clients,authcodes,tokens}`), `oauth.ts` (PKCE S256 + id/token gen), `OAuthProvider` (endpoints + consent page). `GrantStore`/`StagingStore` reused as-is; the grant token is now the "code".
+
+**Traefik:** the `mcp-router` rule additionally routes `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource` (alongside `/mcp`) on the site host to the agent.
+
+**Security:** PKCE S256 mandatory; single-use, short-TTL auth codes; strict `redirect_uri` match per registered client; a code for site A can't authorize on site B's host; revoking a grant drops its access tokens; the code is entered in a form (not left in a URL/history). Follow-up worth considering: rate-limit the `authorize` endpoint.
+
+---
+
+## v3 (2026-07-28): two tiers — scoped CLI + MCP connector
+
+v2 added the MCP-over-OAuth connector for **tool-only** clients (claude.ai). But **shell-capable coding agents** (Codex, Claude Code, Cursor) are better served editing real local files with the **standard CLI** — native file ops, images-as-files, local preview — than through reimplemented MCP file tools. v3 adds that as a second tier on the same grant foundation. Both tiers ship together.
+
+**Tier A — scoped CLI (coding agents).** The share **code becomes a scoped credential** for the *standard* `siteio` CLI (no custom client). `sites share` now also emits a `siteio login -t <cliToken>`. The invitee runs `login` → `sites download` → edit → `sites deploy`.
+- **Transport keeps `api.<domain>` hidden:** the CLI logs in against `https://<site>.<domain>/_siteio` (a reserved prefix Traefik siphons to the agent alongside `/mcp`), so scoped REST never touches the api host and never steals `/sites`/`/health` from the site container.
+- **Agent auth (`authenticate()`):** the god key → full access; a **grant token** *or* an **OAuth bearer** (as `X-API-Key`) → a narrow per-site scope (`handleScopedRequest`): only `GET download` and `POST deploy` for the grant's own site; everything else 403. Deploys are budget-counted and label-attributed.
+- **Backend safety = one shared rule (`mergeScopedDeploy`)** used by both tiers: web root from the invitee, backend (`pb_migrations`/`pb_hooks`) preserved from current code — unless the grant has `allowBackend` (owner opt-in via `share --allow-backend`), which lets the invitee replace a backend dir they actually supplied.
+
+**Tier B — MCP connector (claude.ai).** Unchanged from v2, plus a `get_started` bridge tool: a shell-capable client that connected via MCP calls it and gets a ready `siteio login` (built from the session bearer) to drop into Tier A — which is how images/assets get handled without base64-through-the-model.
+
+**Result:** Codex/Claude Code/Cursor → Tier A (native, assets just work); claude.ai/Claude Desktop → Tier B. Same `GrantStore`, budget, expiry, revocation, `--expires never` across both.
 
 ---
 

@@ -85,21 +85,28 @@ When a user wants to edit a site by giving its URL (e.g., \`https://mysite.examp
 3. Edit the files in \`/tmp/mysite-edit/\`
 4. Re-deploy: \`siteio sites deploy /tmp/mysite-edit -n mysite\`
 
-## Sharing a site for editing (single-use MCP link)
+## Sharing a site for editing (delegate to another person's AI)
 
 Let someone else edit and redeploy a site without giving them your credentials:
 
 \`\`\`sh
-siteio sites share mysite                    # prints an MCP link (1 deploy, expires in 7d)
-siteio sites share mysite --deploys 3 --expires 24h --label "Sam"
-siteio sites share list mysite               # see active links
-siteio sites share revoke <id> -n mysite     # kill a link early
+siteio sites share mysite                    # grant access (stays valid until revoked)
+siteio sites share mysite --label "Sam"      # attribute their deploys in history
+siteio sites share mysite --allow-backend    # also allow backend edits (affects live data)
+siteio sites share list mysite               # see active grants
+siteio sites share revoke <id> -n mysite     # revoke access
 \`\`\`
 
-The link (\`https://mysite.<domain>/mcp/<token>\`) is pasted into an MCP client.
-The invitee's AI can only edit that one site's **web files** and publish, bounded
-by the deploy budget and expiry — never the backend, data, or other sites. The
-link is shown once; copy it immediately.
+This prints access that works two ways (send the invitee whichever fits their AI):
+
+- **Coding agents with a shell** (Codex, Claude Code, Cursor): a \`siteio login -t <token>\`
+  they paste, then \`siteio sites download\` / edit locally (images and all) / \`siteio sites deploy\`.
+- **claude.ai / Claude Desktop**: an MCP **connector URL** (\`https://mysite.<domain>/mcp\`,
+  same for everyone) plus a one-time **share code** entered when the connector authorizes (OAuth).
+
+Either way the invitee is confined to that one site's **web files** — never other sites,
+admin, or (unless \`--allow-backend\`) the backend. Access stays valid until you revoke it;
+the token/code is shown once.
 
 ## Key Features
 

@@ -59,9 +59,9 @@ describe("Unit: TraefikManager", () => {
     expect(dynamicConfig).toContain("api-service")
     expect(dynamicConfig).toContain("Host(`api.test.siteio.me`)")
     expect(dynamicConfig).toContain("http://host.docker.internal:3000")
-    // No trace of the pre-merge nginx/oauth machinery
+    // No trace of the pre-merge nginx/oauth2-proxy machinery
     expect(dynamicConfig).not.toContain("nginx")
-    expect(dynamicConfig).not.toContain("oauth")
+    expect(dynamicConfig).not.toContain("oauth2")
   })
 
   it("dynamic config exposes the MCP share router in front of site containers", () => {
@@ -71,6 +71,9 @@ describe("Unit: TraefikManager", () => {
     // domain dots are regex-escaped (YAML double-quote unescapes \\. to \.).
     expect(dynamicConfig).toContain("HostRegexp(`^[a-z0-9-]+")
     expect(dynamicConfig).toContain("PathPrefix(`/mcp`)")
+    // Also routes the per-site OAuth discovery endpoints to the agent.
+    expect(dynamicConfig).toContain("PathPrefix(`/.well-known/oauth-authorization-server`)")
+    expect(dynamicConfig).toContain("PathPrefix(`/.well-known/oauth-protected-resource`)")
     // Domain dots are regex-escaped (String.raw so the two backslashes match).
     expect(dynamicConfig).toContain(String.raw`test\\.siteio\\.me$`)
     // High priority so it beats the site container's Host-only router.

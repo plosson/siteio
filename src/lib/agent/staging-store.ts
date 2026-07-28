@@ -4,7 +4,8 @@ import {
 import { join, resolve, sep, dirname } from "path"
 import { zipSync } from "fflate"
 import { ValidationError } from "../../utils/errors.ts"
-import { PUBLIC_DIR, BACKEND_DIRS } from "../site-layout.ts"
+import { PUBLIC_DIR } from "../site-layout.ts"
+import { mergeScopedDeploy } from "./deploy-merge.ts"
 
 // Guardrails: a single invitee-authored file and the whole staging tree are
 // both size-capped so a leaked link can't fill the disk.
@@ -170,13 +171,12 @@ export class StagingStore {
     return total
   }
 
-  // Build the deploy zip: staging web files under public/, plus the site's
-  // existing backend dirs (pb_migrations/**, pb_hooks/**) copied unchanged from
-  // its current code. The invitee can never alter backend code or data.
+  // Build the deploy zip: staging web files under public/, merged with the
+  // site's backend dirs via the shared scoped-deploy rule. Staging only ever
+  // holds web files, so backend is always preserved from the current code —
+  // the MCP invitee can never alter backend regardless of the grant's flags.
   buildDeployZip(grantId: string, codePath: string): Uint8Array {
-    const files: Record<string, Uint8Array> = {}
-
-    // Web root from staging.
+    const incoming: Record<string, Uint8Array> = {}
     const base = this.filesDir(grantId)
     if (existsSync(base)) {
       const walk = (dir: string): void => {
@@ -184,28 +184,13 @@ export class StagingStore {
           const full = join(dir, entry)
           const rel = full.slice(base.length + 1).replace(/\\/g, "/")
           if (statSync(full).isDirectory()) walk(full)
-          else files[`${PUBLIC_DIR}/${rel}`] = readFileSync(full)
+          else incoming[`${PUBLIC_DIR}/${rel}`] = readFileSync(full)
         }
       }
       walk(base)
     }
-
-    // Backend dirs preserved from the current site code.
-    for (const dir of BACKEND_DIRS) {
-      const src = join(codePath, dir)
-      if (!existsSync(src)) continue
-      const walk = (d: string): void => {
-        for (const entry of readdirSync(d)) {
-          const full = join(d, entry)
-          const rel = full.slice(join(codePath).length + 1).replace(/\\/g, "/")
-          if (statSync(full).isDirectory()) walk(full)
-          else files[rel] = readFileSync(full)
-        }
-      }
-      walk(src)
-    }
-
-    return zipSync(files, { level: 6 })
+    const merged = mergeScopedDeploy({ incoming, currentCodePath: codePath, allowBackend: false })
+    return zipSync(merged, { level: 6 })
   }
 
   remove(grantId: string): void {

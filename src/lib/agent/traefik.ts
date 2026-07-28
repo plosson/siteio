@@ -135,7 +135,12 @@ log:
             },
           },
           "mcp-router": {
-            rule: `HostRegexp(\`^[a-z0-9-]+\\.${escapedDomain}$\`) && PathPrefix(\`/mcp\`)`,
+            rule:
+              `HostRegexp(\`^[a-z0-9-]+\\.${escapedDomain}$\`) && ` +
+              "(PathPrefix(`/mcp`) || " +
+              "PathPrefix(`/_siteio`) || " +
+              "PathPrefix(`/.well-known/oauth-authorization-server`) || " +
+              "PathPrefix(`/.well-known/oauth-protected-resource`))",
             entryPoints: ["websecure"],
             service: "api-service",
             priority: 1000,

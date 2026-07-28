@@ -228,19 +228,20 @@ export interface SiteVersion {
   size: number
 }
 
-// A single-use (by default) share grant: authorizes an anonymous invitee to
-// edit and redeploy ONE site's web root via an MCP link, bounded by a deploy
-// budget and a hard expiry. The raw token is shown to the owner exactly once
-// (on creation); only its hash is persisted.
+// A share grant: authorizes an invitee to edit and redeploy ONE site's web
+// root. A share stays valid until the owner revokes it — there is no deploy
+// budget or expiry. The raw token is shown to the owner exactly once (on
+// creation); only its hash is persisted.
 export interface ShareGrant {
   id: string // short public id (e.g. "grt_ab12cd") — used in `share list/revoke`
   site: string // site this grant is scoped to
   tokenHash: string // sha-256 hex of the raw token; the raw token is never stored
   label?: string // optional; surfaced as the deploy author (X-Deployed-By)
-  maxDeploys: number // owner-set budget; default 1
-  deploysUsed: number
+  // When true (owner opt-in via `share --allow-backend`), a scoped deploy may
+  // also change the site's backend (pb_migrations, pb_hooks). Default false:
+  // backend is preserved and the invitee is confined to the web root.
+  allowBackend?: boolean
   createdAt: string
-  expiresAt?: string // owner-set OR createdAt + hard max TTL; omitted = never expires
   lastUsedAt?: string
   revoked: boolean
 }
@@ -250,20 +251,21 @@ export interface ShareGrantInfo {
   id: string
   site: string
   label?: string
-  maxDeploys: number
-  deploysUsed: number
+  allowBackend?: boolean
   createdAt: string
-  expiresAt?: string // omitted = never expires
   lastUsedAt?: string
   revoked: boolean
-  active: boolean // computed: not revoked, not expired, budget remaining
+  active: boolean // computed: not revoked
 }
 
-// Response to grant creation — carries the one-time token and the MCP link.
+// Response to grant creation. The connector URL is the same for every grant on
+// a site; the per-invitee secret is the `code`, entered on the OAuth consent
+// page. The code is shown only once.
 export interface ShareGrantCreated {
   grant: ShareGrantInfo
-  token: string // raw token, shown once
-  url: string // full MCP link: https://<site>.<domain>/mcp/<token>
+  url: string // MCP connector URL: https://<site>.<domain>/mcp (for claude.ai etc.)
+  code: string // one-time share code the invitee enters to authorize (also the CLI key)
+  cliToken: string // `siteio login -t <cliToken>` for the CLI tier (Codex, Claude Code, …)
 }
 
 export interface LoginOptions {

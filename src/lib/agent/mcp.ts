@@ -2,9 +2,10 @@ import type { ShareGrant, SiteInfo } from "../../types.ts"
 import type { GrantStore } from "./grant-store.ts"
 import type { StagingStore } from "./staging-store.ts"
 import type { SiteStorage } from "./storage.ts"
+import type { OAuthStore } from "./oauth-store.ts"
 import { ValidationError } from "../../utils/errors.ts"
-import { isWellFormedGrantToken } from "../../utils/grant-token.ts"
 import { getVersion } from "../version.ts"
+import { encodeToken } from "../../utils/token.ts"
 
 const MCP_PROTOCOL_VERSION = "2024-11-05"
 
@@ -16,21 +17,29 @@ interface JsonRpcRequest {
   params?: Record<string, unknown>
 }
 
+// Site context resolved from the request Host by the server (never api.<domain>).
+export interface McpHostCtx {
+  baseUrl: string // https://<site>.<domain>
+  site: string
+}
+
 export interface McpDeps {
   grants: GrantStore
   staging: StagingStore
   sites: SiteStorage
+  oauth: OAuthStore
   domain: string // base domain, for building the site's public URL(s)
   // Deploy a merged web+backend zip as a new version of `siteName`. Throws on
   // failure (missing site, Docker down, …). Provided by AgentServer.
   deploy: (siteName: string, zipData: Uint8Array, deployedBy: string) => Promise<SiteInfo>
 }
 
-// A minimal Model Context Protocol server over Streamable HTTP, authenticated
-// by a share-grant token in the URL path (`/mcp/<token>`). Exposes five
+// A minimal Model Context Protocol server over Streamable HTTP, served per-site
+// at `https://<site>.<domain>/mcp` and authenticated by an OAuth bearer token
+// (obtained by the client via the share-code flow — see OAuthProvider). Exposes
 // file-level tools scoped to one site's web root, backed by a per-grant staging
-// copy. Deliberately hand-rolled (initialize / tools/list / tools/call) to
-// match the project's dependency-light HTTP layer.
+// copy. Hand-rolled (initialize / tools/list / tools/call) to match the
+// project's dependency-light HTTP layer.
 export class McpHandler {
   constructor(private deps: McpDeps) {}
 
@@ -38,28 +47,21 @@ export class McpHandler {
     return Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message } })
   }
 
-  private jsonRpcResult(id: JsonRpcRequest["id"], result: unknown): Response {
-    return Response.json({ jsonrpc: "2.0", id: id ?? null, result })
-  }
-
-  // Entry point. `path` is the request pathname (e.g. "/mcp/grt_...").
-  async handle(req: Request, path: string): Promise<Response> {
-    const match = path.match(/^\/mcp\/([^/]+)\/?$/)
-    if (!match) return this.unauthorized("Malformed MCP endpoint")
-    const token = decodeURIComponent(match[1]!)
-
-    if (!isWellFormedGrantToken(token)) return this.unauthorized("Invalid share link")
-
-    const grant = this.deps.grants.resolveByToken(token)
-    if (!grant) return this.unauthorized("This share link is invalid, expired, revoked, or used up")
-
-    // Streamable HTTP: clients POST JSON-RPC. We don't offer a server-initiated
-    // GET stream — tell compliant clients so explicitly.
-    if (req.method === "GET") {
+  // Entry point. `ctx` is the site resolved from the request Host by the server.
+  async handle(req: Request, ctx: McpHostCtx): Promise<Response> {
+    if (req.method !== "POST") {
+      // We don't offer a server-initiated GET stream; tell compliant clients.
       return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } })
     }
-    if (req.method !== "POST") {
-      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } })
+
+    // Bearer auth: the client obtained this token via the OAuth share-code flow.
+    const auth = req.headers.get("authorization") || ""
+    const bearer = auth.startsWith("Bearer ") ? auth.slice(7).trim() : ""
+    const record = bearer ? this.deps.oauth.resolveAccessToken(bearer) : null
+    const grant = record ? this.deps.grants.get(record.grantId) : null
+    // The token must map to a live grant for THIS site.
+    if (!grant || !this.deps.grants.isActive(grant) || grant.site !== ctx.site) {
+      return this.challenge(ctx)
     }
 
     let payload: unknown
@@ -73,24 +75,37 @@ export class McpHandler {
     if (Array.isArray(payload)) {
       const responses: unknown[] = []
       for (const msg of payload) {
-        const res = await this.dispatch(msg as JsonRpcRequest, grant)
+        const res = await this.dispatch(msg as JsonRpcRequest, grant, ctx, bearer)
         if (res !== null) responses.push(res)
       }
       if (responses.length === 0) return new Response(null, { status: 202 })
       return Response.json(responses)
     }
 
-    const single = await this.dispatch(payload as JsonRpcRequest, grant)
+    const single = await this.dispatch(payload as JsonRpcRequest, grant, ctx, bearer)
     if (single === null) return new Response(null, { status: 202 })
     return Response.json(single)
   }
 
-  private unauthorized(message: string): Response {
-    return Response.json({ error: message }, { status: 401 })
+  // 401 that points the client at this site's protected-resource metadata, so
+  // it can discover the OAuth authorization server and start the flow.
+  private challenge(ctx: McpHostCtx): Response {
+    return new Response(JSON.stringify({ error: "unauthorized", error_description: "Authorization required" }), {
+      status: 401,
+      headers: {
+        "Content-Type": "application/json",
+        "WWW-Authenticate": `Bearer resource_metadata="${ctx.baseUrl}/.well-known/oauth-protected-resource"`,
+      },
+    })
   }
 
   // Returns a JSON-RPC response object, or null for a notification (no reply).
-  private async dispatch(msg: JsonRpcRequest, grant: ShareGrant): Promise<unknown | null> {
+  private async dispatch(
+    msg: JsonRpcRequest,
+    grant: ShareGrant,
+    ctx: McpHostCtx,
+    bearer: string
+  ): Promise<unknown | null> {
     if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") {
       return { jsonrpc: "2.0", id: (msg && msg.id) ?? null, error: { code: -32600, message: "Invalid Request" } }
     }
@@ -126,7 +141,7 @@ export class McpHandler {
       case "tools/list":
         return this.ok(msg.id, { tools: TOOL_DEFINITIONS })
       case "tools/call":
-        return this.handleToolCall(msg, grant)
+        return this.handleToolCall(msg, grant, ctx, bearer)
       default:
         if (isNotification) return null
         return { jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `Method not found: ${msg.method}` } }
@@ -150,11 +165,9 @@ export class McpHandler {
   // block — so a client that drops `initialize` instructions still keeps the
   // model aware of which site it's editing, where it's live, and its budget.
   private siteContextBlock(grant: ShareGrant): { type: "text"; text: string } {
-    const g = this.deps.grants.get(grant.id) ?? grant // fresh budget after a deploy
-    const urls = this.liveUrls(g)
+    const urls = this.liveUrls(grant)
     const where = urls.length ? ` · live at ${urls.join(", ")}` : ""
-    const remaining = Math.max(0, g.maxDeploys - g.deploysUsed)
-    return { type: "text", text: `[editing site "${g.site}"${where} · ${remaining} deploy(s) left on this link]` }
+    return { type: "text", text: `[editing site "${grant.site}"${where}]` }
   }
 
   private toolText(id: JsonRpcRequest["id"], grant: ShareGrant, text: string, isError = false): unknown {
@@ -165,7 +178,12 @@ export class McpHandler {
     }
   }
 
-  private async handleToolCall(msg: JsonRpcRequest, grant: ShareGrant): Promise<unknown> {
+  private async handleToolCall(
+    msg: JsonRpcRequest,
+    grant: ShareGrant,
+    ctx: McpHostCtx,
+    bearer: string
+  ): Promise<unknown> {
     const params = (msg.params ?? {}) as { name?: string; arguments?: Record<string, unknown> }
     const name = params.name
     const args = params.arguments ?? {}
@@ -174,6 +192,8 @@ export class McpHandler {
       switch (name) {
         case "site_info":
           return this.toolText(msg.id, grant, this.siteInfoText(grant))
+        case "get_started":
+          return this.toolText(msg.id, grant, this.getStartedText(grant, ctx, bearer))
         case "list_files": {
           this.ensureSeeded(grant)
           const files = this.deps.staging.listFiles(grant.id)
@@ -225,6 +245,40 @@ export class McpHandler {
     return lines.join("\n")
   }
 
+  // Bridge for shell-capable clients (Codex, Claude Code, Cursor): hand back a
+  // ready `siteio login` using the current session's bearer as a scoped key, so
+  // the model can drop into the native CLI — download the real files, edit them
+  // (images and all) with local tools, and deploy — instead of the MCP file
+  // tools. The bearer is scoped to this one site exactly like the MCP session.
+  private getStartedText(grant: ShareGrant, ctx: McpHostCtx, bearer: string): string {
+    const site = grant.site
+    const loginToken = encodeToken(`${ctx.baseUrl}/_siteio`, bearer)
+    return [
+      `You are editing the website "${site}" (${ctx.baseUrl}).`,
+      "",
+      "You can work two ways:",
+      "",
+      "A) MCP tools (here): list_files / read_file / write_file / delete_file / deploy_site.",
+      "   Good for quick text edits. Binary assets must be sent base64 via write_file.",
+      "",
+      "B) The siteio CLI (recommended if you have a shell) — edit real local files,",
+      "   including dropping in images/fonts, then deploy. The CLI runs on",
+      "   macOS and Linux only (on Windows, use WSL):",
+      "",
+      "   1. Install (once):",
+      "      curl -LsSf https://siteio.houlahop.com/install | sh",
+      "   2. Log in with your scoped access (this token only works for this site):",
+      `      siteio login -t ${loginToken}`,
+      `   3. Download the current site, edit, and deploy:`,
+      `      siteio sites download -n ${site} ./${site}`,
+      `      cd ${site}    # edit files; add images under the web root as normal files`,
+      `      siteio sites deploy`,
+      "",
+      `Your access is limited to this one site's web files${grant.allowBackend ? " and backend" : ""}`,
+      "and can be revoked by the owner at any time.",
+    ].join("\n")
+  }
+
   private async handleDeployTool(msg: JsonRpcRequest, grant: ShareGrant): Promise<unknown> {
     this.ensureSeeded(grant)
     const site = this.deps.sites.get(grant.site)
@@ -238,11 +292,10 @@ export class McpHandler {
     const deployedBy = grant.label || "shared link"
     const info = await this.deps.deploy(grant.site, zip, deployedBy)
 
-    const updated = this.deps.grants.recordDeploy(grant.id)
+    this.deps.grants.touch(grant.id)
     this.deps.staging.setSeededVersion(grant.id, info.version ?? current + 1)
 
-    const remaining = updated ? updated.maxDeploys - updated.deploysUsed : 0
-    let text = `Published to ${info.url} (version ${info.version}). ${remaining} deploy(s) remaining on this link.`
+    let text = `Published to ${info.url} (version ${info.version}).`
     if (rebased) {
       text +=
         `\n\nNote: the site had changed since you started editing — your web changes were published on top of the latest version. ` +
@@ -261,6 +314,12 @@ export class McpHandler {
 }
 
 const TOOL_DEFINITIONS = [
+  {
+    name: "get_started",
+    description:
+      "How to edit this site. Call first. Returns both the MCP-tool workflow and a ready-to-run siteio CLI login (recommended when you have a shell — lets you add images and other assets as normal local files).",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
   {
     name: "site_info",
     description:

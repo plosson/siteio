@@ -1,0 +1,14 @@
+http:
+  routers:
+    api-router:
+      rule: "Host(`api.test.local`)"
+      entryPoints:
+        - websecure
+      service: "api-service"
+      tls:
+        certResolver: "letsencrypt"
+  services:
+    api-service:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:13098"
