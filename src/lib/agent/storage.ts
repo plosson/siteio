@@ -109,6 +109,7 @@ export class SiteStorage {
       version,
       deployedAt: meta?.deployedAt || new Date().toISOString(),
       deployedBy: meta?.deployedBy,
+      message: meta?.message,
       size: meta?.size ?? 0,
     }
     writeFileSync(join(h, `v${version}.json`), JSON.stringify(versionMeta, null, 2))

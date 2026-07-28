@@ -9,6 +9,9 @@ import { getVersion } from "../version.ts"
 
 const MCP_PROTOCOL_VERSION = "2024-11-05"
 
+// Cap on the deploy_site change description, recorded in the site history.
+const MAX_DEPLOY_MESSAGE_LENGTH = 500
+
 // JSON-RPC 2.0 shapes (only the slice MCP needs).
 interface JsonRpcRequest {
   jsonrpc: "2.0"
@@ -29,9 +32,10 @@ export interface McpDeps {
   sites: SiteStorage
   oauth: OAuthStore
   domain: string // base domain, for building the site's public URL(s)
-  // Deploy a merged web+backend zip as a new version of `siteName`. Throws on
-  // failure (missing site, Docker down, …). Provided by AgentServer.
-  deploy: (siteName: string, zipData: Uint8Array, deployedBy: string) => Promise<SiteInfo>
+  // Deploy a merged web+backend zip as a new version of `siteName`. `message`
+  // is the invitee's change description, recorded in the site history. Throws
+  // on failure (missing site, Docker down, …). Provided by AgentServer.
+  deploy: (siteName: string, zipData: Uint8Array, deployedBy: string, message: string) => Promise<SiteInfo>
   // Fetch an external asset by URL for write_url. SSRF-guarded + size-capped by
   // the server; throws on a disallowed or oversized target.
   fetchAsset: (url: string) => Promise<Uint8Array>
@@ -125,7 +129,7 @@ export class McpHandler {
         const liveAt = liveUrls.length ? ` It is live at ${liveUrls.join(", ")}.` : ""
         const instructions =
           `You can edit and publish the website "${grant.site}".${liveAt} Use list_files/read_file to inspect it, ` +
-          `write_file/edit_file/delete_file to change the web files, then deploy_site to publish. ` +
+          `write_file/edit_file/delete_file to change the web files, then deploy_site (with a short change message) to publish. ` +
           `Prefer edit_file for small changes to large files. ` +
           `Only website files can be changed here; the site's backend (database, hooks) is managed by the owner.`
         return this.ok(msg.id, {
@@ -240,7 +244,7 @@ export class McpHandler {
           return this.toolText(msg.id, grant, removed ? `Deleted ${args.path}.` : `File not found: ${args.path}`, !removed)
         }
         case "deploy_site":
-          return this.handleDeployTool(msg, grant)
+          return this.handleDeployTool(msg, grant, args)
         default:
           return this.toolText(msg.id, grant, `Unknown tool: ${name}`, true)
       }
@@ -269,21 +273,37 @@ export class McpHandler {
   }
 
   // The site's deployment changelog: the current published version plus the
-  // archived previous versions (newest first), each with when it was published
-  // and by whom (share deploys show the grant's label).
+  // archived previous versions (newest first), each with when it was published,
+  // by whom (share deploys show the grant's label), and its change message.
   private historyText(grant: ShareGrant): string {
     const site = this.deps.sites.get(grant.site)
     if (!site) return `Site "${grant.site}" no longer exists.`
-    const fmt = (v: number | undefined, at?: string, by?: string, suffix = "") =>
-      `  v${v ?? "?"}  ${at ? new Date(at).toISOString() : "unknown"}  by ${by || "unknown"}${suffix}`
+    const fmt = (v: number | undefined, at?: string, by?: string, message?: string, suffix = "") => {
+      const note = message ? `  — ${message}` : ""
+      return `  v${v ?? "?"}  ${at ? new Date(at).toISOString() : "unknown"}  by ${by || "unknown"}${note}${suffix}`
+    }
     const lines: string[] = []
-    if (site.version !== undefined) lines.push(fmt(site.version, site.deployedAt, site.deployedBy, "  (current)"))
-    for (const v of this.deps.sites.getHistory(grant.site)) lines.push(fmt(v.version, v.deployedAt, v.deployedBy))
+    if (site.version !== undefined) lines.push(fmt(site.version, site.deployedAt, site.deployedBy, site.message, "  (current)"))
+    for (const v of this.deps.sites.getHistory(grant.site)) lines.push(fmt(v.version, v.deployedAt, v.deployedBy, v.message))
     if (lines.length === 0) return `No deployments yet for "${grant.site}".`
     return `Deployment history for "${grant.site}" (newest first):\n${lines.join("\n")}`
   }
 
-  private async handleDeployTool(msg: JsonRpcRequest, grant: ShareGrant): Promise<unknown> {
+  private async handleDeployTool(
+    msg: JsonRpcRequest,
+    grant: ShareGrant,
+    args: Record<string, unknown>
+  ): Promise<unknown> {
+    // A change description is mandatory: it's what shows up in list_history so
+    // the owner can see what each shared-link deploy changed.
+    const message = String(args.message ?? "").trim()
+    if (!message) {
+      return this.toolText(msg.id, grant, "message is required: describe what you changed (it's recorded in the site history).", true)
+    }
+    if (message.length > MAX_DEPLOY_MESSAGE_LENGTH) {
+      return this.toolText(msg.id, grant, `message is too long (max ${MAX_DEPLOY_MESSAGE_LENGTH} characters).`, true)
+    }
+
     this.ensureSeeded(grant)
     const site = this.deps.sites.get(grant.site)
     if (!site) return this.toolText(msg.id, grant, `Site "${grant.site}" no longer exists.`, true)
@@ -294,7 +314,7 @@ export class McpHandler {
 
     const zip = this.deps.staging.buildDeployZip(grant.id, this.deps.sites.getCodePath(grant.site))
     const deployedBy = grant.label || "shared link"
-    const info = await this.deps.deploy(grant.site, zip, deployedBy)
+    const info = await this.deps.deploy(grant.site, zip, deployedBy, message)
 
     this.deps.grants.touch(grant.id)
     this.deps.staging.setSeededVersion(grant.id, info.version ?? current + 1)
@@ -328,7 +348,7 @@ const MCP_TOOLS = [
   {
     name: "list_history",
     description:
-      "List the site's deployment history (changelog): the current published version plus previous versions, newest first, each with when it was published and by whom.",
+      "List the site's deployment history (changelog): the current published version plus previous versions, newest first, each with when it was published, by whom, and its change message.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -406,8 +426,19 @@ const MCP_TOOLS = [
   },
   {
     name: "deploy_site",
-    description: "Publish all staged web changes as a new live version of the site.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    description:
+      "Publish all staged web changes as a new live version of the site. Requires a short change description (message) summarizing what changed — it is recorded in the site's deployment history (see list_history).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message: {
+          type: "string",
+          description: "Short summary of what this deploy changes, e.g. \"Update hero copy and swap logo\". Shown in list_history.",
+        },
+      },
+      required: ["message"],
+      additionalProperties: false,
+    },
   },
 ]
 
@@ -444,10 +475,10 @@ const MCP_RESOURCES: McpResource[] = [
       "   - `write_file` — create a file or fully overwrite one.",
       "   - `write_url` — add an image/font/other binary asset by URL (the server downloads it).",
       "   - `delete_file` — remove a file.",
-      "4. `deploy_site` — publish all staged changes as a new live version.",
+      "4. `deploy_site` — publish all staged changes as a new live version. Requires a short `message` describing what you changed; it is recorded in the deployment history.",
       "",
       "## Good to know",
-      "- `site_info` reports the live URL and current published version; `list_history` is the deployment changelog.",
+      "- `site_info` reports the live URL and current published version; `list_history` is the deployment changelog (each entry shows its change message).",
       "- Only website files can be changed here. The backend (database, hooks, migrations) is managed by the owner and is off-limits.",
       "- If the owner (or another link) deploys while you are editing, `deploy_site` publishes your web changes on top of the latest version and tells you so — re-read the files if something looks off.",
     ].join("\n"),
