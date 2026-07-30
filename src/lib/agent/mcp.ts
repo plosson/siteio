@@ -6,11 +6,26 @@ import type { OAuthStore } from "./oauth-store.ts"
 import { MAX_STAGING_FILE_SIZE, MAX_STAGING_TOTAL_SIZE } from "./staging-store.ts"
 import { ValidationError } from "../../utils/errors.ts"
 import { getVersion } from "../version.ts"
+import { randomBytes } from "crypto"
 
 const MCP_PROTOCOL_VERSION = "2024-11-05"
 
 // Cap on the deploy_site change description, recorded in the site history.
 const MAX_DEPLOY_MESSAGE_LENGTH = 500
+
+// How long an out-of-band asset-upload ticket stays valid. Long enough for a
+// human to run the curl the tool hands back, short enough that a leaked URL
+// isn't a lasting hole. Tickets are single-use and held in memory.
+const UPLOAD_TICKET_TTL_MS = 15 * 60 * 1000 // 15 minutes
+
+// A pending out-of-band upload: PUT /mcp/upload/<token> streams one binary asset
+// straight into this grant's staging at `path`, bypassing the model context.
+interface UploadTicket {
+  grantId: string
+  site: string
+  path: string
+  expiresAt: number // epoch ms
+}
 
 // JSON-RPC 2.0 shapes (only the slice MCP needs).
 interface JsonRpcRequest {
@@ -47,6 +62,11 @@ export interface McpDeps {
 // editing tools over a per-grant staging copy. Hand-rolled (initialize /
 // tools/list / tools/call) to match the project's dependency-light HTTP layer.
 export class McpHandler {
+  // Pending out-of-band upload tickets, keyed by token. In-memory: the TTL is
+  // minutes and the agent is a single process, so a restart just voids any
+  // in-flight ticket (the model re-issues one). Never persisted.
+  private uploads = new Map<string, UploadTicket>()
+
   constructor(private deps: McpDeps) {}
 
   private jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string): Response {
@@ -81,14 +101,14 @@ export class McpHandler {
     if (Array.isArray(payload)) {
       const responses: unknown[] = []
       for (const msg of payload) {
-        const res = await this.dispatch(msg as JsonRpcRequest, grant)
+        const res = await this.dispatch(msg as JsonRpcRequest, grant, ctx)
         if (res !== null) responses.push(res)
       }
       if (responses.length === 0) return new Response(null, { status: 202 })
       return Response.json(responses)
     }
 
-    const single = await this.dispatch(payload as JsonRpcRequest, grant)
+    const single = await this.dispatch(payload as JsonRpcRequest, grant, ctx)
     if (single === null) return new Response(null, { status: 202 })
     return Response.json(single)
   }
@@ -106,7 +126,7 @@ export class McpHandler {
   }
 
   // Returns a JSON-RPC response object, or null for a notification (no reply).
-  private async dispatch(msg: JsonRpcRequest, grant: ShareGrant): Promise<unknown | null> {
+  private async dispatch(msg: JsonRpcRequest, grant: ShareGrant, ctx: McpHostCtx): Promise<unknown | null> {
     if (!msg || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") {
       return { jsonrpc: "2.0", id: (msg && msg.id) ?? null, error: { code: -32600, message: "Invalid Request" } }
     }
@@ -144,7 +164,7 @@ export class McpHandler {
       case "tools/list":
         return this.ok(msg.id, { tools: MCP_TOOLS })
       case "tools/call":
-        return this.handleToolCall(msg, grant)
+        return this.handleToolCall(msg, grant, ctx)
       case "resources/list":
         return this.ok(msg.id, { resources: MCP_RESOURCES.map(({ text: _text, ...meta }) => meta) })
       case "resources/read": {
@@ -189,7 +209,7 @@ export class McpHandler {
     }
   }
 
-  private async handleToolCall(msg: JsonRpcRequest, grant: ShareGrant): Promise<unknown> {
+  private async handleToolCall(msg: JsonRpcRequest, grant: ShareGrant, ctx: McpHostCtx): Promise<unknown> {
     const params = (msg.params ?? {}) as { name?: string; arguments?: Record<string, unknown> }
     const name = params.name
     const args = params.arguments ?? {}
@@ -237,6 +257,24 @@ export class McpHandler {
           const bytes = await this.deps.fetchAsset(url)
           this.deps.staging.writeBytes(grant.id, path, bytes)
           return this.toolText(msg.id, grant, `Fetched ${url} → ${path} (${bytes.length} bytes). Run deploy_site to publish.`)
+        }
+        case "create_asset_upload": {
+          this.ensureSeeded(grant)
+          const path = String(args.path ?? "")
+          // Validate the destination now so an unsafe path fails here, not after
+          // the user has already run curl.
+          this.deps.staging.assertValidPath(grant.id, path)
+          const { token, expiresAt } = this.issueUploadTicket(grant, path)
+          const uploadUrl = `${ctx.baseUrl}/mcp/upload/${token}`
+          const mins = Math.round(UPLOAD_TICKET_TTL_MS / 60000)
+          const text = [
+            `Upload URL created for "${path}" (single use, valid ~${mins} min, max ${MB(MAX_STAGING_FILE_SIZE)}).`,
+            `Upload the local file with curl (or ask the user to):`,
+            `  curl --upload-file <local-file> "${uploadUrl}"`,
+            `The bytes go straight to the server — no need to read or inline them here.`,
+            `After it succeeds, run deploy_site to publish. Ticket expires ${new Date(expiresAt).toISOString()}.`,
+          ].join("\n")
+          return this.toolText(msg.id, grant, text)
         }
         case "delete_file": {
           this.ensureSeeded(grant)
@@ -328,6 +366,74 @@ export class McpHandler {
     return this.toolText(msg.id, grant, text)
   }
 
+  // Mint a single-use ticket for uploading one asset to `path` out-of-band.
+  private issueUploadTicket(grant: ShareGrant, path: string): { token: string; expiresAt: number } {
+    this.pruneUploadTickets()
+    const token = randomBytes(32).toString("base64url")
+    const expiresAt = Date.now() + UPLOAD_TICKET_TTL_MS
+    this.uploads.set(token, { grantId: grant.id, site: grant.site, path, expiresAt })
+    return { token, expiresAt }
+  }
+
+  private pruneUploadTickets(): void {
+    const now = Date.now()
+    for (const [token, ticket] of this.uploads) {
+      if (ticket.expiresAt <= now) this.uploads.delete(token)
+    }
+  }
+
+  // Backs the out-of-band asset upload endpoint: PUT /mcp/upload/<token>. The
+  // upload TICKET — not an OAuth bearer — authorizes this, because curl / the
+  // user has no bearer; that's the whole point (large bytes never traverse the
+  // model context). Streams the body straight into staging, then the model runs
+  // deploy_site. `ctx` is the host the request came in on (resolved to a site by
+  // the server); the ticket must belong to that same site.
+  async handleAssetUpload(req: Request, ctx: McpHostCtx, token: string): Promise<Response> {
+    const plain = (body: string, status: number): Response =>
+      new Response(body + "\n", { status, headers: { "Content-Type": "text/plain; charset=utf-8" } })
+
+    if (req.method !== "PUT" && req.method !== "POST") {
+      return new Response("Method Not Allowed", { status: 405, headers: { Allow: "PUT" } })
+    }
+
+    this.pruneUploadTickets()
+    const ticket = token ? this.uploads.get(token) : undefined
+    if (!ticket || ticket.expiresAt <= Date.now()) {
+      return plain("Upload link is invalid or has expired. Ask the assistant for a new one.", 404)
+    }
+
+    // The ticket must still map to a live grant for the site being addressed.
+    const grant = this.deps.grants.get(ticket.grantId)
+    if (!grant || !this.deps.grants.isActive(grant) || grant.site !== ctx.site || ticket.site !== ctx.site) {
+      this.uploads.delete(token)
+      return plain("Upload link is no longer valid.", 403)
+    }
+
+    // Reject an over-cap upload before buffering the whole body when the client
+    // declares its size; the actual bytes are re-checked in writeBytes.
+    const declared = Number(req.headers.get("content-length") || "0")
+    if (declared && declared > MAX_STAGING_FILE_SIZE) {
+      return plain(`File too large (max ${MB(MAX_STAGING_FILE_SIZE)}).`, 413)
+    }
+
+    const bytes = new Uint8Array(await req.arrayBuffer())
+    if (bytes.length === 0) return plain("Empty upload — send the file as the request body.", 400)
+
+    try {
+      this.ensureSeeded(grant)
+      this.deps.staging.writeBytes(grant.id, ticket.path, bytes)
+    } catch (err) {
+      // Leave the ticket alive so the user can fix the file and retry in-window.
+      const message = err instanceof ValidationError ? err.message : err instanceof Error ? err.message : String(err)
+      return plain(message, 400)
+    }
+
+    // Success: single-use, so consume the ticket now.
+    this.uploads.delete(token)
+    this.deps.grants.touch(grant.id)
+    return plain(`Uploaded ${ticket.path} (${bytes.length} bytes). Run deploy_site to publish.`, 200)
+  }
+
   private ensureSeeded(grant: ShareGrant): void {
     const site = this.deps.sites.get(grant.site)
     if (!site) throw new ValidationError(`Site "${grant.site}" no longer exists.`)
@@ -403,7 +509,7 @@ const MCP_TOOLS = [
   {
     name: "write_url",
     description:
-      "Add a web file by having the server download it from a URL — the right way to add images, fonts, or other binary assets (no need to inline/base64 them). Staged, not published until deploy_site.",
+      "Add a binary asset (image, font, video, …) that is ALREADY hosted at a public http(s) URL — the server downloads it, so nothing is base64-inlined. For a LOCAL file that isn't hosted yet, use create_asset_upload instead. Staged, not published until deploy_site.",
     inputSchema: {
       type: "object",
       properties: {
@@ -411,6 +517,19 @@ const MCP_TOOLS = [
         url: { type: "string", description: "Public http(s) URL to fetch the file contents from" },
       },
       required: ["path", "url"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_asset_upload",
+    description:
+      "Get a one-time upload URL for adding a LOCAL binary asset (image, font, video, …) whose bytes you don't have as a public URL — the correct way to add large images without base64-inlining them into the conversation. Returns a ready-to-run `curl --upload-file` command that streams the file straight to the server; run it (or ask the user to), then call deploy_site. Use write_url instead when the asset is already at a public URL.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Destination path relative to the web root, e.g. img/hero.jpg" },
+      },
+      required: ["path"],
       additionalProperties: false,
     },
   },
@@ -473,7 +592,8 @@ const MCP_RESOURCES: McpResource[] = [
       "3. Change files:",
       "   - `edit_file` — replace an exact snippet in an existing file. Prefer this for small changes to large files.",
       "   - `write_file` — create a file or fully overwrite one.",
-      "   - `write_url` — add an image/font/other binary asset by URL (the server downloads it).",
+      "   - `write_url` — add an image/font/other binary asset already hosted at a public URL (the server downloads it).",
+      "   - `create_asset_upload` — add a LOCAL binary asset (e.g. a large image) by uploading the file directly; returns a one-time `curl` upload URL, then deploy. Avoids base64-inlining.",
       "   - `delete_file` — remove a file.",
       "4. `deploy_site` — publish all staged changes as a new live version. Requires a short `message` describing what you changed; it is recorded in the deployment history.",
       "",
@@ -493,7 +613,7 @@ const MCP_RESOURCES: McpResource[] = [
       "",
       "- Paths are relative to the web root, e.g. `index.html`, `css/style.css`, `img/hero.jpg`. Absolute paths and `..` traversal are rejected.",
       "- `index.html` at the web root is the site's entry page.",
-      "- Add images, fonts, and other binary assets with `write_url` (the server downloads them) rather than base64-inlining. `write_file` with `encoding: base64` also works for small binaries.",
+      "- Add binary assets (images, fonts, video) WITHOUT base64-inlining them: use `write_url` when the file is already hosted at a public URL, or `create_asset_upload` to upload a local file directly (it returns a one-time `curl` upload URL). `write_file` with `encoding: base64` still works but is only sensible for tiny binaries.",
       `- Limits: up to ${MB(MAX_STAGING_FILE_SIZE)} per file and ${MB(MAX_STAGING_TOTAL_SIZE)} total across all staged files.`,
     ].join("\n"),
   },

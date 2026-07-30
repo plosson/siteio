@@ -103,6 +103,13 @@ export class StagingStore {
     return full
   }
 
+  // Validate a client-supplied path without writing anything — used to fail an
+  // out-of-band upload request fast (at ticket-issue time) instead of after the
+  // user has already run curl. Throws ValidationError on an empty/unsafe path.
+  assertValidPath(grantId: string, relPath: string): void {
+    this.safePath(grantId, relPath)
+  }
+
   listFiles(grantId: string): string[] {
     const base = this.filesDir(grantId)
     if (!existsSync(base)) return []

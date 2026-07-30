@@ -146,6 +146,12 @@ export class AgentServer {
         if (req.method === "POST") return this.oauthProvider.handleAuthorizePost(req, ctx)
       }
       if (path === "/mcp/oauth/token" && req.method === "POST") return this.oauthProvider.handleToken(req, ctx)
+      // Out-of-band asset upload: authorized by the ticket in the path (not the
+      // OAuth bearer), so curl / the user can PUT a local file straight into
+      // staging. See McpHandler.handleAssetUpload / create_asset_upload.
+      if (path.startsWith("/mcp/upload/")) {
+        return this.mcp.handleAssetUpload(req, ctx, path.slice("/mcp/upload/".length))
+      }
       if (path === "/mcp") return this.mcp.handle(req, ctx)
 
       return this.error("Not found", 404)
