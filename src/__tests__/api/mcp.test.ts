@@ -147,7 +147,7 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
   test("/mcp exposes the editing tools", async () => {
     const bearer = await connect("blog")
     expect(await listTools("/mcp", bearer)).toEqual(
-      ["delete_file", "deploy_site", "edit_file", "list_files", "list_history", "read_file", "site_info", "write_file", "write_url"]
+      ["create_asset_upload", "delete_file", "deploy_site", "edit_file", "list_files", "list_history", "read_file", "site_info", "write_file", "write_url"]
     )
   })
 
@@ -321,6 +321,117 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
     })
   })
 
+  // --- create_asset_upload (out-of-band binary upload, /mcp only) ---
+
+  describe("create_asset_upload", () => {
+    // Genuine binary: contains a NUL and high bytes, so it can't round-trip as text.
+    const IMG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 6, 7, 0, 255, 128])
+
+    // Ask for a ticket, pull the token out of the curl command it returns.
+    const requestUpload = async (bearer: string, path: string, host = HOST) => {
+      const { body } = await call("/mcp", bearer, "create_asset_upload", { path }, host)
+      const text = toolText(body)
+      const token = text.match(/\/mcp\/upload\/([^\s"]+)/)?.[1]
+      return { body, text, token }
+    }
+    const putUpload = (token: string, bytes: Uint8Array, host = HOST, headers: Record<string, string> = {}) =>
+      on(new Request(`http://x/mcp/upload/${token}`, { method: "PUT", headers, body: bytes }), host)
+
+    test("returns a single-use curl upload URL on the site host", async () => {
+      const bearer = await connect("blog")
+      const { body, text, token } = await requestUpload(bearer, "img/hero.png")
+      expect(body.result!.isError).toBeFalsy()
+      expect(text).toContain("curl --upload-file")
+      expect(text).toContain("https://blog.example.com/mcp/upload/")
+      expect(text).toContain("deploy_site")
+      expect(token).toBeTruthy()
+    })
+
+    test("uploading to the ticket URL stages the bytes, published on deploy", async () => {
+      const bearer = await connect("blog")
+      const { token } = await requestUpload(bearer, "img/hero.png")
+      const up = await putUpload(token!, IMG)
+      expect(up.status).toBe(200)
+      expect(await up.text()).toContain("Uploaded img/hero.png")
+
+      // Staged (not yet live) — read_file returns it base64-encoded.
+      const read = await call("/mcp", bearer, "read_file", { path: "img/hero.png" })
+      expect(toolText(read.body)).toContain("[base64-encoded binary file]")
+
+      await call("/mcp", bearer, "deploy_site", { message: "Add hero image" })
+      const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }))
+      const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
+      expect(files["public/img/hero.png"]).toEqual(IMG)
+      // Backend is preserved through the upload+deploy path too.
+      expect(new TextDecoder().decode(files["pb_migrations/1_init.js"]!)).toBe("// schema")
+    })
+
+    test("the ticket is single-use: a second upload is rejected", async () => {
+      const bearer = await connect("blog")
+      const { token } = await requestUpload(bearer, "img/hero.png")
+      expect((await putUpload(token!, IMG)).status).toBe(200)
+      const second = await putUpload(token!, IMG)
+      expect(second.status).toBe(404)
+    })
+
+    test("an unknown or malformed token is rejected", async () => {
+      await connect("blog") // a live grant exists; the token below is still bogus
+      expect((await putUpload("not-a-real-token", IMG)).status).toBe(404)
+    })
+
+    test("a path that escapes the web root is rejected at ticket time (no URL issued)", async () => {
+      const bearer = await connect("blog")
+      const { body, token } = await requestUpload(bearer, "../../evil.png")
+      expect(body.result!.isError).toBe(true)
+      expect(toolText(body)).toMatch(/unsafe path/i)
+      expect(token).toBeFalsy()
+    })
+
+    test("an over-cap upload is rejected up front via Content-Length", async () => {
+      const bearer = await connect("blog")
+      const { token } = await requestUpload(bearer, "img/huge.png")
+      const res = await putUpload(token!, IMG, HOST, { "Content-Length": String(26 * 1024 * 1024) })
+      expect(res.status).toBe(413)
+      // Ticket survives an over-cap attempt, so a corrected upload still works.
+      expect((await putUpload(token!, IMG)).status).toBe(200)
+    })
+
+    test("an empty body is rejected", async () => {
+      const bearer = await connect("blog")
+      const { token } = await requestUpload(bearer, "img/empty.png")
+      const res = await putUpload(token!, new Uint8Array(0))
+      expect(res.status).toBe(400)
+    })
+
+    test("GET is not allowed on the upload endpoint", async () => {
+      const bearer = await connect("blog")
+      const { token } = await requestUpload(bearer, "img/hero.png")
+      const res = await on(new Request(`http://x/mcp/upload/${token}`, { method: "GET" }))
+      expect(res.status).toBe(405)
+    })
+
+    test("revoking the grant invalidates a pending upload ticket", async () => {
+      const bearer = await connect("blog")
+      const { token } = await requestUpload(bearer, "img/hero.png")
+      const list = (await (
+        await server.handleRequestForTest(new Request("http://x/sites/blog/grants", { method: "GET", headers: AUTH }))
+      ).json()) as ApiResponse<{ id: string }[]>
+      await server.handleRequestForTest(
+        new Request(`http://x/sites/blog/grants/${list.data![0]!.id}`, { method: "DELETE", headers: AUTH })
+      )
+      expect((await putUpload(token!, IMG)).status).toBe(403)
+    })
+
+    test("a ticket cannot be redeemed against a different site's host", async () => {
+      await deploySite("shop", { "public/index.html": "<h1>shop</h1>" })
+      const bearer = await connect("blog")
+      const { token } = await requestUpload(bearer, "img/hero.png")
+      // Same token, but PUT to the other site's host → site mismatch.
+      const res = await putUpload(token!, IMG, "shop.example.com")
+      expect(res.status).toBe(403)
+    })
+  })
+
   // --- Custom (vanity) domains ---
 
   describe("on a site's custom domain", () => {
@@ -348,6 +459,17 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
       // site_info on the vanity host reports the custom domain as the live URL.
       const info = await call("/mcp", bearer, "site_info", {}, CUSTOM)
       expect(toolText(info.body)).toContain(`https://${CUSTOM}`)
+    })
+
+    test("create_asset_upload issues its URL on the vanity host and uploads there", async () => {
+      const IMG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 255, 1, 2])
+      const bearer = await connect("blog", {}, CUSTOM)
+      const info = await call("/mcp", bearer, "create_asset_upload", { path: "img/v.png" }, CUSTOM)
+      const text = toolText(info.body)
+      expect(text).toContain(`https://${CUSTOM}/mcp/upload/`)
+      const token = text.match(/\/mcp\/upload\/([^\s"]+)/)?.[1]
+      const up = await on(new Request(`http://x/mcp/upload/${token}`, { method: "PUT", body: IMG }), CUSTOM)
+      expect(up.status).toBe(200)
     })
 
     test("an unknown host (not a site or custom domain) is 404", async () => {
