@@ -82,6 +82,8 @@ chatting with an LLM that redeploys it). Configured iff a credential is set:
 - `SITEIO_CHAT_SANDBOX` - run the agent in a throwaway container (default `true`; set `false` only for trusted single-tenant/dev). Sandbox needs the image: `docker build -t siteio-chat-sandbox:latest docker/chat-sandbox`
 - `SITEIO_CHAT_SANDBOX_IMAGE` / `SITEIO_CHAT_SANDBOX_NETWORK` / `SITEIO_CHAT_MAX_TURNS` / `SITEIO_CHAT_TIMEOUT_MS` - sandbox/limit overrides
 
+The credential/model can also be persisted (instead of env) via the agent config CLI, which writes to `agent-config.json` (0600; credentials masked in `config list`): `siteio agent config set llmOauthToken <token>` (or `llmApiKey`, `llmModel`, `llmProvider`). Env vars win over persisted values; restart the agent after changing either.
+
 ## Releasing
 
 Follow this when the user asks to "release a new version" or mentions "bump the version"
