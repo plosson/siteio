@@ -23,10 +23,10 @@ function siteioAdmin() {
     pending: new Set(),
     hostname: "",
 
-    // logs
-    appLogs: "",
-    appLogsAuto: true,
-    appLogsTimer: null,
+    // logs (shared by app + site detail)
+    logs: "",
+    logsAuto: true,
+    logsTimer: null,
     _logsVisibilityHandler: null,
 
     init() {
@@ -77,8 +77,8 @@ function siteioAdmin() {
           this.loadApp(this.route.param)
         }
         if (this.route.subtab === "logs") {
-          if (this.appLogsAuto) this.startLogsPoll()
-          else this.loadAppLogs(this.route.param)
+          if (this.logsAuto) this.startLogsPoll()
+          else this.loadLogs(this.route.param)
         }
       }
       if (this.route.view === "sites" && this.route.param) {
@@ -86,6 +86,10 @@ function siteioAdmin() {
           this.loadSite(this.route.param)
         }
         if (this.route.subtab === "history") this.loadSiteHistory(this.route.param)
+        if (this.route.subtab === "logs") {
+          if (this.logsAuto) this.startLogsPoll()
+          else this.loadLogs(this.route.param)
+        }
       }
     },
 
@@ -136,9 +140,9 @@ function siteioAdmin() {
     },
 
     onEscape() {
-      // If the user is on the logs view, toggle auto-refresh off (quick pause).
-      if (this.route.view === "apps" && this.route.subtab === "logs" && this.appLogsAuto) {
-        this.appLogsAuto = false
+      // If the user is on a logs view (app or site), toggle auto-refresh off.
+      if ((this.route.view === "apps" || this.route.view === "sites") && this.route.subtab === "logs" && this.logsAuto) {
+        this.logsAuto = false
         this.stopLogsPoll()
       }
     },
@@ -419,16 +423,22 @@ function siteioAdmin() {
       return (n / 1024 / 1024 / 1024).toFixed(1) + " GB"
     },
 
-    async loadAppLogs(name) {
+    // Apps and sites both expose /<kind>/:name/logs; the logs UI is shared and
+    // targets whichever detail view is active.
+    logsBasePath() {
+      return this.route.view === "sites" ? "/sites" : "/apps"
+    },
+
+    async loadLogs(name) {
       this._pendAdd("logs")
       try {
-        const res = await this.apiFetch(`/apps/${encodeURIComponent(name)}/logs?tail=200`)
+        const res = await this.apiFetch(`${this.logsBasePath()}/${encodeURIComponent(name)}/logs?tail=200`)
         const body = await res.json()
         if (body.success) {
-          this.appLogs = body.data.logs || ""
+          this.logs = body.data.logs || ""
           // Scroll to bottom if auto-refresh is on
           this.$nextTick(() => {
-            if (this.appLogsAuto && this.$refs.logsEl) {
+            if (this.logsAuto && this.$refs.logsEl) {
               this.$refs.logsEl.scrollTop = this.$refs.logsEl.scrollHeight
             }
           })
@@ -448,24 +458,24 @@ function siteioAdmin() {
       this.stopLogsPoll()
       const name = this.route.param
       if (!name) return
-      this.loadAppLogs(name)
-      this.appLogsTimer = setInterval(() => {
+      this.loadLogs(name)
+      this.logsTimer = setInterval(() => {
         if (document.hidden) return
-        this.loadAppLogs(name)
+        this.loadLogs(name)
       }, 3000)
       this._logsVisibilityHandler = () => {
         // When page comes back to foreground, fetch immediately
-        if (!document.hidden && this.route.subtab === "logs" && this.appLogsAuto) {
-          this.loadAppLogs(this.route.param)
+        if (!document.hidden && this.route.subtab === "logs" && this.logsAuto) {
+          this.loadLogs(this.route.param)
         }
       }
       document.addEventListener("visibilitychange", this._logsVisibilityHandler)
     },
 
     stopLogsPoll() {
-      if (this.appLogsTimer) {
-        clearInterval(this.appLogsTimer)
-        this.appLogsTimer = null
+      if (this.logsTimer) {
+        clearInterval(this.logsTimer)
+        this.logsTimer = null
       }
       if (this._logsVisibilityHandler) {
         document.removeEventListener("visibilitychange", this._logsVisibilityHandler)
