@@ -1510,8 +1510,8 @@ export class AgentServer {
       port,
       routes: {
         "/ui": (req) => serveUiAsset(req, ADMIN_UI_HTML, "text/html; charset=utf-8", htmlEtag),
-        "/ui/app.js": (req) => serveUiAsset(req, ADMIN_UI_JS, "application/javascript; charset=utf-8", jsEtag),
-        "/ui/app.css": (req) => serveUiAsset(req, ADMIN_UI_CSS, "text/css; charset=utf-8", cssEtag),
+        "/ui/ui.js": (req) => serveUiAsset(req, ADMIN_UI_JS, "application/javascript; charset=utf-8", jsEtag),
+        "/ui/ui.css": (req) => serveUiAsset(req, ADMIN_UI_CSS, "text/css; charset=utf-8", cssEtag),
       },
       fetch: (req) => this.handleRequest(req),
     })
