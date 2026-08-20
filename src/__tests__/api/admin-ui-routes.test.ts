@@ -34,21 +34,49 @@ describe("API: Admin UI routes", () => {
     if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true })
   })
 
-  test("GET /ui returns HTML shell", async () => {
+  test("GET /ui returns HTML shell with a revalidatable ETag", async () => {
     const res = await fetch(`${baseUrl}/ui`)
     expect(res.status).toBe(200)
     expect(res.headers.get("content-type")).toContain("text/html")
+    expect(res.headers.get("cache-control")).toBe("no-cache")
+    expect(res.headers.get("etag")).toBeTruthy()
     const body = await res.text()
     expect(body).toContain("<html")
     expect(body).toContain("siteioAdmin()")
   })
 
-  test("GET /ui/app.js returns JS", async () => {
+  test("GET /ui/app.js returns JS with an ETag and no-cache", async () => {
     const res = await fetch(`${baseUrl}/ui/app.js`)
     expect(res.status).toBe(200)
     expect(res.headers.get("content-type")).toContain("application/javascript")
+    expect(res.headers.get("cache-control")).toBe("no-cache")
+    expect(res.headers.get("etag")).toBeTruthy()
     const body = await res.text()
     expect(body).toContain("function siteioAdmin")
+  })
+
+  test("GET /ui/app.css returns CSS with an ETag and no-cache", async () => {
+    const res = await fetch(`${baseUrl}/ui/app.css`)
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toContain("text/css")
+    expect(res.headers.get("cache-control")).toBe("no-cache")
+    expect(res.headers.get("etag")).toBeTruthy()
+  })
+
+  test("matching If-None-Match yields a 304 with the same ETag", async () => {
+    const first = await fetch(`${baseUrl}/ui/app.js`)
+    const etag = first.headers.get("etag")!
+    expect(etag).toBeTruthy()
+
+    const revalidated = await fetch(`${baseUrl}/ui/app.js`, { headers: { "If-None-Match": etag } })
+    expect(revalidated.status).toBe(304)
+    expect(revalidated.headers.get("etag")).toBe(etag)
+    expect(await revalidated.text()).toBe("")
+
+    // A stale/mismatched validator still gets the full body.
+    const mismatch = await fetch(`${baseUrl}/ui/app.js`, { headers: { "If-None-Match": '"stale"' } })
+    expect(mismatch.status).toBe(200)
+    expect((await mismatch.text()).length).toBeGreaterThan(0)
   })
 
   test("GET /ui/app.css returns CSS", async () => {
