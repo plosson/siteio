@@ -976,8 +976,8 @@ export class AgentServer {
     if (!site) return this.error("Site not found", 404)
     if (!this.thumbnails) return this.error("Thumbnails are not available", 503)
     if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
-    const ok = await this.thumbnails.capture(name, this.siteInternalUrl(name))
-    if (!ok) return this.error("Failed to capture thumbnail", 502)
+    const result = await this.thumbnails.capture(name, this.siteInternalUrl(name))
+    if (!result.ok) return this.error(result.reason || "Failed to capture thumbnail", 502)
     return this.json({ generated: true })
   }
 
