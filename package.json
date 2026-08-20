@@ -1,6 +1,6 @@
 {
   "name": "siteio",
-  "version": "1.30.3",
+  "version": "1.31.0",
   "type": "module",
   "private": true,
   "bin": {
