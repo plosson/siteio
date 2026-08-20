@@ -156,6 +156,12 @@
                       <div class="aspect-[16/9] bg-gradient-to-br from-gray-50 to-gray-200 flex flex-col items-center justify-center text-gray-400 relative">
                         <i :class="item.kind === 'site' ? 'hgi-stroke hgi-globe' : 'hgi-stroke hgi-package'" class="hgi text-3xl"></i>
                         <span class="text-[11px] mt-1 uppercase tracking-wide">No preview</span>
+                        <!-- Open the live URL in a new tab without triggering the card's link to detail -->
+                        <button @click.stop.prevent="window.open(item.url, '_blank', 'noopener')"
+                                :title="'Open ' + servicePrimaryDomain(item)"
+                                class="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded bg-white/80 text-gray-500 hover:text-brand-blue hover:bg-white shadow-sm">
+                          <i class="hgi hgi-stroke hgi-link-square-02"></i>
+                        </button>
                       </div>
                       <!-- Body -->
                       <div class="p-3">
