@@ -69,6 +69,15 @@ program
     await logoutCommand(domain)
   })
 
+program
+  .command("ui")
+  .argument("[domain]", "Server domain to open (defaults to the current server)")
+  .description("Open the web UI to manage sites and apps")
+  .action(async (domain) => {
+    const { uiCommand } = await import("./commands/ui.ts")
+    await uiCommand(domain)
+  })
+
 // Sites commands. Every site ships with a PocketBase backend (auth, database,
 // file storage) — using it is optional; a plain folder of HTML deploys as-is.
 function registerSiteCommands(sites: Command): void {

@@ -7,6 +7,7 @@ import { randomBytes } from "crypto"
 import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts"
 import { encodeToken } from "../../utils/token.ts"
 import { isRemoteTarget, sshExec, sshExecStream } from "../../utils/ssh.ts"
+import { openBrowser } from "../../utils/browser.ts"
 import { setupWildcardDNS, CloudflareError, getPublicIP, buildSslipDomain, isSslipDomain, buildCloudflareTokenUrl } from "../../lib/cloudflare.ts"
 import { waitForDNS, waitForCertificate } from "../../lib/verification.ts"
 
@@ -76,15 +77,6 @@ ${envLines.join("\n")}
 [Install]
 WantedBy=multi-user.target
 `
-}
-
-function openBrowser(url: string): void {
-  try {
-    const cmd = process.platform === "darwin" ? ["open", url] : ["xdg-open", url]
-    spawnSync({ cmd, stdout: "pipe", stderr: "pipe" })
-  } catch {
-    // Browser open failed silently - URL is already displayed to user
-  }
 }
 
 async function gatherInstallConfig(defaultDataDir: string, remoteIP?: string): Promise<{
