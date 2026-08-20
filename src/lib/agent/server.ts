@@ -224,6 +224,11 @@ export class AgentServer {
       return this.handleScopedRequest(auth.grant, path, req)
     }
 
+    // GET /agent - sanitized agent settings (god key only)
+    if (path === "/agent" && req.method === "GET") {
+      return this.handleGetAgentInfo()
+    }
+
     // GET /sites - list all sites
     if (path === "/sites" && req.method === "GET") {
       return this.handleListSites()
@@ -884,6 +889,24 @@ export class AgentServer {
   }
 
   // Site handlers
+
+  // Sanitized, read-only view of the agent's runtime settings for the admin UI.
+  // Secrets (apiKey, ACME/DNS env, Cloudflare token) are deliberately omitted.
+  private handleGetAgentInfo(): Response {
+    const c = this.config
+    return this.json({
+      domain: c.domain,
+      dataDir: c.dataDir,
+      email: c.email ?? null,
+      httpPort: c.httpPort,
+      httpsPort: c.httpsPort,
+      maxUploadSize: c.maxUploadSize,
+      appsEnabled: c.appsEnabled !== false,
+      version: getVersion(),
+      siteCount: this.storage.list().length,
+      appCount: this.appStorage.list().length,
+    })
+  }
 
   private async handleListSites(): Promise<Response> {
     const sites = this.storage.list()
