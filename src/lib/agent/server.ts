@@ -1582,6 +1582,11 @@ export class AgentServer {
       fetch: (req) => this.handleRequest(req),
     })
 
+    // Download the site-preview browser image in the background so the first
+    // capture (deploy or manual refresh) doesn't stall on a ~3GB pull — which,
+    // behind a CDN request timeout, would otherwise never complete in time.
+    this.thumbnails?.prewarm()
+
     console.log(`> API server listening on port ${port}`)
     console.log(`> Domain: ${this.config.domain}`)
     console.log(`> API URL: https://api.${this.config.domain}`)
