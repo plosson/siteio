@@ -23,6 +23,12 @@ const GOTO_TIMEOUT_MS = 10_000
 const CAPTURE_TIMEOUT_MS = 20_000
 const VIEWPORT = { width: 1280, height: 800 }
 
+export interface CaptureResult {
+  ok: boolean
+  // Human-readable failure reason when ok is false (surfaced to the UI).
+  reason?: string
+}
+
 export class ThumbnailManager {
   private thumbsDir: string
   private token: string
@@ -59,19 +65,25 @@ export class ThumbnailManager {
   }
 
   // Capture a preview of the given URL and store it as <name>.webp. Best-effort:
-  // returns true on success, false on any failure — never throws.
-  async capture(name: string, url: string): Promise<boolean> {
+  // never throws — reports the reason so callers (e.g. the manual-refresh
+  // endpoint) can surface it to the user instead of a generic failure.
+  async capture(name: string, url: string): Promise<CaptureResult> {
     try {
-      if (!(await this.ensureBrowserless())) return false
+      if (!(await this.ensureBrowserless())) {
+        return this.fail(name, "preview browser is not available (Docker or image issue — see agent logs)")
+      }
       const bytes = await this.screenshot(url)
-      if (!bytes) return false
       writeFileSync(this.thumbPath(name), bytes, { mode: 0o644 })
       this.scheduleIdleStop()
-      return true
+      return { ok: true }
     } catch (err) {
-      console.log(`> Thumbnail capture failed for '${name}': ${this.msg(err)}`)
-      return false
+      return this.fail(name, this.msg(err))
     }
+  }
+
+  private fail(name: string, reason: string): CaptureResult {
+    console.log(`> Thumbnail capture failed for '${name}': ${reason}`)
+    return { ok: false, reason }
   }
 
   // Download the browserless image ahead of time (background, non-blocking) so
@@ -125,6 +137,8 @@ export class ThumbnailManager {
         "-p", `127.0.0.1:${HOST_PORT}:3000`,
         "-e", `TOKEN=${this.token}`,
         "-e", "CONCURRENT=1",
+        // Queue bursts (deploy storms, a page of cards) instead of 429-ing.
+        "-e", "QUEUED=8",
         "-e", "TIMEOUT=15000",
         IMAGE,
       ],
@@ -185,7 +199,7 @@ export class ThumbnailManager {
     return false
   }
 
-  private async screenshot(url: string): Promise<Uint8Array | null> {
+  private async screenshot(url: string): Promise<Uint8Array> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), CAPTURE_TIMEOUT_MS)
     try {
@@ -197,14 +211,26 @@ export class ThumbnailManager {
           url,
           options: { type: "webp", quality: 80, fullPage: false },
           viewport: VIEWPORT,
-          gotoOptions: { waitUntil: "networkidle2", timeout: GOTO_TIMEOUT_MS },
+          // "load" (not networkidle): sites with fonts/analytics/long-polling
+          // never go network-idle, and browserless would 500 on the timeout.
+          // bestAttempt returns whatever rendered if navigation times out.
+          gotoOptions: { waitUntil: "load", timeout: GOTO_TIMEOUT_MS },
+          bestAttempt: true,
         }),
       })
       if (!res.ok) {
-        console.log(`> browserless screenshot ${res.status}: ${(await res.text()).slice(0, 200)}`)
-        return null
+        const body = (await res.text()).slice(0, 200)
+        if (res.status === 429) {
+          throw new Error("preview browser is busy (too many captures at once) — try again in a moment")
+        }
+        throw new Error(`preview browser error ${res.status}${body ? `: ${body}` : ""}`)
       }
       return new Uint8Array(await res.arrayBuffer())
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error(`capture timed out after ${Math.round(CAPTURE_TIMEOUT_MS / 1000)}s`)
+      }
+      throw err
     } finally {
       clearTimeout(timer)
     }

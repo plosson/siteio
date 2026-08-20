@@ -251,7 +251,12 @@ function siteioAdmin() {
       this._pendAdd(pk)
       try {
         const res = await this.apiFetch("/sites/" + item.name + "/thumbnail", { method: "POST" })
-        if (!res.ok) { this.toast("error", "Could not refresh preview"); return }
+        if (!res.ok) {
+          let reason = "Could not refresh preview"
+          try { const b = await res.json(); if (b && b.error) reason = b.error } catch (_) {}
+          this.toast("error", reason)
+          return
+        }
         const img = await this.apiFetch("/sites/" + item.name + "/thumbnail")
         if (img.ok) {
           const old = this.thumbs[key]
