@@ -74,6 +74,14 @@ Optional:
 - `SITEIO_DATA_DIR` - Data directory (default: `/data`)
 - `SITEIO_EMAIL` - Email for Let's Encrypt
 
+AI site-chat editor (optional; enables the "Chat" tab on a site — edit a site by
+chatting with an LLM that redeploys it). Configured iff a credential is set:
+- `SITEIO_LLM_OAUTH_TOKEN` - Claude subscription token from `claude setup-token` (preferred), or `CLAUDE_CODE_OAUTH_TOKEN`
+- `SITEIO_LLM_API_KEY` - Anthropic API key (alternative to a subscription token)
+- `SITEIO_LLM_MODEL` - optional model override (e.g. `claude-sonnet-5`)
+- `SITEIO_CHAT_SANDBOX` - run the agent in a throwaway container (default `true`; set `false` only for trusted single-tenant/dev). Sandbox needs the image: `docker build -t siteio-chat-sandbox:latest docker/chat-sandbox`
+- `SITEIO_CHAT_SANDBOX_IMAGE` / `SITEIO_CHAT_SANDBOX_NETWORK` / `SITEIO_CHAT_MAX_TURNS` / `SITEIO_CHAT_TIMEOUT_MS` - sandbox/limit overrides
+
 ## Releasing
 
 Follow this when the user asks to "release a new version" or mentions "bump the version"
