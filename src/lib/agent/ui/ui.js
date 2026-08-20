@@ -14,6 +14,8 @@ function siteioAdmin() {
 
     // data
     services: null, agentInfo: null,
+    // Card previews: "<kind>:<name>" -> object URL (blob-fetched with the API key).
+    thumbs: {},
     serviceFilter: "all", // all | sites | apps
     selectedSite: null, selectedApp: null,
     siteHistory: null,
@@ -209,6 +211,8 @@ function siteioAdmin() {
         ]
         merged.sort((a, b) => a.name.localeCompare(b.name))
         this.services = merged
+        // Load previews in the background — the grid renders immediately.
+        this.loadThumbnails(merged)
       } catch (err) {
         if (err && err.message !== "Unauthenticated") {
           this.services = []
@@ -216,6 +220,49 @@ function siteioAdmin() {
         }
       } finally {
         this._pendDel("services-list")
+      }
+    },
+
+    // Blob-fetch each site's preview with the API key (a bare <img src> can't
+    // send the auth header) and expose it as an object URL. Best-effort per
+    // item; a miss just leaves the placeholder.
+    async loadThumbnails(items) {
+      for (const item of items) {
+        if (item.kind !== "site" || !item.hasThumbnail) continue
+        const key = item.kind + ":" + item.name
+        if (this.thumbs[key]) continue
+        try {
+          const res = await this.apiFetch("/sites/" + item.name + "/thumbnail")
+          if (!res.ok) continue
+          const url = URL.createObjectURL(await res.blob())
+          this.thumbs = { ...this.thumbs, [key]: url }
+        } catch (err) {
+          if (err && err.message === "Unauthenticated") return
+        }
+      }
+    },
+
+    // Regenerate a site's preview, then swap in the fresh image.
+    async refreshThumbnail(item) {
+      if (item.kind !== "site") return
+      const key = item.kind + ":" + item.name
+      const pk = "thumb:" + key
+      if (this.pending.has(pk)) return
+      this._pendAdd(pk)
+      try {
+        const res = await this.apiFetch("/sites/" + item.name + "/thumbnail", { method: "POST" })
+        if (!res.ok) { this.toast("error", "Could not refresh preview"); return }
+        const img = await this.apiFetch("/sites/" + item.name + "/thumbnail")
+        if (img.ok) {
+          const old = this.thumbs[key]
+          this.thumbs = { ...this.thumbs, [key]: URL.createObjectURL(await img.blob()) }
+          if (old) URL.revokeObjectURL(old)
+          this.toast("success", "Preview updated")
+        }
+      } catch (err) {
+        if (!err || err.message !== "Unauthenticated") this.toast("error", "Could not refresh preview")
+      } finally {
+        this._pendDel(pk)
       }
     },
 
