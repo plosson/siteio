@@ -30,6 +30,15 @@ function siteioAdmin() {
 
     init() {
       this.hostname = window.location.hostname
+      // The `siteio ui` CLI command opens this page with the API key in the
+      // query string. Persist it, then strip it from the URL so it doesn't
+      // linger in history or get copy-pasted. The hash is left untouched (the
+      // router uses it).
+      const injectedKey = new URLSearchParams(window.location.search).get("key")
+      if (injectedKey) {
+        sessionStorage.setItem("siteio_api_key", injectedKey)
+        history.replaceState(null, "", window.location.pathname + window.location.hash)
+      }
       const key = sessionStorage.getItem("siteio_api_key")
       if (key) {
         this.apiKey = key
