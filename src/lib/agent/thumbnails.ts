@@ -133,7 +133,11 @@ export class ThumbnailManager {
         "--network", NETWORK,
         // Not managed by systemd — the idle timer owns its lifecycle.
         "--restart", "no",
-        "--memory", "512m",
+        // Full Chromium spikes during rasterization on heavy pages (measured
+        // peak ~670MB on a 217KB DOM); 512m OOM-killed the raster child and
+        // surfaced as a ProtocolError. The container is on-demand + idle-stops,
+        // so this ceiling is only used transiently during a capture.
+        "--memory", "1500m",
         "-p", `127.0.0.1:${HOST_PORT}:3000`,
         "-e", `TOKEN=${this.token}`,
         "-e", "CONCURRENT=1",
