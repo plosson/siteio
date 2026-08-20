@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
-import { spawnSync } from "bun"
+import { spawn, spawnSync } from "bun"
 
 // Site card previews are produced by a headless-Chromium container
 // (browserless) rather than bundling a browser into the CLI. The container is
@@ -30,6 +30,9 @@ export class ThumbnailManager {
   private idleTimer: ReturnType<typeof setTimeout> | null = null
   // Guards against two concurrent captures both trying to boot the container.
   private ensuring: Promise<boolean> | null = null
+  // Guards the (slow, ~3GB) image pull so it runs at most once at a time and is
+  // shared between a startup pre-warm and any concurrent capture request.
+  private pulling: Promise<boolean> | null = null
 
   constructor(dataDir: string) {
     this.thumbsDir = join(dataDir, "thumbnails")
@@ -71,6 +74,14 @@ export class ThumbnailManager {
     }
   }
 
+  // Download the browserless image ahead of time (background, non-blocking) so
+  // the first capture doesn't pay a multi-minute pull inside a request — which,
+  // behind a CDN with a request timeout, would never complete in time. Safe to
+  // call on every agent start: it's a no-op once the image is cached.
+  prewarm(): void {
+    void this.ensureImage()
+  }
+
   // Tear down the browserless container (also invoked by the idle timer).
   stop(): void {
     if (this.idleTimer) {
@@ -95,17 +106,7 @@ export class ThumbnailManager {
 
   private async startBrowserless(): Promise<boolean> {
     if (!this.dockerAvailable()) return false
-
-    // Pull once; the image is cached across restarts. Fails gracefully on
-    // air-gapped hosts (thumbnails are simply unavailable there).
-    if (!this.imageExists()) {
-      console.log(`> Pulling ${IMAGE} for site previews...`)
-      const pull = spawnSync({ cmd: ["docker", "pull", IMAGE], stdout: "pipe", stderr: "pipe" })
-      if (pull.exitCode !== 0) {
-        console.log(`> Could not pull ${IMAGE}: ${pull.stderr.toString().slice(0, 200)}`)
-        return false
-      }
-    }
+    if (!(await this.ensureImage())) return false
 
     // A stopped container from a previous run holds the name — remove it first.
     if (this.containerExists()) {
@@ -135,6 +136,37 @@ export class ThumbnailManager {
       return false
     }
     return this.waitUntilReady()
+  }
+
+  // Ensure the image is present, pulling it asynchronously if not. The pull runs
+  // via Bun.spawn (NOT spawnSync) so the ~3GB download never blocks the agent's
+  // event loop, and concurrent callers share the one in-flight pull.
+  private async ensureImage(): Promise<boolean> {
+    if (this.imageExists()) return true
+    if (!this.dockerAvailable()) return false
+    if (this.pulling) return this.pulling
+    this.pulling = this.pullImage().finally(() => {
+      this.pulling = null
+    })
+    return this.pulling
+  }
+
+  private async pullImage(): Promise<boolean> {
+    console.log(`> Pulling ${IMAGE} for site previews (one-time, ~3GB)...`)
+    try {
+      const proc = spawn({ cmd: ["docker", "pull", IMAGE], stdout: "ignore", stderr: "pipe" })
+      const code = await proc.exited
+      if (code !== 0) {
+        const err = await new Response(proc.stderr).text()
+        console.log(`> Could not pull ${IMAGE}: ${err.slice(0, 200)}`)
+        return false
+      }
+      console.log(`> ${IMAGE} ready for site previews`)
+      return true
+    } catch (err) {
+      console.log(`> Could not pull ${IMAGE}: ${this.msg(err)}`)
+      return false
+    }
   }
 
   private async waitUntilReady(): Promise<boolean> {
