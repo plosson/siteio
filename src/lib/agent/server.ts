@@ -271,7 +271,7 @@ export class AgentServer {
     const siteThumbMatch = path.match(/^\/sites\/([a-z0-9-]+)\/thumbnail$/)
     if (siteThumbMatch) {
       const thumbName = siteThumbMatch[1]!
-      if (req.method === "GET") return this.handleGetSiteThumbnail(thumbName)
+      if (req.method === "GET") return this.handleGetThumbnail(thumbName)
       if (req.method === "POST") return this.handleRefreshSiteThumbnail(thumbName)
     }
 
@@ -372,6 +372,14 @@ export class AgentServer {
       return this.handleGetAppLogs(appLogsMatch[1]!, url)
     }
 
+    // /apps/:name/thumbnail - GET the card preview image, POST to regenerate it
+    const appThumbMatch = path.match(/^\/apps\/([a-z0-9-]+)\/thumbnail$/)
+    if (appThumbMatch) {
+      const thumbName = appThumbMatch[1]!
+      if (req.method === "GET") return this.handleGetThumbnail(thumbName)
+      if (req.method === "POST") return this.handleRefreshAppThumbnail(thumbName)
+    }
+
     return this.error("Not found", 404)
   }
 
@@ -385,6 +393,7 @@ export class AgentServer {
     const appInfos: AppInfo[] = apps.map((app) => scrubApp({
       ...this.appStorage.toInfo(app, this.config.domain),
       tls: tlsStatusMap.get(`siteio-${app.name}`) || "pending",
+      hasThumbnail: this.thumbnails?.has(app.name) ?? false,
     }))
     return this.json(appInfos)
   }
@@ -606,6 +615,7 @@ export class AgentServer {
     if (!deleted) {
       return this.error("Failed to delete app", 500)
     }
+    this.thumbnails?.delete(name)
     return this.json(null)
   }
 
@@ -814,6 +824,9 @@ export class AgentServer {
         ...(lastBuildAt && { lastBuildAt }),
       })
 
+      // Refresh the card preview in the background — deploy stays fast.
+      if (updated) this.captureAppThumbnail(updated)
+
       return this.json(updated)
     } catch (err) {
       // Update status to failed
@@ -959,8 +972,9 @@ export class AgentServer {
   }
 
   // Return the stored card preview (WebP). 404 when none exists — the UI falls
-  // back to its placeholder.
-  private handleGetSiteThumbnail(name: string): Response {
+  // back to its placeholder. Keyed by name (site and app names can't collide —
+  // both map to the same container name), so it serves either kind.
+  private handleGetThumbnail(name: string): Response {
     const bytes = this.thumbnails?.read(name)
     if (!bytes) return this.error("No thumbnail", 404)
     const etag = `"${createHash("sha1").update(bytes).digest("base64url")}"`
@@ -981,22 +995,47 @@ export class AgentServer {
     return this.json({ generated: true })
   }
 
+  // Regenerate an app's preview on demand.
+  private async handleRefreshAppThumbnail(name: string): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) return this.error("App not found", 404)
+    if (app.compose) return this.error("Previews aren't available for compose apps", 422)
+    if (!this.thumbnails) return this.error("Thumbnails are not available", 503)
+    if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+    const result = await this.thumbnails.capture(name, this.appInternalUrl(app))
+    if (!result.ok) return this.error(result.reason || "Failed to capture thumbnail", 502)
+    return this.json({ generated: true })
+  }
+
   // A site is reachable on siteio-network at its container name + PocketBase's
   // internal port. This is what the browserless container screenshots.
   private siteInternalUrl(name: string): string {
     return `http://${this.docker.containerName(name)}:8090`
   }
 
+  // A single-container app is reachable on siteio-network at its container name
+  // + its internal port. (Compose apps have non-deterministic container names on
+  // the shared network, so previews are skipped for them — see captureAppThumbnail.)
+  private appInternalUrl(app: App): string {
+    return `http://${this.docker.containerName(app.name)}:${app.internalPort}`
+  }
+
   // Fire-and-forget preview capture after a deploy. Never blocks or fails the
-  // deploy; a short delay lets PocketBase start serving before the shot.
-  private captureThumbnail(name: string): void {
+  // deploy; a short delay lets the container start serving before the shot.
+  private captureThumbnail(name: string, url: string): void {
     if (!this.thumbnails) return
     const thumbnails = this.thumbnails
-    const url = this.siteInternalUrl(name)
     void (async () => {
       await new Promise((r) => setTimeout(r, 2000))
       await thumbnails.capture(name, url)
     })()
+  }
+
+  // Preview an app after deploy. Only single-container apps are captured; a
+  // compose app's primary service isn't reliably addressable by name here.
+  private captureAppThumbnail(app: App): void {
+    if (app.compose) return
+    this.captureThumbnail(app.name, this.appInternalUrl(app))
   }
 
   private async handleGetSiteAdmin(name: string): Promise<Response> {
@@ -1124,7 +1163,7 @@ export class AgentServer {
       message,
     })!
     // Refresh the card preview in the background — deploy stays fast.
-    this.captureThumbnail(updated.name)
+    this.captureThumbnail(updated.name, this.siteInternalUrl(updated.name))
     return this.storage.toInfo(updated, this.config.domain)
   }
 
@@ -1464,7 +1503,7 @@ export class AgentServer {
       // The old preview is keyed by the old name and points at the old internal
       // URL — drop it and capture a fresh one under the new name.
       this.thumbnails?.delete(name)
-      if (hadContainer) this.captureThumbnail(newName)
+      if (hadContainer) this.captureThumbnail(newName, this.siteInternalUrl(newName))
 
       return this.json(this.storage.toInfo(this.storage.get(newName)!, this.config.domain))
     } catch (err) {

@@ -223,16 +223,21 @@ function siteioAdmin() {
       }
     },
 
-    // Blob-fetch each site's preview with the API key (a bare <img src> can't
-    // send the auth header) and expose it as an object URL. Best-effort per
-    // item; a miss just leaves the placeholder.
+    // The thumbnail endpoint for a card (sites and apps both expose one).
+    thumbEndpoint(item) {
+      return "/" + (item.kind === "site" ? "sites" : "apps") + "/" + item.name + "/thumbnail"
+    },
+
+    // Blob-fetch each preview with the API key (a bare <img src> can't send the
+    // auth header) and expose it as an object URL. Best-effort per item; a miss
+    // just leaves the placeholder.
     async loadThumbnails(items) {
       for (const item of items) {
-        if (item.kind !== "site" || !item.hasThumbnail) continue
+        if (!item.hasThumbnail) continue
         const key = item.kind + ":" + item.name
         if (this.thumbs[key]) continue
         try {
-          const res = await this.apiFetch("/sites/" + item.name + "/thumbnail")
+          const res = await this.apiFetch(this.thumbEndpoint(item))
           if (!res.ok) continue
           const url = URL.createObjectURL(await res.blob())
           this.thumbs = { ...this.thumbs, [key]: url }
@@ -242,22 +247,21 @@ function siteioAdmin() {
       }
     },
 
-    // Regenerate a site's preview, then swap in the fresh image.
+    // Regenerate a card's preview, then swap in the fresh image.
     async refreshThumbnail(item) {
-      if (item.kind !== "site") return
       const key = item.kind + ":" + item.name
       const pk = "thumb:" + key
       if (this.pending.has(pk)) return
       this._pendAdd(pk)
       try {
-        const res = await this.apiFetch("/sites/" + item.name + "/thumbnail", { method: "POST" })
+        const res = await this.apiFetch(this.thumbEndpoint(item), { method: "POST" })
         if (!res.ok) {
           let reason = "Could not refresh preview"
           try { const b = await res.json(); if (b && b.error) reason = b.error } catch (_) {}
           this.toast("error", reason)
           return
         }
-        const img = await this.apiFetch("/sites/" + item.name + "/thumbnail")
+        const img = await this.apiFetch(this.thumbEndpoint(item))
         if (img.ok) {
           const old = this.thumbs[key]
           this.thumbs = { ...this.thumbs, [key]: URL.createObjectURL(await img.blob()) }

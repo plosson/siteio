@@ -104,6 +104,9 @@ export interface AppInfo {
   commitHash?: string
   lastBuildAt?: string
   tls?: TlsStatus
+  // Whether a generated card preview exists (fetched via
+  // GET /apps/:name/thumbnail). Only single-container apps get one.
+  hasThumbnail?: boolean
 }
 
 // Container logs response

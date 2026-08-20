@@ -164,16 +164,14 @@
                             <span class="text-[11px] mt-1 uppercase tracking-wide">No preview</span>
                           </div>
                         </template>
-                        <!-- Regenerate the preview (sites only) without following the card link -->
-                        <template x-if="item.kind === 'site'">
-                          <button @click.stop.prevent="refreshThumbnail(item)"
-                                  :disabled="pending.has('thumb:' + item.kind + ':' + item.name)"
-                                  :title="'Refresh preview'"
-                                  class="absolute top-2 left-2 inline-flex items-center justify-center w-7 h-7 rounded bg-white/80 text-gray-500 hover:text-brand-blue hover:bg-white shadow-sm disabled:opacity-50">
-                            <i class="hgi hgi-stroke hgi-refresh"
-                               :class="pending.has('thumb:' + item.kind + ':' + item.name) ? 'animate-spin' : ''"></i>
-                          </button>
-                        </template>
+                        <!-- Regenerate the preview without following the card link -->
+                        <button @click.stop.prevent="refreshThumbnail(item)"
+                                :disabled="pending.has('thumb:' + item.kind + ':' + item.name)"
+                                :title="'Refresh preview'"
+                                class="absolute top-2 left-2 inline-flex items-center justify-center w-7 h-7 rounded bg-white/80 text-gray-500 hover:text-brand-blue hover:bg-white shadow-sm disabled:opacity-50">
+                          <i class="hgi hgi-stroke hgi-refresh"
+                             :class="pending.has('thumb:' + item.kind + ':' + item.name) ? 'animate-spin' : ''"></i>
+                        </button>
                         <!-- Open the live URL in a new tab without triggering the card's link to detail -->
                         <button @click.stop.prevent="window.open(item.url, '_blank', 'noopener')"
                                 :title="'Open ' + servicePrimaryDomain(item)"
