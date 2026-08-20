@@ -1,4 +1,5 @@
 import { mkdirSync } from "fs"
+import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
 import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, Site, ShareGrant } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
@@ -1481,22 +1482,36 @@ export class AgentServer {
 
     const port = this.config.port || 3000
 
+    // Admin UI assets are static text embedded in the binary. Because we serve
+    // the exact bytes, we can emit a proper HTTP validator: a content-hash
+    // ETag plus `Cache-Control: no-cache` (store, but revalidate before reuse).
+    // Caches/browsers revalidate with `If-None-Match`; unchanged assets get a
+    // cheap `304 Not Modified`, and a new release changes the hash so the old
+    // copy is invalidated automatically — no stale asset, no manual purge, no
+    // URL versioning. This is why the same URL can safely be cached.
+    const etagFor = (body: string) => `"${createHash("sha1").update(body).digest("base64url")}"`
+    const serveUiAsset = (req: Request, body: string, contentType: string, etag: string): Response => {
+      const headers: Record<string, string> = {
+        "Content-Type": contentType,
+        "Cache-Control": "no-cache",
+        ETag: etag,
+      }
+      if (req.headers.get("if-none-match") === etag) {
+        return new Response(null, { status: 304, headers })
+      }
+      return new Response(body, { headers })
+    }
+    const htmlEtag = etagFor(ADMIN_UI_HTML)
+    const jsEtag = etagFor(ADMIN_UI_JS)
+    const cssEtag = etagFor(ADMIN_UI_CSS)
+
     // Start HTTP server
     this.server = Bun.serve({
       port,
       routes: {
-        "/ui": () =>
-          new Response(ADMIN_UI_HTML, {
-            headers: { "Content-Type": "text/html; charset=utf-8" },
-          }),
-        "/ui/app.js": () =>
-          new Response(ADMIN_UI_JS, {
-            headers: { "Content-Type": "application/javascript; charset=utf-8" },
-          }),
-        "/ui/app.css": () =>
-          new Response(ADMIN_UI_CSS, {
-            headers: { "Content-Type": "text/css; charset=utf-8" },
-          }),
+        "/ui": (req) => serveUiAsset(req, ADMIN_UI_HTML, "text/html; charset=utf-8", htmlEtag),
+        "/ui/app.js": (req) => serveUiAsset(req, ADMIN_UI_JS, "application/javascript; charset=utf-8", jsEtag),
+        "/ui/app.css": (req) => serveUiAsset(req, ADMIN_UI_CSS, "text/css; charset=utf-8", cssEtag),
       },
       fetch: (req) => this.handleRequest(req),
     })
