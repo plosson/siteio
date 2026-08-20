@@ -10,10 +10,11 @@ function siteioAdmin() {
     loginPending: false,
 
     // route
-    route: { view: "apps", param: null, subtab: null },
+    route: { view: "services", param: null, subtab: null },
 
     // data
-    sites: null, apps: null,
+    services: null, agentInfo: null,
+    serviceFilter: "all", // all | sites | apps
     selectedSite: null, selectedApp: null,
     siteHistory: null,
 
@@ -50,9 +51,9 @@ function siteioAdmin() {
     },
 
     parseHash() {
-      const h = window.location.hash.replace(/^#/, "") || "/apps"
+      const h = window.location.hash.replace(/^#/, "") || "/services"
       const parts = h.split("/").filter(Boolean)
-      const view = parts[0] || "apps"
+      const view = parts[0] || "services"
       const param = parts[1] || null
       const subtab = parts[2] || null
       // When leaving a logs tab (or any view change), stop any poll
@@ -62,7 +63,14 @@ function siteioAdmin() {
     },
 
     onRouteEnter() {
-      if (this.route.view === "apps" && !this.route.param) this.loadApps()
+      // The list views (apps/sites) were merged into one Services grid; redirect
+      // any bare #/apps or #/sites (e.g. stale links) to it.
+      if ((this.route.view === "apps" || this.route.view === "sites") && !this.route.param) {
+        window.location.hash = "#/services"
+        return
+      }
+      if (this.route.view === "services") this.loadServices()
+      if (this.route.view === "settings") this.loadAgentInfo()
       if (this.route.view === "apps" && this.route.param) {
         // Only re-fetch the app detail when we arrive on a new app (not on sub-tab change)
         if (!this.selectedApp || (this.selectedApp !== "not-found" && this.selectedApp.name !== this.route.param)) {
@@ -73,7 +81,6 @@ function siteioAdmin() {
           else this.loadAppLogs(this.route.param)
         }
       }
-      if (this.route.view === "sites" && !this.route.param) this.loadSites()
       if (this.route.view === "sites" && this.route.param) {
         if (!this.selectedSite || (this.selectedSite !== "not-found" && this.selectedSite.name !== this.route.param)) {
           this.loadSite(this.route.param)
@@ -83,7 +90,10 @@ function siteioAdmin() {
     },
 
     navClass(view) {
-      return this.route.view === view ? "nav-link nav-link-active" : "nav-link"
+      // "Services" stays highlighted on the app/site detail views too.
+      const inServices = ["services", "apps", "sites"].includes(this.route.view)
+      const active = view === "services" ? inServices : this.route.view === view
+      return active ? "nav-link nav-link-active" : "nav-link"
     },
 
     async login() {
@@ -160,27 +170,97 @@ function siteioAdmin() {
       return res
     },
 
-    // --- Apps ---
+    // --- Services (unified sites + apps) ---
 
-    async loadApps() {
-      this._pendAdd("apps-list")
+    // Fetch a list endpoint, returning [] on any non-auth failure (e.g. /apps
+    // returns 403 when the apps surface is disabled). Auth errors re-throw so
+    // the shared 401 handler can redirect to login.
+    async _fetchList(path) {
       try {
-        const res = await this.apiFetch("/apps")
+        const res = await this.apiFetch(path)
+        if (!res.ok) return []
         const body = await res.json()
-        if (body.success) {
-          this.apps = body.data
-        } else {
-          this.apps = []
-          this.toast("error", body.error || "Failed to load apps")
+        return body.success && Array.isArray(body.data) ? body.data : []
+      } catch (err) {
+        if (err && err.message === "Unauthenticated") throw err
+        return null
+      }
+    },
+
+    async loadServices() {
+      this._pendAdd("services-list")
+      try {
+        const [sites, apps] = await Promise.all([
+          this._fetchList("/sites"),
+          this._fetchList("/apps"),
+        ])
+        if (sites === null && apps === null) {
+          this.services = []
+          this.toast("error", "Could not reach server")
+          return
         }
+        const merged = [
+          ...(sites || []).map((s) => ({ kind: "site", ...s })),
+          ...(apps || []).map((a) => ({ kind: "app", ...a })),
+        ]
+        merged.sort((a, b) => a.name.localeCompare(b.name))
+        this.services = merged
       } catch (err) {
         if (err && err.message !== "Unauthenticated") {
-          this.apps = []
+          this.services = []
           this.toast("error", "Could not reach server")
         }
       } finally {
-        this._pendDel("apps-list")
+        this._pendDel("services-list")
       }
+    },
+
+    async loadAgentInfo() {
+      this._pendAdd("agent-info")
+      try {
+        const res = await this.apiFetch("/agent")
+        const body = await res.json()
+        this.agentInfo = body.success ? body.data : null
+        if (!body.success) this.toast("error", body.error || "Failed to load settings")
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") this.toast("error", "Could not reach server")
+      } finally {
+        this._pendDel("agent-info")
+      }
+    },
+
+    filteredServices() {
+      if (!this.services) return null
+      if (this.serviceFilter === "sites") return this.services.filter((s) => s.kind === "site")
+      if (this.serviceFilter === "apps") return this.services.filter((s) => s.kind === "app")
+      return this.services
+    },
+
+    serviceCount(filter) {
+      if (!this.services) return 0
+      if (filter === "all") return this.services.length
+      const kind = filter === "sites" ? "site" : "app"
+      return this.services.filter((s) => s.kind === kind).length
+    },
+
+    // Primary domain shown on a card: a custom domain if set, else the default
+    // <name>.<agent-domain> host derived from the service url.
+    servicePrimaryDomain(item) {
+      if (item.domains && item.domains.length > 0) return item.domains[0]
+      if (item.url) return item.url.replace(/^https?:\/\//, "").replace(/\/$/, "")
+      return item.name
+    },
+
+    serviceHref(item) {
+      return "#/" + (item.kind === "site" ? "sites" : "apps") + "/" + item.name
+    },
+
+    serviceMeta(item) {
+      if (item.kind === "site") {
+        const v = item.version ? "v" + item.version : "—"
+        return v + " · " + this.formatBytes(item.size)
+      }
+      return this.appSourceLabel(item)
     },
 
     async loadApp(name) {
@@ -247,7 +327,7 @@ function siteioAdmin() {
       if (!confirm(`Remove app '${name}'? Container and image will be deleted.`)) return
       await this._runAction(name, "remove", "DELETE", `/apps/${encodeURIComponent(name)}`, `App ${name} removed`)
       // After removal, navigate back to the list
-      window.location.hash = "#/apps"
+      window.location.hash = "#/services"
     },
 
     anyAppActionPending() {
@@ -258,23 +338,6 @@ function siteioAdmin() {
     },
 
     // --- Sites ---
-
-    async loadSites() {
-      this._pendAdd("sites-list")
-      try {
-        const res = await this.apiFetch("/sites")
-        const body = await res.json()
-        this.sites = body.success ? body.data : []
-        if (!body.success) this.toast("error", body.error || "Failed to load sites")
-      } catch (err) {
-        if (err && err.message !== "Unauthenticated") {
-          this.sites = []
-          this.toast("error", "Could not reach server")
-        }
-      } finally {
-        this._pendDel("sites-list")
-      }
-    },
 
     async loadSite(name) {
       this.selectedSite = null
@@ -317,7 +380,7 @@ function siteioAdmin() {
           return
         }
         this.toast("success", `Site ${name} removed`)
-        window.location.hash = "#/sites"
+        window.location.hash = "#/services"
       } catch (err) {
         if (err && err.message !== "Unauthenticated") this.toast("error", "Could not reach server")
       } finally {
