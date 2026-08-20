@@ -195,6 +195,12 @@
                           <span x-text="serviceMeta(item)"></span>
                           <span class="uppercase" x-text="item.tls ? ('tls: ' + item.tls) : ''"></span>
                         </div>
+                        <template x-if="serviceUpdated(item)">
+                          <div class="mt-1 flex items-center gap-1 text-xs text-gray-400" :title="formatAbsoluteTime(item.deployedAt)">
+                            <i class="hgi hgi-stroke hgi-clock-01 text-[11px]"></i>
+                            <span x-text="serviceUpdated(item)"></span>
+                          </div>
+                        </template>
                       </div>
                     </a>
                   </template>

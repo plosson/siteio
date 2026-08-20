@@ -475,6 +475,37 @@ function siteioAdmin() {
       return (n / 1024 / 1024 / 1024).toFixed(1) + " GB"
     },
 
+    // Compact "time ago" for card timestamps (e.g. "3d ago", "just now").
+    formatRelativeTime(iso) {
+      if (!iso) return ""
+      const then = new Date(iso).getTime()
+      if (isNaN(then)) return ""
+      const secs = Math.max(0, Math.round((Date.now() - then) / 1000))
+      if (secs < 60) return "just now"
+      const mins = Math.round(secs / 60)
+      if (mins < 60) return mins + "m ago"
+      const hrs = Math.round(mins / 60)
+      if (hrs < 24) return hrs + "h ago"
+      const days = Math.round(hrs / 24)
+      if (days < 30) return days + "d ago"
+      const months = Math.round(days / 30)
+      if (months < 12) return months + "mo ago"
+      return Math.round(months / 12) + "y ago"
+    },
+
+    // Last deployment time of the service (not the thumbnail). Empty if never
+    // deployed (e.g. a site whose first deploy is still pending).
+    serviceUpdated(item) {
+      return item && item.deployedAt ? "Updated " + this.formatRelativeTime(item.deployedAt) : ""
+    },
+
+    // Absolute timestamp for the card tooltip.
+    formatAbsoluteTime(iso) {
+      if (!iso) return ""
+      const d = new Date(iso)
+      return isNaN(d.getTime()) ? "" : d.toLocaleString()
+    },
+
     // Apps and sites both expose /<kind>/:name/logs; the logs UI is shared and
     // targets whichever detail view is active.
     logsBasePath() {

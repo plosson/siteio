@@ -383,7 +383,12 @@ log:
     }
   }
 
-  // Verify actual certificate being served by making TLS connection
+  // Verify the certificate Traefik actually provisioned for a domain. We connect
+  // to Traefik DIRECTLY (127.0.0.1 on the https entrypoint) with the domain as
+  // SNI, not to the public hostname: when the site sits behind a CDN (e.g.
+  // Cloudflare) the public endpoint serves the CDN's own cert, which would make
+  // every site look "pending" even though Traefik holds a valid Let's Encrypt
+  // cert. Talking to Traefik on the loopback reflects the real cert either way.
   private verifyActualCert(domain: string): Promise<"valid" | "pending" | "error"> {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
@@ -392,8 +397,8 @@ log:
       }, 5000)
 
       const socket = tlsConnect(
-        443,
-        domain,
+        this.config.httpsPort,
+        "127.0.0.1",
         {
           servername: domain,
           rejectUnauthorized: false, // Allow self-signed to get cert info
