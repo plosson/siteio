@@ -45,7 +45,8 @@ export class SiteStorage {
     if (this.exists(data.name)) throw new ValidationError(`Site '${data.name}' already exists`)
     const now = new Date().toISOString()
     const site: Site = { ...data, createdAt: now, updatedAt: now }
-    writeFileSync(this.metaPath(site.name), JSON.stringify(site, null, 2))
+    // 0600: site meta holds the PocketBase superuser password.
+    writeFileSync(this.metaPath(site.name), JSON.stringify(site, null, 2), { mode: 0o600 })
     return site
   }
 
@@ -62,7 +63,7 @@ export class SiteStorage {
       ...site, ...updates,
       name: site.name, createdAt: site.createdAt, updatedAt: new Date().toISOString(),
     }
-    writeFileSync(this.metaPath(name), JSON.stringify(updated, null, 2))
+    writeFileSync(this.metaPath(name), JSON.stringify(updated, null, 2), { mode: 0o600 })
     return updated
   }
 
@@ -183,7 +184,7 @@ export class SiteStorage {
     }
 
     const renamed: Site = { ...site, name: newName, updatedAt: new Date().toISOString() }
-    writeFileSync(this.metaPath(newName), JSON.stringify(renamed, null, 2))
+    writeFileSync(this.metaPath(newName), JSON.stringify(renamed, null, 2), { mode: 0o600 })
     rmSync(this.metaPath(oldName))
     return renamed
   }

@@ -17,6 +17,13 @@ export interface PersistedAgentConfig {
   acmeDnsProvider?: string
   acmeDnsEnv?: Record<string, string>
   appsEnabled?: boolean
+  // AI site-chat editor. `llmOauthToken` is a Claude subscription token
+  // (preferred); `llmApiKey` is an Anthropic API key alternative. Either enables
+  // the feature. See docs/plans/2026-08-20-site-chat-ai-editor.md.
+  llmProvider?: string
+  llmModel?: string
+  llmOauthToken?: string
+  llmApiKey?: string
 }
 
 const CONFIG_FILENAME = "agent-config.json"
@@ -51,7 +58,10 @@ export function loadAgentConfig(dataDir: string): Partial<PersistedAgentConfig> 
 export function saveAgentConfig(dataDir: string, config: PersistedAgentConfig): void {
   const configPath = getAgentConfigPath(dataDir)
   mkdirSync(dataDir, { recursive: true })
-  writeFileSync(configPath, JSON.stringify(config, null, 2))
+  // 0600: this file holds the god API key, Cloudflare/DNS creds, and (now) the
+  // LLM credential. World-readable (the historical default) would let any local
+  // process — including a chat agent — read every secret.
+  writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 })
 }
 
 /**
@@ -123,6 +133,6 @@ export function maskSensitiveValue(value: string): string {
  * Check if a key contains sensitive data
  */
 export function isSensitiveKey(key: string): boolean {
-  const sensitiveKeys = ["apiKey", "cloudflareToken", "acmeDnsEnv"]
+  const sensitiveKeys = ["apiKey", "cloudflareToken", "acmeDnsEnv", "llmOauthToken", "llmApiKey"]
   return sensitiveKeys.includes(key)
 }

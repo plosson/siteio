@@ -1,13 +1,15 @@
 import { mkdirSync } from "fs"
 import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
-import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, Site, ShareGrant } from "../../types.ts"
+import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { ThumbnailManager } from "./thumbnails.ts"
 import { AppStorage } from "./app-storage.ts"
 import { GrantStore, type CreateGrantInput } from "./grant-store.ts"
 import { StagingStore } from "./staging-store.ts"
+import { ChatStore } from "./chat-store.ts"
+import { ChatController, ChatBusyError, ChatUnavailableError } from "./chat/controller.ts"
 import { mergeScopedDeploy } from "./deploy-merge.ts"
 import { OAuthStore } from "./oauth-store.ts"
 import { OAuthProvider } from "./oauth-provider.ts"
@@ -41,6 +43,8 @@ export class AgentServer {
   private appStorage: AppStorage
   private grants: GrantStore
   private staging: StagingStore
+  private chats: ChatStore
+  private chatController: ChatController | null = null
   private oauth: OAuthStore
   private oauthProvider: OAuthProvider
   private mcp: McpHandler
@@ -54,12 +58,17 @@ export class AgentServer {
   private thumbnails: ThumbnailManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
 
-  constructor(config: AgentConfig, runtime?: Runtime, hooks?: { fetchAsset?: (url: string) => Promise<Uint8Array> }) {
+  constructor(
+    config: AgentConfig,
+    runtime?: Runtime,
+    hooks?: { fetchAsset?: (url: string) => Promise<Uint8Array>; chatExecutor?: import("./chat/executor.ts").ChatExecutor }
+  ) {
     this.config = config
     this.storage = new SiteStorage(config.dataDir)
     this.appStorage = new AppStorage(config.dataDir)
     this.grants = new GrantStore(config.dataDir)
     this.staging = new StagingStore(config.dataDir)
+    this.chats = new ChatStore(config.dataDir)
     this.oauth = new OAuthStore(config.dataDir)
     this.docker = runtime ?? new DockerManager(config.dataDir)
     this.git = new GitManager(config.dataDir)
@@ -80,6 +89,20 @@ export class AgentServer {
       deploy: (siteName, zipData, deployedBy, message) => this.deploySiteViaGrant(siteName, zipData, deployedBy, message),
       fetchAsset: hooks?.fetchAsset ?? ((url) => this.fetchExternalAsset(url)),
     })
+
+    // AI site-chat editor — only wired when an LLM credential is configured.
+    if (config.chat) {
+      this.chatController = new ChatController({
+        chat: config.chat,
+        sites: this.storage,
+        chats: this.chats,
+        dataDir: config.dataDir,
+        domain: config.domain,
+        deploy: (siteName, zipData, deployedBy, message) =>
+          this.deploySiteViaGrant(siteName, zipData, deployedBy, message),
+        executor: hooks?.chatExecutor,
+      })
+    }
 
     if (!config.skipTraefik) {
       this.traefik = new TraefikManager({
@@ -285,6 +308,22 @@ export class AgentServer {
     const siteRollbackMatch = path.match(/^\/sites\/([a-z0-9-]+)\/rollback$/)
     if (siteRollbackMatch && req.method === "POST") {
       return this.handleRollbackSite(siteRollbackMatch[1]!, req)
+    }
+
+    // /sites/:name/chat - AI editor: GET history+status, POST a turn (SSE),
+    // DELETE clears history.
+    const siteChatMatch = path.match(/^\/sites\/([a-z0-9-]+)\/chat$/)
+    if (siteChatMatch) {
+      const chatName = siteChatMatch[1]!
+      if (req.method === "GET") return this.handleGetSiteChat(chatName)
+      if (req.method === "POST") return this.handleSiteChat(chatName, req)
+      if (req.method === "DELETE") return this.handleClearSiteChat(chatName)
+    }
+
+    // POST /sites/:name/chat/stop - abort the in-flight chat turn for a site
+    const siteChatStopMatch = path.match(/^\/sites\/([a-z0-9-]+)\/chat\/stop$/)
+    if (siteChatStopMatch && req.method === "POST") {
+      return this.handleStopSiteChat(siteChatStopMatch[1]!)
     }
 
     // PATCH /sites/:name/domains - replace custom domains
@@ -932,6 +971,7 @@ export class AgentServer {
       version: getVersion(),
       siteCount: this.storage.list().length,
       appCount: this.appStorage.list().length,
+      chat: this.chatStatus(),
     })
   }
 
@@ -953,6 +993,7 @@ export class AgentServer {
     return this.json({
       ...this.storage.toInfo(site, this.config.domain),
       hasThumbnail: this.thumbnails?.has(name) ?? false,
+      chatEnabled: !!this.chatController,
     })
   }
 
@@ -968,6 +1009,7 @@ export class AgentServer {
     }
     this.storage.delete(name)
     this.thumbnails?.delete(name)
+    this.chats.clear(name)
     return this.json({ deleted: true })
   }
 
@@ -1078,6 +1120,130 @@ export class AgentServer {
       const message = err instanceof Error ? err.message : "Failed to get logs"
       return this.error(message, 500)
     }
+  }
+
+  // Whether the AI chat editor is usable, plus which model/provider is active.
+  // `site` optionally reports if a turn is currently running for that site.
+  private chatStatus(site?: string): ChatConfigStatus & { active?: boolean } {
+    const c = this.config.chat
+    if (!c || !this.chatController) return { configured: false }
+    return {
+      configured: true,
+      provider: c.provider,
+      model: c.model,
+      sandbox: c.sandbox,
+      active: site ? this.chatController.isActive(site) : undefined,
+    }
+  }
+
+  // GET /sites/:name/chat — transcript + config/active status (one call the UI
+  // uses to render the tab and to resync after a dropped stream).
+  private handleGetSiteChat(name: string): Response {
+    if (!this.storage.exists(name)) return this.error("Site not found", 404)
+    return this.json({ messages: this.chats.list(name), status: this.chatStatus(name) })
+  }
+
+  private handleClearSiteChat(name: string): Response {
+    if (!this.storage.exists(name)) return this.error("Site not found", 404)
+    if (this.chatController?.isActive(name)) {
+      return this.error("Cannot clear history while a turn is running", 409)
+    }
+    this.chats.clear(name)
+    return this.json({ cleared: true })
+  }
+
+  private handleStopSiteChat(name: string): Response {
+    if (!this.chatController) return this.error("Chat is not configured", 400)
+    const stopped = this.chatController.stop(name)
+    return this.json({ stopped })
+  }
+
+  // POST /sites/:name/chat — run one turn, streaming agent activity as SSE.
+  // The turn runs to completion server-side even if the client disconnects; the
+  // persisted transcript (GET above) is the source of truth. Heartbeat comment
+  // frames keep the connection under Bun's idle timeout between model steps.
+  private handleSiteChat(name: string, req: Request): Response {
+    if (!this.chatController) return this.error("Chat is not configured", 400)
+    if (!this.storage.exists(name)) return this.error("Site not found", 404)
+
+    const controller = this.chatController
+
+    const stream = new ReadableStream<Uint8Array>({
+      async start(sink) {
+        const enc = new TextEncoder()
+        let clientGone = false
+        const send = (obj: unknown): void => {
+          if (clientGone) return
+          try {
+            sink.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`))
+          } catch {
+            clientGone = true
+          }
+        }
+        const heartbeat = setInterval(() => {
+          if (clientGone) return
+          try {
+            sink.enqueue(enc.encode(`: ping\n\n`))
+          } catch {
+            clientGone = true
+          }
+        }, 15000)
+
+        // Parse the body; a bad body ends the stream with an error event.
+        let message = ""
+        try {
+          const body = (await req.json()) as { message?: string }
+          message = (body.message || "").trim()
+        } catch {
+          /* handled below */
+        }
+        if (!message) {
+          send({ kind: "error", message: "Message is required" } satisfies ChatEvent)
+          clearInterval(heartbeat)
+          sink.close()
+          return
+        }
+
+        try {
+          const assistant = await controller.runTurn({
+            siteName: name,
+            userMessage: message,
+            onEvent: (e: ChatEvent) => send(e),
+          })
+          send({ kind: "done", message: assistant } satisfies ChatEvent)
+        } catch (err) {
+          if (err instanceof ChatBusyError || err instanceof ChatUnavailableError) {
+            send({ kind: "error", message: err.message } satisfies ChatEvent)
+          } else {
+            // The turn already persisted an error message via the controller for
+            // in-turn failures; this catch is for unexpected throws. Resync via
+            // history will still show whatever was persisted.
+            const m = err instanceof Error ? err.message : "Chat failed"
+            send({ kind: "error", message: m } satisfies ChatEvent)
+          }
+        } finally {
+          clearInterval(heartbeat)
+          try {
+            sink.close()
+          } catch {
+            /* already closed */
+          }
+        }
+      },
+      cancel() {
+        // Client disconnected. Intentionally do NOT abort the turn — it finishes
+        // server-side and the result is persisted for the next history fetch.
+      },
+    })
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    })
   }
 
   private async handleDeploySite(name: string, req: Request): Promise<Response> {
@@ -1495,6 +1661,9 @@ export class AgentServer {
       const renamed = this.storage.rename(name, newName)
       if (!renamed) return this.error("Failed to rename", 500)
 
+      // Move the chat transcript alongside the site's other per-site trees.
+      this.chats.rename(name, newName)
+
       if (hadContainer) {
         const containerId = await this.startSiteContainer(renamed)
         this.storage.update(newName, { containerId })
@@ -1584,6 +1753,8 @@ export class AgentServer {
     // Reclaim revoked share links (and their staging) and expired OAuth tokens.
     for (const id of this.grants.gc()) this.staging.remove(id)
     this.oauth.gc()
+    // Remove chat workspaces orphaned by a crash before finally-cleanup ran.
+    this.chatController?.sweepWorkspaces()
 
     const port = this.config.port || 3000
 
@@ -1610,9 +1781,12 @@ export class AgentServer {
     const jsEtag = etagFor(ADMIN_UI_JS)
     const cssEtag = etagFor(ADMIN_UI_CSS)
 
-    // Start HTTP server
+    // Start HTTP server. idleTimeout is raised to Bun's max (255s) so a
+    // long-running chat SSE stream isn't cut mid-turn between heartbeats; the
+    // per-turn wall-clock cap (<255s) still bounds a turn.
     this.server = Bun.serve({
       port,
+      idleTimeout: 255,
       routes: {
         "/ui": (req) => serveUiAsset(req, ADMIN_UI_HTML, "text/html; charset=utf-8", htmlEtag),
         "/ui/ui.js": (req) => serveUiAsset(req, ADMIN_UI_JS, "application/javascript; charset=utf-8", jsEtag),

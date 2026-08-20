@@ -20,6 +20,16 @@ function siteioAdmin() {
     selectedSite: null, selectedApp: null,
     siteHistory: null,
 
+    // chat (AI editor)
+    chatMessages: null, chatStatus: null, chatInput: "",
+    chatStreaming: false, chatLiveText: "", chatLiveTools: [], chatLiveStatus: "",
+    chatPollTimer: null,
+    chatExamples: [
+      "Change the main headline to something more welcoming",
+      "Make the page use a dark background with light text",
+      "Add a footer with a copyright line",
+    ],
+
     // ui
     toasts: [],
     pending: new Set(),
@@ -60,6 +70,7 @@ function siteioAdmin() {
       const subtab = parts[2] || null
       // When leaving a logs tab (or any view change), stop any poll
       if (this.route.subtab === "logs" && subtab !== "logs") this.stopLogsPoll()
+      if (this.route.subtab === "chat" && subtab !== "chat") this.stopChatPoll()
       this.route = { view, param, subtab }
       if (this.authed) this.onRouteEnter()
     },
@@ -92,6 +103,7 @@ function siteioAdmin() {
           if (this.logsAuto) this.startLogsPoll()
           else this.loadLogs(this.route.param)
         }
+        if (this.route.subtab === "chat") this.loadChat(this.route.param)
       }
     },
 
@@ -136,6 +148,7 @@ function siteioAdmin() {
 
     onUnauthenticated() {
       this.stopLogsPoll()
+      this.stopChatPoll()
       this.apiKey = null
       this.authed = false
       this.loginError = "Session expired. Please sign in again."
@@ -155,6 +168,7 @@ function siteioAdmin() {
 
     logout() {
       this.stopLogsPoll()
+      this.stopChatPoll()
       sessionStorage.removeItem("siteio_api_key")
       this.apiKey = null
       this.authed = false
@@ -469,6 +483,168 @@ function siteioAdmin() {
       } finally {
         this._pendDel("rollback-" + version)
       }
+    },
+
+    // --- Chat (AI editor) ---
+
+    // Load transcript + status. `quiet` avoids the loading flicker during
+    // in-place refreshes (after a turn, or while polling another client's turn).
+    async loadChat(name, quiet = false) {
+      if (!quiet) { this.chatMessages = null; this.chatStatus = null }
+      try {
+        const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}/chat`)
+        if (res.status === 404) { this.chatMessages = []; return }
+        const body = await res.json()
+        if (body.success) {
+          this.chatMessages = body.data.messages || []
+          this.chatStatus = body.data.status || null
+          // Resync a turn started elsewhere (or before a reload) via polling.
+          if (this.chatStatus && this.chatStatus.active && !this.chatStreaming && !this.chatPollTimer) {
+            this.startChatPoll(name)
+          }
+        }
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") this.toast("error", "Could not load chat")
+      }
+      this._chatScrollBottom()
+    },
+
+    async sendChat(name) {
+      const message = this.chatInput.trim()
+      if (!message || this.chatStreaming) return
+      this.chatInput = ""
+      // Optimistic user bubble; the authoritative transcript is reloaded on done.
+      this.chatMessages = [...(this.chatMessages || []), {
+        id: "tmp-" + Date.now(), role: "user", text: message, at: new Date().toISOString(),
+      }]
+      this.chatStreaming = true
+      this.chatLiveText = ""; this.chatLiveTools = []; this.chatLiveStatus = ""
+      this._chatScrollBottom()
+      try {
+        const key = sessionStorage.getItem("siteio_api_key")
+        const res = await fetch(`/sites/${encodeURIComponent(name)}/chat`, {
+          method: "POST",
+          headers: { "X-API-Key": key, "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        })
+        if (res.status === 401) {
+          sessionStorage.removeItem("siteio_api_key")
+          window.dispatchEvent(new CustomEvent("siteio:unauthenticated"))
+          return
+        }
+        if (!res.ok || !res.body) { this.toast("error", "Chat request failed"); return }
+        const reader = res.body.getReader()
+        const dec = new TextDecoder()
+        let buf = ""
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buf += dec.decode(value, { stream: true })
+          let idx
+          while ((idx = buf.indexOf("\n\n")) >= 0) {
+            this._handleChatFrame(buf.slice(0, idx), name)
+            buf = buf.slice(idx + 2)
+          }
+        }
+      } catch (err) {
+        // Stream dropped — the turn keeps running server-side; resync from history.
+        this.toast("error", "Connection lost — resyncing…")
+        await this.loadChat(name, true)
+      } finally {
+        this.chatStreaming = false
+        this.chatLiveText = ""; this.chatLiveTools = []; this.chatLiveStatus = ""
+      }
+    },
+
+    _handleChatFrame(frame, name) {
+      for (const line of frame.split("\n")) {
+        if (!line.startsWith("data:")) continue // ignore ": ping" heartbeats
+        const json = line.slice(5).trim()
+        if (!json) continue
+        let e
+        try { e = JSON.parse(json) } catch { continue }
+        this._applyChatEvent(e, name)
+      }
+    },
+
+    _applyChatEvent(e, name) {
+      if (e.kind === "assistant_text") this.chatLiveText += e.text
+      else if (e.kind === "tool_call") this.chatLiveTools = [...this.chatLiveTools, { name: e.name, detail: e.detail }]
+      else if (e.kind === "deploy_progress") this.chatLiveStatus = e.message
+      else if (e.kind === "done") {
+        this.chatStreaming = false
+        // Reconcile optimistic bubble with the authoritative transcript.
+        this.loadChat(name, true)
+        if (e.message && e.message.deployed) this.loadSite(name)
+      } else if (e.kind === "error") {
+        this.chatStreaming = false
+        this.toast("error", e.message)
+        this.loadChat(name, true)
+      }
+      this._chatScrollBottom()
+    },
+
+    async stopChat(name) {
+      try {
+        await this.apiFetch(`/sites/${encodeURIComponent(name)}/chat/stop`, { method: "POST" })
+        this.toast("info", "Stopping…")
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") this.toast("error", "Could not stop")
+      }
+    },
+
+    async clearChat(name) {
+      if (this.chatStreaming) return
+      if (!confirm("Clear this site's chat history?")) return
+      try {
+        const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}/chat`, { method: "DELETE" })
+        const body = await res.json()
+        if (body.success) { this.chatMessages = []; this.toast("success", "History cleared") }
+        else this.toast("error", body.error || "Could not clear history")
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") this.toast("error", "Could not clear history")
+      }
+    },
+
+    // Revert a deploying turn by rolling back to the version that preceded it.
+    async revertTurn(name, m) {
+      if (m.versionBefore === undefined || m.versionBefore === 0) return
+      if (!confirm(`Revert this change? The site rolls back to the state before v${m.versionAfter}.`)) return
+      this._pendAdd("revert-" + m.id)
+      try {
+        await this.rollbackSite(name, m.versionBefore)
+        await this.loadChat(name, true)
+      } finally {
+        this._pendDel("revert-" + m.id)
+      }
+    },
+
+    startChatPoll(name) {
+      this.stopChatPoll()
+      // Chat work must not pause when the tab is hidden (unlike logs). Stop once
+      // the server reports no active turn (result is now in the transcript).
+      this.chatPollTimer = setInterval(async () => {
+        await this.loadChat(name, true)
+        if (this.chatStreaming || !this.chatStatus || !this.chatStatus.active) this.stopChatPoll()
+      }, 3000)
+    },
+
+    stopChatPoll() {
+      if (this.chatPollTimer) { clearInterval(this.chatPollTimer); this.chatPollTimer = null }
+    },
+
+    chatBubbleClass(m) {
+      if (m.role === "user") return "bg-brand-blue text-white border-brand-blue"
+      if (m.status === "error") return "bg-red-50 border-red-200 text-red-800"
+      if (m.status === "no_changes") return "bg-white border-gray-200 text-gray-500"
+      return "bg-white border-gray-200 text-gray-800"
+    },
+
+    _chatScrollBottom() {
+      this.$nextTick(() => {
+        const el = this.$refs.chatScroll
+        if (el) el.scrollTop = el.scrollHeight
+      })
     },
 
     formatBytes(n) {
