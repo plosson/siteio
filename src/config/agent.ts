@@ -16,6 +16,7 @@ export interface PersistedAgentConfig {
   acmeChallenge?: AcmeChallengeType
   acmeDnsProvider?: string
   acmeDnsEnv?: Record<string, string>
+  appsEnabled?: boolean
 }
 
 const CONFIG_FILENAME = "agent-config.json"

@@ -294,6 +294,13 @@ export class AgentServer {
       return this.handleRevokeGrant(siteGrantMatch[1]!, siteGrantMatch[2]!)
     }
 
+    // Apps can be disabled at the agent level (e.g. hosts that should only
+    // allow sites). When off, the entire /apps/* surface is unavailable.
+    // Gate on `=== false` so an unset flag (older configs, tests) means enabled.
+    if (this.config.appsEnabled === false && (path === "/apps" || path.startsWith("/apps/"))) {
+      return this.error("Apps are disabled on this agent", 403)
+    }
+
     // GET /apps - list all apps
     if (path === "/apps" && req.method === "GET") {
       return await this.handleListApps()

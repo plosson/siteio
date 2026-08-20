@@ -10,7 +10,7 @@ import {
 } from "../../config/agent.ts"
 import { formatSuccess, formatError } from "../../utils/output.ts"
 
-const VALID_KEYS: (keyof PersistedAgentConfig)[] = ["apiKey", "domain", "cloudflareToken", "acmeChallenge", "acmeDnsProvider", "acmeDnsEnv"]
+const VALID_KEYS: (keyof PersistedAgentConfig)[] = ["apiKey", "domain", "cloudflareToken", "acmeChallenge", "acmeDnsProvider", "acmeDnsEnv", "appsEnabled"]
 
 function getDataDir(): string {
   return process.env.SITEIO_DATA_DIR || "/data"
@@ -36,7 +36,7 @@ export async function listConfigCommand(options: { json?: boolean }): Promise<vo
         if (typeof value === "object") {
           masked[key] = isSensitiveKey(key) ? `{${Object.keys(value).join(", ")}}` : value
         } else {
-          masked[key] = isSensitiveKey(key) ? maskSensitiveValue(value) : value
+          masked[key] = isSensitiveKey(key) ? maskSensitiveValue(String(value)) : value
         }
       }
     }
@@ -61,7 +61,7 @@ export async function listConfigCommand(options: { json?: boolean }): Promise<vo
           : JSON.stringify(value)
         console.log(`  ${chalk.bold(key)}: ${display}`)
       } else {
-        const displayValue = isSensitiveKey(key) ? maskSensitiveValue(value) : value
+        const displayValue = isSensitiveKey(key) ? maskSensitiveValue(String(value)) : value
         console.log(`  ${chalk.bold(key)}: ${displayValue}`)
       }
     }

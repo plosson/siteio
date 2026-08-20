@@ -171,6 +171,7 @@ export interface AgentConfig {
   acme?: AcmeConfig // ACME challenge configuration
   skipTraefik?: boolean // For testing without Traefik
   port?: number // Override internal API port
+  appsEnabled?: boolean // Whether the /apps/* surface is available (default true)
 }
 
 // Site config stored in .siteio/config.json (remembers site/app name and server)

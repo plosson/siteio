@@ -11,6 +11,18 @@ function generateApiKey(): string {
   return randomBytes(32).toString("hex")
 }
 
+// Interpret a persisted (boolean) or env/config-set (string) flag as a boolean.
+// `agent config set` stores string values, so "false"/"0"/"no"/"off" must be
+// recognised as disabled; anything unrecognised falls back to the default.
+function parseBool(value: unknown, fallback: boolean): boolean {
+  if (value === undefined || value === null || value === "") return fallback
+  if (typeof value === "boolean") return value
+  const v = String(value).trim().toLowerCase()
+  if (["false", "0", "no", "off"].includes(v)) return false
+  if (["true", "1", "yes", "on"].includes(v)) return true
+  return fallback
+}
+
 function parseSize(size: string): number {
   const match = size.match(/^(\d+)(B|KB|MB|GB)?$/i)
   if (!match) return 50 * 1024 * 1024 // Default 50MB
@@ -68,6 +80,13 @@ export async function startAgentCommand(): Promise<void> {
   const httpsPort = parseInt(process.env.SITEIO_HTTPS_PORT || "443", 10)
   const email = process.env.SITEIO_EMAIL
 
+  // Apps default to enabled; disable on hosts that should only allow sites.
+  // Env var wins over persisted config; both fall back to enabled.
+  const appsEnabled = parseBool(
+    process.env.SITEIO_APPS_ENABLED ?? persistedConfig.appsEnabled,
+    true
+  )
+
   if (!email) {
     console.error(formatError("SITEIO_EMAIL environment variable is required for Let's Encrypt certificates"))
     console.error(chalk.gray("  Set it in your systemd service file or environment"))
@@ -96,6 +115,7 @@ export async function startAgentCommand(): Promise<void> {
     httpsPort,
     email,
     acme,
+    appsEnabled,
   }
 
   // Generate connection info
@@ -108,6 +128,7 @@ export async function startAgentCommand(): Promise<void> {
   console.log(`  Data dir:   ${dataDir}`)
   console.log(`  Max upload: ${maxUploadSize / 1024 / 1024}MB`)
   console.log(`  Ports:      ${httpPort} (HTTP), ${httpsPort} (HTTPS)`)
+  console.log(`  Apps:       ${appsEnabled ? "enabled" : "disabled"}`)
   console.log("")
 
   // Connection credentials - easy to copy/paste
