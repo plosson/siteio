@@ -152,10 +152,28 @@
                     <a :href="serviceHref(item)"
                        :data-service-name="item.name"
                        class="group block bg-white border border-gray-200 rounded-lg overflow-hidden hover:border-brand-blue hover:shadow-sm transition">
-                      <!-- Preview placeholder (image goes here later) -->
-                      <div class="aspect-[16/9] bg-gradient-to-br from-gray-50 to-gray-200 flex flex-col items-center justify-center text-gray-400 relative">
-                        <i :class="item.kind === 'site' ? 'hgi-stroke hgi-globe' : 'hgi-stroke hgi-package'" class="hgi text-3xl"></i>
-                        <span class="text-[11px] mt-1 uppercase tracking-wide">No preview</span>
+                      <!-- Card preview: generated thumbnail when available, else a placeholder -->
+                      <div class="aspect-[16/9] bg-gradient-to-br from-gray-50 to-gray-200 flex flex-col items-center justify-center text-gray-400 relative overflow-hidden">
+                        <template x-if="thumbs[item.kind + ':' + item.name]">
+                          <img :src="thumbs[item.kind + ':' + item.name]" alt=""
+                               class="absolute inset-0 w-full h-full object-cover object-top" />
+                        </template>
+                        <template x-if="!thumbs[item.kind + ':' + item.name]">
+                          <div class="flex flex-col items-center justify-center">
+                            <i :class="item.kind === 'site' ? 'hgi-stroke hgi-globe' : 'hgi-stroke hgi-package'" class="hgi text-3xl"></i>
+                            <span class="text-[11px] mt-1 uppercase tracking-wide">No preview</span>
+                          </div>
+                        </template>
+                        <!-- Regenerate the preview (sites only) without following the card link -->
+                        <template x-if="item.kind === 'site'">
+                          <button @click.stop.prevent="refreshThumbnail(item)"
+                                  :disabled="pending.has('thumb:' + item.kind + ':' + item.name)"
+                                  :title="'Refresh preview'"
+                                  class="absolute top-2 left-2 inline-flex items-center justify-center w-7 h-7 rounded bg-white/80 text-gray-500 hover:text-brand-blue hover:bg-white shadow-sm disabled:opacity-50">
+                            <i class="hgi hgi-stroke hgi-refresh"
+                               :class="pending.has('thumb:' + item.kind + ':' + item.name) ? 'animate-spin' : ''"></i>
+                          </button>
+                        </template>
                         <!-- Open the live URL in a new tab without triggering the card's link to detail -->
                         <button @click.stop.prevent="window.open(item.url, '_blank', 'noopener')"
                                 :title="'Open ' + servicePrimaryDomain(item)"

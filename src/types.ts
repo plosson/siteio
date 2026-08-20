@@ -222,6 +222,9 @@ export interface SiteInfo {
   deployedAt?: string
   createdAt: string
   tls?: TlsStatus
+  // Whether a generated card preview exists (fetched separately via
+  // GET /sites/:name/thumbnail). Absent/false means show the placeholder.
+  hasThumbnail?: boolean
 }
 
 // Site version info for history

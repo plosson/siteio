@@ -371,4 +371,26 @@ describe("API: sites", () => {
     const body = (await list.json()) as ApiResponse<SiteInfo[]>
     expect(body.data).toHaveLength(0)
   })
+
+  // Thumbnails are disabled in test mode (skipTraefik), so the manager is off;
+  // these lock the route wiring and the hasThumbnail contract the UI reads.
+  test("GET /sites/:name/thumbnail is 404 when no preview exists", async () => {
+    await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog/thumbnail", { method: "GET", headers: { "X-API-Key": "test-key" } })
+    )
+    expect(res.status).toBe(404)
+  })
+
+  test("GET /sites/:name/thumbnail requires auth", async () => {
+    const res = await server.handleRequestForTest(new Request("http://x/sites/blog/thumbnail", { method: "GET" }))
+    expect(res.status).toBe(401)
+  })
+
+  test("GET /sites exposes hasThumbnail so the UI knows when to fetch a preview", async () => {
+    await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+    const res = await server.handleRequestForTest(new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const body = (await res.json()) as ApiResponse<SiteInfo[]>
+    expect(body.data?.[0]?.hasThumbnail).toBe(false)
+  })
 })

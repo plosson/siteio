@@ -4,6 +4,7 @@ import { unzipSync, zipSync } from "fflate"
 import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, Site, ShareGrant } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
+import { ThumbnailManager } from "./thumbnails.ts"
 import { AppStorage } from "./app-storage.ts"
 import { GrantStore, type CreateGrantInput } from "./grant-store.ts"
 import { StagingStore } from "./staging-store.ts"
@@ -48,6 +49,9 @@ export class AgentServer {
   private dockerfiles: DockerfileStorage
   private compose: ComposeStorage
   private traefik: TraefikManager | null = null
+  // Generates site card previews via an on-demand browserless container. Null in
+  // test mode (skipTraefik) so tests never touch real Docker.
+  private thumbnails: ThumbnailManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
 
   constructor(config: AgentConfig, runtime?: Runtime, hooks?: { fetchAsset?: (url: string) => Promise<Uint8Array> }) {
@@ -87,6 +91,7 @@ export class AgentServer {
         fileServerPort: config.port || 3000,
         acme: config.acme,
       })
+      this.thumbnails = new ThumbnailManager(config.dataDir)
     }
   }
 
@@ -260,6 +265,14 @@ export class AgentServer {
     const siteDownloadMatch = path.match(/^\/sites\/([a-z0-9-]+)\/download$/)
     if (siteDownloadMatch && req.method === "GET") {
       return this.handleDownloadSite(siteDownloadMatch[1]!)
+    }
+
+    // /sites/:name/thumbnail - GET the card preview image, POST to regenerate it
+    const siteThumbMatch = path.match(/^\/sites\/([a-z0-9-]+)\/thumbnail$/)
+    if (siteThumbMatch) {
+      const thumbName = siteThumbMatch[1]!
+      if (req.method === "GET") return this.handleGetSiteThumbnail(thumbName)
+      if (req.method === "POST") return this.handleRefreshSiteThumbnail(thumbName)
     }
 
     // GET /sites/:name/history - code version history
@@ -917,13 +930,17 @@ export class AgentServer {
     return this.json(sites.map((p) => ({
       ...this.storage.toInfo(p, this.config.domain),
       tls: tlsStatusMap.get(`siteio-${p.name}`) || "pending",
+      hasThumbnail: this.thumbnails?.has(p.name) ?? false,
     })))
   }
 
   private async handleGetSite(name: string): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
-    return this.json(this.storage.toInfo(site, this.config.domain))
+    return this.json({
+      ...this.storage.toInfo(site, this.config.domain),
+      hasThumbnail: this.thumbnails?.has(name) ?? false,
+    })
   }
 
   private async handleDeleteSite(name: string): Promise<Response> {
@@ -937,7 +954,49 @@ export class AgentServer {
       // best effort — proceed to remove metadata/code even if the container is gone
     }
     this.storage.delete(name)
+    this.thumbnails?.delete(name)
     return this.json({ deleted: true })
+  }
+
+  // Return the stored card preview (WebP). 404 when none exists — the UI falls
+  // back to its placeholder.
+  private handleGetSiteThumbnail(name: string): Response {
+    const bytes = this.thumbnails?.read(name)
+    if (!bytes) return this.error("No thumbnail", 404)
+    const etag = `"${createHash("sha1").update(bytes).digest("base64url")}"`
+    return new Response(bytes, {
+      headers: { "Content-Type": "image/webp", "Cache-Control": "no-cache", ETag: etag },
+    })
+  }
+
+  // Regenerate a site's preview on demand. Awaited (unlike the deploy-time
+  // capture) so the UI knows when the fresh image is ready.
+  private async handleRefreshSiteThumbnail(name: string): Promise<Response> {
+    const site = this.storage.get(name)
+    if (!site) return this.error("Site not found", 404)
+    if (!this.thumbnails) return this.error("Thumbnails are not available", 503)
+    if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+    const ok = await this.thumbnails.capture(name, this.siteInternalUrl(name))
+    if (!ok) return this.error("Failed to capture thumbnail", 502)
+    return this.json({ generated: true })
+  }
+
+  // A site is reachable on siteio-network at its container name + PocketBase's
+  // internal port. This is what the browserless container screenshots.
+  private siteInternalUrl(name: string): string {
+    return `http://${this.docker.containerName(name)}:8090`
+  }
+
+  // Fire-and-forget preview capture after a deploy. Never blocks or fails the
+  // deploy; a short delay lets PocketBase start serving before the shot.
+  private captureThumbnail(name: string): void {
+    if (!this.thumbnails) return
+    const thumbnails = this.thumbnails
+    const url = this.siteInternalUrl(name)
+    void (async () => {
+      await new Promise((r) => setTimeout(r, 2000))
+      await thumbnails.capture(name, url)
+    })()
   }
 
   private async handleGetSiteAdmin(name: string): Promise<Response> {
@@ -1064,6 +1123,8 @@ export class AgentServer {
       // reflects THIS deploy rather than lingering from the previous one.
       message,
     })!
+    // Refresh the card preview in the background — deploy stays fast.
+    this.captureThumbnail(updated.name)
     return this.storage.toInfo(updated, this.config.domain)
   }
 
@@ -1400,6 +1461,11 @@ export class AgentServer {
         this.storage.update(newName, { containerId })
       }
 
+      // The old preview is keyed by the old name and points at the old internal
+      // URL — drop it and capture a fresh one under the new name.
+      this.thumbnails?.delete(name)
+      if (hadContainer) this.captureThumbnail(newName)
+
       return this.json(this.storage.toInfo(this.storage.get(newName)!, this.config.domain))
     } catch (err) {
       if (err instanceof SyntaxError) return this.error("Invalid request body")
@@ -1581,6 +1647,7 @@ export class AgentServer {
 
   stop(): void {
     this.traefik?.stop()
+    this.thumbnails?.stop()
     if (this.server) {
       this.server.stop()
       this.server = null
