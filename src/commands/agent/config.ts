@@ -10,7 +10,12 @@ import {
 } from "../../config/agent.ts"
 import { formatSuccess, formatError } from "../../utils/output.ts"
 
-const VALID_KEYS: (keyof PersistedAgentConfig)[] = ["apiKey", "domain", "cloudflareToken", "acmeChallenge", "acmeDnsProvider", "acmeDnsEnv", "appsEnabled"]
+const VALID_KEYS: (keyof PersistedAgentConfig)[] = [
+  "apiKey", "domain", "cloudflareToken", "acmeChallenge", "acmeDnsProvider", "acmeDnsEnv", "appsEnabled",
+  // AI site-chat editor credentials/settings. llmOauthToken/llmApiKey are masked
+  // via isSensitiveKey and written to the 0600 agent-config.json.
+  "llmProvider", "llmModel", "llmOauthToken", "llmApiKey",
+]
 
 function getDataDir(): string {
   return process.env.SITEIO_DATA_DIR || "/data"

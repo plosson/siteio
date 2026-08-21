@@ -5,7 +5,34 @@ import { AgentServer } from "../../lib/agent/server.ts"
 import { formatError } from "../../utils/output.ts"
 import { encodeToken } from "../../utils/token.ts"
 import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
-import type { AgentConfig, AcmeConfig } from "../../types.ts"
+import type { AgentConfig, AcmeConfig, ChatConfig } from "../../types.ts"
+
+// Assemble the AI site-chat config from env (wins) then persisted config. The
+// feature is only attached when a credential is present, so an unconfigured
+// agent transparently hides the chat surface. Token/key are never logged.
+function buildChatConfig(
+  env: NodeJS.ProcessEnv,
+  persisted: { llmProvider?: string; llmModel?: string; llmOauthToken?: string; llmApiKey?: string }
+): ChatConfig | undefined {
+  const oauthToken = env.SITEIO_LLM_OAUTH_TOKEN || env.CLAUDE_CODE_OAUTH_TOKEN || persisted.llmOauthToken
+  const apiKey = env.SITEIO_LLM_API_KEY || persisted.llmApiKey
+  if (!oauthToken && !apiKey) return undefined
+  const timeoutMs = parseInt(env.SITEIO_CHAT_TIMEOUT_MS || "240000", 10)
+  return {
+    provider: env.SITEIO_LLM_PROVIDER || persisted.llmProvider || "anthropic",
+    model: env.SITEIO_LLM_MODEL || persisted.llmModel,
+    oauthToken,
+    apiKey,
+    // Sandbox on by default (safe on multi-tenant hosts); opt out only for
+    // trusted single-tenant/dev via SITEIO_CHAT_SANDBOX=false.
+    sandbox: !["false", "0", "no", "off"].includes((env.SITEIO_CHAT_SANDBOX || "").trim().toLowerCase()),
+    sandboxImage: env.SITEIO_CHAT_SANDBOX_IMAGE || "siteio-chat-sandbox:latest",
+    sandboxNetwork: env.SITEIO_CHAT_SANDBOX_NETWORK || "siteio-chat-net",
+    maxTurns: parseInt(env.SITEIO_CHAT_MAX_TURNS || "40", 10),
+    // Clamp to <255s so a turn can't outlive Bun's max SSE idle timeout.
+    timeoutMs: Math.min(Math.max(timeoutMs, 30000), 240000),
+  }
+}
 
 function generateApiKey(): string {
   return randomBytes(32).toString("hex")
@@ -106,6 +133,8 @@ export async function startAgentCommand(): Promise<void> {
     }
   }
 
+  const chat = buildChatConfig(process.env, persistedConfig)
+
   const config: AgentConfig = {
     apiKey,
     dataDir,
@@ -116,6 +145,7 @@ export async function startAgentCommand(): Promise<void> {
     email,
     acme,
     appsEnabled,
+    chat,
   }
 
   // Generate connection info
@@ -129,6 +159,9 @@ export async function startAgentCommand(): Promise<void> {
   console.log(`  Max upload: ${maxUploadSize / 1024 / 1024}MB`)
   console.log(`  Ports:      ${httpPort} (HTTP), ${httpsPort} (HTTPS)`)
   console.log(`  Apps:       ${appsEnabled ? "enabled" : "disabled"}`)
+  console.log(
+    `  Chat:       ${chat ? `enabled (${chat.provider}${chat.model ? "/" + chat.model : ""}, ${chat.sandbox ? "sandboxed" : "host"})` : "disabled (no LLM credential)"}`
+  )
   console.log("")
 
   // Connection credentials - easy to copy/paste

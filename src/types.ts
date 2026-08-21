@@ -175,6 +175,33 @@ export interface AgentConfig {
   skipTraefik?: boolean // For testing without Traefik
   port?: number // Override internal API port
   appsEnabled?: boolean // Whether the /apps/* surface is available (default true)
+  chat?: ChatConfig // AI site-chat editor settings; absent/unconfigured hides the feature
+}
+
+// AI site-chat editor configuration (see docs/plans/2026-08-20-site-chat-ai-editor.md).
+// Assembled from SITEIO_LLM_*/SITEIO_CHAT_* env + persisted config in start.ts.
+// `provider` is the LLM provider (only "anthropic" is implemented in v1). A turn
+// runs a full coding agent over a throwaway copy of the site's source and
+// redeploys. The credential is a Claude subscription OAuth token (preferred) or
+// an Anthropic API key; the feature is considered configured iff one is present.
+export interface ChatConfig {
+  provider: string // "anthropic"
+  model?: string // optional model override, e.g. "claude-sonnet-5"
+  oauthToken?: string // CLAUDE_CODE_OAUTH_TOKEN (Claude subscription) — preferred
+  apiKey?: string // ANTHROPIC_API_KEY — alternative to a subscription token
+  sandbox: boolean // run the agent inside a throwaway container (v1 default on)
+  sandboxImage: string // image containing the `claude` CLI + node
+  sandboxNetwork: string // docker network the sandbox joins (operator locks egress)
+  maxTurns: number // agent tool-use iteration cap
+  timeoutMs: number // per-turn wall-clock cap (kept < 255s for SSE idle safety)
+}
+
+// Whether the chat editor is usable, surfaced to the UI so it can hide the tab.
+export interface ChatConfigStatus {
+  configured: boolean
+  provider?: string
+  model?: string
+  sandbox?: boolean
 }
 
 // Site config stored in .siteio/config.json (remembers site/app name and server)
@@ -228,6 +255,9 @@ export interface SiteInfo {
   // Whether a generated card preview exists (fetched separately via
   // GET /sites/:name/thumbnail). Absent/false means show the placeholder.
   hasThumbnail?: boolean
+  // Whether the AI chat editor is available for this agent (drives tab visibility
+  // on the site detail page). Full status/history comes from GET /sites/:name/chat.
+  chatEnabled?: boolean
 }
 
 // Site version info for history
@@ -239,6 +269,50 @@ export interface SiteVersion {
   message?: string
   size: number
 }
+
+// --- AI site-chat editor ---
+
+export type ChatRole = "user" | "assistant"
+
+// The outcome of an assistant turn. "ok" deployed a change; "no_changes" ran the
+// agent but nothing changed (a question, or a no-op edit) so nothing deployed;
+// "error" means the agent or the deploy failed.
+export type ChatTurnStatus = "ok" | "no_changes" | "error"
+
+// A summarized tool invocation shown in the transcript (not the raw tool I/O).
+export interface ChatToolCall {
+  name: string
+  detail?: string
+}
+
+// One persisted message in a site's chat transcript.
+export interface ChatMessage {
+  id: string
+  role: ChatRole
+  text: string
+  at: string // ISO timestamp
+  // Assistant-turn metadata (absent on user messages):
+  status?: ChatTurnStatus
+  toolCalls?: ChatToolCall[]
+  changedFiles?: string[]
+  // Version bookkeeping so the UI can offer a one-click revert of this turn:
+  versionBefore?: number
+  versionAfter?: number
+  deployed?: boolean
+  error?: string
+}
+
+// Server→client streamed events during a turn (SSE). Terminal events are
+// "done" (carrying the persisted assistant message) and "error".
+export type ChatEvent =
+  | { kind: "assistant_text"; text: string }
+  | { kind: "thinking"; text: string }
+  | { kind: "tool_call"; name: string; detail?: string }
+  | { kind: "tool_result"; ok: boolean; detail?: string }
+  | { kind: "deploy_progress"; message: string }
+  | { kind: "done"; message: ChatMessage }
+  | { kind: "error"; message: string }
+  | { kind: "heartbeat" }
 
 // A share grant: authorizes an invitee to edit and redeploy ONE site's web
 // root. A share stays valid until the owner revokes it — there is no deploy
