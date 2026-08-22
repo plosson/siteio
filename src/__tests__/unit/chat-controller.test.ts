@@ -17,6 +17,8 @@ const CHAT: ChatConfig = {
 // Executor that simulates an agent: optionally writes a file into the workspace,
 // can wait on a gate (to test concurrency), and can report an error/timeout.
 class FakeExecutor implements ChatExecutor {
+  // The message actually handed to the agent (with any target preamble folded in).
+  lastMessage = ""
   constructor(
     private opts: {
       write?: string
@@ -28,6 +30,7 @@ class FakeExecutor implements ChatExecutor {
     } = {}
   ) {}
   async run(input: ExecutorRunInput): Promise<ExecutorResult> {
+    this.lastMessage = input.spec.userMessage
     input.onEvent({ kind: "assistant_text", text: "working" } satisfies ChatEvent)
     input.onEvent({ kind: "tool_call", name: "Edit", detail: "index.html" } satisfies ChatEvent)
     if (this.opts.write !== undefined) writeFileSync(join(input.workspaceDir, "index.html"), this.opts.write)
@@ -177,5 +180,87 @@ describe("Unit: ChatController", () => {
     await expect(ctl.runTurn({ siteName: SITE, userMessage: "   ", onEvent })).rejects.toBeInstanceOf(
       ChatUnavailableError
     )
+  })
+
+  test("a picker target is folded into the agent's message, not the transcript", async () => {
+    const ex = new FakeExecutor({ write: "<h1>New</h1>" })
+    const ctl = make(ex)
+    const { onEvent } = collect()
+    const msg = await ctl.runTurn({
+      siteName: SITE,
+      userMessage: "make this bigger",
+      onEvent,
+      target: { kind: "element", selector: ".hero h1", tag: "h1", text: "Welcome to Acme" },
+    })
+
+    // The agent sees a context preamble with the anchor + the request.
+    expect(ex.lastMessage).toContain("selector: .hero h1")
+    expect(ex.lastMessage).toContain("Welcome to Acme")
+    expect(ex.lastMessage).toContain("make this bigger")
+    expect(ex.lastMessage.indexOf("pointed at")).toBeLessThan(ex.lastMessage.indexOf("make this bigger"))
+
+    // The persisted user message stays the raw text (transcript is the audit trail).
+    const user = chats.list(SITE).find((m) => m.role === "user")!
+    expect(user.text).toBe("make this bigger")
+    // Deploy attribution/history use the raw request, not the preamble.
+    expect(msg.deployed).toBe(true)
+  })
+
+  test("without a target the agent message is byte-identical to the raw request", async () => {
+    const ex = new FakeExecutor({ write: "<h1>New</h1>" })
+    const ctl = make(ex)
+    const { onEvent } = collect()
+    await ctl.runTurn({ siteName: SITE, userMessage: "change the footer", onEvent })
+    expect(ex.lastMessage).toBe("change the footer")
+  })
+
+  test("outerHTML is a fallback anchor — included only when there is no selector", async () => {
+    const html = "<h1>\n  Multi\n  line\n</h1>"
+
+    const withSelector = new FakeExecutor({ write: "<h1>A</h1>" })
+    await make(withSelector).runTurn({
+      siteName: SITE,
+      userMessage: "edit this",
+      onEvent: () => {},
+      target: { kind: "element", selector: "h1", tag: "h1", text: "Multi line", outerHTML: html },
+    })
+    expect(withSelector.lastMessage).not.toContain("  html:")
+
+    await sites.extractCode(SITE, zipSync({ "public/index.html": new TextEncoder().encode("<h1>Old</h1>") }))
+    sites.update(SITE, { version: 1 })
+
+    const noSelector = new FakeExecutor({ write: "<h1>B</h1>" })
+    await make(noSelector).runTurn({
+      siteName: SITE,
+      userMessage: "edit this",
+      onEvent: () => {},
+      target: { kind: "element", tag: "h1", outerHTML: html },
+    })
+    // Present, and JSON-encoded so its newlines don't break the line layout.
+    expect(noSelector.lastMessage).toContain("html:")
+    expect(noSelector.lastMessage).toContain("\\n")
+  })
+
+  test("styles are included only for appearance requests (gated preamble)", async () => {
+    const target = {
+      kind: "element" as const,
+      selector: "h1",
+      tag: "h1",
+      text: "Title",
+      styles: { color: "rgb(0, 0, 0)", fontSize: "32px" },
+    }
+
+    const appearance = new FakeExecutor({ write: "<h1>A</h1>" })
+    await make(appearance).runTurn({ siteName: SITE, userMessage: "make this dark blue", onEvent: () => {}, target })
+    expect(appearance.lastMessage).toContain("current styles")
+    expect(appearance.lastMessage).toContain("32px")
+
+    // Reset the site so the second turn also produces a change.
+    await sites.extractCode(SITE, zipSync({ "public/index.html": new TextEncoder().encode("<h1>Old</h1>") }))
+    sites.update(SITE, { version: 1 })
+
+    const structural = new FakeExecutor({ write: "<h1>B</h1>" })
+    await make(structural).runTurn({ siteName: SITE, userMessage: "move this above the nav", onEvent: () => {}, target })
+    expect(structural.lastMessage).not.toContain("current styles")
   })
 })

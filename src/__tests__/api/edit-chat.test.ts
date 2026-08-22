@@ -19,21 +19,24 @@ const CHAT: ChatConfig = {
 }
 
 class FakeExecutor implements ChatExecutor {
+  // The message actually handed to the agent (target preamble folded in server-side).
+  lastMessage = ""
   constructor(private write: string) {}
   async run(input: ExecutorRunInput): Promise<ExecutorResult> {
+    this.lastMessage = input.spec.userMessage
     input.onEvent({ kind: "tool_call", name: "Edit", detail: "index.html" } satisfies ChatEvent)
     writeFileSync(join(input.workspaceDir, "index.html"), this.write)
     return { finalText: "Done.", isError: false, aborted: false, timedOut: false }
   }
 }
 
-function makeServer(dataDir: string): AgentServer {
+function makeServer(dataDir: string, executor: FakeExecutor = new FakeExecutor("<h1>New</h1>")): AgentServer {
   const config: AgentConfig = {
     apiKey: "test-key", dataDir, domain: "example.com",
     maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443,
     email: "ops@example.com", skipTraefik: true, chat: CHAT,
   }
-  return new AgentServer(config, new FakeRuntime(), { chatExecutor: new FakeExecutor("<h1>New</h1>") })
+  return new AgentServer(config, new FakeRuntime(), { chatExecutor: executor })
 }
 
 function parseSse(text: string): ChatEvent[] {
@@ -111,6 +114,43 @@ describe("API: edit-session chat (scoped, kind-gated)", () => {
     // Site version bumped.
     const site = (await (await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))).json()) as { data: { version: number } }
     expect(site.data.version).toBe(2)
+  })
+
+  test("a picker target on the turn reaches the agent as a context preamble", async () => {
+    const executor = new FakeExecutor("<h1>Picked</h1>")
+    const s = makeServer(dataDir, executor)
+    await deploySite(s, "shop", "<h1>Old</h1>")
+    const mint = await s.handleRequestForTest(
+      new Request(`http://x/sites/shop/edit-link`, { method: "POST", headers: GOD_JSON, body: "{}" })
+    )
+    const code = ((await mint.json()) as { data: EditLinkCreated }).data.code
+    const ex = await s.handleRequestForTest(
+      new Request("https://x/_siteio/edit/session", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+      }),
+      "shop.example.com"
+    )
+    const cookie = `siteio_edit=${(ex.headers.get("set-cookie") || "").match(/siteio_edit=([^;]+)/)![1]}`
+
+    const res = await s.handleRequestForTest(
+      new Request("https://x/_siteio/sites/shop/chat", {
+        method: "POST",
+        headers: { cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "make this dark blue",
+          target: { kind: "element", selector: ".hero h1", tag: "h1", text: "Welcome", styles: { color: "rgb(0,0,0)" } },
+        }),
+      }),
+      "shop.example.com"
+    )
+    const done = parseSse(await res.text()).find((e) => e.kind === "done") as Extract<ChatEvent, { kind: "done" }>
+    expect(done.message.deployed).toBe(true)
+
+    // The agent saw the anchor + styles (appearance request); the transcript
+    // kept the raw text only.
+    expect(executor.lastMessage).toContain("selector: .hero h1")
+    expect(executor.lastMessage).toContain("current styles")
+    expect(executor.lastMessage).toContain("make this dark blue")
   })
 
   test("a classic share grant cannot reach the chat surface", async () => {

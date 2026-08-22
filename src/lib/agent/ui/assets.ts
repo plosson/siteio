@@ -3,6 +3,7 @@ import appJs from "./ui.js" with { type: "text" }
 import appCss from "./ui.css" with { type: "text" }
 import chatCoreJs from "./chat-core.js" with { type: "text" }
 import editorHtml from "./editor.html" with { type: "text" }
+import pickerJs from "./picker.js" with { type: "text" }
 
 // Bun's `with { type: "text" }` import attribute yields the file contents as a
 // string at runtime, but TypeScript's built-in module types (and bun-types'
@@ -17,3 +18,7 @@ export const CHAT_CORE_JS = chatCoreJs as unknown as string
 // In-site live editor shell. Served (with site name/URL + chat-core injected)
 // at <site>.<domain>/_siteio/edit.
 export const EDITOR_SHELL_HTML = editorHtml as unknown as string
+// In-frame element/text picker. In Phase 1 the shell injects this into the
+// framed site's document on load; carried inside the shell as an inert
+// text/plain block (see serveEditorShell) so there's no string-escaping.
+export const PICKER_JS = pickerJs as unknown as string

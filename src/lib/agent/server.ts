@@ -1,7 +1,7 @@
 import { mkdirSync } from "fs"
 import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
-import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, EditLinkCreated } from "../../types.ts"
+import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { ThumbnailManager } from "./thumbnails.ts"
@@ -20,7 +20,7 @@ import { GitManager } from "./git.ts"
 import { DockerfileStorage } from "./dockerfile-storage.ts"
 import { ComposeStorage } from "./compose-storage.ts"
 import { buildOverride } from "./compose-override.ts"
-import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS, CHAT_CORE_JS, EDITOR_SHELL_HTML } from "./ui/assets.ts"
+import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS, CHAT_CORE_JS, EDITOR_SHELL_HTML, PICKER_JS } from "./ui/assets.ts"
 import { POCKETBASE_IMAGE, POCKETBASE_VERSION } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
 import { encodeToken } from "../../utils/token.ts"
@@ -49,6 +49,37 @@ function readCookie(req: Request, name: string): string | null {
     if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim())
   }
   return null
+}
+
+// Coerce an untrusted picker `target` from the request body into a bounded,
+// well-typed ChatTarget. The framed page is untrusted (Phase 2 threat model), so
+// we never trust its truncation — every string is re-capped here before it can
+// reach the agent prompt, and unknown fields are dropped.
+function sanitizeChatTarget(raw: unknown): ChatTarget | undefined {
+  if (!raw || typeof raw !== "object") return undefined
+  const t = raw as Record<string, unknown>
+  const kind = t.kind === "text" ? "text" : "element"
+  const str = (v: unknown, max: number): string | undefined =>
+    typeof v === "string" && v.length ? v.slice(0, max) : undefined
+  const target: ChatTarget = { kind }
+  const selector = str(t.selector, 300)
+  const tag = str(t.tag, 40)
+  const text = str(t.text, 500)
+  const outerHTML = str(t.outerHTML, 800)
+  if (selector) target.selector = selector
+  if (tag) target.tag = tag
+  if (text) target.text = text
+  if (outerHTML) target.outerHTML = outerHTML
+  if (t.styles && typeof t.styles === "object") {
+    const styles: Record<string, string> = {}
+    for (const [k, v] of Object.entries(t.styles as Record<string, unknown>)) {
+      if (typeof v === "string" && Object.keys(styles).length < 12) styles[k.slice(0, 40)] = v.slice(0, 120)
+    }
+    if (Object.keys(styles).length) target.styles = styles
+  }
+  // Nothing usable to anchor on → treat as no target.
+  if (!target.selector && !target.text && !target.outerHTML) return undefined
+  return target
 }
 
 // Strip the git token before returning an app over the API. Clients never need
@@ -1239,11 +1270,14 @@ export class AgentServer {
           }
         }, 15000)
 
-        // Parse the body; a bad body ends the stream with an error event.
+        // Parse the body; a bad body ends the stream with an error event. The
+        // in-site picker may attach a `target` (element/text the user pointed at).
         let message = ""
+        let target: ChatTarget | undefined
         try {
-          const body = (await req.json()) as { message?: string }
+          const body = (await req.json()) as { message?: string; target?: ChatTarget }
           message = (body.message || "").trim()
+          if (body.target && typeof body.target === "object") target = sanitizeChatTarget(body.target)
         } catch {
           /* handled below */
         }
@@ -1260,6 +1294,7 @@ export class AgentServer {
             userMessage: message,
             onEvent: (e: ChatEvent) => send(e),
             deployedBy,
+            target,
           })
           send({ kind: "done", message: assistant } satisfies ChatEvent)
         } catch (err) {
@@ -1695,6 +1730,7 @@ export class AgentServer {
   private serveEditorShell(site: string): Response {
     const html = EDITOR_SHELL_HTML.replace(/__SITE_NAME__/g, () => site)
       .replace("/*__CHAT_CORE__*/", () => CHAT_CORE_JS)
+      .replace("/*__PICKER_JS__*/", () => PICKER_JS)
     return new Response(html, {
       headers: {
         "Content-Type": "text/html; charset=utf-8",

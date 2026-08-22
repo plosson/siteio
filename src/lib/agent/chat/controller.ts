@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync, readdirSync } from "fs"
 import { join } from "path"
 import { randomBytes } from "node:crypto"
-import type { ChatConfig, ChatEvent, ChatMessage, ChatToolCall, SiteInfo } from "../../../types.ts"
+import type { ChatConfig, ChatEvent, ChatMessage, ChatTarget, ChatToolCall, SiteInfo } from "../../../types.ts"
 import type { SiteStorage } from "../storage.ts"
 import type { ChatStore } from "../chat-store.ts"
 import type { ChatExecutor } from "./executor.ts"
@@ -107,6 +107,11 @@ export class ChatController {
     // The in-site editor passes the edit link's label so the owner can see who
     // made a change ("<client> via edit link").
     deployedBy?: string
+    // An element/text the user pointed at in the in-site editor's picker. When
+    // present, its selector/text (and styles for appearance requests) are folded
+    // into a context preamble the agent sees — the persisted transcript still
+    // shows only the user's raw message.
+    target?: ChatTarget
   }): Promise<ChatMessage> {
     const { siteName, userMessage, onEvent } = input
     const deployedBy = input.deployedBy || "AI chat"
@@ -158,10 +163,13 @@ export class ChatController {
         onEvent(e)
       }
 
+      // The agent sees the target context folded in; the transcript keeps `text`.
+      const agentMessage = input.target ? buildTargetPreamble(input.target, text) : text
+
       const result = await this.executor.run({
         runner,
         spec: {
-          userMessage: text,
+          userMessage: agentMessage,
           systemPrompt,
           maxTurns: this.deps.chat.maxTurns,
           model: this.deps.chat.model,
@@ -297,4 +305,37 @@ export class ChatController {
 function firstLine(s: string): string {
   const line = s.split("\n")[0]!.trim()
   return line.length > 200 ? line.slice(0, 199) + "…" : line
+}
+
+// Words that flag an appearance-oriented request — the only case where the
+// captured computed-style subset is worth spending prompt tokens on (§3/§9 Q2:
+// gated to keep prompts lean and avoid leaking noise on structural edits).
+const APPEARANCE_HINTS =
+  /\b(colou?r|background|bg|font|size|bigger|smaller|larger|bold|italic|weight|style|styling|dark|light|shade|hue|spacing|margin|padding|align|theme)\b/i
+
+// Fold a picked target into a context preamble prepended to the user's request,
+// so the agent can grep the source for the anchor instead of guessing location.
+// `text` (visible text) is the primary anchor; the selector is a tiebreaker.
+export function buildTargetPreamble(target: ChatTarget, text: string): string {
+  const lines: string[] = [
+    target.kind === "text"
+      ? "The user selected this text on the page:"
+      : "The user pointed at this element on the page:",
+  ]
+  if (target.tag) lines.push(`  tag: ${target.tag}`)
+  if (target.selector) lines.push(`  selector: ${target.selector}`)
+  if (target.text) lines.push(`  text: ${JSON.stringify(target.text)}`)
+  // outerHTML is a disambiguation fallback only (plan §3): the selector+text are
+  // the anchor, so skip the (up to 800-char) blob when we have a selector. When
+  // included, JSON.stringify it so embedded newlines don't break the line layout.
+  if (target.outerHTML && !target.selector) lines.push(`  html: ${JSON.stringify(target.outerHTML)}`)
+  if (target.styles && Object.keys(target.styles).length && APPEARANCE_HINTS.test(text)) {
+    const styles = Object.entries(target.styles)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join("; ")
+    lines.push(`  current styles: ${styles}`)
+  }
+  lines.push("Find that in the source files and edit it in place.")
+  lines.push(`Their request: ${text}`)
+  return lines.join("\n")
 }
