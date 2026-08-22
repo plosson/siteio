@@ -314,10 +314,20 @@ export type ChatEvent =
   | { kind: "error"; message: string }
   | { kind: "heartbeat" }
 
-// A share grant: authorizes an invitee to edit and redeploy ONE site's web
-// root. A share stays valid until the owner revokes it — there is no deploy
-// budget or expiry. The raw token is shown to the owner exactly once (on
-// creation); only its hash is persisted.
+// The flavor of a grant. "share" (default when `kind` is absent) is the classic
+// MCP/CLI content-deploy link, valid until revoked. "edit" and "edit-session"
+// back the in-site live editor (docs/plans/2026-08-21-in-site-chat-widget.md):
+//   - "edit"         — a one-time, TTL'd *code* carried in the editor-shell URL
+//                      fragment; exchanged (on an explicit gesture) for a session.
+//   - "edit-session" — a derived, cookie-borne session grant scoped to /_siteio;
+//                      linked to its parent "edit" code so revoke cascades.
+// Only edit-kind grants may reach the scoped chat routes; classic shares can't.
+export type GrantKind = "share" | "edit" | "edit-session"
+
+// A share grant: authorizes an invitee to edit and redeploy ONE site. A classic
+// share stays valid until the owner revokes it; edit-kind grants also carry a
+// TTL and a per-grant spend cap. The raw token is shown/returned exactly once
+// (on creation); only its hash is persisted.
 export interface ShareGrant {
   id: string // short public id (e.g. "grt_ab12cd") — used in `share list/revoke`
   site: string // site this grant is scoped to
@@ -325,11 +335,23 @@ export interface ShareGrant {
   label?: string // optional; surfaced as the deploy author (X-Deployed-By)
   // When true (owner opt-in via `share --allow-backend`), a scoped deploy may
   // also change the site's backend (pb_migrations, pb_hooks). Default false:
-  // backend is preserved and the invitee is confined to the web root.
+  // backend is preserved and the invitee is confined to the web root. Edit-kind
+  // grants force this false.
   allowBackend?: boolean
   createdAt: string
   lastUsedAt?: string
   revoked: boolean
+  // --- edit-link fields (absent on classic shares) ---
+  kind?: GrantKind // absent ⇒ "share"
+  expiresAt?: string // ISO; once past, the grant no longer resolves (live TTL)
+  consumedAt?: string // ISO; when an "edit" code was first exchanged for a session
+  parentId?: string // "edit-session" → the "edit" code it derives from
+  versionAtStart?: number // site version when the edit link was minted (restore-to-start)
+  // Per-grant spend cap (edit kinds). Counters bump as turns run / deploy.
+  turns?: number
+  deploys?: number
+  maxTurns?: number
+  maxDeploys?: number
 }
 
 // Grant returned to the owner over the API — the tokenHash is stripped.
@@ -341,7 +363,11 @@ export interface ShareGrantInfo {
   createdAt: string
   lastUsedAt?: string
   revoked: boolean
-  active: boolean // computed: not revoked
+  active: boolean // computed: not revoked and not expired
+  kind?: GrantKind
+  expiresAt?: string
+  consumedAt?: string
+  versionAtStart?: number
 }
 
 // Response to grant creation. The connector URL is the same for every grant on
@@ -353,6 +379,18 @@ export interface ShareGrantCreated {
   code: string // one-time share code the invitee enters to authorize (also the CLI key)
   cliToken: string // `siteio login -t <cliToken>` for the CLI tier (points at the same primary host)
   fallbackUrl?: string // the platform subdomain connector URL, when `url` is a custom domain
+}
+
+// Response to `sites edit` — mints a one-time, TTL'd editor-shell link. The code
+// rides the URL fragment (server-invisible) and is exchanged, on an explicit
+// gesture, for a cookie session. The URL always targets the *platform*
+// subdomain (never a custom/CDN-fronted domain) so edge cache can't hide fresh
+// deploys. Shown once.
+export interface EditLinkCreated {
+  grant: ShareGrantInfo
+  url: string // https://<name>.<domain>/_siteio/edit#<code>
+  code: string // the one-time edit code (also embedded in `url`'s fragment)
+  expiresAt: string // ISO; when the code stops working
 }
 
 export interface LoginOptions {

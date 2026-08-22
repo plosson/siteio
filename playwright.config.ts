@@ -15,6 +15,15 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        // The in-site editor shell is served on a site host (<site>.<domain>),
+        // not localhost. Map the test domain to the loopback agent so the shell
+        // spec can drive the real /_siteio/edit route through the host router.
+        launchOptions: { args: ["--host-resolver-rules=MAP *.siteio.test 127.0.0.1"] },
+      },
+    },
   ],
 })

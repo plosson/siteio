@@ -103,8 +103,13 @@ export class ChatController {
     siteName: string
     userMessage: string
     onEvent: (e: ChatEvent) => void
+    // Deploy attribution shown in the site's history (defaults to "AI chat").
+    // The in-site editor passes the edit link's label so the owner can see who
+    // made a change ("<client> via edit link").
+    deployedBy?: string
   }): Promise<ChatMessage> {
     const { siteName, userMessage, onEvent } = input
+    const deployedBy = input.deployedBy || "AI chat"
     const text = userMessage.trim()
     if (!text) throw new ChatUnavailableError("Message cannot be empty.")
 
@@ -197,7 +202,7 @@ export class ChatController {
       onEvent({ kind: "deploy_progress", message: "Deploying changes…" })
       try {
         const zip = buildDeployZip(workspaceDir, this.deps.sites.getCodePath(siteName))
-        const info = await this.deps.deploy(siteName, zip, "AI chat", firstLine(text))
+        const info = await this.deps.deploy(siteName, zip, deployedBy, firstLine(text))
         onEvent({ kind: "deploy_progress", message: `Deployed v${info.version}` })
         return this.finish(siteName, {
           text: result.finalText || "Done.",

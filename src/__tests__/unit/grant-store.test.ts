@@ -97,4 +97,74 @@ describe("Unit: GrantStore", () => {
     expect(existsSync(grantFile(revoked.grant.id))).toBe(false)
     expect(readdirSync(join(dataDir, "share-grants"))).toHaveLength(1)
   })
+
+  // --- edit-link grants ---
+
+  test("createEdit mints a content-only, TTL'd code that resolves within TTL", () => {
+    const { grant, token } = store.createEdit({ site: "blog", ttlMs: 30 * 60_000, versionAtStart: 3 })
+    expect(grant.kind).toBe("edit")
+    expect(grant.allowBackend).toBeUndefined()
+    expect(grant.versionAtStart).toBe(3)
+    expect(grant.expiresAt).toBeTruthy()
+    expect(store.resolveByToken(token)?.id).toBe(grant.id)
+  })
+
+  test("an expired edit code no longer resolves and gc reaps it", () => {
+    const { grant, token } = store.createEdit({ site: "blog", ttlMs: -1 }) // already expired
+    expect(store.isActive(grant)).toBe(false)
+    expect(store.resolveByToken(token)).toBeNull()
+    expect(store.gc()).toEqual([grant.id])
+  })
+
+  test("consume stamps consumedAt once but the code stays resolvable (re-establishable)", () => {
+    const { grant, token } = store.createEdit({ site: "blog", ttlMs: 30 * 60_000 })
+    expect(grant.consumedAt).toBeUndefined()
+    const first = store.consume(grant.id)!
+    expect(first.consumedAt).toBeTruthy()
+    // Idempotent: a second consume keeps the original timestamp.
+    const second = store.consume(grant.id)!
+    expect(second.consumedAt).toBe(first.consumedAt)
+    // Still live within TTL so a lost cookie can be re-established.
+    expect(store.resolveByToken(token)?.id).toBe(grant.id)
+  })
+
+  test("edit sessions derive from a code, never outlive it, and cascade on revoke", () => {
+    const { grant: code } = store.createEdit({ site: "blog", ttlMs: 60_000 })
+    const { grant: session, token: sessionToken } = store.createEditSession(code, 30 * 60_000)
+    expect(session.kind).toBe("edit-session")
+    expect(session.parentId).toBe(code.id)
+    // Clamped to the parent's (shorter) TTL.
+    expect(Date.parse(session.expiresAt!)).toBeLessThanOrEqual(Date.parse(code.expiresAt!))
+    expect(store.resolveByToken(sessionToken)?.id).toBe(session.id)
+
+    // Revoking the code cascades to the session.
+    store.revoke(code.id)
+    expect(store.resolveByToken(sessionToken)).toBeNull()
+    expect(store.get(session.id)?.revoked).toBe(true)
+  })
+
+  test("edit-kind grants are hidden from listForSite but visible via listEditForSite", () => {
+    store.create({ site: "blog" }) // classic share
+    const { grant: code } = store.createEdit({ site: "blog", ttlMs: 60_000 })
+    expect(store.listForSite("blog")).toHaveLength(1) // only the classic share
+    expect(store.listForSite("blog").some((g) => g.id === code.id)).toBe(false)
+    expect(store.listEditForSite("blog").map((g) => g.id)).toEqual([code.id])
+  })
+
+  test("spend cap: capReached flips once turns hit maxTurns", () => {
+    const { grant } = store.createEdit({ site: "blog", ttlMs: 60_000, maxTurns: 2 })
+    expect(store.capReached(grant)).toBe(false)
+    store.bumpTurns(grant.id)
+    expect(store.capReached(store.get(grant.id)!)).toBe(false)
+    store.bumpTurns(grant.id)
+    expect(store.capReached(store.get(grant.id)!)).toBe(true)
+  })
+
+  test("toInfo surfaces edit metadata and computes active from expiry", () => {
+    const { grant } = store.createEdit({ site: "blog", ttlMs: 60_000 })
+    const info = store.toInfo(grant)
+    expect(info.kind).toBe("edit")
+    expect(info.expiresAt).toBe(grant.expiresAt)
+    expect(info.active).toBe(true)
+  })
 })

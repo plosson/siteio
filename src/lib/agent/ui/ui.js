@@ -522,29 +522,20 @@ function siteioAdmin() {
       this._chatScrollBottom()
       try {
         const key = sessionStorage.getItem("siteio_api_key")
-        const res = await fetch(`/sites/${encodeURIComponent(name)}/chat`, {
-          method: "POST",
-          headers: { "X-API-Key": key, "Content-Type": "application/json" },
-          body: JSON.stringify({ message }),
+        // Transport is shared with the in-site editor widget (chat-core.js).
+        const result = await window.SiteioChat.streamTurn({
+          url: `/sites/${encodeURIComponent(name)}/chat`,
+          headers: { "X-API-Key": key },
+          body: { message },
+          onEvent: (e) => this._applyChatEvent(e, name),
         })
-        if (res.status === 401) {
-          sessionStorage.removeItem("siteio_api_key")
-          window.dispatchEvent(new CustomEvent("siteio:unauthenticated"))
-          return
-        }
-        if (!res.ok || !res.body) { this.toast("error", "Chat request failed"); return }
-        const reader = res.body.getReader()
-        const dec = new TextDecoder()
-        let buf = ""
-        while (true) {
-          const { value, done } = await reader.read()
-          if (done) break
-          buf += dec.decode(value, { stream: true })
-          let idx
-          while ((idx = buf.indexOf("\n\n")) >= 0) {
-            this._handleChatFrame(buf.slice(0, idx), name)
-            buf = buf.slice(idx + 2)
+        if (!result.ok) {
+          if (result.status === 401) {
+            sessionStorage.removeItem("siteio_api_key")
+            window.dispatchEvent(new CustomEvent("siteio:unauthenticated"))
+            return
           }
+          this.toast("error", "Chat request failed")
         }
       } catch (err) {
         // Stream dropped — the turn keeps running server-side; resync from history.
@@ -553,17 +544,6 @@ function siteioAdmin() {
       } finally {
         this.chatStreaming = false
         this.chatLiveText = ""; this.chatLiveTools = []; this.chatLiveStatus = ""
-      }
-    },
-
-    _handleChatFrame(frame, name) {
-      for (const line of frame.split("\n")) {
-        if (!line.startsWith("data:")) continue // ignore ": ping" heartbeats
-        const json = line.slice(5).trim()
-        if (!json) continue
-        let e
-        try { e = JSON.parse(json) } catch { continue }
-        this._applyChatEvent(e, name)
       }
     },
 
@@ -603,6 +583,27 @@ function siteioAdmin() {
         else this.toast("error", body.error || "Could not clear history")
       } catch (err) {
         if (err && err.message !== "Unauthenticated") this.toast("error", "Could not clear history")
+      }
+    },
+
+    // Mint a one-time in-site editor link (god key) and open it in a new tab.
+    // The shell frames the live site and overlays the chat editor.
+    async openLiveEditor(name) {
+      this._pendAdd("editlink-" + name)
+      try {
+        const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}/edit-link`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+        })
+        const body = await res.json()
+        if (body.success && body.data && body.data.url) {
+          window.open(body.data.url, "_blank", "noopener")
+        } else {
+          this.toast("error", (body && body.error) || "Could not create an editor link")
+        }
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") this.toast("error", "Could not create an editor link")
+      } finally {
+        this._pendDel("editlink-" + name)
       }
     },
 

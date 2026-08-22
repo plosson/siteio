@@ -46,6 +46,7 @@
 
   <link rel="stylesheet" href="/ui/ui.css" />
 
+  <script defer src="/ui/chat-core.js"></script>
   <script defer src="/ui/ui.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3.15.3/dist/cdn.min.js"></script>
 </head>
@@ -489,6 +490,18 @@
 
                   <template x-if="!route.subtab || route.subtab === 'overview'">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <template x-if="selectedSite.chatEnabled">
+                        <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2 flex items-center justify-between gap-3">
+                          <div>
+                            <div class="text-xs uppercase text-gray-500 mb-1">Live editor</div>
+                            <div class="text-sm text-gray-700">Edit this site by chatting on the site itself — changes go live immediately.</div>
+                          </div>
+                          <button @click="openLiveEditor(route.param)" :disabled="pending.has('editlink-' + route.param)"
+                                  class="shrink-0 px-3 py-2 text-sm rounded bg-brand-blue text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1">
+                            <i class="hgi hgi-stroke hgi-pencil-edit-02"></i> Open live editor
+                          </button>
+                        </div>
+                      </template>
                       <div class="bg-white border border-gray-200 rounded p-4">
                         <div class="text-xs uppercase text-gray-500 mb-2">URL</div>
                         <a :href="selectedSite.url" target="_blank" rel="noreferrer" class="text-brand-blue hover:underline font-mono text-sm break-all" x-text="selectedSite.url"></a>

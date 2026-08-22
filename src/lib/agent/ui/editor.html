@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Edit __SITE_NAME__ · siteio</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #ffffff; --ink: #0f172a; --muted: #64748b;
+    --line: #e2e8f0; --blue: #2563eb; --blue-ink: #ffffff; --green: #16a34a;
+    --red: #dc2626; --shadow: 0 12px 40px rgba(15, 23, 42, .28);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); }
+  body { background: #f8fafc; overflow: hidden; }
+
+  /* Framed site fills the viewport; the widget floats above it. */
+  #frame-wrap { position: fixed; inset: 0; }
+  #site { width: 100%; height: 100%; border: 0; background: #fff; }
+  .hidden { display: none !important; }
+
+  /* Applying-change overlay over the framed site. */
+  #applying {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(248, 250, 252, .82); backdrop-filter: blur(2px); z-index: 30;
+  }
+  #applying .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 12px; font-weight: 600; }
+  .spin { width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Gate / welcome / terminal-state screen. */
+  #gate { position: absolute; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: linear-gradient(160deg, #eef2ff, #f8fafc); padding: 20px; }
+  .gate-card { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); max-width: 460px; width: 100%; padding: 30px 28px; text-align: center; }
+  .gate-card .mark { width: 46px; height: 46px; border-radius: 12px; background: var(--blue); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; margin-bottom: 14px; }
+  .gate-card h1 { font-size: 20px; margin: 0 0 8px; }
+  .gate-card p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 8px; }
+  .gate-card .site { font-weight: 700; color: var(--ink); }
+  .warn { background: #fef9c3; border: 1px solid #fde68a; color: #854d0e; border-radius: 10px; padding: 10px 12px; font-size: 13px; margin: 14px 0 18px; text-align: left; }
+  .btn { border: 0; border-radius: 10px; padding: 11px 18px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: var(--blue); color: var(--blue-ink); }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn:disabled { opacity: .55; cursor: default; }
+
+  /* Chat bubble (Intercom-style, docked bottom-right). */
+  #bubble { position: fixed; right: 20px; bottom: 20px; z-index: 40; }
+  #bubble-toggle { width: 58px; height: 58px; border-radius: 50%; border: 0; background: var(--blue); color: #fff; font-size: 24px; cursor: pointer; box-shadow: var(--shadow); }
+  #panel {
+    position: absolute; right: 0; bottom: 70px; width: min(380px, calc(100vw - 40px));
+    height: min(560px, calc(100vh - 110px)); background: var(--panel); border: 1px solid var(--line);
+    border-radius: 16px; box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden;
+  }
+  #panel header { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+  #panel header .title { font-weight: 700; font-size: 14px; }
+  #panel header .sub { color: var(--muted); font-size: 12px; }
+  #panel header button { border: 0; background: transparent; font-size: 20px; cursor: pointer; color: var(--muted); line-height: 1; }
+  #transcript { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: #f8fafc; }
+  .msg { max-width: 88%; border-radius: 12px; padding: 9px 12px; font-size: 13.5px; line-height: 1.45; border: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: var(--blue); color: #fff; border-color: var(--blue); }
+  .msg.assistant { align-self: flex-start; background: #fff; }
+  .msg.error { align-self: flex-start; background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+  .msg.note { align-self: center; background: transparent; border: 0; color: var(--muted); font-size: 12px; }
+  .live { align-self: flex-start; max-width: 88%; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; font-size: 13px; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .chip { background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 2px 9px; font-size: 11px; }
+  .live-status { margin-top: 6px; color: var(--blue); display: flex; align-items: center; gap: 6px; }
+  .card-live { align-self: flex-start; max-width: 88%; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 10px 12px; font-size: 13px; }
+  .card-live .headline { font-weight: 700; color: #166534; display: flex; align-items: center; gap: 6px; }
+  .card-live details { margin-top: 6px; color: var(--muted); font-size: 12px; }
+  .card-live summary { cursor: pointer; }
+  .card-live .actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .link-btn { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: var(--ink); }
+  .link-btn:hover { background: #fff; }
+  #composer { border-top: 1px solid var(--line); padding: 10px; display: flex; gap: 8px; align-items: flex-end; background: #fff; }
+  #composer textarea { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font: inherit; font-size: 13.5px; max-height: 120px; }
+  #composer textarea:focus { outline: 2px solid #bfdbfe; border-color: var(--blue); }
+  #send { background: var(--blue); color: #fff; border: 0; border-radius: 10px; padding: 9px 14px; font-weight: 600; cursor: pointer; }
+  #send:disabled { opacity: .5; cursor: default; }
+  #stop { background: #fff; color: var(--red); border: 1px solid #fecaca; border-radius: 10px; padding: 9px 14px; font-weight: 600; cursor: pointer; }
+
+  @media (max-width: 640px) {
+    /* On a phone an expanded panel covers the site you're editing — so it fills
+       the screen and the toggle collapses it back to reveal the change. */
+    #panel { width: 100vw; height: calc(100vh - 80px); right: -20px; bottom: 78px; border-radius: 16px 16px 0 0; }
+  }
+</style>
+</head>
+<body>
+  <div id="frame-wrap">
+    <iframe id="site" title="__SITE_NAME__" sandbox="allow-scripts allow-forms allow-popups"></iframe>
+    <div id="applying" class="hidden"><div class="card"><span class="spin"></span><span>Applying your change…</span></div></div>
+  </div>
+
+  <div id="gate">
+    <div class="gate-card"><div id="gate-content"></div></div>
+  </div>
+
+  <div id="bubble" class="hidden">
+    <div id="panel" class="hidden">
+      <header>
+        <div>
+          <div class="title">Edit this site</div>
+          <div class="sub">__SITE_NAME__</div>
+        </div>
+        <button id="collapse" title="Collapse">–</button>
+      </header>
+      <div id="transcript"></div>
+      <form id="composer">
+        <textarea id="input" rows="1" placeholder="Describe a change…"></textarea>
+        <button type="submit" id="send">Send</button>
+        <button type="button" id="stop" class="hidden">Stop</button>
+      </form>
+    </div>
+    <button id="bubble-toggle" title="Edit this site">✏️</button>
+  </div>
+
+<script>/*__CHAT_CORE__*/</script>
+<script>
+(function () {
+  "use strict";
+  var SITE = "__SITE_NAME__";
+  // The edit link always opens on the platform subdomain (the mint hard-codes
+  // it), and the site is served from the same origin at "/". Deriving it from
+  // location.origin keeps the framed URL on that cache-bypassing subdomain and
+  // matches the current scheme/port automatically.
+  var SITE_URL = location.origin + "/";
+  var BASE = "/_siteio/sites/" + encodeURIComponent(SITE);
+
+  var state = { code: null, versionAtStart: null, streaming: false, welcomed: false };
+
+  var el = {
+    gate: document.getElementById("gate"),
+    gateContent: document.getElementById("gate-content"),
+    bubble: document.getElementById("bubble"),
+    panel: document.getElementById("panel"),
+    toggle: document.getElementById("bubble-toggle"),
+    collapse: document.getElementById("collapse"),
+    iframe: document.getElementById("site"),
+    applying: document.getElementById("applying"),
+    transcript: document.getElementById("transcript"),
+    composer: document.getElementById("composer"),
+    input: document.getElementById("input"),
+    send: document.getElementById("send"),
+    stop: document.getElementById("stop"),
+  };
+
+  // --- helpers -------------------------------------------------------------
+  function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+  function api(path, opts) {
+    opts = opts || {};
+    opts.credentials = "include";
+    return fetch(path, opts);
+  }
+  function showGate(html) { el.gateContent.innerHTML = html; el.gate.classList.remove("hidden"); }
+  function hideGate() { el.gate.classList.add("hidden"); }
+
+  function terminal(title, body) {
+    showGate(
+      '<div class="mark">⚠️</div>' +
+      '<h1>' + esc(title) + '</h1>' +
+      '<p>' + esc(body) + '</p>' +
+      '<p style="margin-top:14px">Ask the site owner for a fresh editing link.</p>'
+    );
+    el.bubble.classList.add("hidden");
+  }
+
+  // --- session bootstrap ---------------------------------------------------
+  function readCodeFromHash() {
+    var h = (location.hash || "").replace(/^#/, "").trim();
+    if (h) {
+      state.code = h;
+      // Strip the one-time code from the URL so it doesn't linger in history.
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+  }
+
+  function welcomeGate() {
+    showGate(
+      '<div class="mark">✏️</div>' +
+      '<h1>Edit <span class="site">' + esc(SITE) + '</span></h1>' +
+      '<p>Chat with an AI editor right on the site. Describe a change and watch it land in place.</p>' +
+      '<div class="warn">Changes go <strong>live to real visitors immediately</strong>. Every change can be undone from the chat.</div>' +
+      '<button class="btn btn-primary" id="start">Start editing</button>'
+    );
+    document.getElementById("start").addEventListener("click", startEditing);
+  }
+
+  async function startEditing() {
+    var btn = document.getElementById("start");
+    if (btn) { btn.disabled = true; btn.textContent = "Connecting…"; }
+    try {
+      var res = await api("/_siteio/edit/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: state.code }),
+      });
+      var body = await res.json().catch(function () { return {}; });
+      if (!res.ok) {
+        if (body && body.reason === "not_configured") return terminal("Editing isn't available", "The live editor isn't set up for this site.");
+        return terminal("This link can't be opened", (body && body.error) || "The editing link has expired or is no longer valid.");
+      }
+      state.versionAtStart = body.data ? body.data.versionAtStart : null;
+      enterEditor();
+    } catch (e) {
+      terminal("Couldn't connect", "Something went wrong starting your editing session.");
+    }
+  }
+
+  // Resume a session from an existing cookie (reopened/refreshed tab within TTL).
+  async function tryResume() {
+    try {
+      var res = await api(BASE + "/chat");
+      if (res.status === 401) return false;
+      if (!res.ok) return false;
+      var body = await res.json();
+      renderTranscript(body.data ? body.data.messages : []);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function enterEditor() {
+    hideGate();
+    el.bubble.classList.remove("hidden");
+    reloadFrame();
+    refreshTranscript();
+    // First-open: expand the panel once so the owner sees the chat.
+    if (!state.welcomed) { openPanel(); state.welcomed = true; }
+  }
+
+  // --- iframe -------------------------------------------------------------
+  function reloadFrame() {
+    // Cache-buster forces a fresh fetch through the no-cache platform subdomain.
+    el.iframe.src = SITE_URL + (SITE_URL.indexOf("?") >= 0 ? "&" : "?") + "_siteio_r=" + Date.now();
+  }
+
+  function poll(url, tries) {
+    return api(url, { method: "GET", cache: "no-store" }).then(function (r) {
+      if (r.ok) return true;
+      if (tries <= 0) return false;
+      return new Promise(function (res) { setTimeout(res, 500); }).then(function () { return poll(url, tries - 1); });
+    }).catch(function () {
+      if (tries <= 0) return false;
+      return new Promise(function (res) { setTimeout(res, 500); }).then(function () { return poll(url, tries - 1); });
+    });
+  }
+
+  async function applyChangeAndReload() {
+    el.applying.classList.remove("hidden");
+    // Container recreate leaves a brief Traefik 502 window; wait for a real 200.
+    await poll(SITE_URL, 24);
+    await new Promise(function (res) {
+      el.iframe.addEventListener("load", function onl() { el.iframe.removeEventListener("load", onl); res(); });
+      reloadFrame();
+      setTimeout(res, 8000); // safety timeout
+    });
+    el.applying.classList.add("hidden");
+  }
+
+  // --- panel --------------------------------------------------------------
+  function openPanel() { el.panel.classList.remove("hidden"); el.toggle.textContent = "✕"; el.input.focus(); }
+  function closePanel() { el.panel.classList.add("hidden"); el.toggle.textContent = "✏️"; }
+  el.toggle.addEventListener("click", function () { el.panel.classList.contains("hidden") ? openPanel() : closePanel(); });
+  el.collapse.addEventListener("click", closePanel);
+
+  // --- transcript ---------------------------------------------------------
+  function scrollBottom() { el.transcript.scrollTop = el.transcript.scrollHeight; }
+
+  function renderTranscript(messages) {
+    el.transcript.innerHTML = "";
+    (messages || []).forEach(renderMessage);
+    if (!messages || !messages.length) {
+      var hint = document.createElement("div");
+      hint.className = "msg note";
+      hint.textContent = "Describe a change — e.g. “make the headline bigger” or “change the background to navy”.";
+      el.transcript.appendChild(hint);
+    }
+    scrollBottom();
+  }
+
+  function renderMessage(m) {
+    if (m.role === "user") {
+      add("msg user", esc(m.text));
+      return;
+    }
+    if (m.status === "error") { add("msg error", esc(m.text)); return; }
+    if (m.deployed) {
+      var files = (m.changedFiles || []);
+      var filesHtml = files.length
+        ? '<details><summary>' + files.length + ' file' + (files.length === 1 ? "" : "s") + ' changed</summary><div>' + files.map(esc).join("<br>") + '</div></details>'
+        : "";
+      var canUndo = m.versionBefore != null;
+      var canRestore = state.versionAtStart != null && m.versionBefore != null && m.versionBefore > state.versionAtStart;
+      var actions = "";
+      if (canUndo) actions += '<button class="link-btn" data-undo="' + esc(m.versionBefore) + '">Undo this change</button>';
+      if (canRestore) actions += '<button class="link-btn" data-restore="1">Restore to how it was when I started</button>';
+      var node = document.createElement("div");
+      node.className = "card-live";
+      node.innerHTML =
+        '<div class="headline">✓ Your change is live</div>' +
+        (m.text ? '<div style="margin-top:4px">' + esc(m.text) + '</div>' : "") +
+        filesHtml +
+        (actions ? '<div class="actions">' + actions + '</div>' : "");
+      el.transcript.appendChild(node);
+      return;
+    }
+    // no_changes or a plain answer
+    add("msg assistant", esc(m.text));
+  }
+
+  function add(cls, html) {
+    var node = document.createElement("div");
+    node.className = cls;
+    node.innerHTML = html;
+    el.transcript.appendChild(node);
+    return node;
+  }
+
+  async function refreshTranscript() {
+    try {
+      var res = await api(BASE + "/chat");
+      if (res.status === 401) return sessionEnded();
+      var body = await res.json();
+      renderTranscript(body.data ? body.data.messages : []);
+    } catch (e) { /* keep whatever is shown */ }
+  }
+
+  function sessionEnded() {
+    terminal("Your editing session ended", "For your security, editing links expire after a while.");
+  }
+
+  // --- undo / restore -----------------------------------------------------
+  el.transcript.addEventListener("click", async function (ev) {
+    var undo = ev.target.getAttribute && ev.target.getAttribute("data-undo");
+    var restore = ev.target.getAttribute && ev.target.getAttribute("data-restore");
+    if (!undo && !restore) return;
+    var version = undo ? parseInt(undo, 10) : state.versionAtStart;
+    if (version == null) return;
+    ev.target.disabled = true;
+    try {
+      var res = await api(BASE + "/rollback", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: version }),
+      });
+      if (res.status === 401) return sessionEnded();
+      if (!res.ok) { ev.target.disabled = false; return; }
+      await refreshTranscript();
+      applyChangeAndReload();
+    } catch (e) { ev.target.disabled = false; }
+  });
+
+  // --- send a turn --------------------------------------------------------
+  el.input.addEventListener("input", function () {
+    el.input.style.height = "auto";
+    el.input.style.height = Math.min(el.input.scrollHeight, 120) + "px";
+  });
+  el.input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); el.composer.requestSubmit(); }
+  });
+  el.composer.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var text = el.input.value.trim();
+    if (!text || state.streaming) return;
+    el.input.value = ""; el.input.style.height = "auto";
+
+    add("msg user", esc(text));
+    var live = document.createElement("div");
+    live.className = "live";
+    live.innerHTML = '<div class="live-text">…</div><div class="chips"></div><div class="live-status hidden"><span class="spin"></span><span></span></div>';
+    el.transcript.appendChild(live);
+    scrollBottom();
+
+    setStreaming(true);
+    var liveText = live.querySelector(".live-text");
+    var chips = live.querySelector(".chips");
+    var statusEl = live.querySelector(".live-status");
+    var accText = "";
+    var deployed = false;
+
+    try {
+      var result = await window.SiteioChat.streamTurn({
+        url: BASE + "/chat",
+        credentials: "include",
+        body: { message: text },
+        onEvent: function (ev2) {
+          if (ev2.kind === "assistant_text") { accText += ev2.text; liveText.textContent = accText || "…"; }
+          else if (ev2.kind === "tool_call") { var c = document.createElement("span"); c.className = "chip"; c.textContent = ev2.name + (ev2.detail ? " " + ev2.detail : ""); chips.appendChild(c); }
+          else if (ev2.kind === "deploy_progress") { statusEl.classList.remove("hidden"); statusEl.querySelector("span:last-child").textContent = ev2.message; }
+          else if (ev2.kind === "done") { deployed = ev2.message && ev2.message.deployed; }
+          else if (ev2.kind === "error") { /* surfaced via refresh */ }
+          scrollBottom();
+        },
+      });
+      if (!result.ok) {
+        if (result.status === 401) return sessionEnded();
+        if (result.status === 429) { add("msg error", "This editing session has reached its change limit — ask for a new link."); return; }
+        add("msg error", "The request failed. Please try again.");
+        return;
+      }
+    } catch (e) {
+      add("msg note", "Connection lost — reconnecting…");
+    } finally {
+      setStreaming(false);
+      live.remove();
+      // Show the result card immediately; swap the framed page in the
+      // background so the "your change is live" moment isn't gated on the poll.
+      await refreshTranscript();
+      if (deployed) applyChangeAndReload();
+    }
+  });
+
+  function setStreaming(on) {
+    state.streaming = on;
+    el.send.classList.toggle("hidden", on);
+    el.stop.classList.toggle("hidden", !on);
+    el.input.disabled = on;
+  }
+
+  el.stop.addEventListener("click", function () {
+    api(BASE + "/chat/stop", { method: "POST" }).catch(function () {});
+  });
+
+  // --- boot ---------------------------------------------------------------
+  (async function boot() {
+    readCodeFromHash();
+    if (state.code) {
+      welcomeGate();
+    } else if (await tryResume()) {
+      state.welcomed = true; // don't force-open on a resume
+      enterEditor();
+    } else {
+      terminal("Open the editor from your link", "This page needs a one-time editing link to start.");
+    }
+  })();
+})();
+</script>
+</body>
+</html>

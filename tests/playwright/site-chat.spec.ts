@@ -76,6 +76,20 @@ test("sending a message streams, deploys a new version, and offers revert", asyn
   await expect(page.getByText(/1 file: index\.html/)).toBeVisible()
 })
 
+test("the site overview offers an 'Open live editor' entry point when chat is enabled", async ({ page, context }) => {
+  await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "right-key"))
+  await page.goto(`${url}/ui#/sites/demo/overview`)
+  const open = page.getByRole("button", { name: /Open live editor/ })
+  await expect(open).toBeVisible()
+
+  // Clicking mints a one-time edit link (and opens it in a new tab).
+  const respPromise = page.waitForResponse((r) => r.url().includes("/sites/demo/edit-link"))
+  await open.click()
+  const resp = await respPromise
+  const body = await resp.json()
+  expect(body.data.url).toContain("/_siteio/edit#")
+})
+
 test("chat tab is hidden when a site reports chat disabled", async ({ page, context }) => {
   // Point the UI at a site payload with chatEnabled=false by using a second
   // agent without chat configured.

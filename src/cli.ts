@@ -222,6 +222,17 @@ function registerSiteCommands(sites: Command): void {
       await sitesShareRevokeCommand(id, { ...options, json: program.opts().json })
     })
 
+  sites
+    .command("edit [name]")
+    .description("Open the in-site live editor: chat on the site itself and watch edits land in place")
+    .option("--label <label>", "Who the link is for; shown in the site's deploy history (e.g. \"Acme design\")")
+    .option("--revoke", "Revoke all outstanding edit links for the site instead of minting one")
+    .option("--open", "Open the editor link in your browser")
+    .action(async (name, options) => {
+      const { sitesEditCommand } = await import("./commands/sites/edit.ts")
+      await sitesEditCommand(name, { ...options, json: program.opts().json })
+    })
+
   const siteDomain = sites
     .command("domain")
     .description("Manage custom domains for a site")
