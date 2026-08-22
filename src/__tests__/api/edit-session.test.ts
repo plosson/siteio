@@ -80,9 +80,13 @@ describe("API: edit session (carve-outs + cookie exchange)", () => {
     // Site name injected + shared transport inlined.
     expect(html).toContain('var SITE = "blog"')
     expect(html).toContain("window.SiteioChat")
-    // Credential isolation: opaque-origin sandbox, never allow-same-origin.
-    expect(html).toContain('sandbox="allow-scripts allow-forms allow-popups"')
-    expect(html).not.toContain("allow-same-origin")
+    // Phase 1 (owner-only): the framed site keeps allow-same-origin so dynamic
+    // sites (localStorage, same-origin /api) actually function; the true
+    // cross-origin isolation is Phase 2 (separate editor origin). Still no
+    // allow-top-navigation, so the frame can't hijack the shell.
+    expect(html).toMatch(/sandbox="[^"]*allow-scripts[^"]*"/)
+    expect(html).toContain("allow-same-origin")
+    expect(html).not.toContain("allow-top-navigation")
   })
 
   test("exchange consumes a code, sets an HttpOnly /_siteio cookie, and returns the framed site URL", async () => {

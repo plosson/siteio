@@ -192,6 +192,19 @@ Even owner-only, build the shell for the eventual non-technical client:
 - **Credential isolation (B1 fix)**: sandboxed opaque-origin iframe + `HttpOnly` cookie → edited
   content can't read or ambiently use the session credential. Verify with a test that deploys a
   `<script>` trying to read the parent credential and asserts it gets nothing.
+  - **⚠️ Revised in implementation (2026-08-22, v1.34.1):** the opaque-origin iframe (no
+    `allow-same-origin`) makes *dynamic* sites non-functional — a PocketBase/SPA site frames into an
+    opaque origin where `localStorage` throws and its same-origin `/api` calls fail, so the owner
+    can't interact with the very site they're editing. Because the shell and the site share one
+    origin (`<site>.<domain>`), you cannot both keep the site functional (same-origin) *and* deny it
+    the `/_siteio` cookie within that single origin. **Phase 1 (owner-only) restores
+    `allow-same-origin`** — the framed content is the owner's own site and the owner already holds
+    god access, so this introduces no new exposure *at this tier*. The iframe stays sandboxed
+    (notably no `allow-top-navigation`, so the frame can't hijack the shell). **The true B1 fix for
+    the Phase 2 client hand-off is to serve the editor shell + `/_siteio` session on a *separate
+    origin* from the site** (e.g. `edit.<domain>`), so the site runs same-origin-functional while the
+    session cookie is cross-origin and unreachable to it. This origin split is now a hard Phase 2
+    prerequisite alongside the egress proxy + token-out-of-container.
 - **Existing share links untouched (B2 fix)**: chat gated to edit-kind grants.
 - **Residual, gates Phase 2 (B3/B4)**: the sandbox still holds the operator's global token with
   unlocked egress and (until §9 P0) unbounded per-session cost. **This is why Phase 1 is

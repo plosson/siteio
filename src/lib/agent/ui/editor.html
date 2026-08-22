@@ -87,7 +87,7 @@
 </head>
 <body>
   <div id="frame-wrap">
-    <iframe id="site" title="__SITE_NAME__" sandbox="allow-scripts allow-forms allow-popups"></iframe>
+    <iframe id="site" title="__SITE_NAME__" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"></iframe>
     <div id="applying" class="hidden"><div class="card"><span class="spin"></span><span>Applying your change…</span></div></div>
   </div>
 
@@ -221,16 +221,21 @@
   function enterEditor() {
     hideGate();
     el.bubble.classList.remove("hidden");
-    reloadFrame();
+    loadFrame();
     refreshTranscript();
     // First-open: expand the panel once so the owner sees the chat.
     if (!state.welcomed) { openPanel(); state.welcomed = true; }
   }
 
   // --- iframe -------------------------------------------------------------
-  function reloadFrame() {
-    // Cache-buster forces a fresh fetch through the no-cache platform subdomain.
-    el.iframe.src = SITE_URL + (SITE_URL.indexOf("?") >= 0 ? "&" : "?") + "_siteio_r=" + Date.now();
+  // Initial load: clean URL so the framed SPA's own routing/query handling
+  // isn't disturbed. (The platform subdomain already sends no-cache headers.)
+  function loadFrame() { el.iframe.src = SITE_URL; }
+
+  // Read the framed page's scroll position — same-origin, so this works; guarded
+  // in case a cross-origin redirect ever lands inside the frame.
+  function frameScrollY() {
+    try { return el.iframe.contentWindow ? el.iframe.contentWindow.scrollY : 0; } catch (e) { return 0; }
   }
 
   function poll(url, tries) {
@@ -248,9 +253,21 @@
     el.applying.classList.remove("hidden");
     // Container recreate leaves a brief Traefik 502 window; wait for a real 200.
     await poll(SITE_URL, 24);
+    var savedY = frameScrollY(); // preserve "changed right where I was looking"
     await new Promise(function (res) {
-      el.iframe.addEventListener("load", function onl() { el.iframe.removeEventListener("load", onl); res(); });
-      reloadFrame();
+      el.iframe.addEventListener("load", function onl() {
+        el.iframe.removeEventListener("load", onl);
+        try { el.iframe.contentWindow.scrollTo(0, savedY); } catch (e) { /* ignore */ }
+        res();
+      });
+      // Same-origin → reload in place (no URL churn); fall back to a cache-
+      // busted src if the frame document isn't reachable for some reason.
+      try {
+        if (el.iframe.contentWindow) el.iframe.contentWindow.location.reload();
+        else el.iframe.src = SITE_URL + "?_siteio_r=" + Date.now();
+      } catch (e) {
+        el.iframe.src = SITE_URL + "?_siteio_r=" + Date.now();
+      }
       setTimeout(res, 8000); // safety timeout
     });
     el.applying.classList.add("hidden");

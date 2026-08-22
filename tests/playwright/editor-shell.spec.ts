@@ -60,7 +60,7 @@ async function mintCode(): Promise<string> {
   return body.data.code
 }
 
-test("welcome gate strips the code, framed iframe is opaque-origin sandboxed", async ({ page }) => {
+test("welcome gate strips the code; framed iframe is sandboxed but functional", async ({ page }) => {
   const code = await mintCode()
   await page.goto(`${SHELL}#${code}`)
 
@@ -73,11 +73,13 @@ test("welcome gate strips the code, framed iframe is opaque-origin sandboxed", a
   expect(page.url()).not.toContain(code)
   expect(page.url()).not.toContain("#")
 
-  // Credential isolation: the framed site runs in an opaque origin — no
-  // allow-same-origin — so its JS can't reach the shell's cookie.
+  // Phase 1: the framed site keeps allow-same-origin so dynamic sites work
+  // (localStorage, same-origin /api). It is still sandboxed — no top-navigation,
+  // so it can't hijack the shell. (Cross-origin isolation is Phase 2.)
   const sandbox = await page.locator("#site").getAttribute("sandbox")
-  expect(sandbox).toBe("allow-scripts allow-forms allow-popups")
-  expect(sandbox).not.toContain("allow-same-origin")
+  expect(sandbox).toContain("allow-scripts")
+  expect(sandbox).toContain("allow-same-origin")
+  expect(sandbox).not.toContain("allow-top-navigation")
 })
 
 test("start → send → streamed steps → change-is-live card with undo", async ({ page }) => {
