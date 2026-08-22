@@ -75,7 +75,10 @@ Optional:
 - `SITEIO_EMAIL` - Email for Let's Encrypt
 
 AI site-chat editor (optional; enables the "Chat" tab on a site — edit a site by
-chatting with an LLM that redeploys it). Configured iff a credential is set:
+chatting with an LLM that redeploys it — plus the **in-site live editor**: run
+`siteio sites edit <site>` to mint a one-time link that opens an Intercom-style
+chat bubble *on the deployed site itself* (`<site>.<domain>/_siteio/edit`), where
+edits land in place. Phase 1 is owner-only. Configured iff a credential is set:
 - `SITEIO_LLM_OAUTH_TOKEN` - Claude subscription token from `claude setup-token` (preferred), or `CLAUDE_CODE_OAUTH_TOKEN`
 - `SITEIO_LLM_API_KEY` - Anthropic API key (alternative to a subscription token)
 - `SITEIO_LLM_MODEL` - optional model override (e.g. `claude-sonnet-5`)

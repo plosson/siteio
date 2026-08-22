@@ -245,6 +245,13 @@ siteio apps rm myapp
 
 # Remove a site
 siteio sites rm mysite
+
+# Open the in-site live editor: chat with an AI editor on the site itself and
+# watch changes land in place (requires an LLM credential configured on the agent)
+siteio sites edit mysite --open
+
+# Revoke all outstanding editor links for a site
+siteio sites edit mysite --revoke
 ```
 
 ## JSON Output

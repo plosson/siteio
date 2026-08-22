@@ -1,7 +1,7 @@
 import { loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
 import type {
-  ApiResponse, SiteInfo, SiteVersion, App, AppInfo, ContainerLogs, ShareGrantInfo, ShareGrantCreated,
+  ApiResponse, SiteInfo, SiteVersion, App, AppInfo, ContainerLogs, ShareGrantInfo, ShareGrantCreated, EditLinkCreated,
 } from "../types.ts"
 
 export interface ClientOptions {
@@ -191,6 +191,23 @@ export class SiteioClient {
 
   async revokeGrant(site: string, id: string): Promise<void> {
     await this.request<ApiResponse<{ revoked: boolean }>>("DELETE", `/sites/${site}/grants/${id}`)
+  }
+
+  // In-site live editor links
+  async createEditLink(site: string, opts: { label?: string } = {}): Promise<EditLinkCreated> {
+    const response = await this.request<ApiResponse<EditLinkCreated>>(
+      "POST",
+      `/sites/${site}/edit-link`,
+      JSON.stringify(opts),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
+  async revokeEditLinks(site: string): Promise<number> {
+    const response = await this.request<ApiResponse<{ revoked: number }>>("DELETE", `/sites/${site}/edit-link`)
+    return response.data?.revoked ?? 0
   }
 
   async healthCheck(): Promise<boolean> {

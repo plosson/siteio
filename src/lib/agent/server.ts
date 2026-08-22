@@ -1,12 +1,12 @@
 import { mkdirSync } from "fs"
 import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
-import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent } from "../../types.ts"
+import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, EditLinkCreated } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { ThumbnailManager } from "./thumbnails.ts"
 import { AppStorage } from "./app-storage.ts"
-import { GrantStore, type CreateGrantInput } from "./grant-store.ts"
+import { GrantStore, isEditKind, type CreateGrantInput } from "./grant-store.ts"
 import { StagingStore } from "./staging-store.ts"
 import { ChatStore } from "./chat-store.ts"
 import { ChatController, ChatBusyError, ChatUnavailableError } from "./chat/controller.ts"
@@ -20,13 +20,37 @@ import { GitManager } from "./git.ts"
 import { DockerfileStorage } from "./dockerfile-storage.ts"
 import { ComposeStorage } from "./compose-storage.ts"
 import { buildOverride } from "./compose-override.ts"
-import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS } from "./ui/assets.ts"
+import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS, CHAT_CORE_JS, EDITOR_SHELL_HTML } from "./ui/assets.ts"
 import { POCKETBASE_IMAGE, POCKETBASE_VERSION } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
 import { encodeToken } from "../../utils/token.ts"
 import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
+
+// In-site live editor tuning. The code lives 30 min; the derived cookie session
+// gets the same window (clamped to the code). The per-grant spend cap is a
+// backstop against a runaway loop against the owner's LLM credential — generous
+// in Phase 1 (owner-only) where the operator already holds god access.
+const EDIT_CODE_TTL_MS = 30 * 60_000
+const EDIT_SESSION_TTL_MS = 30 * 60_000
+const EDIT_MAX_TURNS = 60
+const EDIT_MAX_DEPLOYS = 60
+// HttpOnly cookie carrying the derived edit-session token, scoped to /_siteio so
+// the framed site content (served at /) and its /api backend never receive it.
+const EDIT_SESSION_COOKIE = "siteio_edit"
+
+// Read one cookie value from a request's Cookie header (no external dep).
+function readCookie(req: Request, name: string): string | null {
+  const header = req.headers.get("cookie")
+  if (!header) return null
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=")
+    if (eq < 0) continue
+    if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim())
+  }
+  return null
+}
 
 // Strip the git token before returning an app over the API. Clients never need
 // the raw value; they can set/clear it via PATCH. `tokenSet` is surfaced so
@@ -199,7 +223,21 @@ export class AgentServer {
       if (rest === "/health" && req.method === "GET") {
         return this.json({ status: "ok", version: getVersion() })
       }
-      const auth = this.authenticate(req)
+
+      // In-site live editor — two unauthenticated exact-match carve-outs (the
+      // one-time code IS the credential; the shell is inert until the user acts):
+      //   GET  /_siteio/edit          → the editor shell (HTML), served inert
+      //   POST /_siteio/edit/session  → exchange a code for a cookie session
+      if (rest === "/edit" && req.method === "GET") {
+        return this.serveEditorShell(ctx.site)
+      }
+      if (rest === "/edit/session" && req.method === "POST") {
+        return this.handleEditSessionExchange(ctx.site, req)
+      }
+
+      // Cookie session (the editor widget) authenticates in addition to a raw
+      // share code sent as X-API-Key.
+      const auth = this.authenticate(req) ?? this.authenticateEditCookie(req)
       if (!auth) return this.error("Unauthorized", 401)
       if (auth.kind !== "grant") {
         return this.error("The management API is not available here; use a share code", 403)
@@ -336,6 +374,15 @@ export class AgentServer {
     const siteRenameMatch = path.match(/^\/sites\/([a-z0-9-]+)\/rename$/)
     if (siteRenameMatch && req.method === "PATCH") {
       return this.handleRenameSite(siteRenameMatch[1]!, req)
+    }
+
+    // /sites/:name/edit-link - mint (POST) or revoke (DELETE) an in-site live
+    // editor link. God-only; the minted link is owner-only in Phase 1.
+    const siteEditLinkMatch = path.match(/^\/sites\/([a-z0-9-]+)\/edit-link$/)
+    if (siteEditLinkMatch) {
+      const editName = siteEditLinkMatch[1]!
+      if (req.method === "POST") return this.handleCreateEditLink(editName, req)
+      if (req.method === "DELETE") return this.handleRevokeEditLinks(editName)
     }
 
     // /sites/:name/grants - manage MCP share links for a site
@@ -1162,7 +1209,7 @@ export class AgentServer {
   // The turn runs to completion server-side even if the client disconnects; the
   // persisted transcript (GET above) is the source of truth. Heartbeat comment
   // frames keep the connection under Bun's idle timeout between model steps.
-  private handleSiteChat(name: string, req: Request): Response {
+  private handleSiteChat(name: string, req: Request, deployedBy?: string): Response {
     if (!this.chatController) return this.error("Chat is not configured", 400)
     if (!this.storage.exists(name)) return this.error("Site not found", 404)
 
@@ -1209,6 +1256,7 @@ export class AgentServer {
             siteName: name,
             userMessage: message,
             onEvent: (e: ChatEvent) => send(e),
+            deployedBy,
           })
           send({ kind: "done", message: assistant } satisfies ChatEvent)
         } catch (err) {
@@ -1355,6 +1403,42 @@ export class AgentServer {
       return notAllowed()
     }
 
+    // In-site live editor chat surface. Gated to edit-kind grants so classic
+    // share/CLI codes can't reach it. Clear-history (DELETE) is deliberately NOT
+    // exposed — the transcript is the owner's audit trail.
+    const chatMatch = path.match(/^\/sites\/([a-z0-9-]+)\/chat$/)
+    if (chatMatch) {
+      if (!isEditKind(grant)) return notAllowed()
+      if (chatMatch[1] !== grant.site) return this.error("This link is not valid for that site", 403)
+      if (req.method === "GET") return this.handleGetSiteChat(grant.site)
+      if (req.method === "POST") {
+        if (this.grants.capReached(grant)) {
+          return this.error("This editing session has reached its change limit — ask for a new link.", 429)
+        }
+        this.grants.bumpTurns(grant.id)
+        const attribution = grant.label ? `${grant.label} via edit link` : "edit link"
+        return this.handleSiteChat(grant.site, req, attribution)
+      }
+      return notAllowed()
+    }
+
+    const chatStopMatch = path.match(/^\/sites\/([a-z0-9-]+)\/chat\/stop$/)
+    if (chatStopMatch) {
+      if (!isEditKind(grant)) return notAllowed()
+      if (chatStopMatch[1] !== grant.site) return this.error("This link is not valid for that site", 403)
+      if (req.method === "POST") return this.handleStopSiteChat(grant.site)
+      return notAllowed()
+    }
+
+    // Edit-session undo (bounded rollback). Edit-kind only.
+    const rollbackMatch = path.match(/^\/sites\/([a-z0-9-]+)\/rollback$/)
+    if (rollbackMatch) {
+      if (!isEditKind(grant)) return notAllowed()
+      if (rollbackMatch[1] !== grant.site) return this.error("This link is not valid for that site", 403)
+      if (req.method === "POST") return this.handleScopedRollback(grant, req)
+      return notAllowed()
+    }
+
     return notAllowed()
   }
 
@@ -1490,6 +1574,160 @@ export class AgentServer {
     return this.json({ revoked: true })
   }
 
+  // In-site live editor: mint a one-time, TTL'd code carried in the editor-shell
+  // URL fragment. Always targets the *platform* subdomain (never a custom/CDN
+  // domain) so edge cache can't serve stale bytes over a fresh deploy (§3.8).
+  private async handleCreateEditLink(name: string, req: Request): Promise<Response> {
+    const site = this.storage.get(name)
+    if (!site) return this.error("Site not found", 404)
+    if (site.version === undefined) {
+      return this.error("Deploy the site once before creating an edit link", 400)
+    }
+    // No point handing out a link that dead-ends at "Chat is not configured".
+    if (!this.chatController) return this.error("Chat is not configured on this agent", 400)
+
+    const body = (await req.json().catch(() => ({}))) as { label?: string }
+    const { grant, token } = this.grants.createEdit({
+      site: name,
+      ttlMs: EDIT_CODE_TTL_MS,
+      label: body.label,
+      versionAtStart: site.version,
+      maxTurns: EDIT_MAX_TURNS,
+      maxDeploys: EDIT_MAX_DEPLOYS,
+    })
+
+    const subdomain = `${name}.${this.config.domain}`
+    const created: EditLinkCreated = {
+      grant: this.grants.toInfo(grant),
+      url: `https://${subdomain}/_siteio/edit#${token}`,
+      code: token,
+      expiresAt: grant.expiresAt!,
+    }
+    return this.json(created)
+  }
+
+  // Revoke every outstanding edit code + session for a site (revoke cascades
+  // code→session in the store). Used by `sites edit --revoke`.
+  private handleRevokeEditLinks(name: string): Response {
+    if (!this.storage.exists(name)) return this.error("Site not found", 404)
+    const edits = this.grants.listEditForSite(name)
+    let revoked = 0
+    for (const g of edits) {
+      if (g.revoked) continue
+      this.grants.revoke(g.id)
+      this.oauth.revokeTokensForGrant(g.id)
+      revoked++
+    }
+    return this.json({ revoked })
+  }
+
+  // Cookie-session auth for the in-site editor, valid only on the /_siteio
+  // channel (never the api host). Resolves the HttpOnly cookie to a live
+  // edit-session grant.
+  private authenticateEditCookie(req: Request): { kind: "grant"; grant: ShareGrant } | null {
+    const token = readCookie(req, EDIT_SESSION_COOKIE)
+    if (!token) return null
+    const grant = this.grants.resolveByToken(token)
+    if (grant && grant.kind === "edit-session") return { kind: "grant", grant }
+    return null
+  }
+
+  private requestIsHttps(req: Request): boolean {
+    if (req.headers.get("x-forwarded-proto") === "https") return true
+    try {
+      return new URL(req.url).protocol === "https:"
+    } catch {
+      return false
+    }
+  }
+
+  // Exchange a one-time edit code for a cookie-borne session (the "Start editing"
+  // gesture). Deliberately synchronous from the token resolve through the cookie
+  // set — the body is parsed FIRST — so two concurrent exchanges can't interleave
+  // and end up with two live sessions. Re-exchanging a still-live code recovers a
+  // lost cookie (closed tab): the prior session is revoked, a fresh one minted.
+  private async handleEditSessionExchange(site: string, req: Request): Promise<Response> {
+    if (!this.chatController) {
+      return this.editSessionError("not_configured", "The live editor isn't available on this site.", 400)
+    }
+    let code = ""
+    try {
+      const body = (await req.json()) as { code?: string }
+      code = (body.code || "").trim()
+    } catch {
+      /* handled below */
+    }
+    if (!code) return this.editSessionError("invalid", "Missing edit code.", 400)
+
+    // --- no await from here to the cookie set (single-active-session guard) ---
+    const grant = this.grants.resolveByToken(code)
+    if (!grant || grant.kind !== "edit") {
+      return this.editSessionError("invalid", "This editing link has expired or is no longer valid.", 401)
+    }
+    if (grant.site !== site) {
+      return this.editSessionError("invalid", "This editing link isn't valid for this site.", 403)
+    }
+    // Single active session: drop any prior session derived from this code.
+    this.revokeEditSessionsFor(grant.id)
+    this.grants.consume(grant.id)
+    const { token: sessionToken, grant: session } = this.grants.createEditSession(grant, EDIT_SESSION_TTL_MS)
+
+    const maxAge = Math.max(1, Math.floor((Date.parse(session.expiresAt!) - Date.now()) / 1000))
+    const cookie =
+      `${EDIT_SESSION_COOKIE}=${sessionToken}; Path=/_siteio; HttpOnly; SameSite=Strict; Max-Age=${maxAge}` +
+      (this.requestIsHttps(req) ? "; Secure" : "")
+    const data = {
+      siteUrl: `https://${site}.${this.config.domain}/`,
+      expiresAt: session.expiresAt,
+      versionAtStart: session.versionAtStart,
+      label: session.label,
+    }
+    return new Response(JSON.stringify({ success: true, data } satisfies ApiResponse<typeof data>), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Set-Cookie": cookie },
+    })
+  }
+
+  // Revoke the (invisible) sessions derived from an edit code, without touching
+  // the code itself — so a lost-cookie re-exchange stays possible within TTL.
+  private revokeEditSessionsFor(codeId: string): void {
+    for (const g of this.grants.list()) {
+      if (g.kind === "edit-session" && g.parentId === codeId && !g.revoked) {
+        this.grants.revoke(g.id)
+        this.oauth.revokeTokensForGrant(g.id)
+      }
+    }
+  }
+
+  // JSON error carrying a machine `reason` so the shell can render a client-
+  // friendly terminal state instead of the admin login flow.
+  private editSessionError(reason: string, message: string, status: number): Response {
+    return new Response(JSON.stringify({ success: false, error: message, reason }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    })
+  }
+
+  // Serve the editor shell (unauthenticated, inert). Anti-clickjacking: the shell
+  // itself must never be framed (it holds the session cookie); it does the
+  // framing. The framed site URL is hard-coded to the *platform* subdomain so a
+  // custom/CDN-fronted domain can't serve stale bytes after a deploy, and the
+  // shared chat transport is inlined (the shell lives on the site host, not the
+  // /ui asset host). String replacers avoid `$`-token surprises.
+  private serveEditorShell(site: string): Response {
+    const html = EDITOR_SHELL_HTML.replace(/__SITE_NAME__/g, () => site)
+      .replace("/*__CHAT_CORE__*/", () => CHAT_CORE_JS)
+    return new Response(html, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": "frame-ancestors 'none'",
+        "X-Frame-Options": "DENY",
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+      },
+    })
+  }
+
   // (Re)create the site's container: remove any existing one, then run the
   // pinned image with Traefik labels for all its hostnames. Used by deploy,
   // rollback, domain updates, and rename — anything that invalidates the
@@ -1538,21 +1776,27 @@ export class AgentServer {
   }
 
   private async handleRollbackSite(name: string, req: Request): Promise<Response> {
-    const site = this.storage.get(name)
-    if (!site) return this.error("Site not found", 404)
-
     try {
       const body = (await req.json()) as { version: number }
       if (!body.version || typeof body.version !== "number") {
         return this.error("Version number is required")
       }
+      return await this.runRollback(name, body.version)
+    } catch (err) {
+      if (err instanceof SyntaxError) return this.error("Invalid request body")
+      const message = err instanceof Error ? err.message : "Failed to rollback"
+      return this.error(message, 500)
+    }
+  }
 
-      if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
-
-      const restored = this.storage.restoreVersion(name, body.version)
-      if (!restored) {
-        return this.error(`Version ${body.version} not found in history`, 404)
-      }
+  // Rollback core, shared by the god route and the edit-session undo route.
+  private async runRollback(name: string, version: number, deployedBy?: string): Promise<Response> {
+    const site = this.storage.get(name)
+    if (!site) return this.error("Site not found", 404)
+    if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+    try {
+      const restored = this.storage.restoreVersion(name, version)
+      if (!restored) return this.error(`Version ${version} not found in history`, 404)
 
       const containerId = await this.startSiteContainer(site)
       const updated = this.storage.update(name, {
@@ -1561,14 +1805,33 @@ export class AgentServer {
         size: restored.size,
         version: restored.version,
         deployedAt: new Date().toISOString(),
+        deployedBy,
       })!
       return this.json(this.storage.toInfo(updated, this.config.domain))
     } catch (err) {
-      if (err instanceof SyntaxError) return this.error("Invalid request body")
       this.storage.update(name, { status: "failed" })
       const message = err instanceof Error ? err.message : "Failed to rollback"
       return this.error(message, 500)
     }
+  }
+
+  // Edit-session undo: roll a site back to an earlier version. Bounded to the
+  // session's own changes — the target must be ≥ the version the link was minted
+  // at, so a client can undo their edits but can't rewind the site past where
+  // their session began.
+  private async handleScopedRollback(grant: ShareGrant, req: Request): Promise<Response> {
+    let version = 0
+    try {
+      const body = (await req.json()) as { version?: number }
+      version = typeof body.version === "number" ? body.version : 0
+    } catch {
+      return this.error("Invalid request body")
+    }
+    if (!version) return this.error("Version number is required")
+    if (grant.versionAtStart !== undefined && version < grant.versionAtStart) {
+      return this.error(`You can only undo changes made in this session (back to v${grant.versionAtStart}).`, 403)
+    }
+    return this.runRollback(grant.site, version, grant.label || "edit link")
   }
 
   private async handleUpdateSiteDomains(name: string, req: Request): Promise<Response> {
@@ -1780,6 +2043,7 @@ export class AgentServer {
     const htmlEtag = etagFor(ADMIN_UI_HTML)
     const jsEtag = etagFor(ADMIN_UI_JS)
     const cssEtag = etagFor(ADMIN_UI_CSS)
+    const chatCoreEtag = etagFor(CHAT_CORE_JS)
 
     // Start HTTP server. idleTimeout is raised to Bun's max (255s) so a
     // long-running chat SSE stream isn't cut mid-turn between heartbeats; the
@@ -1791,6 +2055,7 @@ export class AgentServer {
         "/ui": (req) => serveUiAsset(req, ADMIN_UI_HTML, "text/html; charset=utf-8", htmlEtag),
         "/ui/ui.js": (req) => serveUiAsset(req, ADMIN_UI_JS, "application/javascript; charset=utf-8", jsEtag),
         "/ui/ui.css": (req) => serveUiAsset(req, ADMIN_UI_CSS, "text/css; charset=utf-8", cssEtag),
+        "/ui/chat-core.js": (req) => serveUiAsset(req, CHAT_CORE_JS, "application/javascript; charset=utf-8", chatCoreEtag),
       },
       fetch: (req) => this.handleRequest(req),
     })
