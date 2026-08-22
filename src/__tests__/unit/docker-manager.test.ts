@@ -23,11 +23,16 @@ describe("Unit: DockerManager", () => {
   })
 
   describe("isAvailable", () => {
+    // Shells out to `docker info`, which queries the daemon and can take several
+    // seconds on a loaded CI runner — the default 5s test timeout made this the
+    // recurring cause of flaky Release-workflow failures. A generous timeout
+    // removes the flake without weakening the assertion (we only check the call
+    // completes and returns a boolean); production isAvailable() stays untimed so
+    // a momentarily-slow daemon is never misreported as "Docker unavailable".
     test("should detect if Docker is available", () => {
-      // This test depends on the environment - Docker may or may not be installed
       const result = docker.isAvailable()
       expect(typeof result).toBe("boolean")
-    })
+    }, 30_000)
   })
 
   describe("containerName", () => {
