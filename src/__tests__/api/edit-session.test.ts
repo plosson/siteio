@@ -104,8 +104,7 @@ describe("API: edit session (carve-outs + cookie exchange)", () => {
     expect(setCookie).toContain("SameSite=Strict")
     expect(setCookie).toContain("Path=/_siteio")
     expect(setCookie).toContain("Secure") // request was https
-    const body = (await res.json()) as { data: { siteUrl: string; versionAtStart: number } }
-    expect(body.data.siteUrl).toBe("https://blog.example.com/")
+    const body = (await res.json()) as { data: { versionAtStart: number } }
     expect(body.data.versionAtStart).toBe(1)
   })
 

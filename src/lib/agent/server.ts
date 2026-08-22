@@ -35,7 +35,6 @@ import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 const EDIT_CODE_TTL_MS = 30 * 60_000
 const EDIT_SESSION_TTL_MS = 30 * 60_000
 const EDIT_MAX_TURNS = 60
-const EDIT_MAX_DEPLOYS = 60
 // HttpOnly cookie carrying the derived edit-session token, scoped to /_siteio so
 // the framed site content (served at /) and its /api backend never receive it.
 const EDIT_SESSION_COOKIE = "siteio_edit"
@@ -146,8 +145,12 @@ export class AgentServer {
     return Response.json({ success: true, data } as ApiResponse<T>, { status })
   }
 
-  private error(message: string, status = 400): Response {
-    return Response.json({ success: false, error: message } as ApiResponse<null>, { status })
+  // `reason` is an optional machine-readable code (e.g. the editor shell maps it
+  // to a client-friendly terminal state instead of the admin login flow).
+  private error(message: string, status = 400, reason?: string): Response {
+    return Response.json({ success: false, error: message, ...(reason ? { reason } : {}) } as ApiResponse<null>, {
+      status,
+    })
   }
 
   // Resolve who is calling. The god API key grants full access; a share-grant
@@ -1403,40 +1406,28 @@ export class AgentServer {
       return notAllowed()
     }
 
-    // In-site live editor chat surface. Gated to edit-kind grants so classic
-    // share/CLI codes can't reach it. Clear-history (DELETE) is deliberately NOT
-    // exposed — the transcript is the owner's audit trail.
-    const chatMatch = path.match(/^\/sites\/([a-z0-9-]+)\/chat$/)
-    if (chatMatch) {
-      if (!isEditKind(grant)) return notAllowed()
-      if (chatMatch[1] !== grant.site) return this.error("This link is not valid for that site", 403)
-      if (req.method === "GET") return this.handleGetSiteChat(grant.site)
-      if (req.method === "POST") {
-        if (this.grants.capReached(grant)) {
-          return this.error("This editing session has reached its change limit — ask for a new link.", 429)
+    // In-site live editor surface (chat, stop, undo) — gated ONCE so classic
+    // share/CLI codes can't reach any of it, and a new edit route can't
+    // accidentally ship ungated. Clear-history (DELETE /chat) is deliberately
+    // absent — the transcript is the owner's audit trail.
+    if (isEditKind(grant)) {
+      const editMatch = path.match(/^\/sites\/([a-z0-9-]+)\/(chat|chat\/stop|rollback)$/)
+      if (editMatch) {
+        if (editMatch[1] !== grant.site) return this.error("This link is not valid for that site", 403)
+        const route = editMatch[2]
+        if (route === "chat" && req.method === "GET") return this.handleGetSiteChat(grant.site)
+        if (route === "chat" && req.method === "POST") {
+          if (this.grants.capReached(grant)) {
+            return this.error("This editing session has reached its change limit — ask for a new link.", 429)
+          }
+          this.grants.bumpTurns(grant.id)
+          const attribution = grant.label ? `${grant.label} via edit link` : "edit link"
+          return this.handleSiteChat(grant.site, req, attribution)
         }
-        this.grants.bumpTurns(grant.id)
-        const attribution = grant.label ? `${grant.label} via edit link` : "edit link"
-        return this.handleSiteChat(grant.site, req, attribution)
+        if (route === "chat/stop" && req.method === "POST") return this.handleStopSiteChat(grant.site)
+        if (route === "rollback" && req.method === "POST") return this.handleScopedRollback(grant, req)
+        return notAllowed()
       }
-      return notAllowed()
-    }
-
-    const chatStopMatch = path.match(/^\/sites\/([a-z0-9-]+)\/chat\/stop$/)
-    if (chatStopMatch) {
-      if (!isEditKind(grant)) return notAllowed()
-      if (chatStopMatch[1] !== grant.site) return this.error("This link is not valid for that site", 403)
-      if (req.method === "POST") return this.handleStopSiteChat(grant.site)
-      return notAllowed()
-    }
-
-    // Edit-session undo (bounded rollback). Edit-kind only.
-    const rollbackMatch = path.match(/^\/sites\/([a-z0-9-]+)\/rollback$/)
-    if (rollbackMatch) {
-      if (!isEditKind(grant)) return notAllowed()
-      if (rollbackMatch[1] !== grant.site) return this.error("This link is not valid for that site", 403)
-      if (req.method === "POST") return this.handleScopedRollback(grant, req)
-      return notAllowed()
     }
 
     return notAllowed()
@@ -1593,10 +1584,11 @@ export class AgentServer {
       label: body.label,
       versionAtStart: site.version,
       maxTurns: EDIT_MAX_TURNS,
-      maxDeploys: EDIT_MAX_DEPLOYS,
     })
 
-    const subdomain = `${name}.${this.config.domain}`
+    // primaryDomain is the platform subdomain (never a custom/CDN domain) — the
+    // single source of truth for the site URL (storage.ts §3.8).
+    const subdomain = this.storage.primaryDomain(site, this.config.domain)
     const created: EditLinkCreated = {
       grant: this.grants.toInfo(grant),
       url: `https://${subdomain}/_siteio/edit#${token}`,
@@ -1648,7 +1640,7 @@ export class AgentServer {
   // lost cookie (closed tab): the prior session is revoked, a fresh one minted.
   private async handleEditSessionExchange(site: string, req: Request): Promise<Response> {
     if (!this.chatController) {
-      return this.editSessionError("not_configured", "The live editor isn't available on this site.", 400)
+      return this.error("The live editor isn't available on this site.", 400, "not_configured")
     }
     let code = ""
     try {
@@ -1657,15 +1649,15 @@ export class AgentServer {
     } catch {
       /* handled below */
     }
-    if (!code) return this.editSessionError("invalid", "Missing edit code.", 400)
+    if (!code) return this.error("Missing edit code.", 400, "invalid")
 
     // --- no await from here to the cookie set (single-active-session guard) ---
     const grant = this.grants.resolveByToken(code)
     if (!grant || grant.kind !== "edit") {
-      return this.editSessionError("invalid", "This editing link has expired or is no longer valid.", 401)
+      return this.error("This editing link has expired or is no longer valid.", 401, "invalid")
     }
     if (grant.site !== site) {
-      return this.editSessionError("invalid", "This editing link isn't valid for this site.", 403)
+      return this.error("This editing link isn't valid for this site.", 403, "invalid")
     }
     // Single active session: drop any prior session derived from this code.
     this.revokeEditSessionsFor(grant.id)
@@ -1676,12 +1668,9 @@ export class AgentServer {
     const cookie =
       `${EDIT_SESSION_COOKIE}=${sessionToken}; Path=/_siteio; HttpOnly; SameSite=Strict; Max-Age=${maxAge}` +
       (this.requestIsHttps(req) ? "; Secure" : "")
-    const data = {
-      siteUrl: `https://${site}.${this.config.domain}/`,
-      expiresAt: session.expiresAt,
-      versionAtStart: session.versionAtStart,
-      label: session.label,
-    }
+    // The shell derives the framed site URL from its own origin (the link always
+    // opens on the platform subdomain), so we only return session metadata.
+    const data = { expiresAt: session.expiresAt, versionAtStart: session.versionAtStart }
     return new Response(JSON.stringify({ success: true, data } satisfies ApiResponse<typeof data>), {
       status: 200,
       headers: { "Content-Type": "application/json", "Set-Cookie": cookie },
@@ -1699,21 +1688,10 @@ export class AgentServer {
     }
   }
 
-  // JSON error carrying a machine `reason` so the shell can render a client-
-  // friendly terminal state instead of the admin login flow.
-  private editSessionError(reason: string, message: string, status: number): Response {
-    return new Response(JSON.stringify({ success: false, error: message, reason }), {
-      status,
-      headers: { "Content-Type": "application/json" },
-    })
-  }
-
   // Serve the editor shell (unauthenticated, inert). Anti-clickjacking: the shell
   // itself must never be framed (it holds the session cookie); it does the
-  // framing. The framed site URL is hard-coded to the *platform* subdomain so a
-  // custom/CDN-fronted domain can't serve stale bytes after a deploy, and the
-  // shared chat transport is inlined (the shell lives on the site host, not the
-  // /ui asset host). String replacers avoid `$`-token surprises.
+  // framing. The shared chat transport is inlined (the shell lives on the site
+  // host, not the /ui asset host). String replacers avoid `$`-token surprises.
   private serveEditorShell(site: string): Response {
     const html = EDITOR_SHELL_HTML.replace(/__SITE_NAME__/g, () => site)
       .replace("/*__CHAT_CORE__*/", () => CHAT_CORE_JS)

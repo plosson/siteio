@@ -58,5 +58,5 @@
     return { ok: true }
   }
 
-  global.SiteioChat = { parseFrame: parseFrame, streamTurn: streamTurn }
+  global.SiteioChat = { streamTurn: streamTurn }
 })(window)

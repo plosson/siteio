@@ -347,11 +347,9 @@ export interface ShareGrant {
   consumedAt?: string // ISO; when an "edit" code was first exchanged for a session
   parentId?: string // "edit-session" → the "edit" code it derives from
   versionAtStart?: number // site version when the edit link was minted (restore-to-start)
-  // Per-grant spend cap (edit kinds). Counters bump as turns run / deploy.
+  // Per-grant turn cap (edit kinds): `turns` bumps each chat turn, refused past `maxTurns`.
   turns?: number
-  deploys?: number
   maxTurns?: number
-  maxDeploys?: number
 }
 
 // Grant returned to the owner over the API — the tokenHash is stripped.

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
-import type { GrantKind, ShareGrant, ShareGrantInfo } from "../../types.ts"
+import type { ShareGrant, ShareGrantInfo } from "../../types.ts"
 import { generateGrantId, generateGrantToken, hashGrantToken } from "../../utils/grant-token.ts"
 
 export interface CreateGrantInput {
@@ -10,20 +10,17 @@ export interface CreateGrantInput {
 }
 
 // Minting a one-time editor-shell code (the in-site live editor). Content-only
-// by construction (allowBackend is never set), TTL'd, and spend-capped.
+// by construction (allowBackend is never set), TTL'd, and turn-capped.
 export interface CreateEditInput {
   site: string
   ttlMs: number // code lifetime (e.g. 30 min)
   label?: string
   versionAtStart?: number // site version at mint time (restore-to-start)
   maxTurns?: number
-  maxDeploys?: number
 }
 
-const EDIT_KINDS: ReadonlySet<GrantKind> = new Set<GrantKind>(["edit", "edit-session"])
-
 export function isEditKind(grant: Pick<ShareGrant, "kind">): boolean {
-  return grant.kind !== undefined && EDIT_KINDS.has(grant.kind)
+  return grant.kind === "edit" || grant.kind === "edit-session"
 }
 
 // Persists share grants as one JSON file per grant under
@@ -51,19 +48,26 @@ export class GrantStore {
     writeFileSync(this.grantPath(grant.id), JSON.stringify(grant, null, 2), { mode: 0o600 })
   }
 
+  // Assign an id + token hash, persist, and keep the hash→id index warm (a mint
+  // only adds one entry — no need to drop the whole index and rescan the dir on
+  // the next resolve, which matters right after createEditSession when the
+  // editor immediately starts firing cookie-authed requests).
+  private persist(token: string, base: Omit<ShareGrant, "id" | "tokenHash">): ShareGrant {
+    const grant: ShareGrant = { id: generateGrantId(), tokenHash: hashGrantToken(token), ...base }
+    this.write(grant)
+    this.byHash?.set(grant.tokenHash, grant.id)
+    return grant
+  }
+
   create(input: CreateGrantInput): { grant: ShareGrant; token: string } {
     const token = generateGrantToken()
-    const grant: ShareGrant = {
-      id: generateGrantId(),
+    const grant = this.persist(token, {
       site: input.site,
-      tokenHash: hashGrantToken(token),
       label: input.label,
       allowBackend: input.allowBackend || undefined,
       createdAt: new Date().toISOString(),
       revoked: false,
-    }
-    this.write(grant)
-    this.byHash = null
+    })
     return { grant, token }
   }
 
@@ -73,10 +77,8 @@ export class GrantStore {
   createEdit(input: CreateEditInput): { grant: ShareGrant; token: string } {
     const token = generateGrantToken()
     const now = Date.now()
-    const grant: ShareGrant = {
-      id: generateGrantId(),
+    const grant = this.persist(token, {
       site: input.site,
-      tokenHash: hashGrantToken(token),
       label: input.label,
       createdAt: new Date(now).toISOString(),
       revoked: false,
@@ -84,42 +86,31 @@ export class GrantStore {
       expiresAt: new Date(now + input.ttlMs).toISOString(),
       versionAtStart: input.versionAtStart,
       turns: 0,
-      deploys: 0,
       maxTurns: input.maxTurns,
-      maxDeploys: input.maxDeploys,
-    }
-    this.write(grant)
-    this.byHash = null
+    })
     return { grant, token }
   }
 
   // Derive a cookie-borne session grant from a live edit code. Inherits the
-  // parent's site/label/caps/versionAtStart and never outlives it. Callers
+  // parent's site/label/cap/versionAtStart and never outlives it. Callers
   // revoke prior sessions first (single active session) — see server exchange.
   createEditSession(parent: ShareGrant, ttlMs: number): { grant: ShareGrant; token: string } {
     const token = generateGrantToken()
     const now = Date.now()
     // The session cannot outlive its parent code's TTL.
     const parentExpiry = parent.expiresAt ? Date.parse(parent.expiresAt) : now + ttlMs
-    const expiresAt = new Date(Math.min(now + ttlMs, parentExpiry)).toISOString()
-    const grant: ShareGrant = {
-      id: generateGrantId(),
+    const grant = this.persist(token, {
       site: parent.site,
-      tokenHash: hashGrantToken(token),
       label: parent.label,
       createdAt: new Date(now).toISOString(),
       revoked: false,
       kind: "edit-session",
-      expiresAt,
+      expiresAt: new Date(Math.min(now + ttlMs, parentExpiry)).toISOString(),
       parentId: parent.id,
       versionAtStart: parent.versionAtStart,
       turns: 0,
-      deploys: 0,
       maxTurns: parent.maxTurns,
-      maxDeploys: parent.maxDeploys,
-    }
-    this.write(grant)
-    this.byHash = null
+    })
     return { grant, token }
   }
 
@@ -164,12 +155,20 @@ export class GrantStore {
   // not expired). Uses the hash→id index to avoid scanning every file.
   resolveByToken(token: string): ShareGrant | null {
     const hash = hashGrantToken(token)
+    let grant: ShareGrant | null = null
     if (!this.byHash) {
-      this.byHash = new Map(this.list().map((g) => [g.tokenHash, g.id]))
+      // Cold build: one pass over the dir populates the index and yields the
+      // winning grant, so we don't read+parse the matching file a second time.
+      this.byHash = new Map()
+      for (const g of this.list()) {
+        this.byHash.set(g.tokenHash, g.id)
+        if (g.tokenHash === hash) grant = g
+      }
+    } else {
+      const id = this.byHash.get(hash)
+      // Warm hit: re-read the file so mutable fields (counters, consumedAt) are fresh.
+      grant = id ? this.get(id) : null
     }
-    const id = this.byHash.get(hash)
-    if (!id) return null
-    const grant = this.get(id)
     if (!grant || grant.tokenHash !== hash) return null
     if (!this.isActive(grant)) return null
     return grant
@@ -194,7 +193,7 @@ export class GrantStore {
     return updated
   }
 
-  // Bump a per-turn counter; returns the updated grant (null if gone).
+  // Bump the per-turn counter; returns the updated grant (null if gone).
   bumpTurns(id: string): ShareGrant | null {
     const grant = this.get(id)
     if (!grant) return null
@@ -203,19 +202,9 @@ export class GrantStore {
     return updated
   }
 
-  bumpDeploys(id: string): ShareGrant | null {
-    const grant = this.get(id)
-    if (!grant) return null
-    const updated: ShareGrant = { ...grant, deploys: (grant.deploys ?? 0) + 1 }
-    this.write(updated)
-    return updated
-  }
-
-  // Whether a grant has hit its turn or deploy cap. Uncapped grants never reach.
+  // Whether a grant has hit its turn cap. Uncapped grants never reach it.
   capReached(grant: ShareGrant): boolean {
-    if (grant.maxTurns !== undefined && (grant.turns ?? 0) >= grant.maxTurns) return true
-    if (grant.maxDeploys !== undefined && (grant.deploys ?? 0) >= grant.maxDeploys) return true
-    return false
+    return grant.maxTurns !== undefined && (grant.turns ?? 0) >= grant.maxTurns
   }
 
   // Stamp the grant's last-used time after a deploy (informational only).
@@ -231,10 +220,13 @@ export class GrantStore {
     const grant = this.get(id)
     if (!grant) return false
     this.write({ ...grant, revoked: true })
-    // Revoke cascade: killing an edit code also kills its derived sessions, so
-    // the owner never has to know the (invisible) session ids.
-    for (const child of this.list()) {
-      if (child.parentId === id && !child.revoked) this.write({ ...child, revoked: true })
+    // Revoke cascade: killing an edit *code* also kills its derived sessions, so
+    // the owner never has to know the (invisible) session ids. Only edit codes
+    // have children — skip the whole-dir scan for classic shares and sessions.
+    if (grant.kind === "edit") {
+      for (const child of this.list()) {
+        if (child.parentId === id && !child.revoked) this.write({ ...child, revoked: true })
+      }
     }
     return true
   }
