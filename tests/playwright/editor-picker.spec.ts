@@ -175,8 +175,11 @@ test("element pick → chip → send folds the anchor into the agent's message a
   await page.locator("#send").click()
 
   await expect(page.getByText("Your change is live")).toBeVisible()
-  // The chip clears on send (one target per message).
+  // The chip clears on send (one target per message)…
   await expect(page.locator("#target-chip")).toBeHidden()
+  // …but the sent user bubble records the anchor, so it's clear it was attached
+  // (and it survives the post-turn history refresh, since it's persisted).
+  await expect(page.locator(".msg.user .msg-target").last()).toContainText("#headline")
 
   // The real browser → SSE → controller loop delivered the anchor (and, since
   // this is an appearance request, the captured styles) to the agent.

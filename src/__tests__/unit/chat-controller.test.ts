@@ -199,9 +199,12 @@ describe("Unit: ChatController", () => {
     expect(ex.lastMessage).toContain("make this bigger")
     expect(ex.lastMessage.indexOf("pointed at")).toBeLessThan(ex.lastMessage.indexOf("make this bigger"))
 
-    // The persisted user message stays the raw text (transcript is the audit trail).
+    // The persisted user message stays the raw text (transcript is the audit
+    // trail) but also carries the picked target for display.
     const user = chats.list(SITE).find((m) => m.role === "user")!
     expect(user.text).toBe("make this bigger")
+    expect(user.target?.selector).toBe(".hero h1")
+    expect(user.target?.text).toBe("Welcome to Acme")
     // Deploy attribution/history use the raw request, not the preamble.
     expect(msg.deployed).toBe(true)
   })
@@ -212,6 +215,8 @@ describe("Unit: ChatController", () => {
     const { onEvent } = collect()
     await ctl.runTurn({ siteName: SITE, userMessage: "change the footer", onEvent })
     expect(ex.lastMessage).toBe("change the footer")
+    // No target → nothing stored on the user message.
+    expect(chats.list(SITE).find((m) => m.role === "user")!.target).toBeUndefined()
   })
 
   test("outerHTML is a fallback anchor — included only when there is no selector", async () => {

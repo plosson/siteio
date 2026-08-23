@@ -57,6 +57,8 @@
   #transcript { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: #f8fafc; }
   .msg { max-width: 88%; border-radius: 12px; padding: 9px 12px; font-size: 13.5px; line-height: 1.45; border: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; }
   .msg.user { align-self: flex-end; background: var(--blue); color: #fff; border-color: var(--blue); }
+  /* The picked element/text a message was anchored to, shown inside its bubble. */
+  .msg-target { margin-top: 5px; font-size: 11px; opacity: .82; word-break: break-all; border-top: 1px solid rgba(255, 255, 255, .25); padding-top: 4px; }
   .msg.assistant { align-self: flex-start; background: #fff; }
   .msg.error { align-self: flex-start; background: #fef2f2; border-color: #fecaca; color: #991b1b; }
   .msg.note { align-self: center; background: transparent; border: 0; color: var(--muted); font-size: 12px; }
@@ -299,14 +301,19 @@
     postToFrame({ type: "pick-mode", on: state.pick });
   }
 
+  // A compact, human-readable label for a picked target (selector · "text…").
+  function targetLabel(t) {
+    var label = t.selector || t.tag || (t.kind === "text" ? "text" : "element");
+    var snippet = t.text ? ' · “' + (t.text.length > 40 ? t.text.slice(0, 40) + "…" : t.text) + '”' : "";
+    return label + snippet;
+  }
+
   // Show what the user pointed at; textContent-only so untrusted frame data
   // can't inject markup into the shell.
   function setTarget(t) {
     state.target = t || null;
     if (!t) { el.chip.classList.add("hidden"); return; }
-    var label = t.selector || t.tag || (t.kind === "text" ? "text" : "element");
-    var snippet = t.text ? ' · “' + (t.text.length > 40 ? t.text.slice(0, 40) + "…" : t.text) + '”' : "";
-    el.chipLabel.textContent = label + snippet;
+    el.chipLabel.textContent = targetLabel(t);
     el.chip.classList.remove("hidden");
     el.input.focus();
   }
@@ -377,9 +384,17 @@
     scrollBottom();
   }
 
+  // A user bubble, optionally showing the element/text the message was anchored
+  // to, so it's clear the picker context was attached and sent.
+  function userMsgHtml(text, t) {
+    var html = esc(text);
+    if (t) html += '<div class="msg-target">✎ ' + esc(targetLabel(t)) + "</div>";
+    return html;
+  }
+
   function renderMessage(m) {
     if (m.role === "user") {
-      add("msg user", esc(m.text));
+      add("msg user", userMsgHtml(m.text, m.target));
       return;
     }
     if (m.status === "error") { add("msg error", esc(m.text)); return; }
@@ -467,7 +482,7 @@
     setPick(false);
     clearTarget();
 
-    add("msg user", esc(text));
+    add("msg user", userMsgHtml(text, turnTarget));
     var live = document.createElement("div");
     live.className = "live";
     live.innerHTML = '<div class="live-text">…</div><div class="chips"></div><div class="live-status hidden"><span class="spin"></span><span></span></div>';
