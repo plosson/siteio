@@ -71,7 +71,16 @@
   .card-live .actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
   .link-btn { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: var(--ink); }
   .link-btn:hover { background: #fff; }
-  #composer { border-top: 1px solid var(--line); padding: 10px; display: flex; gap: 8px; align-items: flex-end; background: #fff; }
+  #composer { border-top: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; background: #fff; }
+  .composer-row { display: flex; gap: 8px; align-items: flex-end; }
+  /* Crosshair toggle: enter "point at an element" mode. */
+  #pick { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 16px; line-height: 1; cursor: pointer; color: var(--muted); }
+  #pick:hover { color: var(--ink); }
+  #pick.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+  /* Selection chip: what the user pointed at, attached to the next message. */
+  #target-chip { display: flex; align-items: center; gap: 6px; background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; border-radius: 8px; padding: 5px 9px; font-size: 12px; }
+  #target-chip .tc-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #target-chip button { border: 0; background: transparent; color: #3730a3; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
   #composer textarea { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font: inherit; font-size: 13.5px; max-height: 120px; }
   #composer textarea:focus { outline: 2px solid #bfdbfe; border-color: var(--blue); }
   #send { background: var(--blue); color: #fff; border: 0; border-radius: 10px; padding: 9px 14px; font-weight: 600; cursor: pointer; }
@@ -106,14 +115,25 @@
       </header>
       <div id="transcript"></div>
       <form id="composer">
-        <textarea id="input" rows="1" placeholder="Describe a change…"></textarea>
-        <button type="submit" id="send">Send</button>
-        <button type="button" id="stop" class="hidden">Stop</button>
+        <div id="target-chip" class="hidden">
+          <span aria-hidden="true">✎</span>
+          <span class="tc-label"></span>
+          <button type="button" id="target-clear" title="Clear selection" aria-label="Clear selection">✕</button>
+        </div>
+        <div class="composer-row">
+          <button type="button" id="pick" title="Point at an element to edit" aria-label="Point at an element to edit" aria-pressed="false">⌖</button>
+          <textarea id="input" rows="1" placeholder="Describe a change…"></textarea>
+          <button type="submit" id="send">Send</button>
+          <button type="button" id="stop" class="hidden">Stop</button>
+        </div>
       </form>
     </div>
     <button id="bubble-toggle" title="Edit this site">✏️</button>
   </div>
 
+<!-- In-frame picker source, carried inert (text/plain, never executed here) and
+     injected into the framed site on load (Phase 1). No string-escaping needed. -->
+<script type="text/plain" id="siteio-picker-src">/*__PICKER_JS__*/</script>
 <script>/*__CHAT_CORE__*/</script>
 <script>
 (function () {
@@ -126,7 +146,7 @@
   var SITE_URL = location.origin + "/";
   var BASE = "/_siteio/sites/" + encodeURIComponent(SITE);
 
-  var state = { code: null, versionAtStart: null, streaming: false, welcomed: false };
+  var state = { code: null, versionAtStart: null, streaming: false, welcomed: false, pick: false, target: null };
 
   var el = {
     gate: document.getElementById("gate"),
@@ -142,7 +162,13 @@
     input: document.getElementById("input"),
     send: document.getElementById("send"),
     stop: document.getElementById("stop"),
+    pick: document.getElementById("pick"),
+    chip: document.getElementById("target-chip"),
+    chipLabel: document.querySelector("#target-chip .tc-label"),
+    chipClear: document.getElementById("target-clear"),
   };
+
+  var pickerSrc = (document.getElementById("siteio-picker-src") || {}).textContent || "";
 
   // --- helpers -------------------------------------------------------------
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
@@ -231,6 +257,63 @@
   // Initial load: clean URL so the framed SPA's own routing/query handling
   // isn't disturbed. (The platform subdomain already sends no-cache headers.)
   function loadFrame() { el.iframe.src = SITE_URL; }
+
+  // --- element/text picker (in-frame; talks over postMessage) --------------
+  // Phase 1: shell + site are same-origin, so we inject picker.js straight into
+  // the framed document on every (re)load. It still communicates ONLY over
+  // postMessage, so the origin split (Phase 2) swaps only this injection step.
+  function injectPicker() {
+    if (!pickerSrc) return;
+    try {
+      var doc = el.iframe.contentDocument;
+      if (!doc) return; // cross-origin (Phase 2) — injected server-side instead
+      var s = doc.createElement("script");
+      s.textContent = pickerSrc;
+      (doc.body || doc.documentElement).appendChild(s);
+    } catch (e) { /* cross-origin frame: Phase 2 handles injection */ }
+  }
+  // Fires on the initial load and on every in-place reload after a deploy.
+  el.iframe.addEventListener("load", injectPicker);
+
+  function postToFrame(msg) {
+    msg.source = "siteio-shell";
+    try { el.iframe.contentWindow.postMessage(msg, new URL(SITE_URL).origin); } catch (e) { /* frame gone */ }
+  }
+
+  // Only ever trust messages coming from OUR iframe (event.source identity holds
+  // even cross-origin), and only picker-tagged ones — so a hostile framed site
+  // (Phase 2 threat model) can't forge a target from another window.
+  window.addEventListener("message", function (ev) {
+    if (ev.source !== el.iframe.contentWindow) return;
+    var data = ev.data;
+    if (!data || data.source !== "siteio-picker") return;
+    if (data.type === "target") { setTarget(data.target); setPick(false); }
+    else if (data.type === "cancel") { setPick(false); }
+    else if (data.type === "ready") { if (state.pick) postToFrame({ type: "pick-mode", on: true }); }
+  });
+
+  function setPick(on) {
+    state.pick = !!on;
+    el.pick.classList.toggle("active", state.pick);
+    el.pick.setAttribute("aria-pressed", state.pick ? "true" : "false");
+    postToFrame({ type: "pick-mode", on: state.pick });
+  }
+
+  // Show what the user pointed at; textContent-only so untrusted frame data
+  // can't inject markup into the shell.
+  function setTarget(t) {
+    state.target = t || null;
+    if (!t) { el.chip.classList.add("hidden"); return; }
+    var label = t.selector || t.tag || (t.kind === "text" ? "text" : "element");
+    var snippet = t.text ? ' · “' + (t.text.length > 40 ? t.text.slice(0, 40) + "…" : t.text) + '”' : "";
+    el.chipLabel.textContent = label + snippet;
+    el.chip.classList.remove("hidden");
+    el.input.focus();
+  }
+  function clearTarget() { setTarget(null); postToFrame({ type: "clear" }); }
+
+  el.pick.addEventListener("click", function () { setPick(!state.pick); });
+  el.chipClear.addEventListener("click", clearTarget);
 
   // Read the framed page's scroll position — same-origin, so this works; guarded
   // in case a cross-origin redirect ever lands inside the frame.
@@ -378,6 +461,12 @@
     if (!text || state.streaming) return;
     el.input.value = ""; el.input.style.height = "auto";
 
+    // Attach whatever the user pointed at, then clear the chip (one target per
+    // message; §5). setPick(false) also tells the frame to leave crosshair mode.
+    var turnTarget = state.target;
+    setPick(false);
+    clearTarget();
+
     add("msg user", esc(text));
     var live = document.createElement("div");
     live.className = "live";
@@ -396,7 +485,7 @@
       var result = await window.SiteioChat.streamTurn({
         url: BASE + "/chat",
         credentials: "include",
-        body: { message: text },
+        body: turnTarget ? { message: text, target: turnTarget } : { message: text },
         onEvent: function (ev2) {
           if (ev2.kind === "assistant_text") { accText += ev2.text; liveText.textContent = accText || "…"; }
           else if (ev2.kind === "tool_call") { var c = document.createElement("span"); c.className = "chip"; c.textContent = ev2.name + (ev2.detail ? " " + ev2.detail : ""); chips.appendChild(c); }

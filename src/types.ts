@@ -302,6 +302,21 @@ export interface ChatMessage {
   error?: string
 }
 
+// An element (or text run) the user pointed at in the in-site editor's picker,
+// attached to a chat turn so the agent gets a precise anchor to grep the source
+// with instead of a described location ("the headline in the hero"). Captured
+// inside the framed page and posted to the shell over postMessage; see
+// docs/plans/2026-08-23-in-site-editor-element-picker.md. All fields are
+// best-effort and already truncated by the picker — `text` is the primary anchor.
+export interface ChatTarget {
+  kind: "element" | "text"
+  selector?: string // id > unique class > short nth-of-type path back to the node
+  tag?: string // "h1"
+  text?: string // visible text (or the selected substring for kind:"text"), truncated
+  outerHTML?: string // truncated snippet, for disambiguation only
+  styles?: Record<string, string> // small appearance subset (color/font/…), for appearance requests
+}
+
 // Server→client streamed events during a turn (SSE). Terminal events are
 // "done" (carrying the persisted assistant message) and "error".
 export type ChatEvent =

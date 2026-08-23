@@ -27,17 +27,19 @@ test.beforeAll(async () => {
 })
 test.afterAll(() => srv.cleanup())
 
-test("sites list renders rows", async ({ page, context }) => {
+test("sites appear as cards in the unified services grid (bare #/sites redirects there)", async ({ page, context }) => {
   await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "right-key"))
+  // The apps/sites lists were merged into one Services grid; #/sites redirects.
   await page.goto(`${srv.url}/ui#/sites`)
-  await expect(page.locator('tr[data-site-name="alpha"]')).toBeVisible()
-  await expect(page.locator('tr[data-site-name="beta"]')).toBeVisible()
+  await expect.poll(() => new URL(page.url()).hash).toBe("#/services")
+  await expect(page.locator('[data-service-name="alpha"]')).toBeVisible()
+  await expect(page.locator('[data-service-name="beta"]')).toBeVisible()
 })
 
-test("sites list row click navigates to detail", async ({ page, context }) => {
+test("clicking a service card navigates to site detail", async ({ page, context }) => {
   await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "right-key"))
-  await page.goto(`${srv.url}/ui#/sites`)
-  await page.click('tr[data-site-name="alpha"]')
+  await page.goto(`${srv.url}/ui#/services`)
+  await page.click('[data-service-name="alpha"]')
   expect(new URL(page.url()).hash).toBe("#/sites/alpha")
   await expect(page.locator("h1", { hasText: "alpha" })).toBeVisible()
 })
@@ -62,6 +64,7 @@ test("undeploy removes site and returns to list", async ({ page, context }) => {
   page.on("dialog", (d) => d.accept())
   await page.goto(`${srv.url}/ui#/sites/beta`)
   await page.click('button:has-text("Remove")')
-  await expect.poll(() => new URL(page.url()).hash).toBe("#/sites")
-  await expect(page.locator('tr[data-site-name="beta"]')).toHaveCount(0)
+  // Removal returns to the unified services grid, with beta's card gone.
+  await expect.poll(() => new URL(page.url()).hash).toBe("#/services")
+  await expect(page.locator('[data-service-name="beta"]')).toHaveCount(0)
 })
