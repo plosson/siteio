@@ -69,6 +69,6 @@ test("remove button confirms then calls DELETE /apps/:name and returns to list",
   await page.goto(`${srv.url}/ui#/apps/actionable`)
   await page.click('button:has-text("Remove")')
   await expect.poll(() => capture.find(c => c.path === "/apps/actionable" && c.method === "DELETE")).toBeTruthy()
-  // Redirected to list
-  await expect.poll(() => new URL(page.url()).hash).toBe("#/apps")
+  // Redirected to the unified services grid
+  await expect.poll(() => new URL(page.url()).hash).toBe("#/services")
 })
