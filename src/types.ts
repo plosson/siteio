@@ -291,6 +291,10 @@ export interface ChatMessage {
   role: ChatRole
   text: string
   at: string // ISO timestamp
+  // The element/text the user pointed at with the picker (user messages only).
+  // Persisted for display so the transcript shows what was anchored; the agent
+  // preamble is built from it separately and is NOT stored in `text`.
+  target?: ChatTarget
   // Assistant-turn metadata (absent on user messages):
   status?: ChatTurnStatus
   toolCalls?: ChatToolCall[]

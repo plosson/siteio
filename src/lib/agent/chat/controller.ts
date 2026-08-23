@@ -142,6 +142,8 @@ export class ChatController {
       role: "user",
       text,
       at: new Date().toISOString(),
+      // Stored for display only; the agent-facing preamble is built separately.
+      target: input.target,
     }
     this.deps.chats.append(siteName, userMsg)
 

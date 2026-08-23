@@ -641,6 +641,15 @@ function siteioAdmin() {
       return "bg-white border-gray-200 text-gray-800"
     },
 
+    // Compact label for the element/text a message was anchored to (in-site
+    // editor picker). Shown under the user bubble so it's clear what was targeted.
+    targetLabel(t) {
+      if (!t) return ""
+      const label = t.selector || t.tag || (t.kind === "text" ? "text" : "element")
+      const snippet = t.text ? ' · "' + (t.text.length > 40 ? t.text.slice(0, 40) + "…" : t.text) + '"' : ""
+      return label + snippet
+    },
+
     _chatScrollBottom() {
       this.$nextTick(() => {
         const el = this.$refs.chatScroll

@@ -643,6 +643,13 @@
                             <div :class="chatBubbleClass(m)" class="max-w-[85%] rounded-lg px-3 py-2 text-sm border">
                               <div class="whitespace-pre-wrap break-words" x-text="m.text"></div>
 
+                              <!-- picked element/text this message was anchored to -->
+                              <template x-if="m.target">
+                                <div class="mt-1.5 pt-1.5 border-t border-white/25 text-[11px] opacity-80 break-all">
+                                  ✎ <span x-text="targetLabel(m.target)"></span>
+                                </div>
+                              </template>
+
                               <!-- tool call chips -->
                               <template x-if="m.toolCalls && m.toolCalls.length">
                                 <div class="mt-2 flex flex-wrap gap-1">
