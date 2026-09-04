@@ -18,10 +18,11 @@ Create professional logos through AI image generation with an iterative design p
 
 ## Prerequisites
 
-**Required API Keys (set in environment):**
+**API Keys (set in environment as needed):**
 - `GEMINI_API_KEY` - Get from [Google AI Studio](https://aistudio.google.com/apikey)
 - `REMOVE_BG_API_KEY` - Get from [remove.bg](https://www.remove.bg/api)
 - `RECRAFT_API_KEY` - Get from [recraft.ai](https://www.recraft.ai/)
+- `ATLASCLOUD_API_KEY` - Optional, only for the Atlas Cloud generation backend
 
 **Required Skills:**
 - `nanobanana` - AI image generation (Gemini 3 Pro Image)
@@ -105,6 +106,28 @@ python3 <nanobanana_skill_dir>/scripts/batch_generate.py "{style} logo for {bran
 - Use batch_generate.py for multiple variations (includes auto-delay)
 - Save to `.skill-archive/logo-creator/<yyyy-mm-dd-summaryname>/` directory
 - Use sequential naming: `logo-01.png`, `logo-02.png`, etc.
+
+#### Optional Atlas Cloud Backend
+
+Keep `nanobanana` as the default workflow. When Atlas Cloud is explicitly
+selected, generate one text-to-image variation with the bundled script:
+
+```bash
+# Preview the exact request without submitting it
+python3 <skill_dir>/scripts/generate_atlas.py \
+  --prompt "{style} logo for {brand}, {description}, {colors}" \
+  --output .skill-archive/logo-creator/<date-name>/logo-01.png
+
+# Submit one request and poll its prediction to completion
+python3 <skill_dir>/scripts/generate_atlas.py \
+  --prompt "{style} logo for {brand}, {description}, {colors}" \
+  --output .skill-archive/logo-creator/<date-name>/logo-01.png \
+  --execute
+```
+
+The script uses `openai/gpt-image-2/text-to-image`, submits the generation POST
+once, and applies bounded backoff only to prediction GET requests. Review the
+preview and obtain user confirmation before adding `--execute`.
 
 **Prompt Tips:**
 - Include style keywords: "pixel art", "minimalist", "8-bit", "flat design"
