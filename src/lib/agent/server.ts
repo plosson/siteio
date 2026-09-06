@@ -1742,24 +1742,67 @@ export class AgentServer {
     })
   }
 
-  // (Re)create the site's container: remove any existing one, then run the
-  // pinned image with Traefik labels for all its hostnames. Used by deploy,
-  // rollback, domain updates, and rename — anything that invalidates the
-  // container's bind mounts or routing labels.
-  private async startSiteContainer(site: Site): Promise<string> {
+  // Traefik labels for a site's container.
+  //
+  // A site with no custom domain keeps the single `siteio-<name>` router on its
+  // platform subdomain. Once custom domains exist they take that router over,
+  // and the platform subdomain moves to its own `-canonical` router carrying an
+  // `X-Robots-Tag: noindex` header: the same bytes on two hostnames otherwise
+  // get indexed twice, and the custom domain is the one that should rank.
+  //
+  // The subdomain deliberately keeps *serving* rather than redirecting — the
+  // in-site live editor frames it precisely because it bypasses any CDN in
+  // front of the custom domain (see handleCreateEditLink), and it is the
+  // documented fallback host for MCP share links and scoped CLI tokens.
+  // `/mcp` and `/_siteio` never reach these routers anyway: the file-provider
+  // `mcp-router` siphons them to the agent at priority 1000 (traefik.ts).
+  private buildSiteRoutingLabels(site: Site): Record<string, string> {
     const name = site.name
-    this.docker.ensureNetwork()
-    if (this.docker.containerExists(name)) await this.docker.remove(name)
-
-    const domains = this.storage.allDomains(site, this.config.domain)
-    const labels = this.docker.buildTraefikLabels(name, domains, 8090)
+    const primary = this.storage.primaryDomain(site, this.config.domain)
+    const customs = this.storage.customDomains(site, this.config.domain)
     const containerName = this.docker.containerName(name)
+
+    const labels = this.docker.buildTraefikLabels(name, customs.length > 0 ? customs : [primary], 8090)
+    // With more than one router on the container, the service each router
+    // targets has to be named explicitly.
+    labels[`traefik.http.routers.${containerName}.service`] = containerName
+
     const cacheMiddleware = `${containerName}-cache`
     labels[`traefik.http.routers.${containerName}.middlewares`] = cacheMiddleware
     labels[`traefik.http.middlewares.${cacheMiddleware}.headers.customresponseheaders.Cache-Control`] =
       "no-cache, max-age=0, must-revalidate"
     labels[`traefik.http.middlewares.${cacheMiddleware}.headers.customresponseheaders.Pragma`] = "no-cache"
     labels[`traefik.http.middlewares.${cacheMiddleware}.headers.customresponseheaders.Expires`] = "0"
+
+    if (customs.length > 0) {
+      const canonicalRouter = `${containerName}-canonical`
+      const noindexMiddleware = `${containerName}-noindex`
+      labels[`traefik.http.routers.${canonicalRouter}.rule`] = `Host(\`${primary}\`)`
+      labels[`traefik.http.routers.${canonicalRouter}.entrypoints`] = "websecure"
+      labels[`traefik.http.routers.${canonicalRouter}.tls.certresolver`] = "letsencrypt"
+      labels[`traefik.http.routers.${canonicalRouter}.service`] = containerName
+      labels[`traefik.http.routers.${canonicalRouter}.middlewares`] = `${cacheMiddleware},${noindexMiddleware}`
+      labels[`traefik.http.middlewares.${noindexMiddleware}.headers.customresponseheaders.X-Robots-Tag`] =
+        "noindex, nofollow"
+    }
+
+    return labels
+  }
+
+  // (Re)create the site's container: remove any existing one, then run the
+  // pinned image with Traefik labels for all its hostnames. Used by deploy,
+  // rollback, domain updates, and rename — anything that invalidates the
+  // container's bind mounts or routing labels.
+  //
+  // Two routers once the site has custom domains (see buildSiteRoutingLabels):
+  // the custom domains are the site's public identity, the platform subdomain
+  // still serves but is kept out of search indexes.
+  private async startSiteContainer(site: Site): Promise<string> {
+    const name = site.name
+    this.docker.ensureNetwork()
+    if (this.docker.containerExists(name)) await this.docker.remove(name)
+
+    const labels = this.buildSiteRoutingLabels(site)
 
     const env: Record<string, string> = {
       POCKET_SUPERUSER_EMAIL: site.superuserEmail!,

@@ -97,7 +97,6 @@ describe("Unit: SiteStorage", () => {
     const p = storage.create({ ...base("blog"), domains: ["blog.example.com", "custom.org"] })
     const info = storage.toInfo(p, "example.com")
     expect(info.domains).toEqual(["custom.org"])
-    expect(storage.allDomains(p, "example.com")).toEqual(["blog.example.com", "custom.org"])
   })
 
   test("history keeps at most 10 versions and prunes v<N>.json alongside", async () => {

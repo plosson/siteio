@@ -25,9 +25,15 @@ export async function sitesListCommand(options: { json?: boolean } = {}): Promis
     // Format the table
     const headers = ["NAME", "URL", "SIZE", "TLS", "DOMAINS", "STATUS", "PB", "DEPLOYED"]
     const rows = sites.map((site) => {
-      const domainsStr = site.domains && site.domains.length > 0
-        ? chalk.cyan(`${site.domains.length}`)
-        : chalk.dim("-")
+      // Show the custom domains themselves — a bare count told you nothing about
+      // where the site actually lives. Beyond two, name the first and count the rest.
+      const customs = site.domains ?? []
+      const domainsStr =
+        customs.length === 0
+          ? chalk.dim("-")
+          : customs.length <= 2
+            ? chalk.cyan(customs.join(", "))
+            : chalk.cyan(`${customs[0]}`) + chalk.dim(` +${customs.length - 1}`)
       return [
         site.name,
         site.url,

@@ -248,8 +248,50 @@ describe("API: sites", () => {
       expect(body.data!.domains).toEqual(["www.custom.org", "custom.org"])
       expect(body.data!.url).toBe("https://blog.example.com")
 
+      // The main router serves the custom domains only; the platform subdomain
+      // gets its own router so it can be de-indexed.
       const labelCall = runtime.callsOf("buildTraefikLabels")[0]!
-      expect(labelCall.args[1]).toEqual(["blog.example.com", "www.custom.org", "custom.org"])
+      expect(labelCall.args[1]).toEqual(["www.custom.org", "custom.org"])
+
+      const labels = (runtime.callsOf("run")[0]!.args[0] as { labels: Record<string, string> }).labels
+      expect(labels["traefik.http.routers.siteio-blog.rule"]).toBe(
+        "Host(`www.custom.org`) || Host(`custom.org`)"
+      )
+      expect(labels["traefik.http.routers.siteio-blog-canonical.rule"]).toBe("Host(`blog.example.com`)")
+      expect(labels["traefik.http.routers.siteio-blog-canonical.service"]).toBe("siteio-blog")
+      expect(
+        labels["traefik.http.middlewares.siteio-blog-noindex.headers.customresponseheaders.X-Robots-Tag"]
+      ).toBe("noindex, nofollow")
+      // The subdomain keeps the no-cache headers the main router has.
+      expect(labels["traefik.http.routers.siteio-blog-canonical.middlewares"]).toBe(
+        "siteio-blog-cache,siteio-blog-noindex"
+      )
+    })
+
+    test("a site with no custom domain keeps a single router on the platform subdomain", async () => {
+      runtime.calls = []
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+
+      const labels = (runtime.callsOf("run")[0]!.args[0] as { labels: Record<string, string> }).labels
+      expect(labels["traefik.http.routers.siteio-blog.rule"]).toBe("Host(`blog.example.com`)")
+      expect(labels["traefik.http.routers.siteio-blog-canonical.rule"]).toBeUndefined()
+      expect(
+        labels["traefik.http.middlewares.siteio-blog-noindex.headers.customresponseheaders.X-Robots-Tag"]
+      ).toBeUndefined()
+    })
+
+    test("removing the last custom domain hands the platform subdomain back to the main router", async () => {
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+      runtime.containerExistsReturn = true
+      await patchDomains(["custom.org"])
+      runtime.calls = []
+
+      const res = await patchDomains([])
+      expect(res.status).toBe(200)
+
+      const labels = (runtime.callsOf("run")[0]!.args[0] as { labels: Record<string, string> }).labels
+      expect(labels["traefik.http.routers.siteio-blog.rule"]).toBe("Host(`blog.example.com`)")
+      expect(labels["traefik.http.routers.siteio-blog-canonical.rule"]).toBeUndefined()
     })
 
     test("rejects domains under the base domain", async () => {

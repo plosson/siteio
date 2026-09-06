@@ -114,12 +114,15 @@ export async function domainListCommand(
     } else {
       console.log("")
       console.log(chalk.bold(`Domains for ${name}:`))
-      console.log(`  ${chalk.cyan(site.url)} ${chalk.dim("(primary)")}`)
       if (domains.length > 0) {
         for (const d of domains) {
           console.log(`  ${chalk.cyan(`https://${d}`)}`)
         }
+        // The subdomain still serves (the live editor and MCP fallback need it)
+        // but carries X-Robots-Tag: noindex, so only the custom domains rank.
+        console.log(`  ${chalk.dim(site.url)} ${chalk.dim("(siteio subdomain — serves, not indexed)")}`)
       } else {
+        console.log(`  ${chalk.cyan(site.url)} ${chalk.dim("(primary)")}`)
         console.log(chalk.dim("  No custom domains configured."))
       }
       console.log("")

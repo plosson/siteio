@@ -264,11 +264,6 @@ export class SiteStorage {
     return site.domains.filter((d) => d !== `${site.name}.${domain}`)
   }
 
-  // All hostnames the container should route: default subdomain + customs.
-  allDomains(site: Site, domain: string): string[] {
-    return [this.primaryDomain(site, domain), ...this.customDomains(site, domain)]
-  }
-
   // Reverse lookup: the site that owns a custom domain host (e.g. the sharing
   // endpoints resolve which site a request on a vanity domain belongs to).
   findByCustomDomain(host: string, domain: string): Site | null {
