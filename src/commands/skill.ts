@@ -10,13 +10,61 @@ import { select } from "../utils/prompt.ts"
 
 type SkillScope = "user" | "project"
 
-function skillDir(scope: SkillScope): string {
-  const base = scope === "user" ? homedir() : process.cwd()
-  return join(base, ".claude", "skills", "siteio")
+// Where the skill is written. `.agents/skills/` is the cross-agent convention
+// (Codex, Cursor, Gemini CLI, Copilot, Amp, Cline, OpenCode, Warp, ...);
+// Claude Code reads only its own `.claude/skills/`, so it needs its own copy.
+// Both hold the same SKILL.md — an install refreshes every target.
+interface SkillTarget {
+  // Directory holding the per-scope skill roots, relative to the scope base.
+  dir: string
+  // Agents that pick the skill up from here, for the human-facing summary.
+  agents: string
 }
 
-function skillFile(scope: SkillScope): string {
-  return join(skillDir(scope), "SKILL.md")
+const TARGETS: SkillTarget[] = [
+  { dir: join(".agents", "skills"), agents: "Codex, Cursor, Gemini CLI, Copilot, Amp, OpenCode, Warp" },
+  { dir: join(".claude", "skills"), agents: "Claude Code" },
+]
+
+export function scopeBase(scope: SkillScope): string {
+  return scope === "user" ? homedir() : process.cwd()
+}
+
+function skillDir(base: string, target: SkillTarget): string {
+  return join(base, target.dir, "siteio")
+}
+
+function skillFile(base: string, target: SkillTarget): string {
+  return join(skillDir(base, target), "SKILL.md")
+}
+
+export interface InstalledSkill {
+  path: string
+  agents: string
+}
+
+// Write SKILL.md to every target under `base`, creating directories as needed.
+// Separated from the command so it is testable without process.exit.
+export function writeSkillTo(base: string): InstalledSkill[] {
+  return TARGETS.map((target) => {
+    const dir = skillDir(base, target)
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    const file = skillFile(base, target)
+    writeFileSync(file, SKILL_CONTENT, "utf-8")
+    return { path: file, agents: target.agents }
+  })
+}
+
+// Remove every installed target under `base`; returns the files that existed.
+export function removeSkillFrom(base: string): string[] {
+  const removed: string[] = []
+  for (const target of TARGETS) {
+    const file = skillFile(base, target)
+    if (!existsSync(file)) continue
+    rmSync(skillDir(base, target), { recursive: true, force: true })
+    removed.push(file)
+  }
+  return removed
 }
 
 async function resolveScope(options: { scope?: string; json?: boolean }): Promise<SkillScope> {
@@ -30,12 +78,25 @@ async function resolveScope(options: { scope?: string; json?: boolean }): Promis
   // Interactive prompt when possible, otherwise default to user scope
   if (!options.json && process.stdin.isTTY) {
     return select<SkillScope>("Where should the skill be installed?", [
-      { value: "user", label: `user    (${join(homedir(), ".claude")}, available in all projects)` },
-      { value: "project", label: `project (${join(process.cwd(), ".claude")}, this project only)` },
+      { value: "user", label: `user    (${homedir()}, available in all projects)` },
+      { value: "project", label: `project (${process.cwd()}, this project only)` },
     ])
   }
 
   return "user"
+}
+
+// Print the skill to stdout. This is the agent-facing path: an agent already
+// running siteio needs the instructions in its context now, not a file on disk
+// it would have to be restarted to discover. Works for any agent, including
+// those that implement no skill standard at all.
+export function showSkillCommand(options: { json?: boolean } = {}): void {
+  if (options.json) {
+    console.log(JSON.stringify({ success: true, data: { name: "siteio", content: SKILL_CONTENT } }, null, 2))
+  } else {
+    console.log(SKILL_CONTENT)
+  }
+  process.exit(0)
 }
 
 export async function installSkillCommand(options: { json?: boolean; scope?: string }): Promise<void> {
@@ -43,30 +104,26 @@ export async function installSkillCommand(options: { json?: boolean; scope?: str
 
   try {
     const scope = await resolveScope(options)
-    const dir = skillDir(scope)
-    const file = skillFile(scope)
 
-    spinner.start(`Installing siteio skill for Claude Code (${scope} scope)`)
+    spinner.start(`Installing siteio skill (${scope} scope)`)
 
-    // Create directory if it doesn't exist
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true })
-    }
-
-    // Write the skill file
-    writeFileSync(file, SKILL_CONTENT, "utf-8")
+    const installed = writeSkillTo(scopeBase(scope))
 
     spinner.succeed("Skill installed")
 
     if (options.json) {
-      console.log(JSON.stringify({ success: true, data: { scope, path: file } }, null, 2))
+      console.log(JSON.stringify({ success: true, data: { scope, installed } }, null, 2))
     } else {
       console.log("")
-      console.log(formatSuccess(`siteio skill installed for Claude Code (${scope} scope)`))
+      console.log(formatSuccess(`siteio skill installed (${scope} scope)`))
       console.log("")
-      console.log(`  Location: ${chalk.cyan(file)}`)
-      console.log("")
-      console.log(chalk.dim("Claude Code will now be able to deploy sites using siteio."))
+      for (const { path, agents } of installed) {
+        console.log(`  ${chalk.cyan(path)}`)
+        console.log(`  ${chalk.dim(agents)}`)
+        console.log("")
+      }
+      console.log(chalk.dim("Agents will load the skill on their next start."))
+      console.log(chalk.dim("Any agent can also read it now with: siteio skill"))
       console.log("")
     }
 
@@ -89,12 +146,17 @@ export async function uninstallSkillCommand(options: { json?: boolean; scope?: s
       scopes = [options.scope]
     } else {
       // No scope given: remove from wherever it is installed
-      scopes = (["user", "project"] as SkillScope[]).filter((s) => existsSync(skillFile(s)))
+      scopes = ["user", "project"]
     }
 
-    const installed = scopes.filter((s) => existsSync(skillFile(s)))
+    spinner.start("Uninstalling siteio skill")
 
-    if (installed.length === 0) {
+    const removed = scopes.flatMap((scope) =>
+      removeSkillFrom(scopeBase(scope)).map((path) => ({ scope, path }))
+    )
+
+    if (removed.length === 0) {
+      spinner.stop()
       if (options.json) {
         console.log(JSON.stringify({ success: true, data: { message: "Skill not installed" } }, null, 2))
       } else {
@@ -103,13 +165,6 @@ export async function uninstallSkillCommand(options: { json?: boolean; scope?: s
       process.exit(0)
     }
 
-    spinner.start("Uninstalling siteio skill")
-
-    const removed = installed.map((scope) => {
-      rmSync(skillDir(scope), { recursive: true, force: true })
-      return { scope, path: skillFile(scope) }
-    })
-
     spinner.succeed("Skill uninstalled")
 
     if (options.json) {
@@ -117,7 +172,7 @@ export async function uninstallSkillCommand(options: { json?: boolean; scope?: s
     } else {
       console.log("")
       for (const r of removed) {
-        console.log(formatSuccess(`siteio skill removed from Claude Code (${r.scope} scope)`))
+        console.log(formatSuccess(`Removed ${r.path}`))
       }
       console.log("")
     }

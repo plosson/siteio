@@ -192,6 +192,9 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
     }
   }
 
+  // A scoped-token login is usually an AI agent acting for someone who was sent
+  // a share link, so point it at the instructions it will not think to ask for.
+  p.log.info("Using an AI agent? Run 'siteio skill' for usage instructions.")
   p.outro(formatSuccess(`Logged in to ${domain}`))
   process.exit(0)
 }

@@ -14,6 +14,11 @@ const program = new Command()
   .description("Deploy static sites and apps with ease")
   .version(getVersion())
   .option("--json", "Output results as JSON")
+  .addHelpText(
+    "after",
+    `
+AI agents: run 'siteio skill' for full usage instructions.`
+  )
 
 // Status command
 program
@@ -536,14 +541,22 @@ program
   })
 
 // Skill commands
+// Bare `siteio skill` prints the skill to stdout - the agent-facing path, since
+// an agent already running siteio needs the instructions in context now rather
+// than a file it would have to restart to discover. `install` persists it for
+// agents that load skills at startup.
 const skill = program
   .command("skill")
-  .description("Manage Claude Code skill integration")
+  .description("Print the siteio agent skill (how to use siteio) to stdout")
+  .action(async () => {
+    const { showSkillCommand } = await import("./commands/skill.ts")
+    showSkillCommand({ json: program.opts().json })
+  })
 
 skill
   .command("install")
-  .description("Install the siteio skill for Claude Code")
-  .option("-s, --scope <scope>", "Install scope: user (~/.claude) or project (./.claude)")
+  .description("Install the skill so agents load it automatically")
+  .option("-s, --scope <scope>", "Install scope: user (home) or project (current directory)")
   .action(async (options) => {
     const { installSkillCommand } = await import("./commands/skill.ts")
     await installSkillCommand({ json: program.opts().json, scope: options.scope })
@@ -551,8 +564,8 @@ skill
 
 skill
   .command("uninstall")
-  .description("Remove the siteio skill from Claude Code")
-  .option("-s, --scope <scope>", "Uninstall scope: user (~/.claude) or project (./.claude)")
+  .description("Remove the installed skill")
+  .option("-s, --scope <scope>", "Uninstall scope: user (home) or project (current directory)")
   .action(async (options) => {
     const { uninstallSkillCommand } = await import("./commands/skill.ts")
     await uninstallSkillCommand({ json: program.opts().json, scope: options.scope })
