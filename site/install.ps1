@@ -101,25 +101,38 @@ function Get-InstallDirectory {
     return Join-Path $env:USERPROFILE ".local\bin"
 }
 
+# github.com/<repo>/releases/latest redirects to /releases/tag/v<version>. That is
+# not the REST API, so it does not consume the 60 requests/hour that api.github.com
+# allows an unauthenticated IP - a budget other tools on the same host or NAT can
+# exhaust on their own.
 function Get-LatestVersion {
-    $url = "https://api.github.com/repos/$GitHubRepo/releases/latest"
-    $headers = @{
-        "Accept" = "application/vnd.github.v3+json"
-        "User-Agent" = "siteio-installer"
-    }
-
-    if ($GitHubToken) {
-        $headers["Authorization"] = "Bearer $GitHubToken"
-    }
+    $url = "https://github.com/$GitHubRepo/releases/latest"
+    $location = $null
 
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Get
-        return $response.tag_name -replace '^v', ''
+        $request = [Net.WebRequest]::Create($url)
+        $request.Method = "HEAD"
+        $request.AllowAutoRedirect = $false
+        $request.UserAgent = "siteio-installer"
+
+        $response = $request.GetResponse()
+        try {
+            $location = $response.Headers["Location"]
+        }
+        finally {
+            $response.Close()
+        }
     }
     catch {
         Write-Error-Custom "Failed to fetch latest version: $_"
     }
+
+    if ($location -notmatch '/releases/tag/v?(.+)$') {
+        Write-Error-Custom "Failed to fetch latest version from $url"
+    }
+
+    return $Matches[1]
 }
 
 function Download-Binary {
