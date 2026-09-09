@@ -93,9 +93,6 @@ function buildTraefikLabelsForCompose(
     labels[`traefik.http.routers.${containerName}.rule`] = hostRules
   }
 
-  // OAuth: labels wired here once siteio enforces OAuth on container apps.
-  // See TODO at src/lib/agent/docker.ts:313-314 — same gap as today.
-
   return labels
 }
 

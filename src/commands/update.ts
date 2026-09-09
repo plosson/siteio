@@ -389,7 +389,8 @@ export async function updateCommand(options: UpdateOptions = {}): Promise<void> 
       console.error("Automatic update failed. You can update manually:")
       console.error("")
       if (os.platform() === "win32") {
-        console.error("  iwr -useb https://siteio.houlahop.com/install.ps1 | iex")
+        console.error("  Windows binaries are not shipped yet. Use macOS/Linux or WSL:")
+        console.error("  curl -LsSf https://siteio.houlahop.com/install | sh")
       } else {
         console.error("  curl -LsSf https://siteio.houlahop.com/install | sh")
       }

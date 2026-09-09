@@ -633,10 +633,7 @@
           </div>
         </div>
         <div class="install-content" data-content="windows">
-          <div class="install-command">
-            <code>iwr -useb https://siteio.houlahop.com/install.ps1 | iex</code>
-            <button class="copy-btn" onclick="copyCommand(this, 'iwr -useb https://siteio.houlahop.com/install.ps1 | iex')">Copy</button>
-          </div>
+          <p style="margin:0;color:var(--muted, #888);font-size:0.95rem;">Windows binaries are not shipped yet (release builds for windows-x64 are disabled). Use macOS or Linux, or WSL with the Unix installer.</p>
         </div>
         <div class="update-hint">
           Already installed? Run <code>siteio update</code> to get the latest version.
@@ -745,7 +742,7 @@ siteio sites rm my-site</code></pre>
       <div class="features">
         <div class="feature">
           <h3>Single binary</h3>
-          <p>No runtime dependencies. Works on macOS, Linux, and Windows.</p>
+          <p>No runtime dependencies. Works on macOS and Linux (Windows binaries not shipped yet).</p>
         </div>
         <div class="feature">
           <h3>Instant deploys</h3>

@@ -44,8 +44,7 @@ export interface Runtime {
   buildTraefikLabels(
     appName: string,
     domains: string[],
-    port: number,
-    requireAuth?: boolean
+    port: number
   ): Record<string, string>
   imageExists(tag: string): boolean
 

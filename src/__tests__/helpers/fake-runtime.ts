@@ -111,10 +111,9 @@ export class FakeRuntime implements Runtime {
   buildTraefikLabels(
     appName: string,
     domains: string[],
-    port: number,
-    requireAuth?: boolean
+    port: number
   ): Record<string, string> {
-    this.record("buildTraefikLabels", [appName, domains, port, requireAuth])
+    this.record("buildTraefikLabels", [appName, domains, port])
     const containerName = `siteio-${appName}`
     return {
       "traefik.enable": "true",

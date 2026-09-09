@@ -46,3 +46,6 @@ playwright-report/
 
 # Local deploy state written by the siteio CLI
 .siteio/
+
+# orphaned local debug dumps
+.debug-data/

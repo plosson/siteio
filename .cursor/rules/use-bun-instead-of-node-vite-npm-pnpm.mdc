@@ -1,1 +1,16 @@
-../../CLAUDE.md
+---
+description: Prefer Bun over Node, npm, vite, and pnpm in this repo
+alwaysApply: true
+---
+
+# Use Bun, not Node/npm/vite/pnpm
+
+This project is Bun-first. Prefer Bun tooling and APIs.
+
+- Package manager: `bun install` (not npm/pnpm/yarn)
+- Scripts: `bun run …` / `bun test` (not `npm run` / `npx`)
+- Runtime APIs: prefer `bun` builtins (`Bun.file`, `Bun.spawn`, etc.) over Node equivalents when they exist
+- Do not introduce Vite, webpack, or other Node-centric bundlers unless an existing path already requires them
+- Dev dependency installs: `bun add -d <pkg>`
+
+If a tool only exists as an npm CLI, run it via `bunx` rather than `npx`.

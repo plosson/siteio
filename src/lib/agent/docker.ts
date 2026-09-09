@@ -299,8 +299,7 @@ export class DockerManager implements Runtime {
   buildTraefikLabels(
     appName: string,
     domains: string[],
-    port: number,
-    requireAuth: boolean = false
+    port: number
   ): Record<string, string> {
     const containerName = this.containerName(appName)
     const labels: Record<string, string> = {
@@ -314,9 +313,6 @@ export class DockerManager implements Runtime {
       const hostRules = domains.map((d) => `Host(\`${d}\`)`).join(" || ")
       labels[`traefik.http.routers.${containerName}.rule`] = hostRules
     }
-
-    // OAuth settings are stored but not enforced yet
-    // TODO: Implement OAuth enforcement for container apps
 
     return labels
   }

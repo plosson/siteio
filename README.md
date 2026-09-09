@@ -5,11 +5,15 @@ A self-hosted deployment platform for static websites and Docker containers with
 ## Installation
 
 ```bash
-# Using npm
-npm install -g siteio
+# macOS / Linux (official installer)
+curl -LsSf https://siteio.houlahop.com/install | sh
 
-# Or download binary from releases
+# Or from this repo with Bun
+bun install
+bun run src/cli.ts --help
 ```
+
+Windows binaries are not shipped in releases yet.
 
 ## Quick Start
 
