@@ -1,5 +1,6 @@
 import { join } from "path"
 import type { App } from "../../types"
+import { APP_ROUTER_PRIORITY } from "./traefik"
 
 /**
  * Generates the YAML content of docker-compose.siteio.yml, the siteio-owned
@@ -85,6 +86,8 @@ function buildTraefikLabelsForCompose(
     "traefik.docker.network": "siteio-network",
     [`traefik.http.routers.${containerName}.entrypoints`]: "websecure",
     [`traefik.http.routers.${containerName}.tls.certresolver`]: "letsencrypt",
+    // Apps own their whole host: outrank the agent's reserved-path MCP router.
+    [`traefik.http.routers.${containerName}.priority`]: String(APP_ROUTER_PRIORITY),
     [`traefik.http.services.${containerName}.loadbalancer.server.port`]: String(app.internalPort),
   }
 

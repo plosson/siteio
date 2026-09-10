@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { DockerManager } from "../../lib/agent/docker"
+import { MCP_ROUTER_PRIORITY } from "../../lib/agent/traefik"
 
 function isDockerAvailable(): boolean {
   const result = Bun.spawnSync({ cmd: ["docker", "info"], stdout: "pipe", stderr: "pipe" })
@@ -145,6 +146,12 @@ describe("Unit: DockerManager", () => {
       expect(labels["traefik.http.routers.siteio-myapp.tls.certresolver"]).toBe("letsencrypt")
       expect(labels["traefik.http.services.siteio-myapp.loadbalancer.server.port"]).toBe("80")
       expect(labels["traefik.http.routers.siteio-myapp.middlewares"]).toBeUndefined()
+    })
+
+    test("outranks the agent's MCP router so apps own their whole host", () => {
+      const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80)
+
+      expect(Number(labels["traefik.http.routers.siteio-myapp.priority"])).toBeGreaterThan(MCP_ROUTER_PRIORITY)
     })
   })
 

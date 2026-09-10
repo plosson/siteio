@@ -7,6 +7,16 @@ import type { AcmeConfig } from "../../types.ts"
 const TRAEFIK_CONTAINER_NAME = "siteio-traefik"
 const TRAEFIK_IMAGE = "traefik:v3.7"
 
+// Router priorities. Traefik picks the highest-priority matching router, so
+// these define who owns which path on a host:
+//   - MCP_ROUTER_PRIORITY: the agent's reserved-path router (`/mcp`, `/_siteio`,
+//     OAuth `.well-known`) sits above site containers' default-priority
+//     `Host(...)` routers.
+//   - APP_ROUTER_PRIORITY: container apps own their whole host, including
+//     those reserved paths, so their router sits above the MCP router.
+export const MCP_ROUTER_PRIORITY = 1000
+export const APP_ROUTER_PRIORITY = 2000
+
 export interface TraefikConfig {
   dataDir: string
   domain: string
@@ -118,6 +128,8 @@ log:
   //     reaches the site container. The rule is host-agnostic so it also covers
   //     sites' custom (vanity) domains — the agent resolves the host to a site.
   //     Each site's own router already provisions the Let's Encrypt cert reused.
+  //     Container apps opt out: their routers carry APP_ROUTER_PRIORITY, so
+  //     `/mcp` on an app host reaches the app, not the agent.
   // Everything else (sites and apps alike) routes via docker-label discovery.
   generateDynamicConfig(): string {
     const { domain, fileServerPort } = this.config
@@ -142,7 +154,7 @@ log:
               "PathPrefix(`/.well-known/oauth-protected-resource`)",
             entryPoints: ["websecure"],
             service: "api-service",
-            priority: 1000,
+            priority: MCP_ROUTER_PRIORITY,
             tls: {
               certResolver: "letsencrypt",
             },

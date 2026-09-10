@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test"
 import { buildOverride } from "../../lib/agent/compose-override"
+import { APP_ROUTER_PRIORITY } from "../../lib/agent/traefik"
 import type { App } from "../../types"
 
 function appWithCompose(overrides: Partial<App> = {}): App {
@@ -40,6 +41,7 @@ describe("Unit: buildOverride", () => {
     expect(yaml).toContain('traefik.http.routers.siteio-myapp.entrypoints: "websecure"')
     expect(yaml).toContain('traefik.http.routers.siteio-myapp.tls.certresolver: "letsencrypt"')
     expect(yaml).toContain('traefik.http.services.siteio-myapp.loadbalancer.server.port: "3000"')
+    expect(yaml).toContain(`traefik.http.routers.siteio-myapp.priority: "${APP_ROUTER_PRIORITY}"`)
     expect(yaml).toContain('traefik.http.routers.siteio-myapp.rule: "Host(`app.example.com`)"')
   })
 

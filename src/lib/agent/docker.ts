@@ -5,6 +5,7 @@ import { SiteioError } from "../../utils/errors"
 import type { Runtime } from "./runtime"
 import { ComposeManager, type ComposeSpec } from "./compose"
 import type { ComposeLogsOptions, ComposeServiceState } from "./runtime"
+import { APP_ROUTER_PRIORITY } from "./traefik"
 
 export interface ContainerRunConfig {
   name: string
@@ -306,6 +307,8 @@ export class DockerManager implements Runtime {
       "traefik.enable": "true",
       [`traefik.http.routers.${containerName}.entrypoints`]: "websecure",
       [`traefik.http.routers.${containerName}.tls.certresolver`]: "letsencrypt",
+      // Apps own their whole host: outrank the agent's reserved-path MCP router.
+      [`traefik.http.routers.${containerName}.priority`]: String(APP_ROUTER_PRIORITY),
       [`traefik.http.services.${containerName}.loadbalancer.server.port`]: String(port),
     }
 
