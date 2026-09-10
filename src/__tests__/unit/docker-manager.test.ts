@@ -136,16 +136,14 @@ describe("Unit: DockerManager", () => {
   })
 
   describe("buildTraefikLabels", () => {
-    test("builds Traefik labels with forwardAuth for OAuth", () => {
-      const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80, true)
+    test("builds Traefik host and TLS labels", () => {
+      const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80)
 
-      // OAuth enforcement not yet implemented - no middleware expected
-      expect(labels["traefik.http.routers.siteio-myapp.middlewares"]).toBeUndefined()
-    })
-
-    test("builds Traefik labels without forwardAuth when no OAuth", () => {
-      const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80, false)
-
+      expect(labels["traefik.enable"]).toBe("true")
+      expect(labels["traefik.http.routers.siteio-myapp.rule"]).toBe("Host(`myapp.example.com`)")
+      expect(labels["traefik.http.routers.siteio-myapp.entrypoints"]).toBe("websecure")
+      expect(labels["traefik.http.routers.siteio-myapp.tls.certresolver"]).toBe("letsencrypt")
+      expect(labels["traefik.http.services.siteio-myapp.loadbalancer.server.port"]).toBe("80")
       expect(labels["traefik.http.routers.siteio-myapp.middlewares"]).toBeUndefined()
     })
   })
