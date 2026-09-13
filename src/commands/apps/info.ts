@@ -82,12 +82,17 @@ export async function infoAppCommand(
       console.log("")
     }
 
-    // Environment variables
+    // Environment variables. Secret values are never sent by the server and
+    // there is no flag to reveal them — a secret is write-only once set.
     const envKeys = Object.keys(app.env)
-    if (envKeys.length > 0) {
+    const secretKeys = app.secretKeys ?? []
+    if (envKeys.length > 0 || secretKeys.length > 0) {
       console.log(chalk.bold("Environment:"))
       for (const key of envKeys) {
         console.log(`  ${key}=${chalk.dim(app.env[key])}`)
+      }
+      for (const key of secretKeys) {
+        console.log(`  ${key}=${chalk.dim("••••••••")} ${chalk.dim("(secret)")}`)
       }
       console.log("")
     }

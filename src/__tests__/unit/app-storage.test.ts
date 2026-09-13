@@ -125,4 +125,71 @@ describe("Unit: AppStorage", () => {
     expect(() => storage.create(createTestApp("myapp"))).toThrow()
   })
 
+  describe("secrets", () => {
+    test("marks the keys it was given as secret", () => {
+      storage.create(createTestApp("myapp", { env: { NODE_ENV: "production" } }))
+
+      const updated = storage.update("myapp", { secrets: { API_TOKEN: "s3cr3t" } })!
+      expect(updated.env).toEqual({ NODE_ENV: "production", API_TOKEN: "s3cr3t" })
+      expect(updated.secretKeys).toEqual(["API_TOKEN"])
+    })
+
+    test("adds and rotates secrets across updates", () => {
+      storage.create(createTestApp("myapp"))
+
+      storage.update("myapp", { secrets: { A: "one" } })
+      const updated = storage.update("myapp", { secrets: { B: "two" } })!
+      expect(updated.env).toEqual({ A: "one", B: "two" })
+      expect(updated.secretKeys?.sort()).toEqual(["A", "B"])
+
+      const rotated = storage.update("myapp", { secrets: { A: "rotated" } })!
+      expect(rotated.env.A).toBe("rotated")
+      expect(rotated.secretKeys?.sort()).toEqual(["A", "B"])
+    })
+
+    test("marking an existing plain env var secret keeps its key listed once", () => {
+      storage.create(createTestApp("myapp", { env: { API_TOKEN: "was-plain" } }))
+
+      const updated = storage.update("myapp", { secrets: { API_TOKEN: "now-secret" } })!
+      expect(updated.env.API_TOKEN).toBe("now-secret")
+      expect(updated.secretKeys).toEqual(["API_TOKEN"])
+    })
+
+    test("refuses to un-secret a key with a plain -e", () => {
+      storage.create(createTestApp("myapp"))
+      storage.update("myapp", { secrets: { API_TOKEN: "s3cr3t" } })
+
+      expect(() => storage.update("myapp", { env: { API_TOKEN: "oops" } })).toThrow("is a secret")
+      expect(storage.get("myapp")!.env.API_TOKEN).toBe("s3cr3t")
+    })
+
+    test("unsetEnv removes the value and the secret marking", () => {
+      storage.create(createTestApp("myapp", { env: { NODE_ENV: "production" } }))
+      storage.update("myapp", { secrets: { API_TOKEN: "s3cr3t" } })
+
+      const updated = storage.update("myapp", { unsetEnv: ["API_TOKEN"] })!
+      expect(updated.env).toEqual({ NODE_ENV: "production" })
+      expect(updated.secretKeys).toBeUndefined()
+
+      // The key is free to use as plain config again
+      expect(() => storage.update("myapp", { env: { API_TOKEN: "now-public" } })).not.toThrow()
+    })
+
+    test("unrelated updates preserve the secret marking", () => {
+      storage.create(createTestApp("myapp"))
+      storage.update("myapp", { secrets: { API_TOKEN: "s3cr3t" } })
+
+      const updated = storage.update("myapp", { status: "running", domains: ["a.example.com"] })!
+      expect(updated.secretKeys).toEqual(["API_TOKEN"])
+      expect(updated.env.API_TOKEN).toBe("s3cr3t")
+    })
+
+    test("derives secretKeys rather than trusting what a client sends", () => {
+      storage.create(createTestApp("myapp"))
+      storage.update("myapp", { secrets: { API_TOKEN: "s3cr3t" } })
+
+      const updated = storage.update("myapp", { secretKeys: ["INJECTED"] })!
+      expect(updated.secretKeys).toEqual(["API_TOKEN"])
+    })
+  })
 })

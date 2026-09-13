@@ -68,6 +68,9 @@ export interface App {
 
   // Runtime
   env: Record<string, string>
+  // Env keys marked secret. Their values live in `env` like any other var, but
+  // the API strips them on the way out so the CLI can never print one back.
+  secretKeys?: string[]
   volumes: VolumeMount[]
   internalPort: number
   restartPolicy: RestartPolicy

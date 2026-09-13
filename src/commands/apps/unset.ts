@@ -29,7 +29,7 @@ export async function unsetAppCommand(
     name = resolved
 
     if (!options.env || options.env.length === 0) {
-      throw new ValidationError("No keys specified. Use --env KEY to remove environment variables")
+      throw new ValidationError("No keys specified. Use --env KEY to remove environment variables or secrets")
     }
 
     const client = new SiteioClient()

@@ -150,8 +150,10 @@ siteio apps create nodeapi --image node:20-alpine --port 3000
 # Configure environment variables
 siteio apps set nodeapi \
   -e NODE_ENV=production \
-  -e DATABASE_URL="postgres://user:pass@db.example.com:5432/mydb" \
-  -e JWT_SECRET="your-secret-key"
+  -e DATABASE_URL="postgres://user:pass@db.example.com:5432/mydb"
+
+# Configure secrets (stored encrypted, never displayed again)
+siteio apps set nodeapi --secret JWT_SECRET="your-secret-key"
 
 # Set restart policy
 siteio apps set nodeapi -r unless-stopped
@@ -159,6 +161,46 @@ siteio apps set nodeapi -r unless-stopped
 # Deploy
 siteio apps deploy nodeapi
 ```
+
+### Secret environment variables
+
+`-e KEY=value` is plain configuration: it is stored as-is and printed back by
+`siteio apps info`. For anything sensitive — a passphrase, a database URL, an
+API token, a signing key — use `--secret` instead:
+
+```bash
+# Inline
+siteio apps set myapp --secret VAULT_PASSPHRASE="correct horse battery staple"
+
+# From a file, keeping the value out of shell history and the process list
+siteio apps set myapp --secret-file VAULT_PASSPHRASE=./passphrase.txt
+
+# From stdin, same idea
+pass show vault | siteio apps set myapp --secret-stdin VAULT_PASSPHRASE
+
+# A whole env file at once — every key in it becomes a secret
+siteio apps set myapp --secret ./secrets.env
+```
+
+The agent stops sending the value back once a key is marked secret, so the CLI
+has nothing to print:
+
+```console
+$ siteio apps info myapp
+Environment:
+  NODE_ENV=production
+  VAULT_PASSPHRASE=•••••••• (secret)
+```
+
+There is no flag to reveal it — a secret is write-only once set. To change one,
+set it again; to remove it, `siteio apps unset myapp -e VAULT_PASSPHRASE`.
+Restart the app for either to take effect.
+
+What this is for: stopping the CLI from being the easy way to read every secret
+of every app, and keeping values off your screen during a share or a demo. It
+is not protection against someone with access to the server — the agent stores
+the value as it stores any other env var, and the container needs it in its
+environment, so `docker inspect` on the host still shows it.
 
 ### Example 5: PostgreSQL Database with Persistent Storage
 

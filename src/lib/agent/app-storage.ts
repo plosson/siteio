@@ -59,21 +59,41 @@ export class AppStorage {
     return JSON.parse(readFileSync(path, "utf-8"))
   }
 
-  update(name: string, updates: Partial<Omit<App, "name" | "createdAt">> & { unsetEnv?: string[] }): App | null {
+  /**
+   * Update an app. `updates.secrets` are env vars whose keys get marked secret,
+   * so the API stops returning their values; `secretKeys` itself is derived
+   * here and ignored on input.
+   */
+  update(
+    name: string,
+    updates: Partial<Omit<App, "name" | "createdAt">> & { secrets?: Record<string, string>; unsetEnv?: string[] }
+  ): App | null {
     const app = this.get(name)
     if (!app) {
       return null
     }
 
-    const { unsetEnv, ...appUpdates } = updates
+    const { unsetEnv, secrets, secretKeys: _derived, ...appUpdates } = updates
 
     // Merge env vars additively instead of replacing
-    const mergedEnv = { ...(app.env || {}), ...(appUpdates.env || {}) }
+    const mergedEnv = { ...(app.env || {}), ...(appUpdates.env || {}), ...(secrets || {}) }
+    const secretKeys = new Set([...(app.secretKeys || []), ...Object.keys(secrets || {})])
+
+    // Refuse to un-secret a key with a plain `-e`. The value can't be read back
+    // to check what it was, so that is far more likely a mistake than intent.
+    for (const key of Object.keys(appUpdates.env || {})) {
+      if (secretKeys.has(key) && !secrets?.[key]) {
+        throw new ValidationError(
+          `'${key}' is a secret. Set it with --secret ${key}=<value>, or remove it first with 'apps unset -e ${key}'`
+        )
+      }
+    }
 
     // Remove unset keys
     if (unsetEnv) {
       for (const key of unsetEnv) {
         delete mergedEnv[key]
+        secretKeys.delete(key)
       }
     }
 
@@ -81,9 +101,13 @@ export class AppStorage {
       ...app,
       ...appUpdates,
       env: mergedEnv,
+      ...(secretKeys.size > 0 ? { secretKeys: [...secretKeys] } : {}),
       name: app.name, // Prevent name changes
       createdAt: app.createdAt, // Preserve creation date
       updatedAt: new Date().toISOString(),
+    }
+    if (secretKeys.size === 0) {
+      delete updated.secretKeys
     }
 
     writeFileSync(this.getAppPath(name), JSON.stringify(updated, null, 2))

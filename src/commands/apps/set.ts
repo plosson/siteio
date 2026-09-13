@@ -10,6 +10,9 @@ import type { VolumeMount, RestartPolicy } from "../../types.ts"
 
 export interface SetAppOptions {
   env?: string[]
+  secret?: string[]
+  secretFile?: string[]
+  secretStdin?: string
   volume?: string[]
   domain?: string[]
   port?: number
@@ -39,24 +42,52 @@ function parseEnvFile(filePath: string): Record<string, string> {
   return env
 }
 
-function parseEnvVars(envArgs: string[]): Record<string, string> {
+/** Split `KEY=rest` for a flag, rejecting a missing `=` or an empty key. */
+function splitKeyValue(arg: string, flag: string, valueHint: string): [string, string] {
+  const idx = arg.indexOf("=")
+  if (idx <= 0) {
+    throw new ValidationError(`Invalid ${flag} format: ${arg}. Use KEY=${valueHint}`)
+  }
+  return [arg.slice(0, idx), arg.slice(idx + 1)]
+}
+
+/** `-e KEY=value` / `--secret KEY=value`, or a bare path to an env file. */
+function parseEnvVars(envArgs: string[], flag: string): Record<string, string> {
   const env: Record<string, string> = {}
-  for (const e of envArgs) {
-    const idx = e.indexOf("=")
-    if (idx === -1) {
-      // No '=' found — check if it's a file path
-      if (existsSync(e)) {
-        Object.assign(env, parseEnvFile(e))
-      } else {
-        throw new ValidationError(`Invalid env format: ${e}. Use KEY=value or provide a path to an env file`)
+  for (const arg of envArgs) {
+    if (!arg.includes("=")) {
+      // No '=' found — a bare argument is a path to an env file to bulk-load.
+      if (!existsSync(arg)) {
+        throw new ValidationError(`Invalid ${flag} format: ${arg}. Use KEY=value or the path to an env file`)
       }
-    } else {
-      const key = e.slice(0, idx)
-      const value = e.slice(idx + 1)
-      env[key] = value
+      Object.assign(env, parseEnvFile(arg))
+      continue
     }
+    const [key, value] = splitKeyValue(arg, flag, "value")
+    env[key] = value
   }
   return env
+}
+
+/** Drop the single trailing newline a file or a heredoc usually ends with. */
+function trimTrailingNewline(value: string): string {
+  return value.replace(/\r?\n$/, "")
+}
+
+/**
+ * `--secret-file KEY=/path` — the value is the file's contents, so it never
+ * appears in shell history or the process list.
+ */
+function parseSecretFiles(args: string[]): Record<string, string> {
+  const secrets: Record<string, string> = {}
+  for (const arg of args) {
+    const [key, path] = splitKeyValue(arg, "--secret-file", "/path/to/file")
+    if (!existsSync(path)) {
+      throw new ValidationError(`Secret file not found: ${path}`)
+    }
+    secrets[key] = trimTrailingNewline(readFileSync(path, "utf-8"))
+  }
+  return secrets
 }
 
 function parseVolumes(volumeArgs: string[]): VolumeMount[] {
@@ -103,6 +134,7 @@ export async function setAppCommand(
     // Build updates object
     const updates: {
       env?: Record<string, string>
+      secrets?: Record<string, string>
       volumes?: VolumeMount[]
       domains?: string[]
       internalPort?: number
@@ -113,7 +145,30 @@ export async function setAppCommand(
     } = {}
 
     if (options.env && options.env.length > 0) {
-      updates.env = parseEnvVars(options.env)
+      updates.env = parseEnvVars(options.env, "--env")
+    }
+
+    const secrets: Record<string, string> = {
+      ...parseEnvVars(options.secret ?? [], "--secret"),
+      ...parseSecretFiles(options.secretFile ?? []),
+    }
+    if (options.secretStdin) {
+      if (process.stdin.isTTY) {
+        console.error(chalk.dim(`Reading ${options.secretStdin} from stdin (end with Ctrl-D)`))
+      }
+      const value = trimTrailingNewline(await Bun.stdin.text())
+      if (!value) {
+        throw new ValidationError(`No value read from stdin for secret ${options.secretStdin}`)
+      }
+      secrets[options.secretStdin] = value
+    }
+
+    const clash = Object.keys(secrets).find((key) => updates.env?.[key] !== undefined)
+    if (clash) {
+      throw new ValidationError(`'${clash}' given as both --env and --secret. Pick one`)
+    }
+    if (Object.keys(secrets).length > 0) {
+      updates.secrets = secrets
     }
 
     if (options.volume && options.volume.length > 0) {
@@ -155,7 +210,7 @@ export async function setAppCommand(
 
     if (Object.keys(updates).length === 0) {
       throw new ValidationError(
-        "No updates specified. Use --env, --volume, --domain, --port, --restart, --image, or --dockerfile"
+        "No updates specified. Use --env, --secret, --secret-file, --secret-stdin, --volume, --domain, --port, --restart, --image, or --dockerfile"
       )
     }
 
@@ -177,6 +232,13 @@ export async function setAppCommand(
         console.log(chalk.bold("Environment variables set:"))
         for (const [key, value] of Object.entries(updates.env)) {
           console.log(`  ${key}=${chalk.dim(value)}`)
+        }
+      }
+
+      if (updates.secrets) {
+        console.log(chalk.bold("Secrets set:"))
+        for (const key of Object.keys(updates.secrets)) {
+          console.log(`  ${key}=${chalk.dim("••••••••")}`)
         }
       }
 

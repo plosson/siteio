@@ -82,13 +82,26 @@ function sanitizeChatTarget(raw: unknown): ChatTarget | undefined {
   return target
 }
 
-// Strip the git token before returning an app over the API. Clients never need
-// the raw value; they can set/clear it via PATCH. `tokenSet` is surfaced so
-// UIs can indicate whether a token is stored.
-function scrubApp<T extends App | AppInfo>(app: T): T {
-  if (!app.git) return app
-  const { token, ...rest } = app.git
-  return { ...app, git: { ...rest, tokenSet: !!token } }
+// Strip what a client must never see before returning an app over the API: the
+// git token, and the value of every env var marked secret. Clients never need
+// either — they can set/clear them via PATCH. `tokenSet` and `secretKeys` are
+// surfaced so the CLI can show that something is stored without showing what.
+function scrubApp(app: App): App
+function scrubApp(app: AppInfo): AppInfo
+function scrubApp(app: App | AppInfo): App | AppInfo {
+  const scrubbed: App | AppInfo = { ...app }
+
+  if ("env" in scrubbed && scrubbed.secretKeys?.length) {
+    const secret = new Set(scrubbed.secretKeys)
+    scrubbed.env = Object.fromEntries(Object.entries(scrubbed.env).filter(([key]) => !secret.has(key)))
+  }
+
+  if (scrubbed.git) {
+    const { token, ...rest } = scrubbed.git
+    scrubbed.git = { ...rest, tokenSet: !!token }
+  }
+
+  return scrubbed
 }
 
 export class AgentServer {
@@ -547,6 +560,7 @@ export class AgentServer {
         internalPort?: number
         domains?: string[]
         env?: Record<string, string>
+        secrets?: Record<string, string>
         volumes?: Array<{ name: string; mountPath: string }>
         restartPolicy?: string
       }
@@ -633,7 +647,8 @@ export class AgentServer {
           compose: composeField,
           internalPort: body.internalPort || 80,
           domains: body.domains || [],
-          env: body.env || {},
+          env: { ...body.env, ...body.secrets },
+          ...(body.secrets && Object.keys(body.secrets).length > 0 && { secretKeys: Object.keys(body.secrets) }),
           volumes: body.volumes || [],
           restartPolicy: (body.restartPolicy as "always" | "unless-stopped" | "on-failure" | "no") || "unless-stopped",
           status: "pending",
@@ -658,7 +673,9 @@ export class AgentServer {
         return this.error("App not found", 404)
       }
 
-      const body = (await req.json()) as Partial<Omit<App, "name" | "createdAt">>
+      const body = (await req.json()) as Partial<Omit<App, "name" | "createdAt">> & {
+        secrets?: Record<string, string>
+      }
 
       // Field-level merge for git so partial updates (e.g. only --git-token or
       // only --dockerfile) preserve other stored fields. Also strip clients'
@@ -840,7 +857,7 @@ export class AgentServer {
           ...(composeCommitHash && { commitHash: composeCommitHash }),
         })
 
-        return this.json({ ...updatedCompose, warnings })
+        return this.json({ ...(updatedCompose && scrubApp(updatedCompose)), warnings })
       }
       // ---------- END COMPOSE BRANCH ----------
 
@@ -947,7 +964,7 @@ export class AgentServer {
       // Refresh the card preview in the background — deploy stays fast.
       if (updated) this.captureAppThumbnail(updated)
 
-      return this.json(updated)
+      return this.json(updated && scrubApp(updated))
     } catch (err) {
       // Update status to failed
       this.appStorage.update(name, { status: "failed" })
@@ -969,7 +986,7 @@ export class AgentServer {
         await this.docker.stop(name)
       }
       const updated = this.appStorage.update(name, { status: "stopped" })
-      return this.json(updated)
+      return this.json(updated && scrubApp(updated))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to stop app"
       return this.error(message, 500)
@@ -986,12 +1003,12 @@ export class AgentServer {
         const files = await this.composeFiles(app)
         await this.docker.composeRestart(`siteio-${name}`, files, this.composeEnvFile(name))
         const updated = this.appStorage.update(name, { status: "running" })
-        return this.json(updated)
+        return this.json(updated && scrubApp(updated))
       }
       if (this.docker.containerExists(name)) {
         await this.docker.restart(name)
         const updated = this.appStorage.update(name, { status: "running" })
-        return this.json(updated)
+        return this.json(updated && scrubApp(updated))
       }
       return this.error("Container does not exist. Deploy the app first.", 400)
     } catch (err) {
