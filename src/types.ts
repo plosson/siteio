@@ -68,10 +68,8 @@ export interface App {
 
   // Runtime
   env: Record<string, string>
-  // Secret env vars, merged into env when the container is created. Values are
-  // stored encrypted (see SecretCipher) and are never returned over the API —
-  // `secretKeys` is the output-only hint that a key exists, like git.tokenSet.
-  secrets?: Record<string, string>
+  // Env keys marked secret. Their values live in `env` like any other var, but
+  // the API strips them on the way out so the CLI can never print one back.
   secretKeys?: string[]
   volumes: VolumeMount[]
   internalPort: number

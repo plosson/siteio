@@ -82,16 +82,26 @@ function sanitizeChatTarget(raw: unknown): ChatTarget | undefined {
   return target
 }
 
-// Strip the git token before returning an app over the API. Clients never need
-// the raw value; they can set/clear it via PATCH. `tokenSet` is surfaced so
-// UIs can indicate whether a token is stored.
-//
-// Secrets need no equivalent here: AppStorage never hands one out in the first
-// place (see toPublic), so a handler cannot leak one by forgetting to scrub.
-function scrubApp<T extends App | AppInfo>(app: T): T {
-  if (!app.git) return app
-  const { token, ...rest } = app.git
-  return { ...app, git: { ...rest, tokenSet: !!token } }
+// Strip what a client must never see before returning an app over the API: the
+// git token, and the value of every env var marked secret. Clients never need
+// either — they can set/clear them via PATCH. `tokenSet` and `secretKeys` are
+// surfaced so the CLI can show that something is stored without showing what.
+function scrubApp(app: App): App
+function scrubApp(app: AppInfo): AppInfo
+function scrubApp(app: App | AppInfo): App | AppInfo {
+  const scrubbed: App | AppInfo = { ...app }
+
+  if ("env" in scrubbed && scrubbed.secretKeys?.length) {
+    const secret = new Set(scrubbed.secretKeys)
+    scrubbed.env = Object.fromEntries(Object.entries(scrubbed.env).filter(([key]) => !secret.has(key)))
+  }
+
+  if (scrubbed.git) {
+    const { token, ...rest } = scrubbed.git
+    scrubbed.git = { ...rest, tokenSet: !!token }
+  }
+
+  return scrubbed
 }
 
 export class AgentServer {
@@ -637,8 +647,8 @@ export class AgentServer {
           compose: composeField,
           internalPort: body.internalPort || 80,
           domains: body.domains || [],
-          env: body.env || {},
-          secrets: body.secrets,
+          env: { ...body.env, ...body.secrets },
+          ...(body.secrets && Object.keys(body.secrets).length > 0 && { secretKeys: Object.keys(body.secrets) }),
           volumes: body.volumes || [],
           restartPolicy: (body.restartPolicy as "always" | "unless-stopped" | "on-failure" | "no") || "unless-stopped",
           status: "pending",
@@ -663,7 +673,9 @@ export class AgentServer {
         return this.error("App not found", 404)
       }
 
-      const body = (await req.json()) as Partial<Omit<App, "name" | "createdAt">>
+      const body = (await req.json()) as Partial<Omit<App, "name" | "createdAt">> & {
+        secrets?: Record<string, string>
+      }
 
       // Field-level merge for git so partial updates (e.g. only --git-token or
       // only --dockerfile) preserve other stored fields. Also strip clients'
@@ -806,7 +818,7 @@ export class AgentServer {
         }
 
         // Write the override (regenerate every deploy so env/domain updates apply)
-        const overrideYaml = buildOverride(app, this.config.dataDir, this.appStorage.resolveEnv(name))
+        const overrideYaml = buildOverride(app, this.config.dataDir)
         this.compose.writeOverride(name, overrideYaml)
         const overridePath = this.compose.overridePath(name)
 
@@ -933,7 +945,7 @@ export class AgentServer {
         name: app.name,
         image: imageToRun,
         internalPort: app.internalPort,
-        env: this.appStorage.resolveEnv(name),
+        env: app.env,
         volumes: app.volumes,
         restartPolicy: app.restartPolicy,
         network: "siteio-network",

@@ -1,6 +1,5 @@
-import { existsSync, mkdirSync, rmSync } from "fs"
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
-import { writeSecureFile } from "./secure-file"
 
 /**
  * Stores per-app compose files: the user's base file (inline uploads only) and
@@ -37,13 +36,12 @@ export class ComposeStorage {
 
   writeBaseInline(appName: string, content: string): void {
     this.ensureAppDir(appName)
-    writeSecureFile(this.baseInlinePath(appName), content)
+    writeFileSync(this.baseInlinePath(appName), content)
   }
 
   writeOverride(appName: string, content: string): void {
     this.ensureAppDir(appName)
-    // The override carries the app's resolved environment, secrets included.
-    writeSecureFile(this.overridePath(appName), content)
+    writeFileSync(this.overridePath(appName), content)
   }
 
   baseEnvPath(appName: string): string {
@@ -52,9 +50,7 @@ export class ComposeStorage {
 
   writeBaseEnv(appName: string, content: string): void {
     this.ensureAppDir(appName)
-    // The whole point of an uploaded .env is to carry values the user did not
-    // want inline — treat it like the generated override.
-    writeSecureFile(this.baseEnvPath(appName), content)
+    writeFileSync(this.baseEnvPath(appName), content)
   }
 
   envFileExists(appName: string): boolean {

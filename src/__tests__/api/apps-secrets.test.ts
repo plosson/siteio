@@ -50,10 +50,9 @@ describe("Apps API - Secret env vars", () => {
     return response.json() as Promise<ApiResponse<T>>
   }
 
-  const storedApp = (name: string) =>
-    readFileSync(join(tempDir, "apps", `${name}.json`), "utf-8")
+  const storedApp = (name: string) => readFileSync(join(tempDir, "apps", `${name}.json`), "utf-8")
 
-  test("create stores a secret encrypted and never echoes the value", async () => {
+  test("create marks a secret and never echoes the value back", async () => {
     const create = await request<App>("POST", "/apps", {
       name: "secret-app",
       image: "nginx:alpine",
@@ -64,19 +63,21 @@ describe("Apps API - Secret env vars", () => {
 
     expect(create.success).toBe(true)
     expect(create.data?.env).toEqual({ NODE_ENV: "production" })
-    expect(create.data?.secrets).toBeUndefined()
     expect(create.data?.secretKeys).toEqual(["VAULT_PASSPHRASE"])
-    expect(storedApp("secret-app")).not.toContain("not-a-secret-probe-value")
+
+    // The agent still has the value — it has to, the container needs it.
+    expect(storedApp("secret-app")).toContain("not-a-secret-probe-value")
   })
 
-  test("GET never returns secret values", async () => {
+  test("GET never returns a secret value", async () => {
     const got = await request<App>("GET", "/apps/secret-app")
-    expect(got.data?.secrets).toBeUndefined()
+
+    expect(got.data?.env).toEqual({ NODE_ENV: "production" })
     expect(got.data?.secretKeys).toEqual(["VAULT_PASSPHRASE"])
     expect(JSON.stringify(got)).not.toContain("not-a-secret-probe-value")
   })
 
-  test("LIST never returns secret values", async () => {
+  test("LIST never returns a secret value", async () => {
     const list = await request<AppInfo[]>("GET", "/apps")
     expect(JSON.stringify(list)).not.toContain("not-a-secret-probe-value")
   })
@@ -87,12 +88,12 @@ describe("Apps API - Secret env vars", () => {
     })
 
     expect(patch.success).toBe(true)
-    expect(patch.data?.secrets).toBeUndefined()
+    expect(patch.data?.env?.DATABASE_URL).toBeUndefined()
     expect(patch.data?.secretKeys?.sort()).toEqual(["DATABASE_URL", "VAULT_PASSPHRASE"])
-    expect(storedApp("secret-app")).not.toContain("postgres://user:pw@db/app")
+    expect(JSON.stringify(patch)).not.toContain("postgres://user:pw@db/app")
   })
 
-  test("PATCH refuses to turn a secret back into a plain env var", async () => {
+  test("PATCH refuses to un-secret a key with a plain env var", async () => {
     const patch = await request<App>("PATCH", "/apps/secret-app", {
       env: { VAULT_PASSPHRASE: "oops" },
     })
@@ -102,13 +103,13 @@ describe("Apps API - Secret env vars", () => {
     expect(storedApp("secret-app")).not.toContain("oops")
   })
 
-  test("PATCH promotes an existing plain env var to a secret", async () => {
+  test("PATCH can mark an existing plain env var secret", async () => {
     await request<App>("PATCH", "/apps/secret-app", { env: { API_KEY: "was-plaintext" } })
     const patch = await request<App>("PATCH", "/apps/secret-app", { secrets: { API_KEY: "now-secret" } })
 
     expect(patch.data?.env?.API_KEY).toBeUndefined()
     expect(patch.data?.secretKeys).toContain("API_KEY")
-    expect(storedApp("secret-app")).not.toContain("was-plaintext")
+    expect(JSON.stringify(patch)).not.toContain("now-secret")
   })
 
   test("unsetEnv removes a secret", async () => {
@@ -116,13 +117,21 @@ describe("Apps API - Secret env vars", () => {
 
     expect(patch.success).toBe(true)
     expect(patch.data?.secretKeys).not.toContain("API_KEY")
+    expect(storedApp("secret-app")).not.toContain("now-secret")
   })
 
-  test("clients cannot inject secretKeys into storage", async () => {
+  test("clients cannot inject secretKeys — the agent derives them", async () => {
     await request<App>("PATCH", "/apps/secret-app", { secretKeys: ["INJECTED"] })
     const got = await request<App>("GET", "/apps/secret-app")
 
     expect(got.data?.secretKeys).not.toContain("INJECTED")
     expect(storedApp("secret-app")).not.toContain("INJECTED")
+  })
+
+  test("deploy, stop and restart responses are scrubbed too", async () => {
+    // These handlers returned the raw app before secrets existed, so they are
+    // the easiest place for a value to slip out.
+    const stop = await request<App>("POST", "/apps/secret-app/stop")
+    expect(JSON.stringify(stop)).not.toContain("not-a-secret-probe-value")
   })
 })

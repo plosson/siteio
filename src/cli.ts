@@ -9,12 +9,6 @@ function intArg(value: string): number {
   return parseInt(value, 10)
 }
 
-// Accumulator for repeatable options. Non-mutating, so the `[]` default handed
-// to commander is never written to.
-function collect(value: string, previous: string[] = []): string[] {
-  return [...previous, value]
-}
-
 const program = new Command()
   .name("siteio")
   .description("Deploy static sites and apps with ease")
@@ -395,12 +389,32 @@ apps
 apps
   .command("set [name]")
   .description("Update app configuration")
-  .option("-e, --env <KEY=value>", "Set environment variables (repeatable)", collect, [])
-  .option("--secret <KEY=value>", "Set secret environment variables — stored encrypted, never displayed again (repeatable)", collect, [])
-  .option("--secret-file <KEY=path>", "Set a secret from a file's contents, keeping it out of shell history (repeatable)", collect, [])
+  .option("-e, --env <KEY=value>", "Set environment variables (repeatable)", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
+  .option("--secret <KEY=value>", "Set secret environment variables — never displayed again (repeatable)", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
+  .option("--secret-file <KEY=path>", "Set a secret from a file's contents, keeping it out of shell history (repeatable)", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
   .option("--secret-stdin <KEY>", "Set a secret read from stdin")
-  .option("-v, --volume <name:path>", "Set volume mounts (repeatable)", collect, [])
-  .option("-d, --domain <domain>", "Set custom domains (repeatable)", collect, [])
+  .option("-v, --volume <name:path>", "Set volume mounts (repeatable)", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
+  .option("-d, --domain <domain>", "Set custom domains (repeatable)", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
   .option("-p, --port <port>", "Set internal port", intArg)
   .option("-r, --restart <policy>", "Set restart policy (always, unless-stopped, on-failure, no)")
   .option("--image <image>", "Set Docker image")
@@ -414,7 +428,11 @@ apps
 apps
   .command("unset [name]")
   .description("Remove app configuration values")
-  .option("-e, --env <KEY>", "Remove environment variables or secrets (repeatable)", collect, [])
+  .option("-e, --env <KEY>", "Remove environment variables or secrets (repeatable)", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
   .action(async (name, options) => {
     const { unsetAppCommand } = await import("./commands/apps/unset.ts")
     await unsetAppCommand(name, { ...options, json: program.opts().json })

@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { writeFileSync } from "fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
 import { join } from "path"
-import { startMockAgent, type MockAgent } from "../helpers/mock-agent"
+import { spawn } from "bun"
 
 /**
  * CLI flag tests for the secret-setting surface of `siteio apps set`.
@@ -13,31 +14,104 @@ import { startMockAgent, type MockAgent } from "../helpers/mock-agent"
  * shell history or the process list, so they are checked end to end.
  */
 
+const TEST_API_KEY = "secret-flag-test-key"
 const SECRET = "not-a-secret-probe-value"
 
-let agent: MockAgent
+interface RecordedRequest {
+  method: string
+  path: string
+  bodyJson: Record<string, unknown> | null
+}
 
-beforeAll(() => {
-  // The agent returns key names only — never a secret value.
-  agent = startMockAgent("secret-flag-test-key", () => ({
-    success: true,
-    data: {
-      name: "testapp",
-      status: "stopped",
-      env: {},
-      secretKeys: ["VAULT_PASSPHRASE"],
-      domains: [],
-      volumes: [],
+let server: ReturnType<typeof Bun.serve> | null = null
+let port = 0
+let homeDir = ""
+let recorded: RecordedRequest[] = []
+
+beforeAll(async () => {
+  server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(req) {
+      const url = new URL(req.url)
+      let bodyJson: Record<string, unknown> | null = null
+      if ((req.headers.get("content-type") ?? "").includes("application/json")) {
+        try {
+          bodyJson = (await req.json()) as Record<string, unknown>
+        } catch {
+          bodyJson = null
+        }
+      }
+      recorded.push({ method: req.method, path: url.pathname, bodyJson })
+
+      // Minimal App the CLI can render: the agent returns key names only.
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            name: "testapp",
+            status: "stopped",
+            env: {},
+            secretKeys: ["VAULT_PASSPHRASE"],
+            domains: [],
+            volumes: [],
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
     },
-  }))
+  })
+  if (server.port == null) {
+    throw new Error("Bun.serve did not assign a port")
+  }
+  port = server.port
+
+  homeDir = mkdtempSync(join(tmpdir(), "siteio-apps-set-secret-flags-"))
+  const cfgDir = join(homeDir, ".config", "siteio")
+  mkdirSync(cfgDir, { recursive: true })
+  writeFileSync(
+    join(cfgDir, "config.json"),
+    JSON.stringify({
+      current: "test",
+      servers: {
+        test: { apiUrl: `http://127.0.0.1:${port}`, apiKey: TEST_API_KEY },
+      },
+    })
+  )
 })
 
-afterAll(() => agent.stop())
+afterAll(() => {
+  server?.stop()
+  if (homeDir) rmSync(homeDir, { recursive: true, force: true })
+})
 
-const runCli = (args: string[], stdin?: string) => agent.run(args, stdin)
+async function runCli(
+  args: string[],
+  stdin?: string
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  recorded = []
+  const proc = spawn({
+    cmd: ["bun", "run", "src/cli.ts", ...args],
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      HOME: homeDir,
+      XDG_CONFIG_HOME: join(homeDir, ".config"),
+    },
+    stdin: stdin === undefined ? "ignore" : new TextEncoder().encode(stdin),
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ])
+  const exitCode = await proc.exited
+  return { stdout, stderr, exitCode }
+}
 
 function patchBody(): Record<string, unknown> {
-  const patch = agent.recorded.find((r) => r.method === "PATCH" && r.path === "/apps/testapp")
+  const patch = recorded.find((r) => r.method === "PATCH" && r.path === "/apps/testapp")
   if (!patch) throw new Error("expected a PATCH /apps/testapp")
   return patch.bodyJson ?? {}
 }
@@ -68,7 +142,7 @@ describe("CLI: apps set secret flags", () => {
   })
 
   test("--secret-file reads the value from a file and drops its trailing newline", async () => {
-    const secretPath = join(agent.homeDir, "passphrase.txt")
+    const secretPath = join(homeDir, "passphrase.txt")
     writeFileSync(secretPath, `${SECRET}\n`)
 
     const result = await runCli(["apps", "set", "testapp", "--secret-file", `VAULT_PASSPHRASE=${secretPath}`])
@@ -78,7 +152,7 @@ describe("CLI: apps set secret flags", () => {
   })
 
   test("--secret-file fails clearly on a missing file", async () => {
-    const result = await runCli(["apps", "set", "testapp", "--secret-file", `K=${join(agent.homeDir, "nope.txt")}`])
+    const result = await runCli(["apps", "set", "testapp", "--secret-file", `K=${join(homeDir, "nope.txt")}`])
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr).toContain("Secret file not found")
   })
@@ -113,6 +187,6 @@ describe("CLI: apps set secret flags", () => {
     ])
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr).toContain("Pick one")
-    expect(agent.recorded.some((r) => r.method === "PATCH")).toBe(false)
+    expect(recorded.some((r) => r.method === "PATCH")).toBe(false)
   })
 })

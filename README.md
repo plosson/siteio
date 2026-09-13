@@ -182,9 +182,8 @@ pass show vault | siteio apps set myapp --secret-stdin VAULT_PASSPHRASE
 siteio apps set myapp --secret ./secrets.env
 ```
 
-Secrets are encrypted at rest on the agent (AES-256-GCM, with the key in a
-0600 file next to the app data) and decrypted only when the container is
-created. The API never returns the value, so `apps info` shows the key alone:
+The agent stops sending the value back once a key is marked secret, so the CLI
+has nothing to print:
 
 ```console
 $ siteio apps info myapp
@@ -193,14 +192,15 @@ Environment:
   VAULT_PASSPHRASE=•••••••• (secret)
 ```
 
-There is no flag to print it back — a secret is write-only once set. To change
-one, set it again; to remove it, `siteio apps unset myapp -e VAULT_PASSPHRASE`.
+There is no flag to reveal it — a secret is write-only once set. To change one,
+set it again; to remove it, `siteio apps unset myapp -e VAULT_PASSPHRASE`.
 Restart the app for either to take effect.
 
-This protects the value from the CLI and from the agent's stored config. It
-does not hide it from `docker inspect` on the host: the container needs the
-variable in its environment. For compose apps the resolved environment is also
-written to the generated override file (0600) so `docker compose` can read it.
+What this is for: stopping the CLI from being the easy way to read every secret
+of every app, and keeping values off your screen during a share or a demo. It
+is not protection against someone with access to the server — the agent stores
+the value as it stores any other env var, and the container needs it in its
+environment, so `docker inspect` on the host still shows it.
 
 ### Example 5: PostgreSQL Database with Persistent Storage
 

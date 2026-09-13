@@ -7,24 +7,13 @@ import { APP_ROUTER_PRIORITY } from "./traefik"
  * override file merged on top of the user's base compose file. Adds:
  *   - siteio-network attachment on the primary service
  *   - Traefik labels for routing/TLS/OAuth
- *   - env vars set via `apps set` (primary-service-only)
+ *   - env vars set via `apps set-env` (primary-service-only)
  *   - volumes from app.volumes (primary-service-only)
  *
  * All scalar values are double-quoted so tokens like backticks, braces, and
  * equals signs survive YAML parsing intact. Keys are plain (identifier-safe).
- *
- * `env` is the resolved environment (plain vars plus decrypted secrets, see
- * AppStorage.resolveEnv) — required, so a caller cannot quietly bring the
- * project up with the secrets missing. Compose needs the values on disk, so
- * unlike the single-container path the override file holds them in the clear;
- * it is written 0600, the same protection `docker inspect` already offers on
- * the host.
  */
-export function buildOverride(
-  app: App,
-  dataDir: string,
-  env: Record<string, string>
-): string {
+export function buildOverride(app: App, dataDir: string = "/data"): string {
   if (!app.compose) {
     throw new Error(`buildOverride called on non-compose app '${app.name}'`)
   }
@@ -34,10 +23,10 @@ export function buildOverride(
   const labels = buildTraefikLabelsForCompose(app, containerName)
 
   const envLines =
-    Object.keys(env).length > 0
+    Object.keys(app.env).length > 0
       ? [
           "    environment:",
-          ...Object.entries(env).map(
+          ...Object.entries(app.env).map(
             ([k, v]) => `      ${k}: ${yamlQuote(v)}`
           ),
         ]
