@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs"
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
 
 /**
@@ -41,7 +41,11 @@ export class ComposeStorage {
 
   writeOverride(appName: string, content: string): void {
     this.ensureAppDir(appName)
-    writeFileSync(this.overridePath(appName), content)
+    // 0600: the override carries the app's resolved environment, secrets
+    // included. chmod too — `mode` only applies when the file is created, and
+    // this file is regenerated on every deploy.
+    writeFileSync(this.overridePath(appName), content, { mode: 0o600 })
+    chmodSync(this.overridePath(appName), 0o600)
   }
 
   baseEnvPath(appName: string): string {

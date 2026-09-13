@@ -150,8 +150,10 @@ siteio apps create nodeapi --image node:20-alpine --port 3000
 # Configure environment variables
 siteio apps set nodeapi \
   -e NODE_ENV=production \
-  -e DATABASE_URL="postgres://user:pass@db.example.com:5432/mydb" \
-  -e JWT_SECRET="your-secret-key"
+  -e DATABASE_URL="postgres://user:pass@db.example.com:5432/mydb"
+
+# Configure secrets (stored encrypted, never displayed again)
+siteio apps set nodeapi --secret JWT_SECRET="your-secret-key"
 
 # Set restart policy
 siteio apps set nodeapi -r unless-stopped
@@ -159,6 +161,43 @@ siteio apps set nodeapi -r unless-stopped
 # Deploy
 siteio apps deploy nodeapi
 ```
+
+### Secret environment variables
+
+`-e KEY=value` is plain configuration: it is stored as-is and printed back by
+`siteio apps info`. For anything sensitive — a passphrase, a database URL, an
+API token, a signing key — use `--secret` instead:
+
+```bash
+# Inline
+siteio apps set myapp --secret VAULT_PASSPHRASE="correct horse battery staple"
+
+# From a file, keeping the value out of shell history and the process list
+siteio apps set myapp --secret-file VAULT_PASSPHRASE=./passphrase.txt
+
+# From stdin, same idea
+pass show vault | siteio apps set myapp --secret-stdin VAULT_PASSPHRASE
+```
+
+Secrets are encrypted at rest on the agent (AES-256-GCM, with the key in a
+0600 file next to the app data) and decrypted only when the container is
+created. The API never returns the value, so `apps info` shows the key alone:
+
+```console
+$ siteio apps info myapp
+Environment:
+  NODE_ENV=production
+  VAULT_PASSPHRASE=•••••••• (secret)
+```
+
+There is no flag to print it back — a secret is write-only once set. To change
+one, set it again; to remove it, `siteio apps unset myapp -e VAULT_PASSPHRASE`.
+Restart the app for either to take effect.
+
+This protects the value from the CLI and from the agent's stored config. It
+does not hide it from `docker inspect` on the host: the container needs the
+variable in its environment. For compose apps the resolved environment is also
+written to the generated override file (0600) so `docker compose` can read it.
 
 ### Example 5: PostgreSQL Database with Persistent Storage
 

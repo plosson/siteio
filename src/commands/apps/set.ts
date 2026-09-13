@@ -10,6 +10,9 @@ import type { VolumeMount, RestartPolicy } from "../../types.ts"
 
 export interface SetAppOptions {
   env?: string[]
+  secret?: string[]
+  secretFile?: string[]
+  secretStdin?: string
   volume?: string[]
   domain?: string[]
   port?: number
@@ -59,6 +62,36 @@ function parseEnvVars(envArgs: string[]): Record<string, string> {
   return env
 }
 
+/**
+ * `--secret-file KEY=/path` — the value is the file's contents, so it never
+ * appears in shell history or the process list. One trailing newline is
+ * dropped, since that is an artifact of how the file was written.
+ */
+function parseSecretFiles(args: string[]): Record<string, string> {
+  const secrets: Record<string, string> = {}
+  for (const arg of args) {
+    const idx = arg.indexOf("=")
+    if (idx <= 0) {
+      throw new ValidationError(`Invalid secret file format: ${arg}. Use KEY=/path/to/file`)
+    }
+    const key = arg.slice(0, idx)
+    const path = arg.slice(idx + 1)
+    if (!existsSync(path)) {
+      throw new ValidationError(`Secret file not found: ${path}`)
+    }
+    secrets[key] = readFileSync(path, "utf-8").replace(/\r?\n$/, "")
+  }
+  return secrets
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.from(chunk as Uint8Array))
+  }
+  return Buffer.concat(chunks).toString("utf-8").replace(/\r?\n$/, "")
+}
+
 function parseVolumes(volumeArgs: string[]): VolumeMount[] {
   const volumes: VolumeMount[] = []
   for (const v of volumeArgs) {
@@ -103,6 +136,7 @@ export async function setAppCommand(
     // Build updates object
     const updates: {
       env?: Record<string, string>
+      secrets?: Record<string, string>
       volumes?: VolumeMount[]
       domains?: string[]
       internalPort?: number
@@ -114,6 +148,32 @@ export async function setAppCommand(
 
     if (options.env && options.env.length > 0) {
       updates.env = parseEnvVars(options.env)
+    }
+
+    const secrets: Record<string, string> = {}
+    if (options.secret && options.secret.length > 0) {
+      Object.assign(secrets, parseEnvVars(options.secret))
+    }
+    if (options.secretFile && options.secretFile.length > 0) {
+      Object.assign(secrets, parseSecretFiles(options.secretFile))
+    }
+    if (options.secretStdin) {
+      if (process.stdin.isTTY) {
+        console.error(chalk.dim(`Reading ${options.secretStdin} from stdin (end with Ctrl-D)`))
+      }
+      const value = await readStdin()
+      if (!value) {
+        throw new ValidationError(`No value read from stdin for secret ${options.secretStdin}`)
+      }
+      secrets[options.secretStdin] = value
+    }
+    if (Object.keys(secrets).length > 0) {
+      for (const key of Object.keys(secrets)) {
+        if (updates.env?.[key] !== undefined) {
+          throw new ValidationError(`'${key}' given as both --env and --secret. Pick one`)
+        }
+      }
+      updates.secrets = secrets
     }
 
     if (options.volume && options.volume.length > 0) {
@@ -155,7 +215,7 @@ export async function setAppCommand(
 
     if (Object.keys(updates).length === 0) {
       throw new ValidationError(
-        "No updates specified. Use --env, --volume, --domain, --port, --restart, --image, or --dockerfile"
+        "No updates specified. Use --env, --secret, --secret-file, --secret-stdin, --volume, --domain, --port, --restart, --image, or --dockerfile"
       )
     }
 
@@ -177,6 +237,13 @@ export async function setAppCommand(
         console.log(chalk.bold("Environment variables set:"))
         for (const [key, value] of Object.entries(updates.env)) {
           console.log(`  ${key}=${chalk.dim(value)}`)
+        }
+      }
+
+      if (updates.secrets) {
+        console.log(chalk.bold("Secrets set:"))
+        for (const key of Object.keys(updates.secrets)) {
+          console.log(`  ${key}=${chalk.dim("••••••••")}`)
         }
       }
 

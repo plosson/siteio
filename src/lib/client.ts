@@ -250,6 +250,7 @@ export class SiteioClient {
     primaryService?: string
     internalPort?: number
     env?: Record<string, string>
+    secrets?: Record<string, string>
     volumes?: { name: string; mountPath: string }[]
     domains?: string[]
     restartPolicy?: string
@@ -283,6 +284,7 @@ export class SiteioClient {
     name: string,
     updates: {
       env?: Record<string, string>
+      secrets?: Record<string, string>
       unsetEnv?: string[]
       volumes?: { name: string; mountPath: string }[]
       domains?: string[]

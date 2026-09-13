@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
+import { mkdtempSync, readFileSync, rmSync, statSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { AppStorage } from "../../lib/agent/app-storage"
@@ -125,4 +125,95 @@ describe("Unit: AppStorage", () => {
     expect(() => storage.create(createTestApp("myapp"))).toThrow()
   })
 
+  describe("secrets", () => {
+    const appFile = () => readFileSync(join(testDir, "apps", "myapp.json"), "utf-8")
+
+    test("stores secret values encrypted, never in the clear", () => {
+      storage.create(createTestApp("myapp", { secrets: { API_TOKEN: "s3cr3t-value" } }))
+
+      expect(appFile()).not.toContain("s3cr3t-value")
+      const app = storage.get("myapp")!
+      expect(Object.keys(app.secrets!)).toEqual(["API_TOKEN"])
+      expect(app.secrets!.API_TOKEN).toStartWith("enc:v1:")
+    })
+
+    test("writes app files 0600", () => {
+      storage.create(createTestApp("myapp", { secrets: { API_TOKEN: "x" } }))
+      const path = join(testDir, "apps", "myapp.json")
+      expect(statSync(path).mode & 0o777).toBe(0o600)
+
+      storage.update("myapp", { status: "running" })
+      expect(statSync(path).mode & 0o777).toBe(0o600)
+    })
+
+    test("resolveEnv merges plain env with decrypted secrets", () => {
+      storage.create(createTestApp("myapp", { env: { NODE_ENV: "production" }, secrets: { API_TOKEN: "s3cr3t" } }))
+
+      expect(storage.resolveEnv(storage.get("myapp")!)).toEqual({
+        NODE_ENV: "production",
+        API_TOKEN: "s3cr3t",
+      })
+    })
+
+    test("adds and updates secrets through update()", () => {
+      storage.create(createTestApp("myapp"))
+
+      storage.update("myapp", { secrets: { A: "one" } })
+      storage.update("myapp", { secrets: { B: "two" } })
+      expect(storage.resolveEnv(storage.get("myapp")!)).toEqual({ A: "one", B: "two" })
+
+      storage.update("myapp", { secrets: { A: "rotated" } })
+      expect(storage.resolveEnv(storage.get("myapp")!)).toEqual({ A: "rotated", B: "two" })
+    })
+
+    test("promoting a plain env var to a secret drops the readable copy", () => {
+      storage.create(createTestApp("myapp", { env: { API_TOKEN: "was-plaintext" } }))
+
+      const updated = storage.update("myapp", { secrets: { API_TOKEN: "now-secret" } })!
+      expect(updated.env.API_TOKEN).toBeUndefined()
+      expect(appFile()).not.toContain("was-plaintext")
+      expect(storage.resolveEnv(updated)).toEqual({ API_TOKEN: "now-secret" })
+    })
+
+    test("create keeps a key out of env when it is also given as a secret", () => {
+      const app = storage.create(
+        createTestApp("myapp", { env: { API_TOKEN: "plain" }, secrets: { API_TOKEN: "secret" } })
+      )
+      expect(app.env.API_TOKEN).toBeUndefined()
+      expect(storage.resolveEnv(app)).toEqual({ API_TOKEN: "secret" })
+    })
+
+    test("refuses to demote a secret back to a plain env var", () => {
+      storage.create(createTestApp("myapp", { secrets: { API_TOKEN: "s3cr3t" } }))
+
+      expect(() => storage.update("myapp", { env: { API_TOKEN: "oops" } })).toThrow("is a secret")
+      expect(storage.resolveEnv(storage.get("myapp")!)).toEqual({ API_TOKEN: "s3cr3t" })
+    })
+
+    test("unsetEnv removes secrets as well as plain env vars", () => {
+      storage.create(createTestApp("myapp", { env: { NODE_ENV: "production" }, secrets: { API_TOKEN: "s3cr3t" } }))
+
+      const updated = storage.update("myapp", { unsetEnv: ["API_TOKEN", "NODE_ENV"] })!
+      expect(updated.secrets).toBeUndefined()
+      expect(storage.resolveEnv(updated)).toEqual({})
+
+      // The key is free again afterwards
+      expect(() => storage.update("myapp", { env: { API_TOKEN: "now-public" } })).not.toThrow()
+    })
+
+    test("unrelated updates preserve stored secrets", () => {
+      storage.create(createTestApp("myapp", { secrets: { API_TOKEN: "s3cr3t" } }))
+
+      const updated = storage.update("myapp", { status: "running", domains: ["a.example.com"] })!
+      expect(storage.resolveEnv(updated)).toEqual({ API_TOKEN: "s3cr3t" })
+    })
+
+    test("ignores secretKeys sent back by a client", () => {
+      storage.create(createTestApp("myapp", { secrets: { API_TOKEN: "s3cr3t" } }))
+
+      const updated = storage.update("myapp", { secretKeys: ["INJECTED"] })!
+      expect(updated.secretKeys).toBeUndefined()
+      expect(Object.keys(updated.secrets!)).toEqual(["API_TOKEN"])
+    })
+  })
 })

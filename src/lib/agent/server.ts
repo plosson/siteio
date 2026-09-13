@@ -82,13 +82,19 @@ function sanitizeChatTarget(raw: unknown): ChatTarget | undefined {
   return target
 }
 
-// Strip the git token before returning an app over the API. Clients never need
-// the raw value; they can set/clear it via PATCH. `tokenSet` is surfaced so
-// UIs can indicate whether a token is stored.
+// Strip everything a client must never see before returning an app over the
+// API: the git token and the encrypted secret values. Clients never need the
+// raw values; they can set/clear them via PATCH. `tokenSet` and `secretKeys`
+// are surfaced instead so UIs can indicate what is stored.
 function scrubApp<T extends App | AppInfo>(app: T): T {
-  if (!app.git) return app
-  const { token, ...rest } = app.git
-  return { ...app, git: { ...rest, tokenSet: !!token } }
+  const { secrets, ...withoutSecrets } = app as T & { secrets?: Record<string, string> }
+  const scrubbed = withoutSecrets as T
+  if (secrets && Object.keys(secrets).length > 0) {
+    ;(scrubbed as App).secretKeys = Object.keys(secrets)
+  }
+  if (!scrubbed.git) return scrubbed
+  const { token, ...rest } = scrubbed.git
+  return { ...scrubbed, git: { ...rest, tokenSet: !!token } }
 }
 
 export class AgentServer {
@@ -547,6 +553,7 @@ export class AgentServer {
         internalPort?: number
         domains?: string[]
         env?: Record<string, string>
+        secrets?: Record<string, string>
         volumes?: Array<{ name: string; mountPath: string }>
         restartPolicy?: string
       }
@@ -634,6 +641,7 @@ export class AgentServer {
           internalPort: body.internalPort || 80,
           domains: body.domains || [],
           env: body.env || {},
+          secrets: body.secrets,
           volumes: body.volumes || [],
           restartPolicy: (body.restartPolicy as "always" | "unless-stopped" | "on-failure" | "no") || "unless-stopped",
           status: "pending",
@@ -801,7 +809,7 @@ export class AgentServer {
         }
 
         // Write the override (regenerate every deploy so env/domain updates apply)
-        const overrideYaml = buildOverride(app, this.config.dataDir)
+        const overrideYaml = buildOverride(app, this.config.dataDir, this.appStorage.resolveEnv(app))
         this.compose.writeOverride(name, overrideYaml)
         const overridePath = this.compose.overridePath(name)
 
@@ -840,7 +848,7 @@ export class AgentServer {
           ...(composeCommitHash && { commitHash: composeCommitHash }),
         })
 
-        return this.json({ ...updatedCompose, warnings })
+        return this.json({ ...(updatedCompose ? scrubApp(updatedCompose) : updatedCompose), warnings })
       }
       // ---------- END COMPOSE BRANCH ----------
 
@@ -928,7 +936,7 @@ export class AgentServer {
         name: app.name,
         image: imageToRun,
         internalPort: app.internalPort,
-        env: app.env,
+        env: this.appStorage.resolveEnv(app),
         volumes: app.volumes,
         restartPolicy: app.restartPolicy,
         network: "siteio-network",
@@ -947,7 +955,7 @@ export class AgentServer {
       // Refresh the card preview in the background — deploy stays fast.
       if (updated) this.captureAppThumbnail(updated)
 
-      return this.json(updated)
+      return this.json(updated ? scrubApp(updated) : updated)
     } catch (err) {
       // Update status to failed
       this.appStorage.update(name, { status: "failed" })
@@ -969,7 +977,7 @@ export class AgentServer {
         await this.docker.stop(name)
       }
       const updated = this.appStorage.update(name, { status: "stopped" })
-      return this.json(updated)
+      return this.json(updated ? scrubApp(updated) : updated)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to stop app"
       return this.error(message, 500)
@@ -986,12 +994,12 @@ export class AgentServer {
         const files = await this.composeFiles(app)
         await this.docker.composeRestart(`siteio-${name}`, files, this.composeEnvFile(name))
         const updated = this.appStorage.update(name, { status: "running" })
-        return this.json(updated)
+        return this.json(updated ? scrubApp(updated) : updated)
       }
       if (this.docker.containerExists(name)) {
         await this.docker.restart(name)
         const updated = this.appStorage.update(name, { status: "running" })
-        return this.json(updated)
+        return this.json(updated ? scrubApp(updated) : updated)
       }
       return this.error("Container does not exist. Deploy the app first.", 400)
     } catch (err) {

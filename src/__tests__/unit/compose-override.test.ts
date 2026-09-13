@@ -63,6 +63,16 @@ describe("Unit: buildOverride", () => {
     expect(yaml).not.toContain("environment:")
   })
 
+  test("uses the resolved environment when one is passed (plain env + secrets)", () => {
+    // The deploy path hands in AppStorage.resolveEnv(app): compose needs the
+    // real values on disk to bring the project up, so the stored ciphertext is
+    // never what lands in the override.
+    const app = appWithCompose({ env: { FOO: "bar" }, secrets: { TOKEN: "enc:v1:aaa:bbb:ccc" } })
+    const yaml = buildOverride(app, "/data", { FOO: "bar", TOKEN: "s3cr3t" })
+    expect(yaml).toContain('TOKEN: "s3cr3t"')
+    expect(yaml).not.toContain("enc:v1:")
+  })
+
   test("emits volumes under the primary service when present", () => {
     const yaml = buildOverride(
       appWithCompose({ volumes: [{ name: "data", mountPath: "/data" }] })

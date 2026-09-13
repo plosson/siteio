@@ -394,6 +394,17 @@ apps
     prev.push(val)
     return prev
   }, [])
+  .option("--secret <KEY=value>", "Set secret environment variables — stored encrypted, never displayed again (repeatable)", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
+  .option("--secret-file <KEY=path>", "Set a secret from a file's contents, keeping it out of shell history (repeatable)", (val: string, prev: string[]) => {
+    prev = prev || []
+    prev.push(val)
+    return prev
+  }, [])
+  .option("--secret-stdin <KEY>", "Set a secret read from stdin")
   .option("-v, --volume <name:path>", "Set volume mounts (repeatable)", (val: string, prev: string[]) => {
     prev = prev || []
     prev.push(val)
@@ -417,7 +428,7 @@ apps
 apps
   .command("unset [name]")
   .description("Remove app configuration values")
-  .option("-e, --env <KEY>", "Remove environment variables (repeatable)", (val: string, prev: string[]) => {
+  .option("-e, --env <KEY>", "Remove environment variables or secrets (repeatable)", (val: string, prev: string[]) => {
     prev = prev || []
     prev.push(val)
     return prev
