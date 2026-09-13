@@ -1,8 +1,21 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "fs"
 import { join } from "path"
 import type { App, AppInfo } from "../../types"
 import { ValidationError } from "../../utils/errors"
 import { SecretCipher } from "./secret-cipher"
+import { writeSecureFile } from "./secure-file"
+
+/**
+ * Replace the stored secret ciphertext with the list of keys it holds. Every
+ * public method returns apps in this shape, so a secret cannot escape storage
+ * by a caller forgetting to strip it — only resolveEnv() decrypts, and only to
+ * hand the values straight to Docker.
+ */
+function toPublic(app: App): App {
+  const { secrets, ...rest } = app
+  const secretKeys = Object.keys(secrets || {})
+  return { ...rest, ...(secretKeys.length > 0 && { secretKeys }) }
+}
 
 export class AppStorage {
   private appsDir: string
@@ -37,6 +50,36 @@ export class AppStorage {
   }
 
   /**
+   * Encrypt each plaintext secret into `encrypted`, dropping any readable copy
+   * from `env` — a key is either public config or a secret, never both.
+   * Mutates both maps.
+   */
+  private encryptInto(
+    env: Record<string, string>,
+    encrypted: Record<string, string>,
+    plaintext: Record<string, string> | undefined
+  ): void {
+    for (const [key, value] of Object.entries(plaintext || {})) {
+      delete env[key]
+      encrypted[key] = this.cipher.encrypt(value)
+    }
+  }
+
+  /** The stored form, secret ciphertext included. Storage-internal. */
+  private readRaw(name: string): App | null {
+    const path = this.getAppPath(name)
+    if (!existsSync(path)) {
+      return null
+    }
+    return JSON.parse(readFileSync(path, "utf-8"))
+  }
+
+  private write(app: App): App {
+    writeSecureFile(this.getAppPath(app.name), JSON.stringify(app, null, 2))
+    return toPublic(app)
+  }
+
+  /**
    * Create an app. `appData.secrets` holds *plaintext* values — they are
    * encrypted here so no caller has to handle ciphertext.
    */
@@ -50,31 +93,21 @@ export class AppStorage {
     const { secrets, secretKeys: _dropKeys, ...rest } = appData
     const env = { ...(rest.env || {}) }
     const encrypted: Record<string, string> = {}
-    for (const [key, value] of Object.entries(secrets || {})) {
-      // A key is either public config or a secret, never both.
-      delete env[key]
-      encrypted[key] = this.cipher.encrypt(value)
-    }
+    this.encryptInto(env, encrypted, secrets)
 
     const now = new Date().toISOString()
-    const app: App = {
+    return this.write({
       ...rest,
       env,
       ...(Object.keys(encrypted).length > 0 && { secrets: encrypted }),
       createdAt: now,
       updatedAt: now,
-    }
-
-    writeFileSync(this.getAppPath(app.name), JSON.stringify(app, null, 2), { mode: 0o600 })
-    return app
+    })
   }
 
   get(name: string): App | null {
-    const path = this.getAppPath(name)
-    if (!existsSync(path)) {
-      return null
-    }
-    return JSON.parse(readFileSync(path, "utf-8"))
+    const app = this.readRaw(name)
+    return app && toPublic(app)
   }
 
   /**
@@ -82,16 +115,17 @@ export class AppStorage {
    * before they hit disk; `secretKeys` is output-only and is ignored on input.
    */
   update(name: string, updates: Partial<Omit<App, "name" | "createdAt">> & { unsetEnv?: string[] }): App | null {
-    const app = this.get(name)
-    if (!app) {
+    const raw = this.readRaw(name)
+    if (!raw) {
       return null
     }
 
+    const { secrets: stored, secretKeys: _storedKeys, ...app } = raw
     const { unsetEnv, secrets, secretKeys: _dropKeys, ...appUpdates } = updates
 
     // Merge env vars additively instead of replacing
     const mergedEnv = { ...(app.env || {}), ...(appUpdates.env || {}) }
-    const mergedSecrets = { ...(app.secrets || {}) }
+    const mergedSecrets = { ...(stored || {}) }
 
     // Refuse to demote a secret to a plaintext env var. The stored value can
     // never be read back, so a stray `-e KEY=...` on a secret key is far more
@@ -105,10 +139,7 @@ export class AppStorage {
     }
 
     // Promoting an existing plaintext var to a secret drops the readable copy.
-    for (const [key, value] of Object.entries(secrets || {})) {
-      delete mergedEnv[key]
-      mergedSecrets[key] = this.cipher.encrypt(value)
-    }
+    this.encryptInto(mergedEnv, mergedSecrets, secrets)
 
     // Remove unset keys
     if (unsetEnv) {
@@ -118,32 +149,26 @@ export class AppStorage {
       }
     }
 
-    const updated: App = {
+    return this.write({
       ...app,
       ...appUpdates,
       env: mergedEnv,
-      secrets: mergedSecrets,
+      ...(Object.keys(mergedSecrets).length > 0 && { secrets: mergedSecrets }),
       name: app.name, // Prevent name changes
       createdAt: app.createdAt, // Preserve creation date
       updatedAt: new Date().toISOString(),
-    }
-    if (Object.keys(mergedSecrets).length === 0) {
-      delete updated.secrets
-    }
-    delete updated.secretKeys
-
-    // chmod as well as mode: `mode` only applies when the file is created, and
-    // apps written by older agents are still 0644.
-    writeFileSync(this.getAppPath(name), JSON.stringify(updated, null, 2), { mode: 0o600 })
-    chmodSync(this.getAppPath(name), 0o600)
-    return updated
+    })
   }
 
   /**
    * Plain env plus decrypted secrets — the full environment handed to Docker
    * when the container is created. The only place secrets leave storage.
    */
-  resolveEnv(app: App): Record<string, string> {
+  resolveEnv(name: string): Record<string, string> {
+    const app = this.readRaw(name)
+    if (!app) {
+      return {}
+    }
     const env = { ...(app.env || {}) }
     for (const [key, blob] of Object.entries(app.secrets || {})) {
       env[key] = this.cipher.decrypt(blob)
@@ -172,7 +197,7 @@ export class AppStorage {
     const files = readdirSync(this.appsDir).filter((f) => f.endsWith(".json"))
     return files.map((f) => {
       const content = readFileSync(join(this.appsDir, f), "utf-8")
-      return JSON.parse(content) as App
+      return toPublic(JSON.parse(content) as App)
     })
   }
 

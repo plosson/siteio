@@ -23,28 +23,33 @@ export class SecretCipher {
     this.keyPath = join(dataDir, "secrets.key")
   }
 
-  private getKey(): Buffer {
+  /** The stored key, or null if none has been generated yet. Cached. */
+  private loadKey(): Buffer | null {
     if (this.key) return this.key
+    if (!existsSync(this.keyPath)) return null
 
-    if (existsSync(this.keyPath)) {
-      const key = Buffer.from(readFileSync(this.keyPath, "utf-8").trim(), "base64")
-      if (key.length !== 32) {
-        throw new Error(`Invalid secret key at ${this.keyPath}: expected 32 bytes`)
-      }
-      this.key = key
-    } else {
-      const key = randomBytes(32)
-      mkdirSync(dirname(this.keyPath), { recursive: true })
-      writeFileSync(this.keyPath, key.toString("base64"), { mode: 0o600 })
-      this.key = key
+    const key = Buffer.from(readFileSync(this.keyPath, "utf-8").trim(), "base64")
+    if (key.length !== 32) {
+      throw new Error(`Invalid secret key at ${this.keyPath}: expected 32 bytes`)
     }
+    this.key = key
+    return key
+  }
 
-    return this.key
+  private getOrCreateKey(): Buffer {
+    const existing = this.loadKey()
+    if (existing) return existing
+
+    const key = randomBytes(32)
+    mkdirSync(dirname(this.keyPath), { recursive: true })
+    writeFileSync(this.keyPath, key.toString("base64"), { mode: 0o600 })
+    this.key = key
+    return key
   }
 
   encrypt(plaintext: string): string {
     const iv = randomBytes(12)
-    const cipher = createCipheriv("aes-256-gcm", this.getKey(), iv)
+    const cipher = createCipheriv("aes-256-gcm", this.getOrCreateKey(), iv)
     const ciphertext = Buffer.concat([cipher.update(plaintext, "utf-8"), cipher.final()])
     return PREFIX + [iv, cipher.getAuthTag(), ciphertext].map((b) => b.toString("base64")).join(":")
   }
@@ -57,8 +62,15 @@ export class SecretCipher {
     if (parts.length !== 3) {
       throw new Error("Malformed secret: expected iv:tag:ciphertext")
     }
-    const [iv, tag, ciphertext] = parts.map((p) => Buffer.from(p!, "base64"))
-    const decipher = createDecipheriv("aes-256-gcm", this.getKey(), iv!)
+    // Never generate here: a missing key file means the stored secrets are
+    // unrecoverable (restored data without the key, say). Generating a fresh
+    // one would turn that into an opaque auth-tag failure at deploy time.
+    const key = this.loadKey()
+    if (!key) {
+      throw new Error(`Cannot decrypt secrets: key file missing at ${this.keyPath}`)
+    }
+    const [iv, tag, ciphertext] = parts.map((p) => Buffer.from(p, "base64"))
+    const decipher = createDecipheriv("aes-256-gcm", key, iv!)
     decipher.setAuthTag(tag!)
     return Buffer.concat([decipher.update(ciphertext!), decipher.final()]).toString("utf-8")
   }

@@ -42,54 +42,52 @@ function parseEnvFile(filePath: string): Record<string, string> {
   return env
 }
 
-function parseEnvVars(envArgs: string[]): Record<string, string> {
+/** Split `KEY=rest` for a flag, rejecting a missing `=` or an empty key. */
+function splitKeyValue(arg: string, flag: string, valueHint: string): [string, string] {
+  const idx = arg.indexOf("=")
+  if (idx <= 0) {
+    throw new ValidationError(`Invalid ${flag} format: ${arg}. Use KEY=${valueHint}`)
+  }
+  return [arg.slice(0, idx), arg.slice(idx + 1)]
+}
+
+/** `-e KEY=value` / `--secret KEY=value`, or a bare path to an env file. */
+function parseEnvVars(envArgs: string[], flag: string): Record<string, string> {
   const env: Record<string, string> = {}
-  for (const e of envArgs) {
-    const idx = e.indexOf("=")
-    if (idx === -1) {
-      // No '=' found — check if it's a file path
-      if (existsSync(e)) {
-        Object.assign(env, parseEnvFile(e))
-      } else {
-        throw new ValidationError(`Invalid env format: ${e}. Use KEY=value or provide a path to an env file`)
+  for (const arg of envArgs) {
+    if (!arg.includes("=")) {
+      // No '=' found — a bare argument is a path to an env file to bulk-load.
+      if (!existsSync(arg)) {
+        throw new ValidationError(`Invalid ${flag} format: ${arg}. Use KEY=value or the path to an env file`)
       }
-    } else {
-      const key = e.slice(0, idx)
-      const value = e.slice(idx + 1)
-      env[key] = value
+      Object.assign(env, parseEnvFile(arg))
+      continue
     }
+    const [key, value] = splitKeyValue(arg, flag, "value")
+    env[key] = value
   }
   return env
 }
 
+/** Drop the single trailing newline a file or a heredoc usually ends with. */
+function trimTrailingNewline(value: string): string {
+  return value.replace(/\r?\n$/, "")
+}
+
 /**
  * `--secret-file KEY=/path` — the value is the file's contents, so it never
- * appears in shell history or the process list. One trailing newline is
- * dropped, since that is an artifact of how the file was written.
+ * appears in shell history or the process list.
  */
 function parseSecretFiles(args: string[]): Record<string, string> {
   const secrets: Record<string, string> = {}
   for (const arg of args) {
-    const idx = arg.indexOf("=")
-    if (idx <= 0) {
-      throw new ValidationError(`Invalid secret file format: ${arg}. Use KEY=/path/to/file`)
-    }
-    const key = arg.slice(0, idx)
-    const path = arg.slice(idx + 1)
+    const [key, path] = splitKeyValue(arg, "--secret-file", "/path/to/file")
     if (!existsSync(path)) {
       throw new ValidationError(`Secret file not found: ${path}`)
     }
-    secrets[key] = readFileSync(path, "utf-8").replace(/\r?\n$/, "")
+    secrets[key] = trimTrailingNewline(readFileSync(path, "utf-8"))
   }
   return secrets
-}
-
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = []
-  for await (const chunk of process.stdin) {
-    chunks.push(Buffer.from(chunk as Uint8Array))
-  }
-  return Buffer.concat(chunks).toString("utf-8").replace(/\r?\n$/, "")
 }
 
 function parseVolumes(volumeArgs: string[]): VolumeMount[] {
@@ -147,32 +145,29 @@ export async function setAppCommand(
     } = {}
 
     if (options.env && options.env.length > 0) {
-      updates.env = parseEnvVars(options.env)
+      updates.env = parseEnvVars(options.env, "--env")
     }
 
-    const secrets: Record<string, string> = {}
-    if (options.secret && options.secret.length > 0) {
-      Object.assign(secrets, parseEnvVars(options.secret))
-    }
-    if (options.secretFile && options.secretFile.length > 0) {
-      Object.assign(secrets, parseSecretFiles(options.secretFile))
+    const secrets: Record<string, string> = {
+      ...parseEnvVars(options.secret ?? [], "--secret"),
+      ...parseSecretFiles(options.secretFile ?? []),
     }
     if (options.secretStdin) {
       if (process.stdin.isTTY) {
         console.error(chalk.dim(`Reading ${options.secretStdin} from stdin (end with Ctrl-D)`))
       }
-      const value = await readStdin()
+      const value = trimTrailingNewline(await Bun.stdin.text())
       if (!value) {
         throw new ValidationError(`No value read from stdin for secret ${options.secretStdin}`)
       }
       secrets[options.secretStdin] = value
     }
+
+    const clash = Object.keys(secrets).find((key) => updates.env?.[key] !== undefined)
+    if (clash) {
+      throw new ValidationError(`'${clash}' given as both --env and --secret. Pick one`)
+    }
     if (Object.keys(secrets).length > 0) {
-      for (const key of Object.keys(secrets)) {
-        if (updates.env?.[key] !== undefined) {
-          throw new ValidationError(`'${key}' given as both --env and --secret. Pick one`)
-        }
-      }
       updates.secrets = secrets
     }
 

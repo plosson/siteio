@@ -82,19 +82,16 @@ function sanitizeChatTarget(raw: unknown): ChatTarget | undefined {
   return target
 }
 
-// Strip everything a client must never see before returning an app over the
-// API: the git token and the encrypted secret values. Clients never need the
-// raw values; they can set/clear them via PATCH. `tokenSet` and `secretKeys`
-// are surfaced instead so UIs can indicate what is stored.
+// Strip the git token before returning an app over the API. Clients never need
+// the raw value; they can set/clear it via PATCH. `tokenSet` is surfaced so
+// UIs can indicate whether a token is stored.
+//
+// Secrets need no equivalent here: AppStorage never hands one out in the first
+// place (see toPublic), so a handler cannot leak one by forgetting to scrub.
 function scrubApp<T extends App | AppInfo>(app: T): T {
-  const { secrets, ...withoutSecrets } = app as T & { secrets?: Record<string, string> }
-  const scrubbed = withoutSecrets as T
-  if (secrets && Object.keys(secrets).length > 0) {
-    ;(scrubbed as App).secretKeys = Object.keys(secrets)
-  }
-  if (!scrubbed.git) return scrubbed
-  const { token, ...rest } = scrubbed.git
-  return { ...scrubbed, git: { ...rest, tokenSet: !!token } }
+  if (!app.git) return app
+  const { token, ...rest } = app.git
+  return { ...app, git: { ...rest, tokenSet: !!token } }
 }
 
 export class AgentServer {
@@ -809,7 +806,7 @@ export class AgentServer {
         }
 
         // Write the override (regenerate every deploy so env/domain updates apply)
-        const overrideYaml = buildOverride(app, this.config.dataDir, this.appStorage.resolveEnv(app))
+        const overrideYaml = buildOverride(app, this.config.dataDir, this.appStorage.resolveEnv(name))
         this.compose.writeOverride(name, overrideYaml)
         const overridePath = this.compose.overridePath(name)
 
@@ -848,7 +845,7 @@ export class AgentServer {
           ...(composeCommitHash && { commitHash: composeCommitHash }),
         })
 
-        return this.json({ ...(updatedCompose ? scrubApp(updatedCompose) : updatedCompose), warnings })
+        return this.json({ ...(updatedCompose && scrubApp(updatedCompose)), warnings })
       }
       // ---------- END COMPOSE BRANCH ----------
 
@@ -936,7 +933,7 @@ export class AgentServer {
         name: app.name,
         image: imageToRun,
         internalPort: app.internalPort,
-        env: this.appStorage.resolveEnv(app),
+        env: this.appStorage.resolveEnv(name),
         volumes: app.volumes,
         restartPolicy: app.restartPolicy,
         network: "siteio-network",
@@ -955,7 +952,7 @@ export class AgentServer {
       // Refresh the card preview in the background — deploy stays fast.
       if (updated) this.captureAppThumbnail(updated)
 
-      return this.json(updated ? scrubApp(updated) : updated)
+      return this.json(updated && scrubApp(updated))
     } catch (err) {
       // Update status to failed
       this.appStorage.update(name, { status: "failed" })
@@ -977,7 +974,7 @@ export class AgentServer {
         await this.docker.stop(name)
       }
       const updated = this.appStorage.update(name, { status: "stopped" })
-      return this.json(updated ? scrubApp(updated) : updated)
+      return this.json(updated && scrubApp(updated))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to stop app"
       return this.error(message, 500)
@@ -994,12 +991,12 @@ export class AgentServer {
         const files = await this.composeFiles(app)
         await this.docker.composeRestart(`siteio-${name}`, files, this.composeEnvFile(name))
         const updated = this.appStorage.update(name, { status: "running" })
-        return this.json(updated ? scrubApp(updated) : updated)
+        return this.json(updated && scrubApp(updated))
       }
       if (this.docker.containerExists(name)) {
         await this.docker.restart(name)
         const updated = this.appStorage.update(name, { status: "running" })
-        return this.json(updated ? scrubApp(updated) : updated)
+        return this.json(updated && scrubApp(updated))
       }
       return this.error("Container does not exist. Deploy the app first.", 400)
     } catch (err) {

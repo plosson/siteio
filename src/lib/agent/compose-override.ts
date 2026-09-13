@@ -14,15 +14,16 @@ import { APP_ROUTER_PRIORITY } from "./traefik"
  * equals signs survive YAML parsing intact. Keys are plain (identifier-safe).
  *
  * `env` is the resolved environment (plain vars plus decrypted secrets, see
- * AppStorage.resolveEnv). Compose needs the values on disk to bring the project
- * up, so unlike the single-container path the override file holds them in the
- * clear — it is written 0600, which is the same protection `docker inspect`
- * already offers on the host.
+ * AppStorage.resolveEnv) — required, so a caller cannot quietly bring the
+ * project up with the secrets missing. Compose needs the values on disk, so
+ * unlike the single-container path the override file holds them in the clear;
+ * it is written 0600, the same protection `docker inspect` already offers on
+ * the host.
  */
 export function buildOverride(
   app: App,
-  dataDir: string = "/data",
-  env: Record<string, string> = app.env
+  dataDir: string,
+  env: Record<string, string>
 ): string {
   if (!app.compose) {
     throw new Error(`buildOverride called on non-compose app '${app.name}'`)

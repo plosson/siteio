@@ -177,6 +177,9 @@ siteio apps set myapp --secret-file VAULT_PASSPHRASE=./passphrase.txt
 
 # From stdin, same idea
 pass show vault | siteio apps set myapp --secret-stdin VAULT_PASSPHRASE
+
+# A whole env file at once — every key in it becomes a secret
+siteio apps set myapp --secret ./secrets.env
 ```
 
 Secrets are encrypted at rest on the agent (AES-256-GCM, with the key in a

@@ -66,6 +66,14 @@ describe("Unit: SecretCipher", () => {
     expect(() => cipher.decrypt(parts.join(":"))).toThrow()
   })
 
+  test("refuses to decrypt when the key file is gone rather than making a new one", () => {
+    const blob = cipher.encrypt("value")
+    rmSync(join(testDir, "secrets.key"))
+
+    expect(() => new SecretCipher(testDir).decrypt(blob)).toThrow("key file missing")
+    expect(existsSync(join(testDir, "secrets.key"))).toBe(false)
+  })
+
   test("rejects a malformed blob", () => {
     expect(() => cipher.decrypt("not-encrypted")).toThrow("unknown encoding")
     expect(() => cipher.decrypt("enc:v1:only-one-part")).toThrow("iv:tag:ciphertext")
