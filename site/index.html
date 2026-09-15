@@ -580,6 +580,12 @@
         word-break: break-all;
       }
 
+      /* The agent prompt is a sentence: wrap between words, not mid-word */
+      [data-content="agent"] .install-command code {
+        word-break: normal;
+        overflow-wrap: anywhere;
+      }
+
       .step {
         flex-direction: column;
         gap: 12px;
@@ -623,10 +629,17 @@
       <h2>Install CLI</h2>
       <div class="install-card">
         <div class="install-tabs">
-          <div class="install-tab active" data-tab="unix">macOS / Linux</div>
+          <div class="install-tab active" data-tab="agent">Your agent</div>
+          <div class="install-tab" data-tab="unix">macOS / Linux</div>
           <div class="install-tab" data-tab="windows">Windows</div>
         </div>
-        <div class="install-content active" data-content="unix">
+        <div class="install-content active" data-content="agent">
+          <div class="install-command">
+            <code>Install siteio by reading and following https://siteio.houlahop.com/skill.md</code>
+            <button class="copy-btn" onclick="copyCommand(this, 'Install siteio by reading and following https://siteio.houlahop.com/skill.md')">Copy</button>
+          </div>
+        </div>
+        <div class="install-content" data-content="unix">
           <div class="install-command">
             <code>curl -LsSf https://siteio.houlahop.com/install | sh</code>
             <button class="copy-btn" onclick="copyCommand(this, 'curl -LsSf https://siteio.houlahop.com/install | sh')">Copy</button>
