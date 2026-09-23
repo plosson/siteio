@@ -35,6 +35,9 @@ describe("Unit: scaffoldApp", () => {
       expect(md).toContain(cmd)
     }
     // Warns about the empty build context and covers the alternative sources
+    // Config changes apply only on deploy (recreates the container); restart keeps old settings.
+    expect(md).toContain("Run `siteio apps deploy` after `set`")
+    expect(md).not.toMatch(/apps restart\S* after/)
     expect(md).toContain("EMPTY build context")
     expect(md).toContain("--git")
     expect(md).toContain("--compose-file")

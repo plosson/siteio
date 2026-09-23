@@ -1,6 +1,7 @@
 import chalk from "chalk"
 import { spawnSync } from "bun"
 import { formatSuccess, formatError } from "../../utils/output.ts"
+import { asRoot } from "./sudo.ts"
 
 const SERVICE_NAME = "siteio-agent"
 
@@ -22,7 +23,7 @@ export async function stopAgentCommand(): Promise<void> {
   console.log(chalk.cyan("Stopping siteio agent..."))
 
   const result = spawnSync({
-    cmd: ["sudo", "systemctl", "stop", SERVICE_NAME],
+    cmd: asRoot(["systemctl", "stop", SERVICE_NAME]),
     stdout: "inherit",
     stderr: "inherit",
   })
