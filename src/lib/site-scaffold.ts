@@ -7,7 +7,7 @@ const STARTER_INDEX = `<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>My Site</title>
-  <script src="https://cdn.jsdelivr.net/npm/pocketbase@0.22.0/dist/pocketbase.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pocketbase@0.28.1/dist/pocketbase.umd.js"></script>
 </head>
 <body>
   <h1>It works</h1>
@@ -74,7 +74,7 @@ Do NOT write a custom server. The backend already exists at \`/api\`. Load the
 PocketBase SDK in the browser and talk to it directly:
 
 \`\`\`html
-<script src="https://cdn.jsdelivr.net/npm/pocketbase@0.22.0/dist/pocketbase.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pocketbase@0.28.1/dist/pocketbase.umd.js"></script>
 <script>
   const pb = new PocketBase(window.location.origin)
 

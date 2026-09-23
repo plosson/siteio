@@ -1,5 +1,5 @@
 import {
-  existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, cpSync, statSync,
+  existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, cpSync, statSync, renameSync,
 } from "fs"
 import { join, resolve, sep } from "path"
 import { unzipSync, zipSync } from "fflate"
@@ -13,6 +13,7 @@ export class SiteStorage {
   private codeDir: string
   private dataDir: string
   private historyDir: string
+  private backupsDir: string
 
   // On-disk directory names keep the historical "pocket" prefix: renaming
   // them would break the volume mounts of every already-deployed site's
@@ -22,7 +23,8 @@ export class SiteStorage {
     this.codeDir = join(dataDir, "pocket-code")
     this.dataDir = join(dataDir, "pocket-data")
     this.historyDir = join(dataDir, "pocket-history")
-    for (const d of [this.metaDir, this.codeDir, this.dataDir, this.historyDir]) {
+    this.backupsDir = join(dataDir, "pocket-data-backups")
+    for (const d of [this.metaDir, this.codeDir, this.dataDir, this.historyDir, this.backupsDir]) {
       if (!existsSync(d)) mkdirSync(d, { recursive: true, mode: 0o755 })
     }
   }
@@ -39,6 +41,7 @@ export class SiteStorage {
   getCodePath(name: string): string { return join(this.codeDir, name) }
   getDataPath(name: string): string { return join(this.dataDir, name) }
   private historyPath(name: string): string { return join(this.historyDir, name) }
+  private backupsPath(name: string): string { return join(this.backupsDir, name) }
 
   create(data: Omit<Site, "createdAt" | "updatedAt">): Site {
     this.validateName(data.name)
@@ -79,7 +82,7 @@ export class SiteStorage {
 
   delete(name: string): boolean {
     let deleted = false
-    for (const p of [this.metaPath(name), this.getCodePath(name), this.getDataPath(name), this.historyPath(name)]) {
+    for (const p of [this.metaPath(name), this.getCodePath(name), this.getDataPath(name), this.historyPath(name), this.backupsPath(name)]) {
       if (existsSync(p)) { rmSync(p, { recursive: true }); deleted = true }
     }
     return deleted
@@ -163,7 +166,34 @@ export class SiteStorage {
     return { size: versionMeta.size, version: this.nextVersion(name) }
   }
 
-  // Move metadata, code, data, and history to a new name. The caller must
+  // Snapshot pb_data before a one-way PocketBase upgrade. The caller must stop
+  // the container first so the SQLite files are consistent. Snapshots are kept
+  // (never pruned) until the site is deleted. Returns the snapshot path.
+  backupData(name: string, label: string): string {
+    const base = join(this.backupsPath(name), `${label}-${new Date().toISOString().replace(/[:.]/g, "-")}`)
+    let dest = base
+    for (let i = 1; existsSync(dest); i++) dest = `${base}-${i}`
+    mkdirSync(this.backupsPath(name), { recursive: true, mode: 0o700 })
+    const dataPath = this.getDataPath(name)
+    if (existsSync(dataPath)) cpSync(dataPath, dest, { recursive: true })
+    else mkdirSync(dest)
+    return dest
+  }
+
+  // Put a snapshot back as pb_data. Copies to a staging dir next to pb_data,
+  // then swaps, so a failed copy never leaves a half-restored data dir. The
+  // snapshot itself is kept. The caller must stop the container first.
+  restoreData(name: string, snapshot: string): void {
+    if (!existsSync(snapshot)) throw new Error(`Snapshot not found: ${snapshot}`)
+    const dataPath = this.getDataPath(name)
+    const staging = `${dataPath}.restoring`
+    rmSync(staging, { recursive: true, force: true })
+    cpSync(snapshot, staging, { recursive: true })
+    rmSync(dataPath, { recursive: true, force: true })
+    renameSync(staging, dataPath)
+  }
+
+  // Move metadata, code, data, history, and snapshots to a new name. The caller must
   // remove the container before calling this (the volume mounts reference the
   // old paths) and recreate it after.
   rename(oldName: string, newName: string): Site | null {
@@ -176,6 +206,7 @@ export class SiteStorage {
       [this.getCodePath(oldName), this.getCodePath(newName)],
       [this.getDataPath(oldName), this.getDataPath(newName)],
       [this.historyPath(oldName), this.historyPath(newName)],
+      [this.backupsPath(oldName), this.backupsPath(newName)],
     ] as const) {
       if (existsSync(from)) {
         cpSync(from, to, { recursive: true })

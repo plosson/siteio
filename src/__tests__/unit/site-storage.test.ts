@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "fs"
-import { join } from "path"
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
+import { join, sep } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
 import { SiteStorage } from "../../lib/agent/storage.ts"
@@ -143,5 +143,72 @@ describe("Unit: SiteStorage", () => {
     expect(existsSync(join(storage.getCodePath("journal"), "public", "index.html"))).toBe(true)
     expect(storage.getHistory("journal")).toHaveLength(1)
     expect(() => storage.rename("journal", "api")).toThrow()
+  })
+
+  describe("pb_data snapshots", () => {
+    const writeData = (name: string, file: string, content: string) => {
+      mkdirSync(storage.getDataPath(name), { recursive: true })
+      writeFileSync(join(storage.getDataPath(name), file), content)
+    }
+    const readData = (name: string, file: string) => readFileSync(join(storage.getDataPath(name), file), "utf-8")
+
+    test("a snapshot is an independent copy: later writes to pb_data don't leak into it", () => {
+      storage.create(base("blog"))
+      writeData("blog", "data.db", "v1")
+      const snap = storage.backupData("blog", "0.23.4")
+      writeData("blog", "data.db", "v2-migrated")
+      expect(readFileSync(join(snap, "data.db"), "utf-8")).toBe("v1")
+    })
+
+    test("restore brings back the exact snapshot, dropping files created after it", () => {
+      storage.create(base("blog"))
+      writeData("blog", "data.db", "v1")
+      const snap = storage.backupData("blog", "0.23.4")
+      writeData("blog", "data.db", "v2-migrated")
+      writeData("blog", "new-wal-file", "x")
+      storage.restoreData("blog", snap)
+      expect(readData("blog", "data.db")).toBe("v1")
+      expect(existsSync(join(storage.getDataPath("blog"), "new-wal-file"))).toBe(false)
+      // Restoring must not consume the snapshot: a second attempt still works.
+      expect(readFileSync(join(snap, "data.db"), "utf-8")).toBe("v1")
+    })
+
+    test("restore of a missing snapshot throws and leaves pb_data untouched", () => {
+      storage.create(base("blog"))
+      writeData("blog", "data.db", "live")
+      expect(() => storage.restoreData("blog", join(dir, "nope"))).toThrow()
+      expect(readData("blog", "data.db")).toBe("live")
+    })
+
+    test("two snapshots of the same site in quick succession don't overwrite each other", () => {
+      storage.create(base("blog"))
+      writeData("blog", "data.db", "a")
+      const s1 = storage.backupData("blog", "0.23.4")
+      writeData("blog", "data.db", "b")
+      const s2 = storage.backupData("blog", "0.23.4")
+      expect(s1).not.toBe(s2)
+      expect(readFileSync(join(s1, "data.db"), "utf-8")).toBe("a")
+      expect(readFileSync(join(s2, "data.db"), "utf-8")).toBe("b")
+    })
+
+    test("a site that never wrote pb_data can still be snapshotted and restored (to empty)", () => {
+      storage.create(base("blog"))
+      const snap = storage.backupData("blog", "0.23.4")
+      writeData("blog", "data.db", "created-by-new-version")
+      storage.restoreData("blog", snap)
+      expect(existsSync(join(storage.getDataPath("blog"), "data.db"))).toBe(false)
+    })
+
+    test("snapshots follow a rename and are removed with the site", () => {
+      storage.create(base("blog"))
+      writeData("blog", "data.db", "v1")
+      const snap = storage.backupData("blog", "0.23.4")
+      storage.rename("blog", "journal")
+      expect(existsSync(snap)).toBe(false)
+      const moved = snap.replace(`${sep}blog${sep}`, `${sep}journal${sep}`)
+      expect(readFileSync(join(moved, "data.db"), "utf-8")).toBe("v1")
+      storage.delete("journal")
+      expect(existsSync(moved)).toBe(false)
+    })
   })
 })

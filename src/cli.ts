@@ -177,6 +177,16 @@ function registerSiteCommands(sites: Command): void {
     })
 
   sites
+    .command("upgrade [name]")
+    .description("Upgrade a site's PocketBase to the agent's version (pb_data is backed up and restored on failure)")
+    .option("-a, --all", "Upgrade every site on the server, one at a time")
+    .option("-y, --yes", "Skip confirmation prompt")
+    .action(async (name, options) => {
+      const { sitesUpgradeCommand } = await import("./commands/sites/upgrade.ts")
+      await sitesUpgradeCommand(name, { ...options, json: program.opts().json })
+    })
+
+  sites
     .command("rename <new-name>")
     .description("Rename a site (changes its subdomain)")
     .option("-n, --name <name>", "Site to rename (defaults to .siteio/config.json)")

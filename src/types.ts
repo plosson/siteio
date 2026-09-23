@@ -242,6 +242,17 @@ export interface Site {
   superuserPassword?: string
 }
 
+// Result of POST /sites/:name/upgrade. `upgraded` is false when the site was
+// already on the agent's PocketBase version; `backup` is the pb_data snapshot
+// taken before the (one-way) upgrade.
+export interface SiteUpgradeResult {
+  from: string
+  to: string
+  upgraded: boolean
+  backup?: string
+  site: SiteInfo
+}
+
 // Site info returned to clients (secrets stripped).
 export interface SiteInfo {
   name: string
