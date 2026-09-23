@@ -1,5 +1,7 @@
 // Embedded SKILL.md content for installation
-// This is included in the binary so it can be installed without network access
+// This is included in the binary so it can be installed without network access,
+// and so the PocketBase versions it states match this siteio build.
+import { POCKETBASE_JS_SDK_VERSION, POCKETBASE_VERSION } from "./pocketbase-version.ts"
 
 export const SKILL_CONTENT = `---
 name: siteio
@@ -66,6 +68,29 @@ siteio sites admin          # Backend dashboard URL + superuser credentials
 Define collections in \`.siteio/pb_migrations/*.js\` and use the PocketBase JS
 SDK in the browser (\`new PocketBase(window.location.origin)\`). The scaffolded
 CLAUDE.md explains the patterns.
+
+## PocketBase: version & docs
+
+This siteio build uses **PocketBase ${POCKETBASE_VERSION}** and the browser **JS SDK
+${POCKETBASE_JS_SDK_VERSION}**. New sites start on that version. An existing site may still
+run an older one: check the \`PB\` column of \`siteio sites list\` (or \`siteio sites info\`).
+
+Markdown references, pinned to these versions:
+
+- JS SDK (auth, CRUD, filters, realtime, files): https://raw.githubusercontent.com/pocketbase/js-sdk/v${POCKETBASE_JS_SDK_VERSION}/README.md
+- What changed between versions: https://raw.githubusercontent.com/pocketbase/pocketbase/v${POCKETBASE_VERSION}/CHANGELOG.md
+- Hooks & migrations API (every global, type and method): \`.siteio/pb_data/types.d.ts\`,
+  generated when \`siteio sites dev\` runs
+
+Official docs (HTML, track the latest PocketBase release):
+
+- Overview: https://pocketbase.io/docs/
+- Collections & API rules/filters: https://pocketbase.io/docs/collections/, https://pocketbase.io/docs/api-rules-and-filters/
+- Authentication (password, OAuth2, OTP/MFA): https://pocketbase.io/docs/authentication/
+- Files: https://pocketbase.io/docs/files-handling/
+- Realtime: https://pocketbase.io/docs/api-realtime/
+- JS hooks (\`.siteio/pb_hooks/*.pb.js\`): https://pocketbase.io/docs/js-overview/
+- JS migrations (\`.siteio/pb_migrations/*.js\`): https://pocketbase.io/docs/js-migrations/
 
 ## Quick Start: Container Apps
 

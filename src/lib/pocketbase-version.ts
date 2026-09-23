@@ -2,6 +2,11 @@
 // downloaded dev binary and newly created sites use this exact version.
 export const POCKETBASE_VERSION = "0.40.4"
 
+// Browser JS SDK release matching POCKETBASE_VERSION (see the SDK changelog for
+// which PocketBase versions each release targets). Used by the site scaffold
+// and the agent skill.
+export const POCKETBASE_JS_SDK_VERSION = "0.28.1"
+
 // Each site runs the image of its OWN recorded version (Site.pocketbaseVersion),
 // not the pin: pb_data migrations are one-way, so a site only moves to a newer
 // PocketBase through `siteio sites upgrade` (backup first), never implicitly.

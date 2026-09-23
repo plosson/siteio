@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync
 import { join } from "path"
 import { tmpdir } from "os"
 import { SKILL_CONTENT } from "../../lib/skill-content.ts"
+import { POCKETBASE_JS_SDK_VERSION, POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
 import { writeSkillTo, removeSkillFrom } from "../../commands/skill.ts"
 
 const AGENTS_SKILL = join(".agents", "skills", "siteio", "SKILL.md")
@@ -40,6 +41,27 @@ describe("Unit: agent skill", () => {
 
     test("tells the agent to check syntax with --help rather than guess", () => {
       expect(SKILL_CONTENT).toContain("--help")
+    })
+
+    // The skill ships inside the binary, so the versions it states must be the
+    // ones this build pins, never a stale literal.
+    test("states exactly the PocketBase and JS SDK versions this build pins", () => {
+      expect(SKILL_CONTENT).toContain(`PocketBase ${POCKETBASE_VERSION}`)
+      expect(SKILL_CONTENT).toContain(`JS SDK\n${POCKETBASE_JS_SDK_VERSION}`)
+      const semvers = new Set(SKILL_CONTENT.match(/\b\d+\.\d+\.\d+\b/g) ?? [])
+      expect([...semvers].sort()).toEqual([POCKETBASE_JS_SDK_VERSION, POCKETBASE_VERSION].sort())
+    })
+
+    test("versioned doc links are pinned to this build's tags, not a branch", () => {
+      const links = SKILL_CONTENT.match(/https:\/\/raw\.githubusercontent\.com\/\S+/g) ?? []
+      expect(links).toContain(`https://raw.githubusercontent.com/pocketbase/js-sdk/v${POCKETBASE_JS_SDK_VERSION}/README.md`)
+      expect(links).toContain(`https://raw.githubusercontent.com/pocketbase/pocketbase/v${POCKETBASE_VERSION}/CHANGELOG.md`)
+      for (const link of links) expect(link).not.toMatch(/\/(master|main|HEAD)\//)
+    })
+
+    test("warns that a deployed site can run a different PocketBase than the CLI", () => {
+      expect(SKILL_CONTENT).toContain("siteio sites list")
+      expect(SKILL_CONTENT).toMatch(/existing site may still\s+run an older one/)
     })
   })
 
