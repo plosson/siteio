@@ -53,7 +53,7 @@ export async function unsetAppCommand(
       console.log("")
 
       if (app.status === "running") {
-        console.log(chalk.dim(`Restart the app for changes to take effect: siteio apps restart ${name}`))
+        console.log(chalk.dim(`Redeploy the app for changes to take effect: siteio apps deploy ${name}`))
         console.log("")
       }
     }

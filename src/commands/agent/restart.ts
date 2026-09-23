@@ -1,6 +1,7 @@
 import chalk from "chalk"
 import { spawnSync } from "bun"
 import { formatSuccess, formatError } from "../../utils/output.ts"
+import { asRoot } from "./sudo.ts"
 
 const SERVICE_NAME = "siteio-agent"
 
@@ -21,7 +22,7 @@ export async function restartAgentCommand(): Promise<void> {
   console.log(chalk.cyan("Restarting siteio agent..."))
 
   const result = spawnSync({
-    cmd: ["sudo", "systemctl", "restart", SERVICE_NAME],
+    cmd: asRoot(["systemctl", "restart", SERVICE_NAME]),
     stdout: "inherit",
     stderr: "inherit",
   })

@@ -53,7 +53,7 @@ for real codebases:
 - Internal port: \`siteio apps set -p 8080\`
 - Restart policy: \`siteio apps set -r unless-stopped\`
 
-Run \`siteio apps restart\` after \`set\` for changes to take effect.
+Run \`siteio apps deploy\` after \`set\` for changes to take effect (\`restart\` keeps the old settings).
 
 ## Operations
 
