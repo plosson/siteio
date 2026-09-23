@@ -43,6 +43,34 @@ describe("Unit: agent skill", () => {
       expect(SKILL_CONTENT).toContain("--help")
     })
 
+    // Agents mix up the two command groups unless the distinction comes first.
+    test("introduces sites and apps as two distinct kinds before any command section", () => {
+      const intro = SKILL_CONTENT.slice(0, SKILL_CONTENT.indexOf("\n## "))
+      expect(intro).toContain("siteio sites")
+      expect(intro).toContain("siteio apps")
+      expect(intro).toContain("PocketBase")
+      expect(intro).toContain("Docker")
+      const frontmatter = SKILL_CONTENT.slice(4, SKILL_CONTENT.indexOf("\n---", 4))
+      expect(frontmatter).toMatch(/^description: .*\bsite\b.*\bapp\b/m)
+    })
+
+    test("site commands live under the Sites section and app commands under Apps", () => {
+      const sites = SKILL_CONTENT.indexOf("\n## Sites (PocketBase)")
+      const apps = SKILL_CONTENT.indexOf("\n## Apps (Docker)")
+      expect(sites).toBeGreaterThan(0)
+      expect(apps).toBeGreaterThan(sites)
+      expect(SKILL_CONTENT.slice(sites, apps)).not.toContain("siteio apps")
+      expect(SKILL_CONTENT.slice(apps)).not.toContain("siteio sites")
+    })
+
+    // `apps create` only registers an app; without `apps deploy` nothing runs.
+    test("the apps quick start deploys after creating", () => {
+      const apps = SKILL_CONTENT.slice(SKILL_CONTENT.indexOf("\n## Apps (Docker)"))
+      const create = apps.indexOf("siteio apps create")
+      expect(create).toBeGreaterThan(0)
+      expect(apps.indexOf("siteio apps deploy", create)).toBeGreaterThan(create)
+    })
+
     // The skill ships inside the binary, so the versions it states must be the
     // ones this build pins, never a stale literal.
     test("states exactly the PocketBase and JS SDK versions this build pins", () => {
