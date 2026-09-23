@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs
 import { join } from "path"
 import { tmpdir } from "os"
 import { scaffoldSite } from "../../lib/site-scaffold.ts"
+import { POCKETBASE_JS_SDK_VERSION } from "../../lib/pocketbase-version.ts"
 
 describe("Unit: scaffoldSite", () => {
   let dir: string
@@ -48,5 +49,13 @@ describe("Unit: scaffoldSite", () => {
     writeFileSync(join(dir, "CLAUDE.md"), "keep me")
     scaffoldSite(dir)
     expect(readFileSync(join(dir, "CLAUDE.md"), "utf-8")).toBe("keep me")
+  })
+
+  test("every browser SDK tag the scaffold writes is the pinned SDK version", () => {
+    scaffoldSite(dir)
+    const written = [readFileSync(join(dir, "index.html"), "utf-8"), readFileSync(join(dir, "CLAUDE.md"), "utf-8")].join("\n")
+    const pins = written.match(/pocketbase@[^/]+/g) ?? []
+    expect(pins.length).toBeGreaterThan(0)
+    for (const pin of pins) expect(pin).toBe(`pocketbase@${POCKETBASE_JS_SDK_VERSION}`)
   })
 })
