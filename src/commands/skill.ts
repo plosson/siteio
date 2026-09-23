@@ -3,7 +3,7 @@ import { join } from "path"
 import { homedir } from "os"
 import ora from "ora"
 import chalk from "chalk"
-import { SKILL_CONTENT } from "../lib/skill-content.ts"
+import { APPS_SKILL, SITES_SKILL, SKILL_CONTENT } from "../lib/skill-content.ts"
 import { formatSuccess } from "../utils/output.ts"
 import { handleError, ValidationError } from "../utils/errors.ts"
 import { select } from "../utils/prompt.ts"
@@ -86,15 +86,26 @@ async function resolveScope(options: { scope?: string; json?: boolean }): Promis
   return "user"
 }
 
-// Print the skill to stdout. This is the agent-facing path: an agent already
+// The overview (`siteio skill`, also what gets installed) points agents at the
+// per-kind guides, so each agent loads only the half it needs.
+export const SKILLS = {
+  siteio: SKILL_CONTENT,
+  "siteio-sites": SITES_SKILL,
+  "siteio-apps": APPS_SKILL,
+} as const
+
+export type SkillName = keyof typeof SKILLS
+
+// Print a skill to stdout. This is the agent-facing path: an agent already
 // running siteio needs the instructions in its context now, not a file on disk
 // it would have to be restarted to discover. Works for any agent, including
 // those that implement no skill standard at all.
-export function showSkillCommand(options: { json?: boolean } = {}): void {
+export function showSkillCommand(name: SkillName, options: { json?: boolean } = {}): void {
+  const content = SKILLS[name]
   if (options.json) {
-    console.log(JSON.stringify({ success: true, data: { name: "siteio", content: SKILL_CONTENT } }, null, 2))
+    console.log(JSON.stringify({ success: true, data: { name, content } }, null, 2))
   } else {
-    console.log(SKILL_CONTENT)
+    console.log(content)
   }
   process.exit(0)
 }
@@ -123,7 +134,7 @@ export async function installSkillCommand(options: { json?: boolean; scope?: str
         console.log("")
       }
       console.log(chalk.dim("Agents will load the skill on their next start."))
-      console.log(chalk.dim("Any agent can also read it now with: siteio skill"))
+      console.log(chalk.dim("Any agent can also read it now with: siteio skill (then siteio sites skill / siteio apps skill)"))
       console.log("")
     }
 

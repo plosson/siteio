@@ -32,7 +32,14 @@ If the user wants it only in the current project, use `--scope project` instead.
 siteio skill
 ```
 
-This prints the full instructions. Read them before doing anything else with siteio, because you will not load the installed skill until your next start.
+This prints an overview. Read it before doing anything else with siteio, because you will not load the installed skill until your next start.
+
+siteio deploys two kinds of things, and each has its own guide. Before you work on one, print its guide:
+
+```sh
+siteio sites skill   # websites, with a built-in PocketBase backend
+siteio apps skill    # Docker containers
+```
 
 ## 4. Tell the user what's next
 
