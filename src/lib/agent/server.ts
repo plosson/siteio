@@ -21,7 +21,7 @@ import { DockerfileStorage } from "./dockerfile-storage.ts"
 import { ComposeStorage } from "./compose-storage.ts"
 import { buildOverride } from "./compose-override.ts"
 import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS, CHAT_CORE_JS, EDITOR_SHELL_HTML, PICKER_JS } from "./ui/assets.ts"
-import { POCKETBASE_IMAGE, POCKETBASE_VERSION } from "../pocketbase-version.ts"
+import { POCKETBASE_VERSION, pocketbaseImage } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
 import { encodeToken } from "../../utils/token.ts"
 import { assertSafePublicUrl } from "../../utils/ssrf.ts"
@@ -393,6 +393,12 @@ export class AgentServer {
     const siteRollbackMatch = path.match(/^\/sites\/([a-z0-9-]+)\/rollback$/)
     if (siteRollbackMatch && req.method === "POST") {
       return this.handleRollbackSite(siteRollbackMatch[1]!, req)
+    }
+
+    // POST /sites/:name/upgrade - move the site to this agent's PocketBase version
+    const siteUpgradeMatch = path.match(/^\/sites\/([a-z0-9-]+)\/upgrade$/)
+    if (siteUpgradeMatch && req.method === "POST") {
+      return this.handleUpgradeSite(siteUpgradeMatch[1]!)
     }
 
     // /sites/:name/chat - AI editor: GET history+status, POST a turn (SSE),
@@ -1406,8 +1412,8 @@ export class AgentServer {
 
   // Deploy core, shared by the zip-upload route and the MCP share endpoint:
   // extract merged code (archives previous version; never touches pb_data),
-  // pull the pinned image, (re)create the container, and persist the new
-  // version. Throws on failure — callers own status-failed bookkeeping.
+  // pull the site's own PocketBase image, (re)create the container, and
+  // persist the new version. Throws on failure — callers own status-failed bookkeeping.
   private async runSiteDeploy(
     site: Site,
     zipData: Uint8Array,
@@ -1416,7 +1422,7 @@ export class AgentServer {
   ): Promise<SiteInfo> {
     const { size, version: codeVersion } = await this.storage.extractCode(site.name, zipData)
 
-    await this.docker.pull(POCKETBASE_IMAGE)
+    await this.docker.pull(pocketbaseImage(site.pocketbaseVersion))
     const containerId = await this.startSiteContainer(site)
 
     const updated = this.storage.update(site.name, {
@@ -1424,7 +1430,6 @@ export class AgentServer {
       containerId,
       size,
       version: codeVersion,
-      pocketbaseVersion: POCKETBASE_VERSION,
       deployedAt: new Date().toISOString(),
       deployedBy,
       // Always set (even to undefined) so the current version's message
@@ -1831,7 +1836,7 @@ export class AgentServer {
 
     return this.docker.run({
       name,
-      image: POCKETBASE_IMAGE,
+      image: pocketbaseImage(site.pocketbaseVersion),
       internalPort: 8090,
       env,
       volumes: [
@@ -1842,6 +1847,73 @@ export class AgentServer {
       network: "siteio-network",
       labels,
     })
+  }
+
+  // Upgrade a site to this agent's PocketBase version. PocketBase migrates
+  // pb_data on boot and that is one-way, so: snapshot pb_data with the
+  // container stopped, boot the new image, and if it doesn't come up, put the
+  // snapshot back and restart on the old version.
+  private async handleUpgradeSite(name: string): Promise<Response> {
+    const site = this.storage.get(name)
+    if (!site) return this.error("Site not found", 404)
+    const from = site.pocketbaseVersion
+    const to = POCKETBASE_VERSION
+    if (from === to) {
+      return this.json({ from, to, upgraded: false, site: this.storage.toInfo(site, this.config.domain) })
+    }
+    if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+
+    try {
+      // Pull before touching anything so a missing image leaves the site as is.
+      await this.docker.pull(pocketbaseImage(to))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return this.error(`Failed to pull ${pocketbaseImage(to)}: ${message}`, 500)
+    }
+
+    await this.docker.remove(name)
+    const backup = this.storage.backupData(name, from)
+    try {
+      const upgraded = this.storage.update(name, { pocketbaseVersion: to })!
+      const containerId = await this.startSiteContainer(upgraded)
+      this.storage.update(name, { containerId })
+      await this.waitForSiteStarted(name)
+      const updated = this.storage.update(name, { status: "running" })!
+      return this.json({ from, to, upgraded: true, backup, site: this.storage.toInfo(updated, this.config.domain) })
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      const logs = await this.docker.logs(name, 50).catch(() => "")
+      try {
+        await this.docker.remove(name)
+        this.storage.restoreData(name, backup)
+        const reverted = this.storage.update(name, { pocketbaseVersion: from })!
+        const containerId = await this.startSiteContainer(reverted)
+        this.storage.update(name, { containerId, status: "running" })
+      } catch (restoreErr) {
+        this.storage.update(name, { status: "failed" })
+        const restoreReason = restoreErr instanceof Error ? restoreErr.message : String(restoreErr)
+        return this.error(
+          `Upgrade to ${to} failed (${reason}) AND restoring ${from} failed (${restoreReason}). pb_data snapshot: ${backup}`,
+          500
+        )
+      }
+      return this.error(`Upgrade to ${to} failed, site restored to ${from}: ${reason}\n${logs}`, 500)
+    }
+  }
+
+  // How long a freshly (re)created site container gets to finish PocketBase's
+  // boot-time migrations and start serving.
+  siteStartTimeoutMs = 120_000
+
+  // PocketBase logs "Server started at" once migrations ran and it listens.
+  private async waitForSiteStarted(name: string): Promise<void> {
+    const deadline = Date.now() + this.siteStartTimeoutMs
+    for (;;) {
+      if ((await this.docker.logs(name, 200)).includes("Server started at")) return
+      if (!this.docker.isRunning(name)) throw new Error("PocketBase exited during startup")
+      if (Date.now() >= deadline) throw new Error(`PocketBase did not start within ${this.siteStartTimeoutMs / 1000}s`)
+      await new Promise((r) => setTimeout(r, 1000))
+    }
   }
 
   private handleGetSiteHistory(name: string): Response {
@@ -2048,9 +2120,9 @@ export class AgentServer {
     }
 
     try {
-      await this.docker.pull(POCKETBASE_IMAGE)
+      await this.docker.pull(pocketbaseImage())
     } catch (err) {
-      console.log(`> Failed to pull ${POCKETBASE_IMAGE} — migrated sites will start on their next deploy`)
+      console.log(`> Failed to pull ${pocketbaseImage()} — migrated sites will start on their next deploy`)
       return
     }
 

@@ -1,7 +1,7 @@
 import { loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
 import type {
-  ApiResponse, SiteInfo, SiteVersion, App, AppInfo, ContainerLogs, ShareGrantInfo, ShareGrantCreated, EditLinkCreated,
+  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, ContainerLogs, ShareGrantInfo, ShareGrantCreated, EditLinkCreated,
 } from "../types.ts"
 
 export interface ClientOptions {
@@ -142,6 +142,12 @@ export class SiteioClient {
       JSON.stringify({ version }),
       { "Content-Type": "application/json" }
     )
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
+  async upgradeSite(name: string): Promise<SiteUpgradeResult> {
+    const response = await this.request<ApiResponse<SiteUpgradeResult>>("POST", `/sites/${name}/upgrade`)
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
   }

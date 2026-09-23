@@ -1,12 +1,12 @@
 // src/__tests__/api/pockets.test.ts
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { FakeRuntime } from "../helpers/fake-runtime.ts"
-import { POCKETBASE_IMAGE, POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
+import { POCKETBASE_VERSION, pocketbaseImage } from "../../lib/pocketbase-version.ts"
 import type { AgentConfig, ApiResponse, SiteInfo } from "../../types.ts"
 
 function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
@@ -59,7 +59,7 @@ describe("API: sites", () => {
       runConfig.labels["traefik.http.middlewares.siteio-blog-cache.headers.customresponseheaders.Expires"]
     ).toBe("0")
     const pullCall = runtime.calls.find((c) => c.method === "pull")
-    expect(pullCall!.args[0]).toBe(POCKETBASE_IMAGE)
+    expect(pullCall!.args[0]).toBe(pocketbaseImage())
   })
 
   test("GET /sites lists deployed sites", async () => {
@@ -98,6 +98,23 @@ describe("API: sites", () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as ApiResponse<SiteInfo>
     expect(body.data!.pocketbaseVersion).toBe(POCKETBASE_VERSION)
+  })
+
+  test("redeploy keeps a site on its own PocketBase version instead of silently moving it to the pin", async () => {
+    await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+    // Simulate a site created by an older agent: pinned to a version other than the current default.
+    const metaPath = join(dataDir, "pockets", "blog.json")
+    const meta = JSON.parse(readFileSync(metaPath, "utf-8"))
+    writeFileSync(metaPath, JSON.stringify({ ...meta, pocketbaseVersion: "0.1.0" }))
+    runtime.calls = []
+
+    const res = await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as ApiResponse<SiteInfo>
+    expect(body.data!.pocketbaseVersion).toBe("0.1.0")
+    expect(runtime.calls.filter((c) => c.method === "pull").map((c) => c.args[0])).toEqual([pocketbaseImage("0.1.0")])
+    const runConfig = runtime.calls.find((c) => c.method === "run")!.args[0] as { image: string }
+    expect(runConfig.image).toBe(pocketbaseImage("0.1.0"))
   })
 
   test("GET /sites/:name/download returns the deployed code as a zip", async () => {
@@ -372,6 +389,112 @@ describe("API: sites", () => {
         })
       )
       expect(res.status).toBe(400)
+    })
+  })
+
+  describe("PocketBase upgrade", () => {
+    const K = { "X-API-Key": "test-key" }
+    const OLD = "0.1.0"
+    const dataFile = () => join(dataDir, "pocket-data", "blog", "data.db")
+    type UpgradeBody = ApiResponse<{ from: string; to: string; upgraded: boolean; backup?: string; site: SiteInfo }>
+
+    // A deployed site still on an older PocketBase, with some pb_data.
+    beforeEach(async () => {
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+      const metaPath = join(dataDir, "pockets", "blog.json")
+      const meta = JSON.parse(readFileSync(metaPath, "utf-8"))
+      writeFileSync(metaPath, JSON.stringify({ ...meta, pocketbaseVersion: OLD }))
+      writeFileSync(dataFile(), "old-format")
+      runtime.calls = []
+    })
+    const upgrade = () => server.handleRequestForTest(new Request("http://x/sites/blog/upgrade", { method: "POST", headers: K }))
+    const siteMeta = () => JSON.parse(readFileSync(join(dataDir, "pockets", "blog.json"), "utf-8"))
+
+    test("snapshots pb_data with the container stopped, then starts the new image", async () => {
+      runtime.logsReturn = "Server started at http://0.0.0.0:8090"
+      const res = await upgrade()
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as UpgradeBody
+      expect(body.data).toMatchObject({ from: OLD, to: POCKETBASE_VERSION, upgraded: true })
+      expect(body.data!.site.pocketbaseVersion).toBe(POCKETBASE_VERSION)
+      expect(readFileSync(join(body.data!.backup!, "data.db"), "utf-8")).toBe("old-format")
+
+      const order = runtime.calls.map((c) => c.method).filter((m) => ["pull", "remove", "run"].includes(m))
+      expect(order.slice(0, 3)).toEqual(["pull", "remove", "run"])
+      expect(runtime.callsOf("pull")[0]!.args[0]).toBe(pocketbaseImage(POCKETBASE_VERSION))
+      expect((runtime.callsOf("run")[0]!.args[0] as { image: string }).image).toBe(pocketbaseImage(POCKETBASE_VERSION))
+    })
+
+    test("a site already on the agent's version is a no-op: no container churn, no snapshot", async () => {
+      writeFileSync(join(dataDir, "pockets", "blog.json"), JSON.stringify({ ...siteMeta(), pocketbaseVersion: POCKETBASE_VERSION }))
+      const res = await upgrade()
+      const body = (await res.json()) as UpgradeBody
+      expect(body.data!.upgraded).toBe(false)
+      expect(runtime.calls.filter((c) => ["pull", "remove", "run"].includes(c.method))).toEqual([])
+      expect(existsSync(join(dataDir, "pocket-data-backups", "blog"))).toBe(false)
+    })
+
+    test("if the new PocketBase exits during startup, pb_data and the old version are restored", async () => {
+      runtime.logsReturn = "panic: migration failed"
+      runtime.isRunningReturn = false
+      // Simulate the new version rewriting pb_data before it crashed.
+      const realRun = runtime.run.bind(runtime)
+      runtime.run = async (config) => {
+        if (config.image === pocketbaseImage(POCKETBASE_VERSION)) writeFileSync(dataFile(), "half-migrated")
+        return realRun(config)
+      }
+      const res = await upgrade()
+      expect(res.status).toBe(500)
+      const body = (await res.json()) as ApiResponse<unknown>
+      expect(body.error).toContain(`restored to ${OLD}`)
+      expect(body.error).toContain("panic: migration failed")
+      expect(readFileSync(dataFile(), "utf-8")).toBe("old-format")
+      expect(siteMeta().pocketbaseVersion).toBe(OLD)
+      const images = runtime.callsOf("run").map((c) => (c.args[0] as { image: string }).image)
+      expect(images).toEqual([pocketbaseImage(POCKETBASE_VERSION), pocketbaseImage(OLD)])
+    })
+
+    test("if the new PocketBase never reports started, it times out and restores", async () => {
+      runtime.logsReturn = ""
+      server.siteStartTimeoutMs = 0
+      const res = await upgrade()
+      expect(res.status).toBe(500)
+      expect(siteMeta().pocketbaseVersion).toBe(OLD)
+      expect(readFileSync(dataFile(), "utf-8")).toBe("old-format")
+    })
+
+    test("a failed image pull leaves the site completely untouched", async () => {
+      runtime.pull = async () => { throw new Error("manifest unknown") }
+      const res = await upgrade()
+      expect(res.status).toBe(500)
+      expect(((await res.json()) as ApiResponse<unknown>).error).toContain("manifest unknown")
+      expect(runtime.calls.filter((c) => ["remove", "run"].includes(c.method))).toEqual([])
+      expect(existsSync(join(dataDir, "pocket-data-backups", "blog"))).toBe(false)
+      expect(siteMeta().pocketbaseVersion).toBe(OLD)
+    })
+
+    test("if even the restore fails, the site is marked failed and the error names the snapshot", async () => {
+      runtime.logsReturn = ""
+      runtime.isRunningReturn = false
+      let runs = 0
+      runtime.run = async () => { if (++runs === 2) throw new Error("docker daemon gone"); return "id" }
+      const res = await upgrade()
+      expect(res.status).toBe(500)
+      const error = ((await res.json()) as ApiResponse<unknown>).error!
+      expect(error).toContain("docker daemon gone")
+      expect(error).toContain(join(dataDir, "pocket-data-backups", "blog"))
+      expect(siteMeta().status).toBe("failed")
+    })
+
+    test("upgrading a missing site is a 404", async () => {
+      const res = await server.handleRequestForTest(new Request("http://x/sites/nope/upgrade", { method: "POST", headers: K }))
+      expect(res.status).toBe(404)
+    })
+
+    test("requires auth", async () => {
+      const res = await server.handleRequestForTest(new Request("http://x/sites/blog/upgrade", { method: "POST" }))
+      expect(res.status).toBe(401)
+      expect(siteMeta().pocketbaseVersion).toBe(OLD)
     })
   })
 

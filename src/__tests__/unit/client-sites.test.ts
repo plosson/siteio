@@ -32,4 +32,23 @@ describe("Unit: SiteioClient site methods", () => {
     const admin = await client.getSiteAdmin("blog")
     expect(admin.email).toBe("a@b.co")
   })
+
+  test("upgradeSite POSTs to the upgrade route", async () => {
+    let captured: { url: string; method?: string } | null = null
+    globalThis.fetch = (async (url: string, init: RequestInit) => {
+      captured = { url, method: init.method }
+      return new Response(JSON.stringify({ success: true, data: { from: "0.23.4", to: "0.40.4", upgraded: true, site: { name: "blog" } } }), { status: 200 })
+    }) as typeof fetch
+    const result = await client.upgradeSite("blog")
+    expect(result.upgraded).toBe(true)
+    expect(captured!.url).toBe("http://agent/sites/blog/upgrade")
+    expect(captured!.method).toBe("POST")
+  })
+
+  test("upgradeSite surfaces the agent's restore message as an error, not a success", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ success: false, error: "Upgrade to 0.40.4 failed, site restored to 0.23.4: boom" }), { status: 500 })
+    ) as unknown as typeof fetch
+    await expect(client.upgradeSite("blog")).rejects.toThrow("restored to 0.23.4")
+  })
 })

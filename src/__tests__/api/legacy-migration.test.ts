@@ -5,7 +5,7 @@ import { tmpdir } from "os"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import { hasLegacySites } from "../../lib/agent/legacy-migration.ts"
-import { POCKETBASE_IMAGE } from "../../lib/pocketbase-version.ts"
+import { pocketbaseImage } from "../../lib/pocketbase-version.ts"
 import type { AgentConfig, ApiResponse, SiteInfo, SiteVersion } from "../../types.ts"
 
 function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
@@ -77,7 +77,7 @@ describe("Legacy static-site migration", () => {
     expect(existsSync(join(dataDir, "pocket-history", "blog", "v1.json"))).toBe(true)
 
     // Image pulled once, container started, legacy routing containers removed
-    expect(runtime.callsOf("pull").map((c) => c.args[0])).toEqual([POCKETBASE_IMAGE])
+    expect(runtime.callsOf("pull").map((c) => c.args[0])).toEqual([pocketbaseImage()])
     const runCall = runtime.callsOf("run")[0]!.args[0] as { name: string; volumes: { name: string }[] }
     expect(runCall.name).toBe("blog")
 
