@@ -17,7 +17,7 @@ const program = new Command()
   .addHelpText(
     "after",
     `
-AI agents: run 'siteio skill' for full usage instructions.`
+AI agents: run 'siteio skill' for usage instructions.`
   )
 
 // Status command
@@ -86,6 +86,14 @@ program
 // Sites commands. Every site ships with a PocketBase backend (auth, database,
 // file storage) — using it is optional; a plain folder of HTML deploys as-is.
 function registerSiteCommands(sites: Command): void {
+  sites
+    .command("skill")
+    .description("Print the agent guide for sites (deploy, PocketBase backend, docs, sharing)")
+    .action(async () => {
+      const { showSkillCommand } = await import("./commands/skill.ts")
+      showSkillCommand("siteio-sites", { json: program.opts().json })
+    })
+
   sites
     .command("init [folder]")
     .description("Scaffold a new site project (index.html + starter backend schema + AI guide)")
@@ -297,6 +305,14 @@ program.addCommand(pocketAlias, { hidden: true })
 const apps = program
   .command("apps")
   .description("Manage containerized applications")
+
+apps
+  .command("skill")
+  .description("Print the agent guide for apps (create, deploy, config, domains, logs)")
+  .action(async () => {
+    const { showSkillCommand } = await import("./commands/skill.ts")
+    showSkillCommand("siteio-apps", { json: program.opts().json })
+  })
 
 apps
   .command("init [folder]")
@@ -568,10 +584,10 @@ program
 // agents that load skills at startup.
 const skill = program
   .command("skill")
-  .description("Print the siteio agent skill (how to use siteio) to stdout")
+  .description("Print the siteio agent skill overview (sites vs apps) to stdout")
   .action(async () => {
     const { showSkillCommand } = await import("./commands/skill.ts")
-    showSkillCommand({ json: program.opts().json })
+    showSkillCommand("siteio", { json: program.opts().json })
   })
 
 skill

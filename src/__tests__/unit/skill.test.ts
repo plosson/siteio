@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { SKILL_CONTENT } from "../../lib/skill-content.ts"
+import { APPS_SKILL, SITES_SKILL, SKILL_CONTENT } from "../../lib/skill-content.ts"
 import { POCKETBASE_JS_SDK_VERSION, POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
 import { writeSkillTo, removeSkillFrom } from "../../commands/skill.ts"
 
@@ -40,11 +40,11 @@ describe("Unit: agent skill", () => {
     })
 
     test("tells the agent to check syntax with --help rather than guess", () => {
-      expect(SKILL_CONTENT).toContain("--help")
+      for (const content of [SKILL_CONTENT, SITES_SKILL, APPS_SKILL]) expect(content).toContain("--help")
     })
 
     // Agents mix up the two command groups unless the distinction comes first.
-    test("introduces sites and apps as two distinct kinds before any command section", () => {
+    test("the overview introduces sites and apps as two distinct kinds before any section", () => {
       const intro = SKILL_CONTENT.slice(0, SKILL_CONTENT.indexOf("\n## "))
       expect(intro).toContain("siteio sites")
       expect(intro).toContain("siteio apps")
@@ -54,42 +54,87 @@ describe("Unit: agent skill", () => {
       expect(frontmatter).toMatch(/^description: .*\bsite\b.*\bapp\b/m)
     })
 
-    test("site commands live under the Sites section and app commands under Apps", () => {
-      const sites = SKILL_CONTENT.indexOf("\n## Sites (PocketBase)")
-      const apps = SKILL_CONTENT.indexOf("\n## Apps (Docker)")
-      expect(sites).toBeGreaterThan(0)
-      expect(apps).toBeGreaterThan(sites)
-      expect(SKILL_CONTENT.slice(sites, apps)).not.toContain("siteio apps")
-      expect(SKILL_CONTENT.slice(apps)).not.toContain("siteio sites")
+    test("the overview points to both detailed guides and stays an overview", () => {
+      expect(SKILL_CONTENT).toContain("siteio sites skill")
+      expect(SKILL_CONTENT).toContain("siteio apps skill")
+      // Details belong in the per-kind guides, not the always-loaded overview.
+      for (const detail of ["pb_migrations", "sites share", "pocketbase.io/docs", "apps create", "apps set"]) {
+        expect(SKILL_CONTENT).not.toContain(detail)
+      }
+    })
+
+    test("each guide covers only its own kind", () => {
+      expect(SITES_SKILL).not.toContain("siteio apps")
+      expect(APPS_SKILL).not.toContain("siteio sites")
+      expect(SITES_SKILL.startsWith("# siteio sites")).toBe(true)
+      expect(APPS_SKILL.startsWith("# siteio apps")).toBe(true)
+    })
+
+    // Printed guides are not installed skills: frontmatter would only be noise.
+    test("the guides carry no frontmatter", () => {
+      expect(SITES_SKILL.startsWith("---")).toBe(false)
+      expect(APPS_SKILL.startsWith("---")).toBe(false)
     })
 
     // `apps create` only registers an app; without `apps deploy` nothing runs.
     test("the apps quick start deploys after creating", () => {
-      const apps = SKILL_CONTENT.slice(SKILL_CONTENT.indexOf("\n## Apps (Docker)"))
-      const create = apps.indexOf("siteio apps create")
+      const create = APPS_SKILL.indexOf("siteio apps create")
       expect(create).toBeGreaterThan(0)
-      expect(apps.indexOf("siteio apps deploy", create)).toBeGreaterThan(create)
+      expect(APPS_SKILL.indexOf("siteio apps deploy", create)).toBeGreaterThan(create)
     })
 
     // The skill ships inside the binary, so the versions it states must be the
     // ones this build pins, never a stale literal.
-    test("states exactly the PocketBase and JS SDK versions this build pins", () => {
-      expect(SKILL_CONTENT).toContain(`PocketBase ${POCKETBASE_VERSION}`)
-      expect(SKILL_CONTENT).toContain(`JS SDK\n${POCKETBASE_JS_SDK_VERSION}`)
-      const semvers = new Set(SKILL_CONTENT.match(/\b\d+\.\d+\.\d+\b/g) ?? [])
+    test("the sites guide states exactly the PocketBase and JS SDK versions this build pins", () => {
+      expect(SITES_SKILL).toContain(`PocketBase ${POCKETBASE_VERSION}`)
+      expect(SITES_SKILL).toContain(`JS SDK\n${POCKETBASE_JS_SDK_VERSION}`)
+      const semvers = new Set(SITES_SKILL.match(/\b\d+\.\d+\.\d+\b/g) ?? [])
       expect([...semvers].sort()).toEqual([POCKETBASE_JS_SDK_VERSION, POCKETBASE_VERSION].sort())
+      for (const other of [SKILL_CONTENT, APPS_SKILL]) expect(other).not.toMatch(/\b\d+\.\d+\.\d+\b/)
     })
 
     test("versioned doc links are pinned to this build's tags, not a branch", () => {
-      const links = SKILL_CONTENT.match(/https:\/\/raw\.githubusercontent\.com\/\S+/g) ?? []
+      const links = SITES_SKILL.match(/https:\/\/raw\.githubusercontent\.com\/\S+/g) ?? []
       expect(links).toContain(`https://raw.githubusercontent.com/pocketbase/js-sdk/v${POCKETBASE_JS_SDK_VERSION}/README.md`)
       expect(links).toContain(`https://raw.githubusercontent.com/pocketbase/pocketbase/v${POCKETBASE_VERSION}/CHANGELOG.md`)
       for (const link of links) expect(link).not.toMatch(/\/(master|main|HEAD)\//)
     })
 
     test("warns that a deployed site can run a different PocketBase than the CLI", () => {
-      expect(SKILL_CONTENT).toContain("siteio sites list")
-      expect(SKILL_CONTENT).toMatch(/existing site may still\s+run an older one/)
+      expect(SITES_SKILL).toContain("siteio sites list")
+      expect(SITES_SKILL).toMatch(/existing site may still\s+run an older one/)
+    })
+  })
+
+  // The commands the overview tells agents to run must exist and print exactly
+  // the matching guide — a typo here would strand every agent at the overview.
+  describe("print commands", () => {
+    const cli = (...args: string[]) => {
+      const r = Bun.spawnSync({ cmd: ["bun", "run", join(import.meta.dir, "../../cli.ts"), ...args], stdout: "pipe", stderr: "pipe" })
+      return { code: r.exitCode, out: r.stdout.toString() }
+    }
+    test.each([
+      [["skill"], SKILL_CONTENT],
+      [["sites", "skill"], SITES_SKILL],
+      [["apps", "skill"], APPS_SKILL],
+    ] as const)("siteio %p prints its guide", (args, expected) => {
+      const { code, out } = cli(...args)
+      expect(code).toBe(0)
+      expect(out).toBe(expected + "\n")
+    })
+
+    test("--json wraps each guide with its name", () => {
+      const { out } = cli("--json", "sites", "skill")
+      expect(JSON.parse(out)).toEqual({ success: true, data: { name: "siteio-sites", content: SITES_SKILL } })
+    })
+
+    test("install writes only the overview, not the guides", () => {
+      const installed = writeSkillTo(dir)
+      for (const { path } of installed) {
+        const content = readFileSync(path, "utf-8")
+        expect(content).toBe(SKILL_CONTENT)
+        expect(content).not.toContain(SITES_SKILL)
+      }
     })
   })
 
