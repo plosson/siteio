@@ -5,14 +5,27 @@ import { POCKETBASE_JS_SDK_VERSION, POCKETBASE_VERSION } from "./pocketbase-vers
 
 export const SKILL_CONTENT = `---
 name: siteio
-description: Deploy websites to a URL using siteio. Use when the user wants to deploy a website, static site, HTML files, or asks to publish/host a site — including sites that need auth, a database, or file storage.
+description: Deploy websites and Docker apps to a URL using siteio. Use when the user wants to deploy, publish or host a website, static site or HTML files — including sites that need auth, a database, or file storage (a siteio site, backed by PocketBase) — or a Docker image, Dockerfile, Git repo or docker-compose service (a siteio app).
 argument-hint: "[folder] [-n name]"
 allowed-tools: Bash(siteio *)
 ---
 
 # Deploy with siteio
 
-siteio is a self-hosted deployment platform for **websites** and **Docker container apps** with automatic HTTPS. Every site ships with a built-in backend (PocketBase: auth, database, file storage, REST + realtime API) — using it is optional; a plain folder of HTML deploys as-is.
+siteio is a self-hosted deployment platform with automatic HTTPS. It deploys
+**two different kinds of things**, each with its own command group:
+
+| | **Sites** — \`siteio sites …\` | **Apps** — \`siteio apps …\` |
+|---|---|---|
+| What you deploy | A folder of web files (HTML, CSS, JS, images) | A Docker container: an image, a Dockerfile, a Git repo, or a docker-compose file |
+| Runs on | PocketBase, one container per site, managed by siteio | Your own container |
+| Backend | Built in at \`/api\` (PocketBase): auth, database, file storage, realtime. Optional — plain HTML deploys as-is | Whatever your container runs (Node, Python, Go, a database, …) |
+| Use for | Static sites, SPAs, and apps whose backend fits PocketBase | Custom servers, existing Docker images, other stacks, background services |
+| URL | \`https://<name>.<domain>\` | \`https://<name>.<domain>\` |
+
+**Which one?** Default to a **site**. Choose an **app** only when you need your
+own server process or an existing Docker image — not just to get auth, a database
+or file storage (sites already have those).
 
 ## Discovering Commands
 
@@ -20,9 +33,9 @@ Use \`--help\` at any level to discover subcommands and options:
 
 \`\`\`sh
 siteio --help              # Top-level commands
-siteio sites --help        # Site commands
-siteio sites deploy --help # Deploy options
-siteio apps --help         # Container app commands
+siteio sites --help        # Site commands (PocketBase)
+siteio sites deploy --help # Site deploy options
+siteio apps --help         # App commands (Docker)
 \`\`\`
 
 **Always use \`--help\` to check exact syntax before running a command.**
@@ -42,7 +55,9 @@ The user needs a connection token from their siteio administrator:
 siteio login -t <token>
 \`\`\`
 
-## Quick Start: Sites
+## Sites (PocketBase)
+
+### Quick start
 
 Deploy a folder of static files (HTML, CSS, JS, images) as a website:
 
@@ -54,7 +69,7 @@ siteio sites deploy ./dist -n myapp
 - Sites are served at \`https://<name>.<domain>\` with automatic HTTPS
 - Deploying to the same name replaces the site's code; its data is preserved
 
-## Sites with auth, database, or storage
+### Auth, database, or storage
 
 Do NOT write a custom server. Every site has a PocketBase backend at \`/api\`:
 
@@ -69,7 +84,7 @@ Define collections in \`.siteio/pb_migrations/*.js\` and use the PocketBase JS
 SDK in the browser (\`new PocketBase(window.location.origin)\`). The scaffolded
 CLAUDE.md explains the patterns.
 
-## PocketBase: version & docs
+### PocketBase version & docs
 
 This siteio build uses **PocketBase ${POCKETBASE_VERSION}** and the browser **JS SDK
 ${POCKETBASE_JS_SDK_VERSION}**. New sites start on that version. An existing site may still
@@ -92,16 +107,7 @@ Official docs (HTML, track the latest PocketBase release):
 - JS hooks (\`.siteio/pb_hooks/*.pb.js\`): https://pocketbase.io/docs/js-overview/
 - JS migrations (\`.siteio/pb_migrations/*.js\`): https://pocketbase.io/docs/js-migrations/
 
-## Quick Start: Container Apps
-
-Deploy Docker images or build from Git repos:
-
-\`\`\`sh
-siteio apps create myapp -i nginx -p 80
-siteio apps create myapp --git <url> -p 3000
-\`\`\`
-
-## Editing an Existing Site
+### Editing an existing site
 
 When a user wants to edit a site by giving its URL (e.g., \`https://mysite.example.com\`):
 
@@ -110,7 +116,7 @@ When a user wants to edit a site by giving its URL (e.g., \`https://mysite.examp
 3. Edit the files in \`/tmp/mysite-edit/\`
 4. Re-deploy: \`siteio sites deploy /tmp/mysite-edit -n mysite\`
 
-## Sharing a site for editing (delegate to another person's AI)
+### Sharing a site for editing (delegate to another person's AI)
 
 Let someone else edit and redeploy a site without giving them your credentials:
 
@@ -134,10 +140,33 @@ share the same one-time **share code** and OAuth, and all are confined to that o
 
 Access stays valid until you revoke it; the token/code is shown once.
 
-## Key Features
+### More site commands
 
-- **Custom domains**: \`siteio sites domain add <domain>\` / \`siteio apps set -d <domain>\`
+- **Custom domains**: \`siteio sites domain add <domain>\`
 - **Version history & rollback**: \`siteio sites history\` / \`siteio sites rollback\` (code only — data is never rolled back)
 - **Backend logs**: \`siteio sites logs\`
 - **Rename**: \`siteio sites rename <new-name>\`
+
+## Apps (Docker)
+
+### Quick start
+
+Create the app, then deploy it — \`create\` only registers it, \`deploy\` builds and starts the container:
+
+\`\`\`sh
+siteio apps create myapp -i nginx -p 80            # from a Docker image
+siteio apps create myapp --git <url> -p 3000       # built from a Git repo (--context for monorepos)
+siteio apps create myapp -f ./Dockerfile -p 3000   # from a local, self-contained Dockerfile
+siteio apps deploy myapp
+\`\`\`
+
+\`siteio apps init ./myapp\` scaffolds a Dockerfile project with an AI guide.
+\`siteio apps create --help\` covers docker-compose apps and private Git repos.
+
+### More app commands
+
+- **Config**: \`siteio apps set myapp -e KEY=value\` (also \`--secret\`, \`-v\` volumes, \`-p\` port), then \`siteio apps deploy myapp\` to apply
+- **Custom domains**: \`siteio apps set myapp -d <domain>\`
+- **Lifecycle**: \`siteio apps stop|restart|rm myapp\`
+- **Logs**: \`siteio apps logs myapp\`
 `
