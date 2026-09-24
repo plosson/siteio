@@ -13,14 +13,23 @@ import { APP_ROUTER_PRIORITY } from "./traefik"
  * All scalar values are double-quoted so tokens like backticks, braces, and
  * equals signs survive YAML parsing intact. Keys are plain (identifier-safe).
  */
-export function buildOverride(app: App, dataDir: string = "/data"): string {
+export function buildOverride(
+  app: App,
+  domains: string[],
+  dataDir: string = "/data"
+): string {
   if (!app.compose) {
     throw new Error(`buildOverride called on non-compose app '${app.name}'`)
+  }
+  // A router without a Host rule never matches: Traefik answers 404 with its
+  // default certificate. Callers must resolve the default subdomain first.
+  if (domains.length === 0) {
+    throw new Error(`buildOverride called without domains for app '${app.name}'`)
   }
 
   const primary = app.compose.primaryService
   const containerName = `siteio-${app.name}`
-  const labels = buildTraefikLabelsForCompose(app, containerName)
+  const labels = buildTraefikLabelsForCompose(app, domains, containerName)
 
   const envLines =
     Object.keys(app.env).length > 0
@@ -79,6 +88,7 @@ export function buildOverride(app: App, dataDir: string = "/data"): string {
  */
 function buildTraefikLabelsForCompose(
   app: App,
+  domains: string[],
   containerName: string
 ): Record<string, string> {
   const labels: Record<string, string> = {
@@ -89,11 +99,7 @@ function buildTraefikLabelsForCompose(
     // Apps own their whole host: outrank the agent's reserved-path MCP router.
     [`traefik.http.routers.${containerName}.priority`]: String(APP_ROUTER_PRIORITY),
     [`traefik.http.services.${containerName}.loadbalancer.server.port`]: String(app.internalPort),
-  }
-
-  if (app.domains.length > 0) {
-    const hostRules = app.domains.map((d) => `Host(\`${d}\`)`).join(" || ")
-    labels[`traefik.http.routers.${containerName}.rule`] = hostRules
+    [`traefik.http.routers.${containerName}.rule`]: domains.map((d) => `Host(\`${d}\`)`).join(" || "),
   }
 
   return labels
