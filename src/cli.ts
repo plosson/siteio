@@ -337,6 +337,7 @@ apps
   .option("--context <path>", "Build context subdirectory for monorepos")
   .option("--git-token <token>", "Personal access token for cloning a private HTTPS git repo")
   .option("-p, --port <port>", "Internal port the container listens on", intArg)
+  .option("--deploy", "Deploy right after creating, as 'siteio apps deploy <name>' would")
   .addHelpText(
     "after",
     `
