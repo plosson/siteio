@@ -31,7 +31,7 @@ function getBackoffDelay(attempt: number, initialDelayMs: number, maxDelayMs: nu
 /**
  * Sleep for a specified duration
  */
-function sleep(ms: number): Promise<void> {
+export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 

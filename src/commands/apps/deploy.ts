@@ -90,7 +90,8 @@ export async function deployAppCommand(
 
     // Read the local Dockerfile up-front so we fail fast on bad paths
     const dockerfileContent = readFlagFile(options.file, "Dockerfile")
-   const action = options.noCache ? "Building (no cache) and deploying" : "Deploying"
+
+    const action = options.noCache ? "Building (no cache) and deploying" : "Deploying"
     spinner.start(`${action} app ${name}`)
 
     const client = new SiteioClient()
@@ -144,7 +145,7 @@ export async function deployAppCommand(
         console.log("")
       }
 
-      printComposeWarnings(app)
+      printComposeWarnings(app.warnings)
     }
     process.exit(ok ? 0 : 1)
   } catch (err) {

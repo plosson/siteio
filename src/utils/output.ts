@@ -22,12 +22,8 @@ export function formatWarning(message: string): string {
   return chalk.yellow(`${symbols.warning} ${message}`)
 }
 
-/**
- * Print the compose warnings an agent response may carry (create, set,
- * deploy). Responses without any print nothing.
- */
-export function printComposeWarnings(response: unknown): void {
-  const warnings = (response as { warnings?: string[] } | null)?.warnings
+/** Print the compose warnings of a create, set or deploy response, if any. */
+export function printComposeWarnings(warnings: string[] | undefined): void {
   if (!warnings || warnings.length === 0) return
   console.log(chalk.yellow("Warnings:"))
   for (const w of warnings) {

@@ -1,6 +1,6 @@
 import { join } from "path"
 import type { App } from "../../types"
-import { APP_ROUTER_PRIORITY } from "./traefik"
+import { routerLabels } from "./traefik"
 
 /**
  * Generates the YAML content of docker-compose.siteio.yml, the siteio-owned
@@ -33,16 +33,11 @@ export function buildOverride(app: App, options: OverrideOptions): string {
   if (!app.compose) {
     throw new Error(`buildOverride called on non-compose app '${app.name}'`)
   }
-  // A router without a Host rule never matches: Traefik answers 404 with its
-  // default certificate. Callers must resolve the default subdomain first.
-  if (domains.length === 0) {
-    throw new Error(`buildOverride called without domains for app '${app.name}'`)
-  }
 
   const primary = app.compose.primaryService
   const networks = [...baseNetworks.filter((n) => n !== "siteio-network"), "siteio-network"]
   const containerName = `siteio-${app.name}`
-  const labels = buildTraefikLabelsForCompose(app, domains, containerName)
+  const labels = routerLabels(containerName, domains, app.internalPort)
 
   const envLines =
     Object.keys(app.env).length > 0
@@ -92,30 +87,6 @@ export function buildOverride(app: App, options: OverrideOptions): string {
   ]
 
   return lines.join("\n")
-}
-
-/**
- * Mirror of DockerManager.buildTraefikLabels but returns the map without
- * side-effects, so it can be rendered into YAML. Kept local to avoid tight
- * coupling with the container-run codepath; label semantics must match.
- */
-function buildTraefikLabelsForCompose(
-  app: App,
-  domains: string[],
-  containerName: string
-): Record<string, string> {
-  const labels: Record<string, string> = {
-    "traefik.enable": "true",
-    "traefik.docker.network": "siteio-network",
-    [`traefik.http.routers.${containerName}.entrypoints`]: "websecure",
-    [`traefik.http.routers.${containerName}.tls.certresolver`]: "letsencrypt",
-    // Apps own their whole host: outrank the agent's reserved-path MCP router.
-    [`traefik.http.routers.${containerName}.priority`]: String(APP_ROUTER_PRIORITY),
-    [`traefik.http.services.${containerName}.loadbalancer.server.port`]: String(app.internalPort),
-    [`traefik.http.routers.${containerName}.rule`]: domains.map((d) => `Host(\`${d}\`)`).join(" || "),
-  }
-
-  return labels
 }
 
 function yamlQuote(value: string): string {

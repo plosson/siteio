@@ -17,6 +17,29 @@ const TRAEFIK_IMAGE = "traefik:v3.7"
 export const MCP_ROUTER_PRIORITY = 1000
 export const APP_ROUTER_PRIORITY = 2000
 
+/**
+ * Docker labels that route `domains` over HTTPS to a siteio container on
+ * siteio-network. Shared by single-container apps, sites and compose
+ * overrides so their routing cannot drift apart. A router without a Host rule
+ * never matches (Traefik answers 404 with its default certificate), so an
+ * empty domain list is refused.
+ */
+export function routerLabels(containerName: string, domains: string[], port: number): Record<string, string> {
+  if (domains.length === 0) {
+    throw new Error(`Cannot route '${containerName}' without domains`)
+  }
+  return {
+    "traefik.enable": "true",
+    "traefik.docker.network": "siteio-network",
+    [`traefik.http.routers.${containerName}.rule`]: domains.map((d) => `Host(\`${d}\`)`).join(" || "),
+    [`traefik.http.routers.${containerName}.entrypoints`]: "websecure",
+    [`traefik.http.routers.${containerName}.tls.certresolver`]: "letsencrypt",
+    // Apps own their whole host: outrank the agent's reserved-path MCP router.
+    [`traefik.http.routers.${containerName}.priority`]: String(APP_ROUTER_PRIORITY),
+    [`traefik.http.services.${containerName}.loadbalancer.server.port`]: String(port),
+  }
+}
+
 export interface TraefikConfig {
   dataDir: string
   domain: string

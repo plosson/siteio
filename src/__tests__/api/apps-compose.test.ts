@@ -573,10 +573,28 @@ describe("API: Apps (compose)", () => {
       const override = readFileSync(join(testDir, "compose", "keepnet", "docker-compose.siteio.yml"), "utf-8")
       expect(override).toMatch(/networks:\s+- "default"\s+- "siteio-network"/m)
 
-      // Deploy resolves the base file alone first, then merged with the override
-      const configCalls = runtime.callsOf("composeConfig").slice(-2)
+      // Deploy resolves the base file alone, once; compose up does the merge
+      runtime.calls = []
+      await jsonOk<App>(await req("POST", "/apps/keepnet/deploy"))
+      const configCalls = runtime.callsOf("composeConfig")
+      expect(configCalls).toHaveLength(1)
       expect((configCalls[0]!.args[1] as string[])).toHaveLength(1)
-      expect((configCalls[1]!.args[1] as string[])).toHaveLength(2)
+    })
+
+    test("a file compose rejects at deploy: 400 with its error, app marked failed, nothing started", async () => {
+      runtime.composeConfigReturn = { services: { web: {}, db: {} } }
+      await jsonOk<App>(await req("POST", "/apps", { name: "badatdeploy", composeContent: inlineCompose, primaryService: "web", internalPort: 80 }))
+      runtime.composeConfigError = new Error("docker compose config failed: invalid interpolation format")
+      try {
+        const r = await req("POST", "/apps/badatdeploy/deploy")
+        expect(r.status).toBe(400)
+        expect(((await r.json()) as { error: string }).error).toContain("invalid interpolation")
+        expect(runtime.callsOf("composeUp")).toHaveLength(0)
+        const app = await jsonOk<App>(await req("GET", "/apps/badatdeploy"))
+        expect(app.status).toBe("failed")
+      } finally {
+        runtime.composeConfigError = null
+      }
     })
 
     test("primary service gone from the file at deploy: 400, no override, no compose up", async () => {

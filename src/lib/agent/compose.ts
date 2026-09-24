@@ -1,7 +1,21 @@
-import { spawnSync } from "bun"
+import { spawn, spawnSync } from "bun"
 import { sep } from "path"
 import { SiteioError } from "../../utils/errors"
 import type { ComposeLogsOptions, ComposeServiceState } from "./runtime"
+
+/**
+ * Run `docker <args>` without blocking the agent's event loop. For calls on
+ * paths clients poll (app status), where spawnSync would stall every request.
+ */
+export async function dockerAsync(args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const proc = spawn({ cmd: ["docker", ...args], stdout: "pipe", stderr: "pipe" })
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+  return { exitCode, stdout, stderr }
+}
 
 export interface ComposeSpec {
   services: Record<string, unknown>
@@ -223,15 +237,11 @@ export class ComposeManager {
   }
 
   async ps(project: string, files: string[], envFile?: string): Promise<ComposeServiceState[]> {
-    const result = spawnSync({
-      cmd: ["docker", ...this.buildPsArgs(project, files, envFile)],
-      stdout: "pipe",
-      stderr: "pipe",
-    })
+    const result = await dockerAsync(this.buildPsArgs(project, files, envFile))
     if (result.exitCode !== 0) {
-      throw new SiteioError(`docker compose ps failed: ${result.stderr.toString()}`)
+      throw new SiteioError(`docker compose ps failed: ${result.stderr}`)
     }
-    return parsePsOutput(result.stdout.toString())
+    return parsePsOutput(result.stdout)
   }
 
   async logs(project: string, files: string[], envFile: string | undefined, opts: ComposeLogsOptions): Promise<string> {
