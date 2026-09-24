@@ -6,6 +6,7 @@ import { getCurrentServer } from "../../config/loader.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { resolveAppName } from "../../utils/site-config.ts"
+import { readFlagFile } from "../../utils/files.ts"
 import type { VolumeMount, RestartPolicy } from "../../types.ts"
 
 export interface SetAppOptions {
@@ -20,6 +21,9 @@ export interface SetAppOptions {
   image?: string
   dockerfile?: string
   gitToken?: string
+  composeFile?: string
+  envFile?: string
+  service?: string
   json?: boolean
 }
 
@@ -142,6 +146,9 @@ export async function setAppCommand(
       image?: string
       // Partial patch — server merges with existing app.git
       git?: { repoUrl?: string; branch?: string; dockerfile?: string; context?: string; token?: string }
+      composeContent?: string
+      envFileContent?: string
+      primaryService?: string
     } = {}
 
     if (options.env && options.env.length > 0) {
@@ -208,9 +215,17 @@ export async function setAppCommand(
       updates.git = gitPatch
     }
 
+    // Compose apps: replace the stored compose file / .env / primary service.
+    // The agent rejects these on non-compose apps.
+    const composeContent = readFlagFile(options.composeFile, "compose file")
+    if (composeContent !== undefined) updates.composeContent = composeContent
+    const envFileContent = readFlagFile(options.envFile, "env file")
+    if (envFileContent !== undefined) updates.envFileContent = envFileContent
+    if (options.service !== undefined) updates.primaryService = options.service
+
     if (Object.keys(updates).length === 0) {
       throw new ValidationError(
-        "No updates specified. Use --env, --secret, --secret-file, --secret-stdin, --volume, --domain, --port, --restart, --image, or --dockerfile"
+        "No updates specified. Use --env, --secret, --secret-file, --secret-stdin, --volume, --domain, --port, --restart, --image, --dockerfile, --compose-file, --env-file, or --service"
       )
     }
 
@@ -275,6 +290,16 @@ export async function setAppCommand(
         if (options.gitToken !== undefined) {
           console.log(`Git token: ${updates.git.token ? chalk.dim("***") : chalk.dim("(cleared)")}`)
         }
+      }
+
+      if (options.composeFile) {
+        console.log(`Compose file: ${options.composeFile}`)
+      }
+      if (options.envFile) {
+        console.log(`Env file: ${options.envFile}`)
+      }
+      if (updates.primaryService) {
+        console.log(`Service: ${updates.primaryService}`)
       }
 
       console.log("")

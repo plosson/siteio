@@ -685,8 +685,31 @@ export class AgentServer {
         return this.error("App not found", 404)
       }
 
-      const body = (await req.json()) as Partial<Omit<App, "name" | "createdAt">> & {
+      // `compose` is server-owned: clients change it through primaryService only
+      const { composeContent, envFileContent, primaryService, compose: _ignored, ...body } = (await req.json()) as Partial<
+        Omit<App, "name" | "createdAt">
+      > & {
         secrets?: Record<string, string>
+        composeContent?: string
+        envFileContent?: string
+        primaryService?: string
+      }
+
+      // Compose sources: same fields as create, replaced in place so a stack
+      // can change without removing the app (and its volumes).
+      if (composeContent !== undefined || envFileContent !== undefined || primaryService !== undefined) {
+        if (!app.compose) {
+          return this.error("composeContent, envFileContent and primaryService are only valid on compose apps")
+        }
+        if (composeContent !== undefined && app.compose.source !== "inline") {
+          return this.error("This app's compose file comes from its git repository: push the change there and redeploy")
+        }
+        if (composeContent !== undefined && !composeContent.trim()) {
+          return this.error("composeContent cannot be empty")
+        }
+        if (primaryService !== undefined && !primaryService.trim()) {
+          return this.error("primaryService cannot be empty")
+        }
       }
 
       // Field-level merge for git so partial updates (e.g. only --git-token or
@@ -697,10 +720,16 @@ export class AgentServer {
         body.git = { ...app.git, ...incoming }
       }
 
-      const updated = this.appStorage.update(name, body)
+      const updated = this.appStorage.update(name, {
+        ...body,
+        ...(primaryService !== undefined && app.compose && { compose: { ...app.compose, primaryService } }),
+      })
       if (!updated) {
         return this.error("Failed to update app", 500)
       }
+      // Written after the record update, which is what can still reject the request
+      if (composeContent !== undefined) this.compose.writeBaseInline(name, composeContent)
+      if (envFileContent !== undefined) this.compose.writeBaseEnv(name, envFileContent)
 
       return this.json(scrubApp(updated))
     } catch (err) {

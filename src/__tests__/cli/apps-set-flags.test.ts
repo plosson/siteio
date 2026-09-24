@@ -5,8 +5,9 @@ import { join } from "path"
 import { spawn } from "bun"
 
 /**
- * CLI flag tests for the secret-setting surface of `siteio apps set`.
+ * CLI flag tests for `siteio apps set`, against a mock agent.
  *
+ * Secrets:
  * What matters here is the wire: a secret must travel in `secrets` (which the
  * agent encrypts) and never in `env` (which the agent stores and echoes back
  * in the clear), and the CLI's own output must not print the value it just
@@ -188,5 +189,42 @@ describe("CLI: apps set secret flags", () => {
     expect(result.exitCode).not.toBe(0)
     expect(result.stderr).toContain("Pick one")
     expect(recorded.some((r) => r.method === "PATCH")).toBe(false)
+  })
+})
+
+describe("CLI: apps set compose flags", () => {
+  const compose = "services:\n  web:\n    image: nginx\n"
+
+  test("--compose-file sends the file content, --env-file and --service ride along", async () => {
+    const composePath = join(homeDir, "docker-compose.yml")
+    const envPath = join(homeDir, "stack.env")
+    writeFileSync(composePath, compose)
+    writeFileSync(envPath, "TAG=2\n")
+
+    const result = await runCli(["apps", "set", "testapp", "--compose-file", composePath, "--env-file", envPath, "--service", "web"])
+    expect(result.exitCode).toBe(0)
+    expect(patchBody()).toEqual({ composeContent: compose, envFileContent: "TAG=2\n", primaryService: "web" })
+  })
+
+  test("--env-file does not load the file into the app's env vars", async () => {
+    const envPath = join(homeDir, "only.env")
+    writeFileSync(envPath, "SECRET_ISH=1\n")
+    await runCli(["apps", "set", "testapp", "--env-file", envPath])
+    const body = patchBody()
+    expect(body.env).toBeUndefined()
+    expect(body.envFileContent).toBe("SECRET_ISH=1\n")
+  })
+
+  test("a missing --compose-file fails before anything is sent", async () => {
+    const result = await runCli(["apps", "set", "testapp", "--compose-file", join(homeDir, "nope.yml")])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain("Failed to read compose file")
+    expect(recorded.some((r) => r.method === "PATCH")).toBe(false)
+  })
+
+  test("the no-updates error lists the compose flags", async () => {
+    const result = await runCli(["apps", "set", "testapp"])
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toContain("--compose-file")
   })
 })

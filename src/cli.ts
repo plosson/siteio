@@ -448,6 +448,9 @@ apps
   .option("--image <image>", "Set Docker image")
   .option("--dockerfile <path>", "Set Dockerfile path (git-based apps only)")
   .option("--git-token <token>", "Update the token used to clone a private HTTPS git repo (pass empty string to clear)")
+  .option("--compose-file <path>", "Replace the uploaded docker-compose.yml (compose apps created with --compose-file)")
+  .option("--env-file <path>", "Replace the .env file used for compose variable interpolation (compose apps only)")
+  .option("--service <name>", "Change which compose service receives traffic (compose apps only)")
   .action(async (name, options) => {
     const { setAppCommand } = await import("./commands/apps/set.ts")
     await setAppCommand(name, { ...options, json: program.opts().json })

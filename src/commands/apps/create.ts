@@ -1,4 +1,3 @@
-import { readFileSync } from "fs"
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
@@ -6,6 +5,7 @@ import { getCurrentServer } from "../../config/loader.ts"
 import { formatSuccess } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { saveProjectConfig } from "../../utils/site-config.ts"
+import { readFlagFile } from "../../utils/files.ts"
 
 export interface CreateAppOptions {
   image?: string
@@ -90,33 +90,9 @@ export async function createAppCommand(
     const hasLocalDockerfile = !!options.file
     const hasGit = !!options.git
 
-    let dockerfileContent: string | undefined
-    if (options.file) {
-      try {
-        dockerfileContent = readFileSync(options.file, "utf-8")
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        throw new ValidationError(`Failed to read Dockerfile at '${options.file}': ${message}`)
-      }
-    }
-    let composeContent: string | undefined
-    if (options.composeFile) {
-      try {
-        composeContent = readFileSync(options.composeFile, "utf-8")
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        throw new ValidationError(`Failed to read compose file at '${options.composeFile}': ${message}`)
-      }
-    }
-    let envFileContent: string | undefined
-    if (options.envFile) {
-      try {
-        envFileContent = readFileSync(options.envFile, "utf-8")
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        throw new ValidationError(`Failed to read env file at '${options.envFile}': ${message}`)
-      }
-    }
+    const dockerfileContent = readFlagFile(options.file, "Dockerfile")
+    const composeContent = readFlagFile(options.composeFile, "compose file")
+    const envFileContent = readFlagFile(options.envFile, "env file")
 
     spinner.start(`Creating app ${name}`)
 
