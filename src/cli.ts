@@ -337,6 +337,14 @@ apps
   .option("--context <path>", "Build context subdirectory for monorepos")
   .option("--git-token <token>", "Personal access token for cloning a private HTTPS git repo")
   .option("-p, --port <port>", "Internal port the container listens on", intArg)
+  .addHelpText(
+    "after",
+    `
+Compose files can use these variables, set by siteio (your .env can override them):
+  \${SITEIO_URL}     public URL, e.g. https://myapp.example.com
+  \${SITEIO_DOMAIN}  public hostname
+  \${SITEIO_APP}     app name`
+  )
   .action(async (name, options) => {
     const { createAppCommand } = await import("./commands/apps/create.ts")
     await createAppCommand(name, { ...options, json: program.opts().json })

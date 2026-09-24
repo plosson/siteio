@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { AgentServer } from "../../lib/agent/server"
@@ -288,7 +288,9 @@ describe("API: Apps (compose)", () => {
       expect(r.status).toBe(400)
     })
 
-    test("deploy threads envFile to composeConfig, composeUp, composePs", async () => {
+    const siteioEnv = (name: string) => join(testDir, "compose", name, "siteio.env")
+
+    test("deploy passes siteio.env (siteio vars, then the user's .env) to every compose call", async () => {
       await req("POST", "/apps", {
         name: "deployenv",
         composeContent: inlineCompose,
@@ -297,35 +299,82 @@ describe("API: Apps (compose)", () => {
         internalPort: 80,
       })
       runtime.composeConfigReturn = { services: { web: {}, db: {} } }
-      const r = await req("POST", "/apps/deployenv/deploy")
-      await jsonOk<App>(r)
+      await jsonOk<App>(await req("POST", "/apps/deployenv/deploy"))
 
-      const expectedEnvPath = join(testDir, "compose", "deployenv", ".env")
       for (const method of ["composeConfig", "composeUp", "composePs"]) {
         const calls = runtime.callsOf(method)
         expect(calls.length).toBeGreaterThan(0)
-        expect(calls[0]!.args[2]).toBe(expectedEnvPath)
+        expect(calls.at(-1)!.args[2]).toBe(siteioEnv("deployenv"))
       }
+      const content = readFileSync(siteioEnv("deployenv"), "utf-8")
+      expect(content).toContain("SITEIO_APP=deployenv\n")
+      expect(content).toContain("SITEIO_DOMAIN=deployenv.test.example.com\n")
+      expect(content).toContain("SITEIO_URL=https://deployenv.test.example.com\n")
+      // User values come last so they win over siteio's
+      expect(content.indexOf("POSTGRES_PASSWORD=secret")).toBeGreaterThan(content.indexOf("SITEIO_URL="))
+      // The user's own file is left untouched
+      expect(readFileSync(join(testDir, "compose", "deployenv", ".env"), "utf-8")).toBe(inlineEnvFile)
     })
 
-    test("deploy without envFile passes undefined to compose methods", async () => {
-      await req("POST", "/apps", {
-        name: "noenv",
-        composeContent: inlineCompose,
-        primaryService: "web",
-        internalPort: 80,
-      })
+    test("without a user .env, siteio.env still carries the siteio vars", async () => {
+      await req("POST", "/apps", { name: "noenv", composeContent: inlineCompose, primaryService: "web", internalPort: 80 })
       runtime.composeConfigReturn = { services: { web: {}, db: {} } }
       await req("POST", "/apps/noenv/deploy")
 
-      for (const method of ["composeConfig", "composeUp", "composePs"]) {
-        const calls = runtime.callsOf(method)
-        expect(calls.length).toBeGreaterThan(0)
-        expect(calls[0]!.args[2]).toBeUndefined()
-      }
+      expect(runtime.callsOf("composeUp").at(-1)!.args[2]).toBe(siteioEnv("noenv"))
+      expect(readFileSync(siteioEnv("noenv"), "utf-8")).toContain("SITEIO_URL=https://noenv.test.example.com")
     })
 
-    test("stop/restart/delete/logs thread envFile through", async () => {
+    test("a custom domain replaces the default one on the next compose call", async () => {
+      await req("POST", "/apps", { name: "domenv", composeContent: inlineCompose, primaryService: "web", internalPort: 80 })
+      await jsonOk<App>(await req("PATCH", "/apps/domenv", { domains: ["notes.acme.test"] }))
+      await req("POST", "/apps/domenv/deploy")
+      const content = readFileSync(siteioEnv("domenv"), "utf-8")
+      expect(content).toContain("SITEIO_URL=https://notes.acme.test\n")
+      expect(content).not.toContain("domenv.test.example.com")
+    })
+
+    test("the create-time check already resolves ${SITEIO_URL} with the requested domain", async () => {
+      await jsonOk<App>(await req("POST", "/apps", {
+        name: "createenv",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+        domains: ["first.acme.test"],
+      }))
+      const call = runtime.callsOf("composeConfig").at(-1)!
+      expect(call.args[2]).toBe(siteioEnv("createenv"))
+      expect(readFileSync(siteioEnv("createenv"), "utf-8")).toContain("SITEIO_URL=https://first.acme.test")
+    })
+
+    test("git stacks keep the repo's .env next to the compose file", async () => {
+      await jsonOk<App>(await req("POST", "/apps", {
+        name: "gitenv",
+        git: { repoUrl: "https://example.test/repo.git" },
+        composePath: "deploy/docker-compose.yml",
+        primaryService: "web",
+        internalPort: 80,
+      }))
+      // Stand in for a clone: lifecycle calls never re-clone
+      const repoDir = join(testDir, "repos", "gitenv", "deploy")
+      mkdirSync(repoDir, { recursive: true })
+      writeFileSync(join(repoDir, "docker-compose.yml"), inlineCompose)
+      writeFileSync(join(repoDir, ".env"), "REPO_VAR=from-repo\n")
+
+      await req("GET", "/apps/gitenv/logs")
+      expect(runtime.callsOf("composeLogs").at(-1)!.args[2]).toBe(siteioEnv("gitenv"))
+      expect(readFileSync(siteioEnv("gitenv"), "utf-8")).toContain("REPO_VAR=from-repo")
+    })
+
+    test("an uploaded .env wins over the repo's for git stacks", async () => {
+      await jsonOk<App>(await req("PATCH", "/apps/gitenv", { envFileContent: "UPLOADED=1\n" }))
+      await req("GET", "/apps/gitenv/logs")
+      const content = readFileSync(siteioEnv("gitenv"), "utf-8")
+      expect(content).toContain("UPLOADED=1")
+      expect(content).not.toContain("REPO_VAR")
+    })
+
+    test("stop/restart/delete/logs thread siteio.env through", async () => {
       await req("POST", "/apps", {
         name: "lifecycleenv",
         composeContent: inlineCompose,
@@ -337,7 +386,7 @@ describe("API: Apps (compose)", () => {
       await req("POST", "/apps/lifecycleenv/deploy")
       runtime.calls = []
 
-      const expectedEnvPath = join(testDir, "compose", "lifecycleenv", ".env")
+      const expectedEnvPath = siteioEnv("lifecycleenv")
 
       await req("POST", "/apps/lifecycleenv/stop")
       expect(runtime.callsOf("composeStop")[0]!.args[2]).toBe(expectedEnvPath)
