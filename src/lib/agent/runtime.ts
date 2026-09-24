@@ -16,7 +16,9 @@ export interface ComposeLogsOptions {
 export interface ComposeServiceState {
   service: string
   containerId: string
-  state: string // "running" | "exited" | ...
+  state: string // "running" | "exited" | "restarting" | "dead" | ...
+  exitCode?: number // meaningful once the container has exited
+  health?: string // "healthy" | "unhealthy" | "starting"; absent without a healthcheck
 }
 
 /**

@@ -126,9 +126,16 @@ async function runCli(args: string[]): Promise<{
 }
 
 describe("CLI: apps deploy --no-cache flag propagation", () => {
+  test("--no-wait: no status polling after the deploy", async () => {
+    resetRecorded()
+    const result = await runCli(["apps", "deploy", "testapp", "--no-wait"])
+    expect(result.exitCode).toBe(0)
+    expect(recorded.some((r) => r.path === "/apps/testapp/status")).toBe(false)
+  })
+
   test("without --no-cache: no noCache query param on the wire", async () => {
     resetRecorded()
-    const result = await runCli(["apps", "deploy", "testapp"])
+    const result = await runCli(["apps", "deploy", "testapp", "--no-wait"])
     expect(result.exitCode).toBe(0)
 
     const deploy = recorded.find(
@@ -140,7 +147,7 @@ describe("CLI: apps deploy --no-cache flag propagation", () => {
 
   test("--no-cache: ?noCache=true query param reaches the agent", async () => {
     resetRecorded()
-    const result = await runCli(["apps", "deploy", "testapp", "--no-cache"])
+    const result = await runCli(["apps", "deploy", "testapp", "--no-cache", "--no-wait"])
     expect(result.exitCode).toBe(0)
 
     const deploy = recorded.find(
@@ -164,6 +171,7 @@ describe("CLI: apps deploy --no-cache flag propagation", () => {
       "deploy",
       "testapp",
       "--no-cache",
+      "--no-wait",
       "-f",
       dockerfilePath,
     ])

@@ -180,6 +180,8 @@ siteio apps create myapp -f ./Dockerfile -p 3000   # from a local, self-containe
 siteio apps deploy myapp
 \`\`\`
 
+\`deploy\` then checks that the containers stay up and the public URL answers over HTTPS. If not, it prints the failing service's last log lines and exits non-zero, so there is no need to poll the URL yourself (\`--no-wait\` skips the checks).
+
 \`siteio apps init ./myapp\` scaffolds a Dockerfile project with an AI guide.
 \`siteio apps create --help\` covers docker-compose apps and private Git repos.
 

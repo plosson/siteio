@@ -60,7 +60,7 @@ describe("Unit: ComposeManager.buildArgs", () => {
   test("buildStopArgs / buildRestartArgs / buildPsArgs shapes", () => {
     expect(cm.buildStopArgs("siteio-x", ["/b.yml"]).slice(-1)).toEqual(["stop"])
     expect(cm.buildRestartArgs("siteio-x", ["/b.yml"]).slice(-1)).toEqual(["restart"])
-    expect(cm.buildPsArgs("siteio-x", ["/b.yml"]).slice(-3)).toEqual(["ps", "--format", "json"])
+    expect(cm.buildPsArgs("siteio-x", ["/b.yml"]).slice(-4)).toEqual(["ps", "--all", "--format", "json"])
   })
 
   test("buildBaseArgs includes --env-file when provided", () => {
@@ -129,6 +129,24 @@ describe("Unit: parsePsOutput", () => {
 
   test("throws SiteioError on malformed JSON", () => {
     expect(() => parsePsOutput("not json")).toThrow(/Failed to parse compose ps output/)
+  })
+
+  test("keeps exit code and health so failed services can be told apart", () => {
+    const raw = [
+      JSON.stringify({ Service: "migrate", ID: "m", State: "exited", ExitCode: 0, Health: "" }),
+      JSON.stringify({ Service: "api", ID: "a", State: "exited", ExitCode: 137, Health: "" }),
+      JSON.stringify({ Service: "db", ID: "d", State: "running", ExitCode: 0, Health: "unhealthy" }),
+    ].join("\n")
+    expect(parsePsOutput(raw)).toEqual([
+      { service: "migrate", containerId: "m", state: "exited", exitCode: 0 },
+      { service: "api", containerId: "a", state: "exited", exitCode: 137 },
+      { service: "db", containerId: "d", state: "running", exitCode: 0, health: "unhealthy" },
+    ])
+  })
+
+  test("ignores a non-numeric ExitCode instead of passing it through", () => {
+    const raw = JSON.stringify({ Service: "web", ID: "w", State: "running", ExitCode: "1" })
+    expect(parsePsOutput(raw)[0]!.exitCode).toBeUndefined()
   })
 
   test("handles trailing newlines in NDJSON", () => {

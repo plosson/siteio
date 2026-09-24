@@ -1,7 +1,7 @@
 import { mkdirSync } from "fs"
 import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
-import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated } from "../../types.ts"
+import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, AppServiceStatus, AppStatus, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager } from "./traefik.ts"
 import { ThumbnailManager } from "./thumbnails.ts"
@@ -511,6 +511,12 @@ export class AgentServer {
       return this.handleGetAppLogs(appLogsMatch[1]!, url)
     }
 
+    // GET /apps/:name/status - live container state per service
+    const appStatusMatch = path.match(/^\/apps\/([a-z0-9-]+)\/status$/)
+    if (appStatusMatch && req.method === "GET") {
+      return this.handleGetAppStatus(appStatusMatch[1]!)
+    }
+
     // /apps/:name/thumbnail - GET the card preview image, POST to regenerate it
     const appThumbMatch = path.match(/^\/apps\/([a-z0-9-]+)\/thumbnail$/)
     if (appThumbMatch) {
@@ -874,7 +880,7 @@ export class AgentServer {
           ...(composeCommitHash && { commitHash: composeCommitHash }),
         })
 
-        return this.json({ ...(updatedCompose && scrubApp(updatedCompose)), warnings })
+        return this.json({ ...(updatedCompose && scrubApp(updatedCompose)), url: this.appUrl(app), warnings })
       }
       // ---------- END COMPOSE BRANCH ----------
 
@@ -979,7 +985,7 @@ export class AgentServer {
       // Refresh the card preview in the background — deploy stays fast.
       if (updated) this.captureAppThumbnail(updated)
 
-      return this.json(updated && scrubApp(updated))
+      return this.json(updated && { ...scrubApp(updated), url: this.appUrl(updated) })
     } catch (err) {
       // Update status to failed
       this.appStorage.update(name, { status: "failed" })
@@ -1028,6 +1034,45 @@ export class AgentServer {
       return this.error("Container does not exist. Deploy the app first.", 400)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to restart app"
+      return this.error(message, 500)
+    }
+  }
+
+  private async handleGetAppStatus(name: string): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) {
+      return this.error("App not found", 404)
+    }
+
+    try {
+      let services: AppServiceStatus[]
+      if (app.compose) {
+        const primary = app.compose.primaryService
+        const files = await this.composeFiles(app)
+        const ps = await this.docker.composePs(`siteio-${name}`, files, this.composeEnvFile(name))
+        services = ps.map((s) => ({
+          service: s.service,
+          primary: s.service === primary,
+          state: s.state,
+          ...(s.exitCode !== undefined && { exitCode: s.exitCode }),
+          ...(s.health && { health: s.health }),
+        }))
+        if (!services.some((s) => s.primary)) {
+          services.unshift({ service: primary, primary: true, state: "missing" })
+        }
+      } else {
+        const inspect = await this.docker.inspect(name)
+        services = [
+          inspect
+            ? { service: name, primary: true, state: inspect.state.status, exitCode: inspect.state.exitCode }
+            : { service: name, primary: true, state: "missing" },
+        ]
+      }
+
+      const response: AppStatus = { name, services }
+      return this.json(response)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to get app status"
       return this.error(message, 500)
     }
   }
@@ -2243,6 +2288,11 @@ export class AgentServer {
   /** Custom domains if set, otherwise the default `<app>.<domain>` subdomain. */
   private appDomains(app: App): string[] {
     return app.domains.length > 0 ? app.domains : [`${app.name}.${this.config.domain}`]
+  }
+
+  /** Public URL the app is served at: its first routed domain. */
+  private appUrl(app: App): string {
+    return `https://${this.appDomains(app)[0]}`
   }
 
   private computeComposeWarnings(

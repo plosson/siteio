@@ -15,6 +15,7 @@ export interface VerificationResult {
   success: boolean
   attempts: number
   error?: string
+  status?: number // HTTP status, for URL checks
 }
 
 type ProgressCallback = (attempt: number, maxAttempts: number) => void
@@ -160,4 +161,77 @@ export async function waitForCertificate(
   }
 
   return { success: false, attempts: maxAttempts, error: "Certificate verification timed out" }
+}
+
+export type UrlCheck = { ok: true; status: number } | { ok: false; reason: string; status?: number }
+
+/**
+ * Fetch a public URL through the normal trust store and classify the outcome
+ * the way a deploy cares about: is the app actually served over HTTPS yet?
+ */
+export async function checkUrl(
+  url: string,
+  timeoutMs: number = 10000,
+  fetchFn: typeof fetch = fetch
+): Promise<UrlCheck> {
+  let response: Response
+  try {
+    response = await fetchFn(url, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs) })
+  } catch (err) {
+    const code = (err as { code?: string }).code ?? ""
+    const message = err instanceof Error ? err.message : String(err)
+    if (/CERT|SELF_SIGNED/.test(code)) {
+      return { ok: false, reason: `TLS certificate not trusted yet (${message})` }
+    }
+    if (code === "ENOTFOUND") {
+      return { ok: false, reason: "DNS does not resolve for this host" }
+    }
+    return { ok: false, reason: message }
+  }
+
+  const status = response.status
+  if (status === 404) {
+    // Traefik's own 404: no router matches this host
+    const body = (await response.text().catch(() => "")).trim()
+    if (body === "404 page not found") {
+      return { ok: false, status, reason: "the proxy has no route for this host (Traefik 404)" }
+    }
+  }
+  if (status === 502 || status === 503 || status === 504) {
+    return { ok: false, status, reason: `the proxy cannot reach the app (HTTP ${status})` }
+  }
+  if (status >= 500) {
+    return { ok: false, status, reason: `the app answers HTTP ${status}` }
+  }
+  return { ok: true, status }
+}
+
+/**
+ * Poll a URL at a fixed interval until checkUrl succeeds or the timeout runs
+ * out. The error on failure is the last reason seen.
+ */
+export async function waitForUrl(
+  url: string,
+  options: { timeoutMs?: number; intervalMs?: number; fetchFn?: typeof fetch; now?: () => number; sleepFn?: (ms: number) => Promise<void> } = {},
+  onProgress?: (attempt: number, check: UrlCheck) => void
+): Promise<VerificationResult> {
+  const timeoutMs = options.timeoutMs ?? 90000
+  const intervalMs = options.intervalMs ?? 3000
+  const now = options.now ?? Date.now
+  const sleepFn = options.sleepFn ?? sleep
+  const deadline = now() + timeoutMs
+
+  let attempt = 0
+  for (;;) {
+    attempt++
+    const check = await checkUrl(url, 10000, options.fetchFn)
+    onProgress?.(attempt, check)
+    if (check.ok) {
+      return { success: true, attempts: attempt, status: check.status }
+    }
+    if (now() + intervalMs > deadline) {
+      return { success: false, attempts: attempt, error: check.reason, status: check.status }
+    }
+    await sleepFn(intervalMs)
+  }
 }

@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { AgentServer } from "../../lib/agent/server"
-import type { AgentConfig, App, AppInfo } from "../../types"
+import type { AgentConfig, App, AppInfo, AppStatus } from "../../types"
 import { FakeRuntime } from "../helpers/fake-runtime"
 
 const apiKey = "test-api-key"
@@ -578,6 +578,80 @@ describe("API: Apps (compose)", () => {
       const overridePath = join(testDir, "compose", "envapp", "docker-compose.siteio.yml")
       expect(readFileSync(overridePath, "utf-8")).toContain('FOO: "bar"')
       expect(runtime.callsOf("composeUp")).toHaveLength(1)
+    })
+  })
+
+  describe("status", () => {
+    const createCompose = (name: string, primaryService = "web") =>
+      req("POST", "/apps", { name, composeContent: inlineCompose, primaryService, internalPort: 80 })
+
+    test("compose: reports every service with exit code and health, flags the primary", async () => {
+      await createCompose("st1")
+      await req("POST", "/apps/st1/deploy")
+      runtime.composePsReturn = [
+        { service: "web", containerId: "w", state: "restarting", exitCode: 1 },
+        { service: "db", containerId: "d", state: "running", exitCode: 0, health: "unhealthy" },
+        { service: "migrate", containerId: "m", state: "exited", exitCode: 0 },
+      ]
+      try {
+        const status = await jsonOk<AppStatus>(await req("GET", "/apps/st1/status"))
+        expect(status.services).toEqual([
+          { service: "web", primary: true, state: "restarting", exitCode: 1 },
+          { service: "db", primary: false, state: "running", exitCode: 0, health: "unhealthy" },
+          { service: "migrate", primary: false, state: "exited", exitCode: 0 },
+        ])
+        // Lists stopped containers too, or crashed services would be invisible
+        const psCall = runtime.callsOf("composePs").at(-1)!
+        expect(psCall.args[0]).toBe("siteio-st1")
+      } finally {
+        runtime.composePsReturn = [{ service: "web", containerId: "fake-web-id", state: "running" }]
+      }
+    })
+
+    test("compose: a primary service with no container is reported as missing", async () => {
+      await createCompose("st2")
+      await req("POST", "/apps/st2/deploy")
+      runtime.composePsReturn = [{ service: "db", containerId: "d", state: "running" }]
+      try {
+        const status = await jsonOk<AppStatus>(await req("GET", "/apps/st2/status"))
+        expect(status.services[0]).toEqual({ service: "web", primary: true, state: "missing" })
+        expect(status.services).toHaveLength(2)
+      } finally {
+        runtime.composePsReturn = [{ service: "web", containerId: "fake-web-id", state: "running" }]
+      }
+    })
+
+    test("container app: reports the inspected state and exit code", async () => {
+      await req("POST", "/apps", { name: "st3", image: "nginx", internalPort: 80 })
+      runtime.inspectReturn = {
+        id: "c",
+        name: "siteio-st3",
+        state: { running: false, status: "exited", exitCode: 137 },
+        image: "nginx",
+        ports: {},
+      }
+      try {
+        const status = await jsonOk<AppStatus>(await req("GET", "/apps/st3/status"))
+        expect(status.services).toEqual([{ service: "st3", primary: true, state: "exited", exitCode: 137 }])
+      } finally {
+        runtime.inspectReturn = null
+      }
+    })
+
+    test("container app never deployed: reported as missing, not as an error", async () => {
+      await req("POST", "/apps", { name: "st4", image: "nginx", internalPort: 80 })
+      const status = await jsonOk<AppStatus>(await req("GET", "/apps/st4/status"))
+      expect(status.services).toEqual([{ service: "st4", primary: true, state: "missing" }])
+    })
+
+    test("unknown app returns 404", async () => {
+      const r = await req("GET", "/apps/nope/status")
+      expect(r.status).toBe(404)
+    })
+
+    test("requires the API key", async () => {
+      const r = await fetch(`${baseUrl}/apps/st4/status`)
+      expect(r.status).toBe(401)
     })
   })
 })

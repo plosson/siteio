@@ -1,7 +1,7 @@
 import { loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
 import type {
-  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, ContainerLogs, ShareGrantInfo, ShareGrantCreated, EditLinkCreated,
+  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, ShareGrantInfo, ShareGrantCreated, EditLinkCreated,
 } from "../types.ts"
 
 export interface ClientOptions {
@@ -344,6 +344,14 @@ export class SiteioClient {
 
   async restartApp(name: string): Promise<AppInfo> {
     const response = await this.request<ApiResponse<AppInfo>>("POST", `/apps/${name}/restart`)
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  async getAppStatus(name: string): Promise<AppStatus> {
+    const response = await this.request<ApiResponse<AppStatus>>("GET", `/apps/${name}/status`)
     if (!response.data) {
       throw new ApiError("Invalid response from server")
     }
