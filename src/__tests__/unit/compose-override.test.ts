@@ -23,7 +23,7 @@ function appWithCompose(overrides: Partial<App> = {}): App {
 
 // Most cases route to the app's own domains; the domain-resolution tests pass them explicitly.
 function build(app: App, dataDir?: string): string {
-  return buildOverride(app, app.domains, dataDir)
+  return buildOverride(app, { domains: app.domains, baseNetworks: [], dataDir })
 }
 
 describe("Unit: buildOverride", () => {
@@ -31,7 +31,29 @@ describe("Unit: buildOverride", () => {
     const yaml = build(appWithCompose())
     expect(yaml).toContain("services:")
     expect(yaml).toMatch(/^ {2}web:/m)
-    expect(yaml).toMatch(/networks:\s+- siteio-network/m)
+    expect(yaml).toMatch(/networks:\s+- "siteio-network"/m)
+  })
+
+  test("keeps the implicit default network the base file resolved to", () => {
+    // Without it, the primary service can no longer resolve its siblings (redis, db…).
+    const yaml = buildOverride(appWithCompose(), { domains: ["x.test"], baseNetworks: ["default"] })
+    expect(yaml).toMatch(/networks:\s+- "default"\s+- "siteio-network"/m)
+  })
+
+  test("re-lists every custom base network, not just default", () => {
+    const yaml = buildOverride(appWithCompose(), { domains: ["x.test"], baseNetworks: ["backend", "frontend"] })
+    expect(yaml).toMatch(/networks:\s+- "backend"\s+- "frontend"\s+- "siteio-network"/m)
+    expect(yaml).not.toContain('- "default"')
+  })
+
+  test("does not list siteio-network twice when the base file already joins it", () => {
+    const yaml = buildOverride(appWithCompose(), { domains: ["x.test"], baseNetworks: ["siteio-network", "default"] })
+    expect(yaml.match(/- "siteio-network"/g)).toHaveLength(1)
+  })
+
+  test("quotes hostile network names so they cannot inject YAML keys", () => {
+    const yaml = buildOverride(appWithCompose(), { domains: ["x.test"], baseNetworks: ["evil\n    privileged: true"] })
+    expect(yaml).not.toMatch(/^\s+privileged: true/m)
   })
 
   test("declares siteio-network as external", () => {
@@ -119,24 +141,24 @@ describe("Unit: buildOverride", () => {
       createdAt: "2026-04-19T00:00:00Z",
       updatedAt: "2026-04-19T00:00:00Z",
     }
-    expect(() => buildOverride(nonCompose, ["plain.example.com"])).toThrow(/non-compose/)
+    expect(() => buildOverride(nonCompose, { domains: ["plain.example.com"], baseNetworks: [] })).toThrow(/non-compose/)
   })
 
   test("routes on the domains passed in, not app.domains", () => {
     // App has no custom domain: the caller resolves the default subdomain.
-    const yaml = buildOverride(appWithCompose({ domains: [] }), ["myapp.base.test"])
+    const yaml = buildOverride(appWithCompose({ domains: [] }), { domains: ["myapp.base.test"], baseNetworks: [] })
     expect(yaml).toContain('traefik.http.routers.siteio-myapp.rule: "Host(`myapp.base.test`)"')
   })
 
   test("ignores stale app.domains when resolved domains differ", () => {
-    const yaml = buildOverride(appWithCompose({ domains: ["old.example.com"] }), ["new.example.com"])
+    const yaml = buildOverride(appWithCompose({ domains: ["old.example.com"] }), { domains: ["new.example.com"], baseNetworks: [] })
     expect(yaml).toContain("Host(`new.example.com`)")
     expect(yaml).not.toContain("old.example.com")
   })
 
   test("refuses to build a router without a Host rule", () => {
     // A rule-less router makes Traefik answer 404 with its default certificate.
-    expect(() => buildOverride(appWithCompose({ domains: [] }), [])).toThrow(/without domains/)
+    expect(() => buildOverride(appWithCompose({ domains: [] }), { domains: [], baseNetworks: [] })).toThrow(/without domains/)
   })
 
   test("readonly volumes emit the :ro suffix", () => {
