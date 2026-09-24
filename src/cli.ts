@@ -364,6 +364,8 @@ apps
   .description("Deploy (start) an app container")
   .option("--no-cache", "Build without Docker cache (git or dockerfile apps only)")
   .option("-f, --file <path>", "Replace the stored Dockerfile and rebuild (inline-dockerfile apps only)")
+  .option("--no-wait", "Return right after starting, without checking the containers and the public URL")
+  .option("--wait-timeout <seconds>", "How long to wait for the public URL to answer (default 90)", intArg)
   .action(async (name, options) => {
     const { deployAppCommand } = await import("./commands/apps/deploy.ts")
     // Commander's `--no-cache` flag sets `options.cache = false` (boolean

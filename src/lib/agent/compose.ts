@@ -8,19 +8,35 @@ export interface ComposeSpec {
   volumes?: Record<string, unknown>
 }
 
+interface RawPsEntry {
+  Service: string
+  ID: string
+  State: string
+  ExitCode?: number
+  Health?: string
+}
+
+function toServiceState(p: RawPsEntry): ComposeServiceState {
+  return {
+    service: p.Service,
+    containerId: p.ID,
+    state: p.State,
+    ...(typeof p.ExitCode === "number" && { exitCode: p.ExitCode }),
+    ...(p.Health && { health: p.Health }),
+  }
+}
+
 export function parsePsOutput(raw: string): ComposeServiceState[] {
   const trimmed = raw.trim()
   if (!trimmed) return []
   try {
     if (trimmed.startsWith("[")) {
-      const parsed = JSON.parse(trimmed) as Array<{ Service: string; ID: string; State: string }>
-      return parsed.map((p) => ({ service: p.Service, containerId: p.ID, state: p.State }))
+      return (JSON.parse(trimmed) as RawPsEntry[]).map(toServiceState)
     }
     return trimmed
       .split("\n")
       .filter((l) => l.trim())
-      .map((l) => JSON.parse(l) as { Service: string; ID: string; State: string })
-      .map((p) => ({ service: p.Service, containerId: p.ID, state: p.State }))
+      .map((l) => toServiceState(JSON.parse(l) as RawPsEntry))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     throw new SiteioError(`Failed to parse compose ps output: ${message}`)
@@ -65,7 +81,8 @@ export class ComposeManager {
   }
 
   buildPsArgs(project: string, files: string[], envFile?: string): string[] {
-    return [...this.buildBaseArgs(project, files, envFile), "ps", "--format", "json"]
+    // --all: exited and crash-looping containers are what a health check needs to see
+    return [...this.buildBaseArgs(project, files, envFile), "ps", "--all", "--format", "json"]
   }
 
   buildLogsArgs(project: string, files: string[], envFile: string | undefined, opts: ComposeLogsOptions): string[] {

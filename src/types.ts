@@ -112,6 +112,21 @@ export interface AppInfo {
   hasThumbnail?: boolean
 }
 
+// Live state of an app's containers (GET /apps/:name/status). A single-container
+// app reports one entry named after the app; a compose app one per service.
+export interface AppServiceStatus {
+  service: string
+  primary: boolean
+  state: string // docker state: "running" | "exited" | "restarting" | "dead" | "missing" | ...
+  exitCode?: number
+  health?: string // "healthy" | "unhealthy" | "starting"; absent without a healthcheck
+}
+
+export interface AppStatus {
+  name: string
+  services: AppServiceStatus[]
+}
+
 // Container logs response
 export interface ContainerLogs {
   name: string
