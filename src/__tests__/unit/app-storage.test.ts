@@ -192,4 +192,20 @@ describe("Unit: AppStorage", () => {
       expect(updated.secretKeys).toEqual(["API_TOKEN"])
     })
   })
+
+  describe("routed domains and URL", () => {
+    test("an app without custom domains is routed on <app>.<domain>", () => {
+      const app = storage.create(createTestApp("plain", { domains: [] }))
+      expect(storage.routedDomains(app, "base.test")).toEqual(["plain.base.test"])
+      expect(storage.toInfo(app, "base.test").url).toBe("https://plain.base.test")
+    })
+
+    test("custom domains replace the subdomain, so the URL uses the first of them", () => {
+      // The subdomain is not routed once custom domains exist: never report it
+      const app = storage.create(createTestApp("custom", { domains: ["a.acme.test", "b.acme.test"] }))
+      expect(storage.routedDomains(app, "base.test")).toEqual(["a.acme.test", "b.acme.test"])
+      expect(storage.toInfo(app, "base.test").url).toBe("https://a.acme.test")
+      expect(storage.url(app, "base.test")).toBe(storage.toInfo(app, "base.test").url)
+    })
+  })
 })

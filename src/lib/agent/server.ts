@@ -638,18 +638,16 @@ export class AgentServer {
       }
 
       try {
-        const warnings = body.composeContent
-          ? await this.checkUploadedCompose(
-              { name: body.name, domains: body.domains || [], compose: { source: "inline", primaryService: body.primaryService! } },
-              body.primaryService!
-            )
-          : undefined
-
         const composeField: App["compose"] = hasCompose
           ? body.composeContent
             ? { source: "inline", primaryService: body.primaryService! }
             : { source: "git", path: body.composePath!, primaryService: body.primaryService! }
           : undefined
+        // Uploaded files are checked now; a git repo is only cloned at deploy
+        const warnings =
+          composeField?.source === "inline"
+            ? await this.checkUploadedCompose({ name: body.name, domains: body.domains || [], compose: composeField })
+            : undefined
 
         const app = this.appStorage.create({
           name: body.name,
@@ -706,7 +704,8 @@ export class AgentServer {
 
       // Compose sources: same fields as create, replaced in place so a stack
       // can change without removing the app (and its volumes).
-      if (composeContent !== undefined || envFileContent !== undefined || primaryService !== undefined) {
+      const filesChange = composeContent !== undefined || envFileContent !== undefined
+      if (filesChange || primaryService !== undefined) {
         if (!app.compose) {
           return this.error("composeContent, envFileContent and primaryService are only valid on compose apps")
         }
@@ -731,24 +730,19 @@ export class AgentServer {
 
       // Write the new files, then check them and update the record; put the
       // previous files back if either step rejects the request.
-      const previous = composeContent !== undefined || envFileContent !== undefined ? this.compose.snapshot(name) : undefined
+      const compose = app.compose && primaryService !== undefined ? { ...app.compose, primaryService } : app.compose
+      const previous = filesChange ? this.compose.snapshot(name) : undefined
       if (composeContent !== undefined) this.compose.writeBaseInline(name, composeContent)
       if (envFileContent !== undefined) this.compose.writeBaseEnv(name, envFileContent)
 
       let updated: App | null
       let warnings: string[] | undefined
       try {
-        if (app.compose?.source === "inline" && (previous || primaryService !== undefined)) {
+        if (compose?.source === "inline" && (filesChange || primaryService !== undefined)) {
           // Checked against the domains this same request may set
-          warnings = await this.checkUploadedCompose(
-            { ...app, ...(body.domains && { domains: body.domains }) },
-            primaryService ?? app.compose.primaryService
-          )
+          warnings = await this.checkUploadedCompose({ name, domains: body.domains ?? app.domains, compose })
         }
-        updated = this.appStorage.update(name, {
-          ...body,
-          ...(primaryService !== undefined && app.compose && { compose: { ...app.compose, primaryService } }),
-        })
+        updated = this.appStorage.update(name, { ...body, ...(compose !== app.compose && { compose }) })
       } catch (err) {
         if (previous) this.compose.restore(name, previous)
         throw err
@@ -772,8 +766,8 @@ export class AgentServer {
 
     if (app.compose) {
       try {
-        const files = await this.composeFiles(app)
-        await this.docker.composeDown(`siteio-${name}`, files, this.composeEnvFile(app))
+        const files = this.composeFiles(app)
+        await this.docker.composeDown(`siteio-${name}`, files, this.writeComposeEnvFile(app))
       } catch {
         // Best-effort; the base file may be missing if the repo was cleaned up.
       }
@@ -862,58 +856,47 @@ export class AgentServer {
         // Ensure Traefik can reach the service
         this.docker.ensureNetwork()
 
-        // Resolve base compose file
-        let basePath: string
-        if (app.compose.source === "inline") {
-          basePath = this.compose.baseInlinePath(name)
-          if (!existsSync(basePath)) {
-            this.appStorage.update(name, { status: "failed" })
-            return this.error("Compose file not found for app", 400)
-          }
-        } else {
+        // Resolve base compose file (git stacks are cloned first)
+        if (app.compose.source === "git") {
           if (!app.git) {
             this.appStorage.update(name, { status: "failed" })
             return this.error("Git source missing on compose app", 500)
           }
           await this.git.clone(name, app.git.repoUrl, app.git.branch, app.git.token)
-          const repoPath = this.git.repoPath(name)
-          basePath = join(repoPath, app.compose.path)
-          if (!existsSync(basePath)) {
-            this.appStorage.update(name, { status: "failed" })
-            return this.error(`Compose file not found at '${app.compose.path}'`, 400)
-          }
+        }
+        const basePath = this.composeBasePath(app)
+        if (!existsSync(basePath)) {
+          this.appStorage.update(name, { status: "failed" })
+          return this.error(
+            app.compose.source === "git" ? `Compose file not found at '${app.compose.path}'` : "Compose file not found for app",
+            400
+          )
         }
 
         const project = `siteio-${name}`
-        const envFile = this.composeEnvFile(app)
 
-        // Resolve the base file alone: the primary service must exist there,
-        // and the override needs the networks it is already on.
-        const baseSpec = await this.docker.composeConfig(project, [basePath], envFile)
-        const basePrimary = baseSpec.services?.[app.compose.primaryService] as
-          | { networks?: Record<string, unknown> }
-          | undefined
-        const missingPrimary = missingPrimaryService(baseSpec, app.compose.primaryService)
-        if (!basePrimary || missingPrimary) {
+        // Resolve the base file alone: it must hold the primary service, and
+        // the override needs the networks that service is already on.
+        let resolved: { spec: ComposeSpec; warnings: string[] }
+        try {
+          resolved = await this.resolveComposeBase(app)
+        } catch (err) {
+          if (!(err instanceof ValidationError)) throw err
           this.appStorage.update(name, { status: "failed" })
-          return this.error(missingPrimary ?? "Primary service not found", 400)
+          return this.error(err.message, 400)
         }
+        const { spec, warnings } = resolved
+        const primary = spec.services[app.compose.primaryService] as { networks?: Record<string, unknown> }
 
         // Write the override (regenerate every deploy so env/domain updates apply)
         const overrideYaml = buildOverride(app, {
-          domains: this.appDomains(app),
-          baseNetworks: Object.keys(basePrimary.networks ?? {}),
+          domains: this.appStorage.routedDomains(app, this.config.domain),
+          baseNetworks: Object.keys(primary.networks ?? {}),
           dataDir: this.config.dataDir,
         })
         this.compose.writeOverride(name, overrideYaml)
-        const overridePath = this.compose.overridePath(name)
-        const files = [basePath, overridePath]
-
-        // Validate the merged config (parses + merges both files via compose-go)
-        const spec = await this.docker.composeConfig(project, files, envFile)
-
-        // Compute deploy-time warnings from the merged config
-        const warnings = composeWarnings(spec, app.compose.primaryService, this.uploadedComposeRoot(app))
+        const files = [basePath, this.compose.overridePath(name)]
+        const envFile = this.writeComposeEnvFile(app)
 
         // Bring up the project
         await this.docker.composeUp(project, files, envFile)
@@ -933,7 +916,7 @@ export class AgentServer {
           ...(composeCommitHash && { commitHash: composeCommitHash }),
         })
 
-        return this.json({ ...(updatedCompose && scrubApp(updatedCompose)), url: this.appUrl(app), warnings })
+        return this.json({ ...(updatedCompose && scrubApp(updatedCompose)), url: this.appStorage.url(app, this.config.domain), warnings })
       }
       // ---------- END COMPOSE BRANCH ----------
 
@@ -1012,7 +995,7 @@ export class AgentServer {
       }
 
       // Build Traefik labels for routing
-      const labels = this.docker.buildTraefikLabels(name, this.appDomains(app), app.internalPort)
+      const labels = this.docker.buildTraefikLabels(name, this.appStorage.routedDomains(app, this.config.domain), app.internalPort)
 
       // Run container
       const containerId = await this.docker.run({
@@ -1038,7 +1021,7 @@ export class AgentServer {
       // Refresh the card preview in the background — deploy stays fast.
       if (updated) this.captureAppThumbnail(updated)
 
-      return this.json(updated && { ...scrubApp(updated), url: this.appUrl(updated) })
+      return this.json(updated && { ...scrubApp(updated), url: this.appStorage.url(updated, this.config.domain) })
     } catch (err) {
       // Update status to failed
       this.appStorage.update(name, { status: "failed" })
@@ -1054,8 +1037,8 @@ export class AgentServer {
     }
     try {
       if (app.compose) {
-        const files = await this.composeFiles(app)
-        await this.docker.composeStop(`siteio-${name}`, files, this.composeEnvFile(app))
+        const files = this.composeFiles(app)
+        await this.docker.composeStop(`siteio-${name}`, files, this.writeComposeEnvFile(app))
       } else if (this.docker.containerExists(name)) {
         await this.docker.stop(name)
       }
@@ -1074,8 +1057,8 @@ export class AgentServer {
     }
     try {
       if (app.compose) {
-        const files = await this.composeFiles(app)
-        await this.docker.composeRestart(`siteio-${name}`, files, this.composeEnvFile(app))
+        const files = this.composeFiles(app)
+        await this.docker.composeRestart(`siteio-${name}`, files, this.writeComposeEnvFile(app))
         const updated = this.appStorage.update(name, { status: "running" })
         return this.json(updated && scrubApp(updated))
       }
@@ -1101,15 +1084,9 @@ export class AgentServer {
       let services: AppServiceStatus[]
       if (app.compose) {
         const primary = app.compose.primaryService
-        const files = await this.composeFiles(app)
-        const ps = await this.docker.composePs(`siteio-${name}`, files, this.composeEnvFile(app))
-        services = ps.map((s) => ({
-          service: s.service,
-          primary: s.service === primary,
-          state: s.state,
-          ...(s.exitCode !== undefined && { exitCode: s.exitCode }),
-          ...(s.health && { health: s.health }),
-        }))
+        const files = this.composeFiles(app)
+        const ps = await this.docker.composePs(`siteio-${name}`, files, this.writeComposeEnvFile(app))
+        services = ps.map(({ containerId: _id, ...s }) => ({ ...s, primary: s.service === primary }))
         if (!services.some((s) => s.primary)) {
           services.unshift({ service: primary, primary: true, state: "missing" })
         }
@@ -1147,8 +1124,8 @@ export class AgentServer {
     try {
       let logs: string
       if (app.compose) {
-        const files = await this.composeFiles(app)
-        logs = await this.docker.composeLogs(`siteio-${name}`, files, this.composeEnvFile(app), {
+        const files = this.composeFiles(app)
+        logs = await this.docker.composeLogs(`siteio-${name}`, files, this.writeComposeEnvFile(app), {
           tail,
           all,
           service: all ? undefined : (service ?? app.compose.primaryService),
@@ -2325,30 +2302,34 @@ export class AgentServer {
   }
 
   /**
-   * Resolve the env-file path for a compose app if one was uploaded, else undefined.
+   * Resolve an app's compose file alone with `docker compose config`: it must
+   * parse and contain the primary service. Returns the resolved config and its
+   * warnings; throws ValidationError otherwise.
    */
-  /**
-   * Resolve an app's uploaded compose file with `docker compose config` when it
-   * is stored, so an invalid file or unknown service fails now, not at deploy.
-   * Returns the warnings for the file; skipped when docker is unavailable.
-   */
-  private async checkUploadedCompose(app: Pick<App, "name" | "domains" | "compose">, primaryService: string): Promise<string[]> {
-    if (!this.docker.isAvailable()) return []
-    const { name } = app
+  private async resolveComposeBase(
+    app: Pick<App, "name" | "domains" | "compose">
+  ): Promise<{ spec: ComposeSpec; warnings: string[] }> {
+    const { primaryService, source } = app.compose!
     let spec: ComposeSpec
     try {
-      spec = await this.docker.composeConfig(`siteio-${name}`, [this.compose.baseInlinePath(name)], this.composeEnvFile(app))
+      spec = await this.docker.composeConfig(`siteio-${app.name}`, [this.composeBasePath(app)], this.writeComposeEnvFile(app))
     } catch (err) {
       throw new ValidationError(err instanceof Error ? err.message : String(err))
     }
     const missing = missingPrimaryService(spec, primaryService)
     if (missing) throw new ValidationError(missing)
-    return composeWarnings(spec, primaryService, this.compose.rootDir())
+    // Relative bind mounts resolve under the upload folder, which holds only the compose file
+    const uploadedRoot = source === "inline" ? this.compose.rootDir() : undefined
+    return { spec, warnings: composeWarnings(spec, primaryService, uploadedRoot) }
   }
 
-  /** Folder relative bind mounts resolve into for uploaded compose files. */
-  private uploadedComposeRoot(app: App): string | undefined {
-    return app.compose?.source === "inline" ? this.compose.rootDir() : undefined
+  /**
+   * Check an uploaded compose file when it is stored, so an invalid file or
+   * unknown service fails now, not at deploy. Skipped when docker is unavailable.
+   */
+  private async checkUploadedCompose(app: Pick<App, "name" | "domains" | "compose">): Promise<string[]> {
+    if (!this.docker.isAvailable()) return []
+    return (await this.resolveComposeBase(app)).warnings
   }
 
   /**
@@ -2358,12 +2339,12 @@ export class AgentServer {
    * repo's .env next to the compose file (--env-file stops compose loading it).
    * Rebuilt on each call so domain changes apply.
    */
-  private composeEnvFile(app: Pick<App, "name" | "domains" | "compose">): string {
-    const [domain] = this.appDomains(app)
+  private writeComposeEnvFile(app: Pick<App, "name" | "domains" | "compose">): string {
+    const [domain] = this.appStorage.routedDomains(app, this.config.domain)
     const userEnv = this.compose.envFileExists(app.name)
       ? this.compose.baseEnvPath(app.name)
       : app.compose?.source === "git"
-        ? join(dirname(join(this.git.repoPath(app.name), app.compose.path)), ".env")
+        ? join(dirname(this.composeBasePath(app)), ".env")
         : undefined
     return this.compose.writeSiteioEnv(
       app.name,
@@ -2372,31 +2353,24 @@ export class AgentServer {
     )
   }
 
-  /** Custom domains if set, otherwise the default `<app>.<domain>` subdomain. */
-  private appDomains(app: Pick<App, "name" | "domains">): string[] {
-    return app.domains.length > 0 ? app.domains : [`${app.name}.${this.config.domain}`]
-  }
-
-  /** Public URL the app is served at: its first routed domain. */
-  private appUrl(app: Pick<App, "name" | "domains">): string {
-    return `https://${this.appDomains(app)[0]}`
-  }
 
   /**
    * Resolve the [base, override] compose file paths for a compose-based app.
    * For git apps the base lives inside the cloned repo (which must already exist
    * from a prior deploy — lifecycle ops never re-clone).
    */
-  private async composeFiles(app: App): Promise<string[]> {
+  private composeFiles(app: App): string[] {
+    return [this.composeBasePath(app), this.compose.overridePath(app.name)]
+  }
+
+  /** The user's compose file: the uploaded copy, or the file inside the cloned repo. */
+  private composeBasePath(app: Pick<App, "name" | "compose">): string {
     if (!app.compose) {
-      throw new Error(`composeFiles called on non-compose app '${app.name}'`)
+      throw new Error(`composeBasePath called on non-compose app '${app.name}'`)
     }
-    const { join } = await import("path")
-    const basePath =
-      app.compose.source === "inline"
-        ? this.compose.baseInlinePath(app.name)
-        : join(this.git.repoPath(app.name), app.compose.path)
-    return [basePath, this.compose.overridePath(app.name)]
+    return app.compose.source === "inline"
+      ? this.compose.baseInlinePath(app.name)
+      : join(this.git.repoPath(app.name), app.compose.path)
   }
 
   stop(): void {

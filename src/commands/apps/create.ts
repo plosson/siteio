@@ -7,6 +7,7 @@ import { handleError, ValidationError } from "../../utils/errors.ts"
 import { saveProjectConfig } from "../../utils/site-config.ts"
 import { readFlagFile } from "../../utils/files.ts"
 import { deployAppCommand } from "./deploy.ts"
+import type { AppInfo } from "../../types.ts"
 
 export interface CreateAppOptions {
   image?: string
@@ -69,6 +70,37 @@ export function validateCreateOptions(options: CreateAppOptions): void {
   }
 }
 
+function printCreatedApp(app: AppInfo, options: CreateAppOptions): void {
+  console.log("")
+  console.log(formatSuccess(`App ${chalk.bold(app.name)} created successfully!`))
+  console.log("")
+  console.log(`  Name:   ${chalk.cyan(app.name)}`)
+  if (options.composeFile || options.compose) {
+    console.log(`  Source: ${chalk.blue("compose")}`)
+    if (options.composeFile) {
+      console.log(`  File:    ${options.composeFile}`)
+    } else {
+      console.log(`  Repo:    ${options.git}`)
+      console.log(`  Compose: ${options.compose}`)
+    }
+    console.log(`  Service: ${options.service}`)
+  } else if (options.git) {
+    console.log(`  Source: ${chalk.blue("git")}`)
+    console.log(`  Repo:   ${options.git}`)
+    if (options.branch) console.log(`  Branch: ${options.branch}`)
+    if (options.dockerfile) console.log(`  Dockerfile: ${options.dockerfile}`)
+    if (options.context) console.log(`  Context: ${options.context}`)
+  } else if (options.file) {
+    console.log(`  Source: ${chalk.blue("dockerfile")}`)
+    console.log(`  File:   ${options.file}`)
+  } else {
+    console.log(`  Image:  ${app.image}`)
+  }
+  console.log(`  Port:   ${app.internalPort}`)
+  console.log(`  Status: ${chalk.yellow(app.status)}`)
+  console.log("")
+}
+
 export async function createAppCommand(
   name: string,
   options: CreateAppOptions
@@ -88,7 +120,6 @@ export async function createAppCommand(
 
     validateCreateOptions(options)
 
-    const hasCompose = !!options.composeFile || !!options.compose
     const hasLocalDockerfile = !!options.file
     const hasGit = !!options.git
 
@@ -128,50 +159,21 @@ export async function createAppCommand(
       }
     }
 
-    if (options.json) {
-      // With --deploy, the deploy result is the one JSON document printed
-      if (!options.deploy) console.log(JSON.stringify({ success: true, data: app }, null, 2))
-    } else {
-      console.log("")
-      console.log(formatSuccess(`App ${chalk.bold(name)} created successfully!`))
-      console.log("")
-      console.log(`  Name:   ${chalk.cyan(app.name)}`)
-      if (hasCompose) {
-        console.log(`  Source: ${chalk.blue("compose")}`)
-        if (options.composeFile) {
-          console.log(`  File:    ${options.composeFile}`)
-        } else {
-          console.log(`  Repo:    ${options.git}`)
-          console.log(`  Compose: ${options.compose}`)
-        }
-        console.log(`  Service: ${options.service}`)
-      } else if (hasGit) {
-        console.log(`  Source: ${chalk.blue("git")}`)
-        console.log(`  Repo:   ${options.git}`)
-        if (options.branch) console.log(`  Branch: ${options.branch}`)
-        if (options.dockerfile) console.log(`  Dockerfile: ${options.dockerfile}`)
-        if (options.context) console.log(`  Context: ${options.context}`)
-      } else if (hasLocalDockerfile) {
-        console.log(`  Source: ${chalk.blue("dockerfile")}`)
-        console.log(`  File:   ${options.file}`)
-      } else {
-        console.log(`  Image:  ${app.image}`)
-      }
-      console.log(`  Port:   ${app.internalPort}`)
-      console.log(`  Status: ${chalk.yellow(app.status)}`)
-      console.log("")
-      if (!options.deploy) {
-        // With --deploy, deploy prints the warnings of the merged config
-        printComposeWarnings(app)
-        console.log(chalk.dim(`Run 'siteio apps deploy ${name}' to start the container`))
-        console.log("")
-      }
-    }
-
     if (options.deploy) {
-      // Deploy prints its own result and exits with its checks' status
+      // Deploy prints the result (the one JSON document with --json) and
+      // exits with its checks' status, warnings included
+      if (!options.json) printCreatedApp(app, options)
       await deployAppCommand(name, { json: options.json })
       return
+    }
+
+    if (options.json) {
+      console.log(JSON.stringify({ success: true, data: app }, null, 2))
+    } else {
+      printCreatedApp(app, options)
+      printComposeWarnings(app.warnings)
+      console.log(chalk.dim(`Run 'siteio apps deploy ${name}' to start the container`))
+      console.log("")
     }
     process.exit(0)
   } catch (err) {

@@ -3,9 +3,9 @@ import { join } from "path"
 import type { ContainerInspect, RestartPolicy, VolumeMount } from "../../types"
 import { SiteioError } from "../../utils/errors"
 import type { Runtime } from "./runtime"
-import { ComposeManager, type ComposeSpec } from "./compose"
+import { ComposeManager, dockerAsync, type ComposeSpec } from "./compose"
 import type { ComposeLogsOptions, ComposeServiceState } from "./runtime"
-import { APP_ROUTER_PRIORITY } from "./traefik"
+import { routerLabels } from "./traefik"
 
 export interface ContainerRunConfig {
   name: string
@@ -248,19 +248,13 @@ export class DockerManager implements Runtime {
    * Inspect a container
    */
   async inspect(appName: string): Promise<ContainerInspect | null> {
-    const containerName = this.containerName(appName)
-    const result = spawnSync({
-      cmd: ["docker", "inspect", containerName],
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-
+    const result = await dockerAsync(["inspect", this.containerName(appName)])
     if (result.exitCode !== 0) {
       return null
     }
 
     try {
-      const data = JSON.parse(result.stdout.toString())[0]
+      const data = JSON.parse(result.stdout)[0]
       return {
         id: data.Id,
         name: data.Name.replace(/^\//, ""),
@@ -302,22 +296,7 @@ export class DockerManager implements Runtime {
     domains: string[],
     port: number
   ): Record<string, string> {
-    const containerName = this.containerName(appName)
-    const labels: Record<string, string> = {
-      "traefik.enable": "true",
-      [`traefik.http.routers.${containerName}.entrypoints`]: "websecure",
-      [`traefik.http.routers.${containerName}.tls.certresolver`]: "letsencrypt",
-      // Apps own their whole host: outrank the agent's reserved-path MCP router.
-      [`traefik.http.routers.${containerName}.priority`]: String(APP_ROUTER_PRIORITY),
-      [`traefik.http.services.${containerName}.loadbalancer.server.port`]: String(port),
-    }
-
-    if (domains.length > 0) {
-      const hostRules = domains.map((d) => `Host(\`${d}\`)`).join(" || ")
-      labels[`traefik.http.routers.${containerName}.rule`] = hostRules
-    }
-
-    return labels
+    return routerLabels(this.containerName(appName), domains, port)
   }
 
   /**

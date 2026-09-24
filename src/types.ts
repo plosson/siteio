@@ -112,6 +112,11 @@ export interface AppInfo {
   hasThumbnail?: boolean
 }
 
+// Compose hints returned by create, update and deploy of compose apps
+export interface WithComposeWarnings {
+  warnings?: string[]
+}
+
 // Live state of an app's containers (GET /apps/:name/status). A single-container
 // app reports one entry named after the app; a compose app one per service.
 export interface AppServiceStatus {

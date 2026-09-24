@@ -1,7 +1,7 @@
 import { loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
 import type {
-  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, ShareGrantInfo, ShareGrantCreated, EditLinkCreated,
+  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, WithComposeWarnings, ShareGrantInfo, ShareGrantCreated, EditLinkCreated,
 } from "../types.ts"
 
 export interface ClientOptions {
@@ -260,8 +260,8 @@ export class SiteioClient {
     volumes?: { name: string; mountPath: string }[]
     domains?: string[]
     restartPolicy?: string
-  }): Promise<AppInfo> {
-    const response = await this.request<ApiResponse<AppInfo>>(
+  }): Promise<AppInfo & WithComposeWarnings> {
+    const response = await this.request<ApiResponse<AppInfo & WithComposeWarnings>>(
       "POST",
       "/apps",
       JSON.stringify(config),
@@ -302,8 +302,8 @@ export class SiteioClient {
       envFileContent?: string
       primaryService?: string
     }
-  ): Promise<App> {
-    const response = await this.request<ApiResponse<App>>(
+  ): Promise<App & WithComposeWarnings> {
+    const response = await this.request<ApiResponse<App & WithComposeWarnings>>(
       "PATCH",
       `/apps/${name}`,
       JSON.stringify(updates),
@@ -322,10 +322,10 @@ export class SiteioClient {
   async deployApp(
     name: string,
     options?: { noCache?: boolean; dockerfileContent?: string }
-  ): Promise<AppInfo> {
+  ): Promise<AppInfo & WithComposeWarnings> {
     const queryParams = options?.noCache ? "?noCache=true" : ""
     const hasBody = options?.dockerfileContent !== undefined
-    const response = await this.request<ApiResponse<AppInfo>>(
+    const response = await this.request<ApiResponse<AppInfo & WithComposeWarnings>>(
       "POST",
       `/apps/${name}/deploy${queryParams}`,
       hasBody ? JSON.stringify({ dockerfileContent: options!.dockerfileContent }) : undefined,

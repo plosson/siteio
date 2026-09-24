@@ -5,6 +5,7 @@
  */
 
 import type { AppServiceStatus, AppStatus } from "../types.ts"
+import { sleep } from "./verification.ts"
 
 export interface ServiceProblem {
   service: string
@@ -26,9 +27,8 @@ export function serviceProblem(s: AppServiceStatus): string | null {
       // Never started: usually a depends_on condition that did not pass
       return s.primary ? "was never started" : null
     case "exited":
-      if (s.exitCode !== 0) return `exited${code}`
       // One-shot jobs (migrations) exit 0 by design; the primary must stay up
-      return s.primary ? `exited${code}` : null
+      return s.primary || s.exitCode !== 0 ? `exited${code}` : null
   }
   if (s.health === "unhealthy") return "is unhealthy"
   return null
@@ -51,7 +51,7 @@ export async function watchServices(
 ): Promise<ServiceProblem[]> {
   const windowMs = options.windowMs ?? 10000
   const intervalMs = options.intervalMs ?? 2000
-  const sleepFn = options.sleepFn ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+  const sleepFn = options.sleepFn ?? sleep
   const samples = Math.max(1, Math.floor(windowMs / intervalMs) + 1)
 
   for (let i = 0; i < samples; i++) {

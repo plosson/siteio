@@ -148,6 +148,15 @@ describe("Unit: DockerManager", () => {
       expect(labels["traefik.http.routers.siteio-myapp.middlewares"]).toBeUndefined()
     })
 
+    test("pins the network Traefik reaches the container on", () => {
+      const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80)
+      expect(labels["traefik.docker.network"]).toBe("siteio-network")
+    })
+
+    test("refuses to build a router without domains instead of a rule-less one", () => {
+      expect(() => docker.buildTraefikLabels("myapp", [], 80)).toThrow(/without domains/)
+    })
+
     test("outranks the agent's MCP router so apps own their whole host", () => {
       const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80)
 

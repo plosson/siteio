@@ -298,12 +298,12 @@ export async function setAppCommand(
       if (options.envFile) {
         console.log(`Env file: ${options.envFile}`)
       }
-      if (updates.primaryService) {
-        console.log(`Service: ${updates.primaryService}`)
+      if (options.service) {
+        console.log(`Service: ${options.service}`)
       }
 
       console.log("")
-      printComposeWarnings(app)
+      printComposeWarnings(app.warnings)
 
       if (app.status === "running") {
         console.log(chalk.dim(`Redeploy the app for changes to take effect: siteio apps deploy ${name}`))

@@ -139,11 +139,21 @@ export class AppStorage {
     })
   }
 
+  /** Hostnames Traefik routes to the app: its custom domains, else `<app>.<domain>`. */
+  routedDomains(app: Pick<App, "name" | "domains">, domain: string): string[] {
+    return app.domains.length > 0 ? app.domains : [`${app.name}.${domain}`]
+  }
+
+  /** Public URL the app is served at: its first routed domain. */
+  url(app: Pick<App, "name" | "domains">, domain: string): string {
+    return `https://${this.routedDomains(app, domain)[0]}`
+  }
+
   toInfo(app: App, domain: string): AppInfo {
     return {
       name: app.name,
       type: app.type,
-      url: `https://${app.name}.${domain}`,
+      url: this.url(app, domain),
       image: app.image,
       git: app.git,
       dockerfile: app.dockerfile,
