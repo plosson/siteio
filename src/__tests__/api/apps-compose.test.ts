@@ -510,6 +510,39 @@ describe("API: Apps (compose)", () => {
       expect(override).not.toContain("withdomain.test.example.com")
     })
 
+    test("primary service keeps the networks the base file put it on", async () => {
+      await req("POST", "/apps", {
+        name: "keepnet",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      // What `docker compose config` resolves for a service with no networks: key
+      runtime.composeConfigReturn = { services: { web: { networks: { default: null } }, db: {} } }
+      await jsonOk<App>(await req("POST", "/apps/keepnet/deploy"))
+
+      const override = readFileSync(join(testDir, "compose", "keepnet", "docker-compose.siteio.yml"), "utf-8")
+      expect(override).toMatch(/networks:\s+- "default"\s+- "siteio-network"/m)
+
+      // Base file resolved alone first, then merged with the override
+      const configCalls = runtime.callsOf("composeConfig")
+      expect((configCalls[0]!.args[1] as string[])).toHaveLength(1)
+      expect((configCalls[1]!.args[1] as string[])).toHaveLength(2)
+    })
+
+    test("missing primary service fails before any override is written", async () => {
+      await req("POST", "/apps", {
+        name: "nooverride",
+        composeContent: inlineCompose,
+        primaryService: "ghost",
+        internalPort: 80,
+      })
+      runtime.composeConfigReturn = { services: { web: {} } }
+      const r = await req("POST", "/apps/nooverride/deploy")
+      expect(r.status).toBe(400)
+      expect(existsSync(join(testDir, "compose", "nooverride", "docker-compose.siteio.yml"))).toBe(false)
+    })
+
     test("deploy fails with 400 if primary service not found in compose config", async () => {
       await req("POST", "/apps", {
         name: "badprimary",

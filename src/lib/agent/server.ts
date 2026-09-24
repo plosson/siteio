@@ -823,24 +823,35 @@ export class AgentServer {
           }
         }
 
-        // Write the override (regenerate every deploy so env/domain updates apply)
-        const overrideYaml = buildOverride(app, this.appDomains(app), this.config.dataDir)
-        this.compose.writeOverride(name, overrideYaml)
-        const overridePath = this.compose.overridePath(name)
-
         const project = `siteio-${name}`
-        const files = [basePath, overridePath]
         const envFile = this.composeEnvFile(name)
 
-        // Validate config (parses + merges both files via compose-go)
-        const spec = await this.docker.composeConfig(project, files, envFile)
-        if (!spec.services || !spec.services[app.compose.primaryService]) {
+        // Resolve the base file alone: the primary service must exist there,
+        // and the override needs the networks it is already on.
+        const baseSpec = await this.docker.composeConfig(project, [basePath], envFile)
+        const basePrimary = baseSpec.services?.[app.compose.primaryService] as
+          | { networks?: Record<string, unknown> }
+          | undefined
+        if (!basePrimary) {
           this.appStorage.update(name, { status: "failed" })
           return this.error(
-            `Primary service '${app.compose.primaryService}' not found in compose file. Available: ${Object.keys(spec.services || {}).join(", ") || "none"}`,
+            `Primary service '${app.compose.primaryService}' not found in compose file. Available: ${Object.keys(baseSpec.services || {}).join(", ") || "none"}`,
             400
           )
         }
+
+        // Write the override (regenerate every deploy so env/domain updates apply)
+        const overrideYaml = buildOverride(app, {
+          domains: this.appDomains(app),
+          baseNetworks: Object.keys(basePrimary.networks ?? {}),
+          dataDir: this.config.dataDir,
+        })
+        this.compose.writeOverride(name, overrideYaml)
+        const overridePath = this.compose.overridePath(name)
+        const files = [basePath, overridePath]
+
+        // Validate the merged config (parses + merges both files via compose-go)
+        const spec = await this.docker.composeConfig(project, files, envFile)
 
         // Compute deploy-time warnings from the merged config
         const warnings = this.computeComposeWarnings(spec, app.compose.primaryService)
