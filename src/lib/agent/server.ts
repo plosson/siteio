@@ -824,7 +824,7 @@ export class AgentServer {
         }
 
         // Write the override (regenerate every deploy so env/domain updates apply)
-        const overrideYaml = buildOverride(app, this.config.dataDir)
+        const overrideYaml = buildOverride(app, this.appDomains(app), this.config.dataDir)
         this.compose.writeOverride(name, overrideYaml)
         const overridePath = this.compose.overridePath(name)
 
@@ -942,9 +942,7 @@ export class AgentServer {
       }
 
       // Build Traefik labels for routing
-      // Use default subdomain if no custom domains specified
-      const domains = app.domains.length > 0 ? app.domains : [`${name}.${this.config.domain}`]
-      const labels = this.docker.buildTraefikLabels(name, domains, app.internalPort)
+      const labels = this.docker.buildTraefikLabels(name, this.appDomains(app), app.internalPort)
 
       // Run container
       const containerId = await this.docker.run({
@@ -2231,6 +2229,11 @@ export class AgentServer {
    *     host-side binding is redundant and may conflict with other apps).
    *   - Any service sets `container_name:` (fixed names prevent multi-instance).
    */
+  /** Custom domains if set, otherwise the default `<app>.<domain>` subdomain. */
+  private appDomains(app: App): string[] {
+    return app.domains.length > 0 ? app.domains : [`${app.name}.${this.config.domain}`]
+  }
+
   private computeComposeWarnings(
     spec: import("./compose.ts").ComposeSpec,
     primaryService: string

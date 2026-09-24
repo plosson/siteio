@@ -481,6 +481,35 @@ describe("API: Apps (compose)", () => {
       expect(files[1]).toBe(overridePath)
     })
 
+    test("app without a custom domain routes on the default subdomain", async () => {
+      await req("POST", "/apps", {
+        name: "nodomain",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      await jsonOk<App>(await req("POST", "/apps/nodomain/deploy"))
+
+      const override = readFileSync(join(testDir, "compose", "nodomain", "docker-compose.siteio.yml"), "utf-8")
+      expect(override).toContain('traefik.http.routers.siteio-nodomain.rule: "Host(`nodomain.test.example.com`)"')
+    })
+
+    test("custom domains replace the default subdomain on redeploy", async () => {
+      await req("POST", "/apps", {
+        name: "withdomain",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
+      await jsonOk<App>(await req("POST", "/apps/withdomain/deploy"))
+      await jsonOk<App>(await req("PATCH", "/apps/withdomain", { domains: ["custom.other.test"] }))
+      await jsonOk<App>(await req("POST", "/apps/withdomain/deploy"))
+
+      const override = readFileSync(join(testDir, "compose", "withdomain", "docker-compose.siteio.yml"), "utf-8")
+      expect(override).toContain('rule: "Host(`custom.other.test`)"')
+      expect(override).not.toContain("withdomain.test.example.com")
+    })
+
     test("deploy fails with 400 if primary service not found in compose config", async () => {
       await req("POST", "/apps", {
         name: "badprimary",

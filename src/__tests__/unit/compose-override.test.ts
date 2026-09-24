@@ -21,21 +21,26 @@ function appWithCompose(overrides: Partial<App> = {}): App {
   }
 }
 
+// Most cases route to the app's own domains; the domain-resolution tests pass them explicitly.
+function build(app: App, dataDir?: string): string {
+  return buildOverride(app, app.domains, dataDir)
+}
+
 describe("Unit: buildOverride", () => {
   test("emits services.<primary>.networks with siteio-network", () => {
-    const yaml = buildOverride(appWithCompose())
+    const yaml = build(appWithCompose())
     expect(yaml).toContain("services:")
     expect(yaml).toMatch(/^ {2}web:/m)
     expect(yaml).toMatch(/networks:\s+- siteio-network/m)
   })
 
   test("declares siteio-network as external", () => {
-    const yaml = buildOverride(appWithCompose())
+    const yaml = build(appWithCompose())
     expect(yaml).toMatch(/^networks:\s+siteio-network:\s+external: true/ms)
   })
 
   test("emits Traefik labels for a single domain", () => {
-    const yaml = buildOverride(appWithCompose({ domains: ["app.example.com"] }))
+    const yaml = build(appWithCompose({ domains: ["app.example.com"] }))
     expect(yaml).toContain('traefik.enable: "true"')
     expect(yaml).toContain('traefik.docker.network: "siteio-network"')
     expect(yaml).toContain('traefik.http.routers.siteio-myapp.entrypoints: "websecure"')
@@ -46,25 +51,25 @@ describe("Unit: buildOverride", () => {
   })
 
   test("ORs multiple domains with `||`", () => {
-    const yaml = buildOverride(appWithCompose({ domains: ["a.example.com", "b.example.com"] }))
+    const yaml = build(appWithCompose({ domains: ["a.example.com", "b.example.com"] }))
     expect(yaml).toContain(
       'traefik.http.routers.siteio-myapp.rule: "Host(`a.example.com`) || Host(`b.example.com`)"'
     )
   })
 
   test("emits env vars as a map under the primary service", () => {
-    const yaml = buildOverride(appWithCompose({ env: { FOO: "bar", DATABASE_URL: "postgres://db/x" } }))
+    const yaml = build(appWithCompose({ env: { FOO: "bar", DATABASE_URL: "postgres://db/x" } }))
     expect(yaml).toMatch(/environment:\s+FOO: "bar"/m)
     expect(yaml).toContain('DATABASE_URL: "postgres://db/x"')
   })
 
   test("omits environment block when env is empty", () => {
-    const yaml = buildOverride(appWithCompose({ env: {} }))
+    const yaml = build(appWithCompose({ env: {} }))
     expect(yaml).not.toContain("environment:")
   })
 
   test("emits volumes under the primary service when present", () => {
-    const yaml = buildOverride(
+    const yaml = build(
       appWithCompose({ volumes: [{ name: "data", mountPath: "/data" }] })
     )
     expect(yaml).toMatch(/volumes:\s+- /m)
@@ -72,19 +77,19 @@ describe("Unit: buildOverride", () => {
   })
 
   test("omits volumes block when list is empty", () => {
-    const yaml = buildOverride(appWithCompose({ volumes: [] }))
+    const yaml = build(appWithCompose({ volumes: [] }))
     expect(yaml).not.toMatch(/^ {4}volumes:/m)
   })
 
   test("escapes backtick-containing rule value by quoting the full string", () => {
-    const yaml = buildOverride(appWithCompose({ domains: ["x.test"] }))
+    const yaml = build(appWithCompose({ domains: ["x.test"] }))
     const line = yaml.split("\n").find((l) => l.includes("routers.siteio-myapp.rule"))!
     expect(line.trim().startsWith("traefik.http.routers.siteio-myapp.rule:")).toBe(true)
     expect(line).toContain('"Host(`x.test`)"')
   })
 
   test("escapes newlines in env values as \\n literals", () => {
-    const yaml = buildOverride(
+    const yaml = build(
       appWithCompose({ env: { CERT: "line1\nline2\nline3" } })
     )
     expect(yaml).toContain('CERT: "line1\\nline2\\nline3"')
@@ -94,7 +99,7 @@ describe("Unit: buildOverride", () => {
   })
 
   test("escapes tabs and carriage returns in env values", () => {
-    const yaml = buildOverride(
+    const yaml = build(
       appWithCompose({ env: { MSG: "a\tb\r\nc" } })
     )
     expect(yaml).toContain('MSG: "a\\tb\\r\\nc"')
@@ -114,11 +119,28 @@ describe("Unit: buildOverride", () => {
       createdAt: "2026-04-19T00:00:00Z",
       updatedAt: "2026-04-19T00:00:00Z",
     }
-    expect(() => buildOverride(nonCompose)).toThrow(/non-compose/)
+    expect(() => buildOverride(nonCompose, ["plain.example.com"])).toThrow(/non-compose/)
+  })
+
+  test("routes on the domains passed in, not app.domains", () => {
+    // App has no custom domain: the caller resolves the default subdomain.
+    const yaml = buildOverride(appWithCompose({ domains: [] }), ["myapp.base.test"])
+    expect(yaml).toContain('traefik.http.routers.siteio-myapp.rule: "Host(`myapp.base.test`)"')
+  })
+
+  test("ignores stale app.domains when resolved domains differ", () => {
+    const yaml = buildOverride(appWithCompose({ domains: ["old.example.com"] }), ["new.example.com"])
+    expect(yaml).toContain("Host(`new.example.com`)")
+    expect(yaml).not.toContain("old.example.com")
+  })
+
+  test("refuses to build a router without a Host rule", () => {
+    // A rule-less router makes Traefik answer 404 with its default certificate.
+    expect(() => buildOverride(appWithCompose({ domains: [] }), [])).toThrow(/without domains/)
   })
 
   test("readonly volumes emit the :ro suffix", () => {
-    const yaml = buildOverride(
+    const yaml = build(
       appWithCompose({ volumes: [{ name: "data", mountPath: "/data", readonly: true }] })
     )
     const volLine = yaml.split("\n").find((l) => l.trim().startsWith("- ") && l.includes("/data"))!
@@ -126,7 +148,7 @@ describe("Unit: buildOverride", () => {
   })
 
   test("absolute-path volumes use the host path directly", () => {
-    const yaml = buildOverride(
+    const yaml = build(
       appWithCompose({ volumes: [{ name: "/srv/shared", mountPath: "/data" }] })
     )
     const volLine = yaml.split("\n").find((l) => l.trim().startsWith("- ") && l.includes("/data"))!
@@ -136,7 +158,7 @@ describe("Unit: buildOverride", () => {
   })
 
   test("custom dataDir threads through volume path resolution", () => {
-    const yaml = buildOverride(
+    const yaml = build(
       appWithCompose({ volumes: [{ name: "data", mountPath: "/data" }] }),
       "/custom/data/root"
     )
