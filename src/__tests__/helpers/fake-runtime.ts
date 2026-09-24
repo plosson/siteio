@@ -30,6 +30,7 @@ export class FakeRuntime implements Runtime {
 
   // Compose fixtures
   composeConfigReturn: ComposeSpec = { services: { web: {} } }
+  composeConfigError: Error | null = null
   composePsReturn: ComposeServiceState[] = [
     { service: "web", containerId: "fake-web-id", state: "running" },
   ]
@@ -135,6 +136,7 @@ export class FakeRuntime implements Runtime {
 
   async composeConfig(project: string, files: string[], envFile?: string): Promise<ComposeSpec> {
     this.record("composeConfig", [project, files, envFile])
+    if (this.composeConfigError) throw this.composeConfigError
     return this.composeConfigReturn
   }
   async composeUp(project: string, files: string[], envFile?: string): Promise<void> {

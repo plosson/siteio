@@ -2,7 +2,7 @@ import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
-import { formatSuccess } from "../../utils/output.ts"
+import { formatSuccess, printComposeWarnings } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { saveProjectConfig } from "../../utils/site-config.ts"
 import { readFlagFile } from "../../utils/files.ts"
@@ -157,6 +157,7 @@ export async function createAppCommand(
       console.log(`  Port:   ${app.internalPort}`)
       console.log(`  Status: ${chalk.yellow(app.status)}`)
       console.log("")
+      printComposeWarnings(app)
       console.log(chalk.dim(`Run 'siteio apps deploy ${name}' to start the container`))
       console.log("")
     }

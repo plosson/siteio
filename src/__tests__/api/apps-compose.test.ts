@@ -524,38 +524,31 @@ describe("API: Apps (compose)", () => {
       const override = readFileSync(join(testDir, "compose", "keepnet", "docker-compose.siteio.yml"), "utf-8")
       expect(override).toMatch(/networks:\s+- "default"\s+- "siteio-network"/m)
 
-      // Base file resolved alone first, then merged with the override
-      const configCalls = runtime.callsOf("composeConfig")
+      // Deploy resolves the base file alone first, then merged with the override
+      const configCalls = runtime.callsOf("composeConfig").slice(-2)
       expect((configCalls[0]!.args[1] as string[])).toHaveLength(1)
       expect((configCalls[1]!.args[1] as string[])).toHaveLength(2)
     })
 
-    test("missing primary service fails before any override is written", async () => {
-      await req("POST", "/apps", {
+    test("primary service gone from the file at deploy: 400, no override, no compose up", async () => {
+      // A git repo (or the file behind it) can change after create; deploy re-checks
+      runtime.composeConfigReturn = { services: { web: {}, db: {} } }
+      await jsonOk<App>(await req("POST", "/apps", {
         name: "nooverride",
         composeContent: inlineCompose,
-        primaryService: "ghost",
+        primaryService: "web",
         internalPort: 80,
-      })
-      runtime.composeConfigReturn = { services: { web: {} } }
-      const r = await req("POST", "/apps/nooverride/deploy")
-      expect(r.status).toBe(400)
-      expect(existsSync(join(testDir, "compose", "nooverride", "docker-compose.siteio.yml"))).toBe(false)
-    })
-
-    test("deploy fails with 400 if primary service not found in compose config", async () => {
-      await req("POST", "/apps", {
-        name: "badprimary",
-        composeContent: inlineCompose,
-        primaryService: "nonexistent",
-        internalPort: 80,
-      })
-      runtime.composeConfigReturn = { services: { web: {}, db: {} } }
-      const r = await req("POST", "/apps/badprimary/deploy")
-      expect(r.status).toBe(400)
-
-      // composeUp must NOT have been called
-      expect(runtime.callsOf("composeUp")).toHaveLength(0)
+      }))
+      runtime.composeConfigReturn = { services: { db: {} } }
+      try {
+        const r = await req("POST", "/apps/nooverride/deploy")
+        expect(r.status).toBe(400)
+        expect(((await r.json()) as { error: string }).error).toContain("Available: db")
+        expect(existsSync(join(testDir, "compose", "nooverride", "docker-compose.siteio.yml"))).toBe(false)
+        expect(runtime.callsOf("composeUp")).toHaveLength(0)
+      } finally {
+        runtime.composeConfigReturn = { services: { web: {}, db: {} } }
+      }
     })
 
     test("redeploy after env update regenerates override and invokes composeUp", async () => {
@@ -667,6 +660,122 @@ describe("API: Apps (compose)", () => {
 
       const alone = await jsonOk<App>(await req("PATCH", "/apps/upd6", { compose: { source: "git", path: "x.yml", primaryService: "evil" } }))
       expect(alone.compose).toEqual({ source: "inline", primaryService: "db" })
+    })
+  })
+
+  describe("checks when the file is stored", () => {
+    const basePath = (name: string) => join(testDir, "compose", name, "docker-compose.yml")
+    const envPath = (name: string) => join(testDir, "compose", name, ".env")
+    const create = (name: string, primaryService = "web") =>
+      req("POST", "/apps", { name, composeContent: inlineCompose, primaryService, internalPort: 80 })
+    const reset = () => {
+      runtime.composeConfigReturn = { services: { web: {}, db: {} } }
+      runtime.composeConfigError = null
+      runtime.isAvailableReturn = true
+    }
+
+    test("create returns the warnings, including relative bind mounts", async () => {
+      runtime.composeConfigReturn = {
+        services: {
+          web: { ports: ["3010:3010"], volumes: [{ type: "bind", source: join(testDir, "compose", "chk1", "data"), target: "/data" }] },
+          db: { container_name: "pg" },
+        },
+      }
+      try {
+        const app = await jsonOk<App & { warnings: string[] }>(await create("chk1"))
+        expect(app.warnings).toHaveLength(3)
+        expect(app.warnings.join("\n")).toContain("relative path")
+        // Resolved alone, as the stored file, with the app's project name
+        const call = runtime.callsOf("composeConfig").at(-1)!
+        expect(call.args[0]).toBe("siteio-chk1")
+        expect(call.args[1]).toEqual([basePath("chk1")])
+      } finally {
+        reset()
+      }
+    })
+
+    test("create rejects an unknown service and leaves nothing behind", async () => {
+      const r = await create("chk2", "ghost")
+      expect(r.status).toBe(400)
+      expect(((await r.json()) as { error: string }).error).toContain("Primary service 'ghost' not found")
+      expect(existsSync(join(testDir, "compose", "chk2"))).toBe(false)
+      expect((await req("GET", "/apps/chk2")).status).toBe(404)
+    })
+
+    test("create rejects a file docker compose cannot parse, with its error", async () => {
+      runtime.composeConfigError = new Error("docker compose config failed: services.web.image must be a string")
+      try {
+        const r = await create("chk3")
+        expect(r.status).toBe(400)
+        expect(((await r.json()) as { error: string }).error).toContain("must be a string")
+        expect(existsSync(join(testDir, "compose", "chk3"))).toBe(false)
+      } finally {
+        reset()
+      }
+    })
+
+    test("create still works when docker is unavailable (checked at deploy instead)", async () => {
+      runtime.isAvailableReturn = false
+      try {
+        const app = await jsonOk<App & { warnings?: string[] }>(await create("chk4", "ghost"))
+        expect(app.warnings).toEqual([])
+      } finally {
+        reset()
+      }
+    })
+
+    test("git compose apps are not checked at create (the repo is not cloned yet)", async () => {
+      const before = runtime.callsOf("composeConfig").length
+      await jsonOk<App>(await req("POST", "/apps", {
+        name: "chkgit",
+        git: { repoUrl: "https://example.test/repo.git" },
+        composePath: "docker-compose.yml",
+        primaryService: "ghost",
+        internalPort: 80,
+      }))
+      expect(runtime.callsOf("composeConfig").length).toBe(before)
+    })
+
+    test("set --compose-file: an invalid file is rejected and the previous one kept", async () => {
+      await jsonOk<App>(await create("chk5"))
+      runtime.composeConfigError = new Error("yaml: line 2: did not find expected key")
+      try {
+        const r = await req("PATCH", "/apps/chk5", { composeContent: "services:\n  web: [\n", envFileContent: "A=1\n" })
+        expect(r.status).toBe(400)
+        expect(readFileSync(basePath("chk5"), "utf-8")).toBe(inlineCompose)
+        // No .env before the request: none after
+        expect(existsSync(envPath("chk5"))).toBe(false)
+      } finally {
+        reset()
+      }
+    })
+
+    test("set --service to a service the file lacks is rejected; the record is unchanged", async () => {
+      await jsonOk<App>(await create("chk6"))
+      const r = await req("PATCH", "/apps/chk6", { primaryService: "ghost" })
+      expect(r.status).toBe(400)
+      const app = await jsonOk<App>(await req("GET", "/apps/chk6"))
+      expect(app.compose?.primaryService).toBe("web")
+    })
+
+    test("set --compose-file returns the new file's warnings", async () => {
+      await jsonOk<App>(await create("chk7"))
+      runtime.composeConfigReturn = { services: { web: {}, db: { ports: ["5432:5432"] } } }
+      try {
+        const app = await jsonOk<App & { warnings: string[] }>(await req("PATCH", "/apps/chk7", { composeContent: inlineCompose }))
+        expect(app.warnings).toHaveLength(1)
+        expect(app.warnings[0]).toContain("Service 'db' publishes ports")
+      } finally {
+        reset()
+      }
+    })
+
+    test("plain settings changes do not run compose config or return warnings", async () => {
+      await jsonOk<App>(await create("chk8"))
+      const before = runtime.callsOf("composeConfig").length
+      const app = await jsonOk<App & { warnings?: string[] }>(await req("PATCH", "/apps/chk8", { env: { A: "1" } }))
+      expect(runtime.callsOf("composeConfig").length).toBe(before)
+      expect(app.warnings).toBeUndefined()
     })
   })
 

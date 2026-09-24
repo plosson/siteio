@@ -56,6 +56,7 @@ beforeAll(async () => {
             secretKeys: ["VAULT_PASSPHRASE"],
             domains: [],
             volumes: [],
+            ...(bodyJson?.composeContent !== undefined && { warnings: ["Service 'db' publishes ports"] }),
           },
         }),
         { status: 200, headers: { "content-type": "application/json" } }
@@ -213,6 +214,20 @@ describe("CLI: apps set compose flags", () => {
     const body = patchBody()
     expect(body.env).toBeUndefined()
     expect(body.envFileContent).toBe("SECRET_ISH=1\n")
+  })
+
+  test("prints the warnings the agent returns for the new file", async () => {
+    const composePath = join(homeDir, "warn.yml")
+    writeFileSync(composePath, compose)
+    const result = await runCli(["apps", "set", "testapp", "--compose-file", composePath])
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toContain("Warnings:")
+    expect(result.stdout).toContain("Service 'db' publishes ports")
+  })
+
+  test("prints no warnings section when there are none", async () => {
+    const result = await runCli(["apps", "set", "testapp", "-e", "A=1"])
+    expect(result.stdout).not.toContain("Warnings:")
   })
 
   test("a missing --compose-file fails before anything is sent", async () => {
