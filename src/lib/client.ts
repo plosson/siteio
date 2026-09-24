@@ -298,6 +298,9 @@ export class SiteioClient {
       restartPolicy?: string
       image?: string
       git?: { repoUrl?: string; branch?: string; dockerfile?: string; context?: string; token?: string }
+      composeContent?: string
+      envFileContent?: string
+      primaryService?: string
     }
   ): Promise<App> {
     const response = await this.request<ApiResponse<App>>(

@@ -581,6 +581,95 @@ describe("API: Apps (compose)", () => {
     })
   })
 
+  describe("update compose source", () => {
+    const basePath = (name: string) => join(testDir, "compose", name, "docker-compose.yml")
+    const envPath = (name: string) => join(testDir, "compose", name, ".env")
+    const createInline = (name: string) =>
+      req("POST", "/apps", { name, composeContent: inlineCompose, primaryService: "web", internalPort: 80 })
+    const newCompose = "services:\n  web:\n    image: nginx\n    networks: [default]\n  cache:\n    image: redis\n"
+
+    test("replaces the uploaded compose file in place, and deploy uses it", async () => {
+      await createInline("upd1")
+      const app = await jsonOk<App>(await req("PATCH", "/apps/upd1", { composeContent: newCompose }))
+      expect(app.compose).toEqual({ source: "inline", primaryService: "web" })
+      expect(readFileSync(basePath("upd1"), "utf-8")).toBe(newCompose)
+
+      await jsonOk<App>(await req("POST", "/apps/upd1/deploy"))
+      const up = runtime.callsOf("composeUp").at(-1)!
+      expect((up.args[1] as string[])[0]).toBe(basePath("upd1"))
+    })
+
+    test("changes the primary service and keeps the source", async () => {
+      await createInline("upd2")
+      const app = await jsonOk<App>(await req("PATCH", "/apps/upd2", { primaryService: "db" }))
+      expect(app.compose).toEqual({ source: "inline", primaryService: "db" })
+    })
+
+    test("writes a new .env for interpolation", async () => {
+      await createInline("upd3")
+      await jsonOk<App>(await req("PATCH", "/apps/upd3", { envFileContent: "TAG=1.2\n" }))
+      expect(readFileSync(envPath("upd3"), "utf-8")).toBe("TAG=1.2\n")
+    })
+
+    test("git compose apps cannot take an uploaded file", async () => {
+      await req("POST", "/apps", {
+        name: "updgit",
+        git: { repoUrl: "https://example.test/repo.git", branch: "main" },
+        composePath: "docker-compose.yml",
+        primaryService: "api",
+        internalPort: 4000,
+      })
+      const r = await req("PATCH", "/apps/updgit", { composeContent: newCompose })
+      expect(r.status).toBe(400)
+      expect(((await r.json()) as { error: string }).error).toContain("git repository")
+      expect(existsSync(basePath("updgit"))).toBe(false)
+    })
+
+    test("git compose apps can still change the primary service", async () => {
+      const app = await jsonOk<App>(await req("PATCH", "/apps/updgit", { primaryService: "worker" }))
+      expect(app.compose).toEqual({ source: "git", path: "docker-compose.yml", primaryService: "worker" })
+    })
+
+    test("non-compose apps reject every compose field", async () => {
+      await req("POST", "/apps", { name: "updimg", image: "nginx", internalPort: 80 })
+      for (const body of [{ composeContent: newCompose }, { envFileContent: "A=1" }, { primaryService: "web" }]) {
+        const r = await req("PATCH", "/apps/updimg", body)
+        expect(r.status).toBe(400)
+      }
+      const app = await jsonOk<App>(await req("GET", "/apps/updimg"))
+      expect(app.compose).toBeUndefined()
+      expect(existsSync(join(testDir, "compose", "updimg"))).toBe(false)
+    })
+
+    test("empty or whitespace-only values are rejected and nothing changes", async () => {
+      await createInline("upd4")
+      expect((await req("PATCH", "/apps/upd4", { composeContent: "  \n" })).status).toBe(400)
+      expect((await req("PATCH", "/apps/upd4", { primaryService: " " })).status).toBe(400)
+      expect(readFileSync(basePath("upd4"), "utf-8")).toBe(inlineCompose)
+      const app = await jsonOk<App>(await req("GET", "/apps/upd4"))
+      expect(app.compose?.primaryService).toBe("web")
+    })
+
+    test("a request rejected by another field does not replace the file", async () => {
+      await createInline("upd5")
+      await jsonOk<App>(await req("PATCH", "/apps/upd5", { secrets: { TOKEN: "s3cret" } }))
+      // Plain env on a secret key is refused by the record update
+      const r = await req("PATCH", "/apps/upd5", { composeContent: newCompose, env: { TOKEN: "plain" } })
+      expect(r.status).toBe(400)
+      expect(readFileSync(basePath("upd5"), "utf-8")).toBe(inlineCompose)
+    })
+
+    test("a client cannot smuggle a compose source change through the compose field", async () => {
+      await createInline("upd6")
+      const r = await req("PATCH", "/apps/upd6", { primaryService: "db", compose: { source: "git", path: "x.yml", primaryService: "evil" } })
+      const app = await jsonOk<App>(r)
+      expect(app.compose).toEqual({ source: "inline", primaryService: "db" })
+
+      const alone = await jsonOk<App>(await req("PATCH", "/apps/upd6", { compose: { source: "git", path: "x.yml", primaryService: "evil" } }))
+      expect(alone.compose).toEqual({ source: "inline", primaryService: "db" })
+    })
+  })
+
   describe("status", () => {
     const createCompose = (name: string, primaryService = "web") =>
       req("POST", "/apps", { name, composeContent: inlineCompose, primaryService, internalPort: 80 })
