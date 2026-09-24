@@ -6,6 +6,7 @@ import { formatSuccess, printComposeWarnings } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { saveProjectConfig } from "../../utils/site-config.ts"
 import { readFlagFile } from "../../utils/files.ts"
+import { deployAppCommand } from "./deploy.ts"
 
 export interface CreateAppOptions {
   image?: string
@@ -20,6 +21,7 @@ export interface CreateAppOptions {
   context?: string
   gitToken?: string
   port?: number
+  deploy?: boolean // deploy right after creating
   json?: boolean
 }
 
@@ -127,7 +129,8 @@ export async function createAppCommand(
     }
 
     if (options.json) {
-      console.log(JSON.stringify({ success: true, data: app }, null, 2))
+      // With --deploy, the deploy result is the one JSON document printed
+      if (!options.deploy) console.log(JSON.stringify({ success: true, data: app }, null, 2))
     } else {
       console.log("")
       console.log(formatSuccess(`App ${chalk.bold(name)} created successfully!`))
@@ -157,9 +160,18 @@ export async function createAppCommand(
       console.log(`  Port:   ${app.internalPort}`)
       console.log(`  Status: ${chalk.yellow(app.status)}`)
       console.log("")
-      printComposeWarnings(app)
-      console.log(chalk.dim(`Run 'siteio apps deploy ${name}' to start the container`))
-      console.log("")
+      if (!options.deploy) {
+        // With --deploy, deploy prints the warnings of the merged config
+        printComposeWarnings(app)
+        console.log(chalk.dim(`Run 'siteio apps deploy ${name}' to start the container`))
+        console.log("")
+      }
+    }
+
+    if (options.deploy) {
+      // Deploy prints its own result and exits with its checks' status
+      await deployAppCommand(name, { json: options.json })
+      return
     }
     process.exit(0)
   } catch (err) {

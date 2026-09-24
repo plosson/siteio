@@ -20,12 +20,14 @@ let paths: string[] = []
 let statusServices: AppServiceStatus[] | null = [] // null: agent without the status route
 let publicResponse: { status: number; body: string } = { status: 200, body: "hello" }
 let deployCompose = true
+let createStatus = 200
 
 beforeEach(() => {
   paths = []
   statusServices = [{ service: "web", primary: true, state: "running" }]
   publicResponse = { status: 200, body: "hello" }
   deployCompose = true
+  createStatus = 200
 })
 
 const json = (data: unknown, status = 200) =>
@@ -38,6 +40,10 @@ beforeAll(() => {
     fetch(req) {
       const url = new URL(req.url)
       paths.push(url.pathname + url.search)
+      if (url.pathname === "/apps" && req.method === "POST") {
+        if (createStatus !== 200) return json({ success: false, error: "App 'testapp' already exists" }, createStatus)
+        return json({ success: true, data: { name: "testapp", image: "nginx", status: "pending", internalPort: 80, domains: [] } })
+      }
       if (url.pathname === "/apps/testapp/deploy") {
         return json({
           success: true,
@@ -162,4 +168,53 @@ describe("CLI: apps deploy checks", () => {
     expect(parsed.checks).toEqual({ services: [], url: { url: `http://127.0.0.1:${port}/public`, ok: true, status: 200 } })
     expect(paths.filter((p) => p === "/apps/testapp/status").length).toBeGreaterThan(1)
   }, 30000)
+})
+
+describe("CLI: apps create --deploy", () => {
+  const create = (...extra: string[]) => runCli([cli, "apps", "create", "testapp", "-i", "nginx", "-p", "80", ...extra])
+
+  test("creates, then deploys with the checks, in that order", async () => {
+    statusServices = null // skip the container window; the URL still gets checked
+    const r = await create("--deploy")
+    expect(r.exitCode).toBe(0)
+    expect(r.output).toContain("Created app testapp")
+    expect(r.output).toContain("Deployed app testapp")
+    expect(r.output).not.toContain("Run 'siteio apps deploy")
+    const createIdx = paths.indexOf("/apps")
+    expect(createIdx).toBeGreaterThanOrEqual(0)
+    expect(paths.indexOf("/apps/testapp/deploy")).toBeGreaterThan(createIdx)
+    expect(paths).toContain("/public")
+  })
+
+  test("--json prints exactly one JSON document: the deploy result", async () => {
+    statusServices = null
+    const r = await create("--deploy", "--json")
+    expect(r.exitCode).toBe(0)
+    const parsed = JSON.parse(r.stdout) // throws if two documents were printed
+    expect(parsed.success).toBe(true)
+    expect(parsed.data.url).toBe(`http://127.0.0.1:${port}/public`)
+    expect(parsed.checks.url.ok).toBe(true)
+  })
+
+  test("a failing deploy check makes the whole command fail", async () => {
+    statusServices = [{ service: "web", primary: true, state: "restarting" }]
+    const r = await create("--deploy")
+    expect(r.exitCode).toBe(1)
+    expect(r.output).toContain("web keeps restarting")
+  })
+
+  test("a failed create never deploys", async () => {
+    createStatus = 409
+    const r = await create("--deploy")
+    expect(r.exitCode).not.toBe(0)
+    expect(r.output).toContain("already exists")
+    expect(paths).not.toContain("/apps/testapp/deploy")
+  })
+
+  test("without --deploy nothing is deployed and the hint is shown", async () => {
+    const r = await create()
+    expect(r.exitCode).toBe(0)
+    expect(r.output).toContain("Run 'siteio apps deploy testapp'")
+    expect(paths).not.toContain("/apps/testapp/deploy")
+  })
 })
