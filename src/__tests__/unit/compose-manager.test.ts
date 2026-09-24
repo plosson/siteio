@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { ComposeManager, parsePsOutput } from "../../lib/agent/compose"
+import { ComposeManager, composeWarnings, parsePsOutput } from "../../lib/agent/compose"
 
 describe("Unit: ComposeManager.buildArgs", () => {
   const cm = new ComposeManager()
@@ -154,5 +154,79 @@ describe("Unit: parsePsOutput", () => {
     expect(parsePsOutput(raw)).toEqual([
       { service: "web", containerId: "a", state: "running" },
     ])
+  })
+})
+
+describe("Unit: composeWarnings", () => {
+  const root = "/data/compose"
+
+  test("a clean stack has no warnings", () => {
+    const spec = { services: { web: { volumes: [{ type: "volume", source: "data", target: "/data" }] }, db: {} } }
+    expect(composeWarnings(spec, "web", root)).toEqual([])
+  })
+
+  test("ports on the primary and on a sidecar get different advice", () => {
+    const w = composeWarnings({ services: { web: { ports: ["80:80"] }, db: { ports: ["5432:5432"] } } }, "web", root)
+    expect(w).toHaveLength(2)
+    expect(w[0]).toContain("Primary service 'web' publishes ports")
+    expect(w[1]).toContain("Service 'db' publishes ports")
+    expect(w[1]).toContain("outside HTTPS")
+  })
+
+  test("resolved port objects are shown as published:target", () => {
+    const ports = [{ mode: "ingress", target: 80, published: "8080", protocol: "tcp" }, { target: 9000 }]
+    const [w] = composeWarnings({ services: { web: { ports } } }, "web", root)
+    expect(w).toContain("(8080:80, 9000)")
+  })
+
+  test("an empty ports list is not a warning", () => {
+    expect(composeWarnings({ services: { web: { ports: [] } } }, "web", root)).toEqual([])
+  })
+
+  test("relative bind mounts (resolved under the upload folder) are flagged, in or beside the app folder", () => {
+    const spec = {
+      services: {
+        web: {
+          volumes: [
+            { type: "bind", source: "/data/compose/myapp/data", target: "/data" },
+            { type: "bind", source: "/data/compose/outside", target: "/o" },
+          ],
+        },
+      },
+    }
+    const w = composeWarnings(spec, "web", root)
+    expect(w).toHaveLength(2)
+    expect(w[0]).toContain("'/data'")
+    expect(w[0]).toContain("named volume")
+  })
+
+  test("absolute host paths and siteio volumes are not flagged", () => {
+    const spec = {
+      services: {
+        web: {
+          volumes: [
+            { type: "bind", source: "/srv/shared", target: "/s" },
+            { type: "bind", source: "/data/volumes/myapp/x", target: "/x" },
+            { type: "bind", source: "/data/composer/x", target: "/c" }, // prefix of the root name, not inside it
+          ],
+        },
+      },
+    }
+    expect(composeWarnings(spec, "web", root)).toEqual([])
+  })
+
+  test("git-sourced stacks (no upload root) never get the bind-mount warning", () => {
+    const spec = { services: { web: { volumes: [{ type: "bind", source: "/data/compose/myapp/data", target: "/d" }] } } }
+    expect(composeWarnings(spec, "web")).toEqual([])
+  })
+
+  test("a root given with a trailing separator behaves the same", () => {
+    const spec = { services: { web: { volumes: [{ type: "bind", source: "/data/compose/a/b", target: "/d" }] } } }
+    expect(composeWarnings(spec, "web", "/data/compose/")).toHaveLength(1)
+  })
+
+  test("tolerates null services and malformed volume entries", () => {
+    const spec = { services: { web: null, db: { volumes: "nope" } } } as unknown as Parameters<typeof composeWarnings>[0]
+    expect(composeWarnings(spec, "web", root)).toEqual([])
   })
 })

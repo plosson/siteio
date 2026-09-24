@@ -3,7 +3,7 @@ import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
-import { formatSuccess } from "../../utils/output.ts"
+import { formatSuccess, printComposeWarnings } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { resolveAppName } from "../../utils/site-config.ts"
 import { readFlagFile } from "../../utils/files.ts"
@@ -303,6 +303,7 @@ export async function setAppCommand(
       }
 
       console.log("")
+      printComposeWarnings(app)
 
       if (app.status === "running") {
         console.log(chalk.dim(`Redeploy the app for changes to take effect: siteio apps deploy ${name}`))

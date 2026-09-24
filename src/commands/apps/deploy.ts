@@ -4,7 +4,7 @@ import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
 import { watchServices, type ServiceProblem } from "../../lib/app-health.ts"
 import { waitForUrl } from "../../lib/verification.ts"
-import { formatError, formatSuccess } from "../../utils/output.ts"
+import { formatError, formatSuccess, printComposeWarnings } from "../../utils/output.ts"
 import { ApiError, handleError, ValidationError } from "../../utils/errors.ts"
 import { resolveAppName, saveProjectConfig } from "../../utils/site-config.ts"
 import { readFlagFile } from "../../utils/files.ts"
@@ -144,15 +144,7 @@ export async function deployAppCommand(
         console.log("")
       }
 
-      // If the agent returned deploy-time warnings (compose apps only), surface them
-      const warnings = (app as unknown as { warnings?: string[] }).warnings
-      if (warnings && warnings.length > 0) {
-        console.log("")
-        console.log(chalk.yellow("Warnings:"))
-        for (const w of warnings) {
-          console.log(chalk.yellow(`  • ${w}`))
-        }
-      }
+      printComposeWarnings(app)
     }
     process.exit(ok ? 0 : 1)
   } catch (err) {

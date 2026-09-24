@@ -1,4 +1,5 @@
 import { spawnSync } from "bun"
+import { sep } from "path"
 import { SiteioError } from "../../utils/errors"
 import type { ComposeLogsOptions, ComposeServiceState } from "./runtime"
 
@@ -6,6 +7,72 @@ export interface ComposeSpec {
   services: Record<string, unknown>
   networks?: Record<string, unknown>
   volumes?: Record<string, unknown>
+}
+
+/** Error message when the resolved config has no such service, else null. */
+export function missingPrimaryService(spec: ComposeSpec, primaryService: string): string | null {
+  if (spec.services?.[primaryService]) return null
+  const available = Object.keys(spec.services || {}).join(", ") || "none"
+  return `Primary service '${primaryService}' not found in compose file. Available: ${available}`
+}
+
+interface ServiceSpec {
+  ports?: unknown[]
+  container_name?: string
+  volumes?: Array<{ type?: string; source?: string; target?: string }>
+}
+
+/** "8080:80" for resolved port objects, the raw value for short-syntax strings. */
+function formatPorts(ports: unknown[]): string {
+  return ports
+    .map((p) => {
+      if (p && typeof p === "object" && "target" in p) {
+        const { published, target } = p as { published?: string | number; target: number }
+        return published ? `${published}:${target}` : String(target)
+      }
+      return String(p)
+    })
+    .join(", ")
+}
+
+/**
+ * Hints about patterns that work but don't suit siteio-managed apps, from a
+ * resolved compose config (`docker compose config`):
+ *   - published `ports:` (Traefik handles external access; host ports bypass
+ *     HTTPS and may conflict with other apps)
+ *   - `container_name:` (fixed names clash with other containers)
+ *   - bind mounts under `uploadedRoot`: compose resolves relative paths
+ *     (`./data`) against the uploaded file's folder, which holds only the
+ *     compose file, so the folder is empty on the server
+ */
+export function composeWarnings(spec: ComposeSpec, primaryService: string, uploadedRoot?: string): string[] {
+  const warnings: string[] = []
+  const root = uploadedRoot && (uploadedRoot.endsWith(sep) ? uploadedRoot : uploadedRoot + sep)
+
+  for (const [name, def] of Object.entries(spec.services ?? {})) {
+    const svc = (def ?? {}) as ServiceSpec
+    if (Array.isArray(svc.ports) && svc.ports.length > 0) {
+      warnings.push(
+        name === primaryService
+          ? `Primary service '${name}' publishes ports (${formatPorts(svc.ports)}). Traefik handles external access; host port bindings are redundant and may conflict with other apps on the same server.`
+          : `Service '${name}' publishes ports (${formatPorts(svc.ports)}). They are reachable on the server outside HTTPS; remove them unless you need direct access.`
+      )
+    }
+    if (svc.container_name) {
+      warnings.push(
+        `Service '${name}' sets container_name='${svc.container_name}'. Fixed container names prevent deploying multiple instances of this app.`
+      )
+    }
+    for (const vol of Array.isArray(svc.volumes) ? svc.volumes : []) {
+      if (root && vol.type === "bind" && vol.source?.startsWith(root)) {
+        warnings.push(
+          `Service '${name}' bind-mounts a relative path to '${vol.target}'. Only the compose file is uploaded, so that folder is empty on the server; use a named volume instead.`
+        )
+      }
+    }
+  }
+
+  return warnings
 }
 
 interface RawPsEntry {

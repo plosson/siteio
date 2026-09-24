@@ -20,6 +20,7 @@ import { GitManager } from "./git.ts"
 import { DockerfileStorage } from "./dockerfile-storage.ts"
 import { ComposeStorage } from "./compose-storage.ts"
 import { buildOverride } from "./compose-override.ts"
+import { composeWarnings, missingPrimaryService, type ComposeSpec } from "./compose.ts"
 import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS, CHAT_CORE_JS, EDITOR_SHELL_HTML, PICKER_JS } from "./ui/assets.ts"
 import { POCKETBASE_VERSION, pocketbaseImage } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
@@ -636,6 +637,8 @@ export class AgentServer {
       }
 
       try {
+        const warnings = body.composeContent ? await this.checkUploadedCompose(body.name, body.primaryService!) : undefined
+
         const composeField: App["compose"] = hasCompose
           ? body.composeContent
             ? { source: "inline", primaryService: body.primaryService! }
@@ -666,7 +669,7 @@ export class AgentServer {
           status: "pending",
         })
 
-        return this.json(scrubApp(app))
+        return this.json({ ...scrubApp(app), ...(warnings && { warnings }) })
       } catch (err) {
         if (body.dockerfileContent) this.dockerfiles.remove(body.name)
         if (body.composeContent) this.compose.remove(body.name)
@@ -720,18 +723,31 @@ export class AgentServer {
         body.git = { ...app.git, ...incoming }
       }
 
-      const updated = this.appStorage.update(name, {
-        ...body,
-        ...(primaryService !== undefined && app.compose && { compose: { ...app.compose, primaryService } }),
-      })
-      if (!updated) {
-        return this.error("Failed to update app", 500)
-      }
-      // Written after the record update, which is what can still reject the request
+      // Write the new files, then check them and update the record; put the
+      // previous files back if either step rejects the request.
+      const previous = composeContent !== undefined || envFileContent !== undefined ? this.compose.snapshot(name) : undefined
       if (composeContent !== undefined) this.compose.writeBaseInline(name, composeContent)
       if (envFileContent !== undefined) this.compose.writeBaseEnv(name, envFileContent)
 
-      return this.json(scrubApp(updated))
+      let updated: App | null
+      let warnings: string[] | undefined
+      try {
+        if (app.compose?.source === "inline" && (previous || primaryService !== undefined)) {
+          warnings = await this.checkUploadedCompose(name, primaryService ?? app.compose.primaryService)
+        }
+        updated = this.appStorage.update(name, {
+          ...body,
+          ...(primaryService !== undefined && app.compose && { compose: { ...app.compose, primaryService } }),
+        })
+      } catch (err) {
+        if (previous) this.compose.restore(name, previous)
+        throw err
+      }
+      if (!updated) {
+        return this.error("Failed to update app", 500)
+      }
+
+      return this.json({ ...scrubApp(updated), ...(warnings && { warnings }) })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update app"
       return this.error(message, 400)
@@ -867,12 +883,10 @@ export class AgentServer {
         const basePrimary = baseSpec.services?.[app.compose.primaryService] as
           | { networks?: Record<string, unknown> }
           | undefined
-        if (!basePrimary) {
+        const missingPrimary = missingPrimaryService(baseSpec, app.compose.primaryService)
+        if (!basePrimary || missingPrimary) {
           this.appStorage.update(name, { status: "failed" })
-          return this.error(
-            `Primary service '${app.compose.primaryService}' not found in compose file. Available: ${Object.keys(baseSpec.services || {}).join(", ") || "none"}`,
-            400
-          )
+          return this.error(missingPrimary ?? "Primary service not found", 400)
         }
 
         // Write the override (regenerate every deploy so env/domain updates apply)
@@ -889,7 +903,7 @@ export class AgentServer {
         const spec = await this.docker.composeConfig(project, files, envFile)
 
         // Compute deploy-time warnings from the merged config
-        const warnings = this.computeComposeWarnings(spec, app.compose.primaryService)
+        const warnings = composeWarnings(spec, app.compose.primaryService, this.uploadedComposeRoot(app))
 
         // Bring up the project
         await this.docker.composeUp(project, files, envFile)
@@ -2303,17 +2317,33 @@ export class AgentServer {
   /**
    * Resolve the env-file path for a compose app if one was uploaded, else undefined.
    */
+  /**
+   * Resolve an app's uploaded compose file with `docker compose config` when it
+   * is stored, so an invalid file or unknown service fails now, not at deploy.
+   * Returns the warnings for the file; skipped when docker is unavailable.
+   */
+  private async checkUploadedCompose(name: string, primaryService: string): Promise<string[]> {
+    if (!this.docker.isAvailable()) return []
+    let spec: ComposeSpec
+    try {
+      spec = await this.docker.composeConfig(`siteio-${name}`, [this.compose.baseInlinePath(name)], this.composeEnvFile(name))
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : String(err))
+    }
+    const missing = missingPrimaryService(spec, primaryService)
+    if (missing) throw new ValidationError(missing)
+    return composeWarnings(spec, primaryService, this.compose.rootDir())
+  }
+
+  /** Folder relative bind mounts resolve into for uploaded compose files. */
+  private uploadedComposeRoot(app: App): string | undefined {
+    return app.compose?.source === "inline" ? this.compose.rootDir() : undefined
+  }
+
   private composeEnvFile(appName: string): string | undefined {
     return this.compose.envFileExists(appName) ? this.compose.baseEnvPath(appName) : undefined
   }
 
-  /**
-   * Compute deploy-time warnings from a merged compose config. These are hints
-   * about patterns that work but aren't ideal for siteio-managed apps:
-   *   - The primary service publishes `ports:` (Traefik handles external access;
-   *     host-side binding is redundant and may conflict with other apps).
-   *   - Any service sets `container_name:` (fixed names prevent multi-instance).
-   */
   /** Custom domains if set, otherwise the default `<app>.<domain>` subdomain. */
   private appDomains(app: App): string[] {
     return app.domains.length > 0 ? app.domains : [`${app.name}.${this.config.domain}`]
@@ -2322,32 +2352,6 @@ export class AgentServer {
   /** Public URL the app is served at: its first routed domain. */
   private appUrl(app: App): string {
     return `https://${this.appDomains(app)[0]}`
-  }
-
-  private computeComposeWarnings(
-    spec: import("./compose.ts").ComposeSpec,
-    primaryService: string
-  ): string[] {
-    const warnings: string[] = []
-    const services = spec.services ?? {}
-
-    const primary = services[primaryService] as { ports?: unknown[] } | undefined
-    if (primary && Array.isArray(primary.ports) && primary.ports.length > 0) {
-      warnings.push(
-        `Primary service '${primaryService}' publishes ports (${JSON.stringify(primary.ports)}). Traefik handles external access; host port bindings are redundant and may conflict with other apps on the same server.`
-      )
-    }
-
-    for (const [serviceName, serviceDef] of Object.entries(services)) {
-      const svc = serviceDef as { container_name?: string } | undefined
-      if (svc?.container_name) {
-        warnings.push(
-          `Service '${serviceName}' sets container_name='${svc.container_name}'. Fixed container names prevent deploying multiple instances of this app.`
-        )
-      }
-    }
-
-    return warnings
   }
 
   /**
