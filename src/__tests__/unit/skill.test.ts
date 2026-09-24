@@ -113,6 +113,22 @@ describe("Unit: agent skill", () => {
       const r = Bun.spawnSync({ cmd: ["bun", "run", join(import.meta.dir, "../../cli.ts"), ...args], stdout: "pipe", stderr: "pipe" })
       return { code: r.exitCode, out: r.stdout.toString() }
     }
+    // Every flag the apps guide shows must exist on that command, or agents
+    // follow the guide into "unknown option" errors.
+    test("every flag in the apps guide's examples exists on its command", () => {
+      const flagsByCommand = new Map<string, Set<string>>()
+      for (const [, command, rest] of APPS_SKILL.matchAll(/siteio apps ([a-z]+)([^`\n]*)/g)) {
+        const flags = flagsByCommand.get(command!) ?? new Set<string>()
+        for (const [flag] of rest!.matchAll(/--[a-z][a-z-]*/g)) flags.add(flag)
+        flagsByCommand.set(command!, flags)
+      }
+      expect(flagsByCommand.get("create")?.has("--compose-file")).toBe(true)
+      for (const [command, flags] of flagsByCommand) {
+        const help = cli("apps", command, "--help").out
+        for (const flag of flags) expect(`${command} ${flag}: ${help.includes(flag)}`).toBe(`${command} ${flag}: true`)
+      }
+    })
+
     test.each([
       [["skill"], SKILL_CONTENT],
       [["sites", "skill"], SITES_SKILL],

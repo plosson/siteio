@@ -183,7 +183,25 @@ siteio apps deploy myapp
 \`deploy\` then checks that the containers stay up and the public URL answers over HTTPS. If not, it prints the failing service's last log lines and exits non-zero, so there is no need to poll the URL yourself (\`--no-wait\` skips the checks).
 
 \`siteio apps init ./myapp\` scaffolds a Dockerfile project with an AI guide.
-\`siteio apps create --help\` covers docker-compose apps and private Git repos.
+\`siteio apps create --help\` covers private Git repos.
+
+## Docker Compose apps
+
+\`\`\`sh
+siteio apps create myapp --compose-file docker-compose.yml --service web -p 3000
+siteio apps create myapp --git <url> --compose docker-compose.yml --service web -p 3000
+siteio apps deploy myapp
+\`\`\`
+
+- \`--service\` is the one service that gets public traffic, and \`-p\` is the port it listens on inside its container.
+- siteio adds its own file on top of yours. It connects that service to its proxy, keeping the networks it already had, and adds the routing. The other services stay on the stack's own network and reach each other by service name (\`redis\`, \`db\`).
+- Only the compose file is uploaded, plus \`--env-file\` if given, not the folder around it. Use named volumes for data, not \`./data\` bind mounts. Named volumes keep their data across deploys.
+- Don't publish \`ports:\` (the proxy serves the app over HTTPS) and don't set \`container_name:\`.
+- Where the app needs its public address, use \`\${SITEIO_URL}\` (also \`\${SITEIO_DOMAIN}\` and \`\${SITEIO_APP}\`), for example \`APP_URL: \${SITEIO_URL}\`.
+- \`apps set -e\` variables and \`-v\` volumes apply to the public service only.
+- \`create\` and \`set\` check the file and print warnings. Read them before deploying.
+- To change the stack, don't remove the app. Run \`siteio apps set myapp --compose-file docker-compose.yml\` (also \`--env-file\`, \`--service\`), then \`siteio apps deploy myapp\`. For a Git stack, push the change and redeploy.
+- Logs of the other services: \`siteio apps logs myapp --service <name>\` or \`--all\`.
 
 ## More app commands
 
