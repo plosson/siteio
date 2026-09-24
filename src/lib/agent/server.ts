@@ -1,4 +1,5 @@
 import { mkdirSync } from "fs"
+import { dirname, join } from "path"
 import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
 import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, AppServiceStatus, AppStatus, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated } from "../../types.ts"
@@ -637,7 +638,12 @@ export class AgentServer {
       }
 
       try {
-        const warnings = body.composeContent ? await this.checkUploadedCompose(body.name, body.primaryService!) : undefined
+        const warnings = body.composeContent
+          ? await this.checkUploadedCompose(
+              { name: body.name, domains: body.domains || [], compose: { source: "inline", primaryService: body.primaryService! } },
+              body.primaryService!
+            )
+          : undefined
 
         const composeField: App["compose"] = hasCompose
           ? body.composeContent
@@ -733,7 +739,11 @@ export class AgentServer {
       let warnings: string[] | undefined
       try {
         if (app.compose?.source === "inline" && (previous || primaryService !== undefined)) {
-          warnings = await this.checkUploadedCompose(name, primaryService ?? app.compose.primaryService)
+          // Checked against the domains this same request may set
+          warnings = await this.checkUploadedCompose(
+            { ...app, ...(body.domains && { domains: body.domains }) },
+            primaryService ?? app.compose.primaryService
+          )
         }
         updated = this.appStorage.update(name, {
           ...body,
@@ -763,7 +773,7 @@ export class AgentServer {
     if (app.compose) {
       try {
         const files = await this.composeFiles(app)
-        await this.docker.composeDown(`siteio-${name}`, files, this.composeEnvFile(name))
+        await this.docker.composeDown(`siteio-${name}`, files, this.composeEnvFile(app))
       } catch {
         // Best-effort; the base file may be missing if the repo was cleaned up.
       }
@@ -875,7 +885,7 @@ export class AgentServer {
         }
 
         const project = `siteio-${name}`
-        const envFile = this.composeEnvFile(name)
+        const envFile = this.composeEnvFile(app)
 
         // Resolve the base file alone: the primary service must exist there,
         // and the override needs the networks it is already on.
@@ -1045,7 +1055,7 @@ export class AgentServer {
     try {
       if (app.compose) {
         const files = await this.composeFiles(app)
-        await this.docker.composeStop(`siteio-${name}`, files, this.composeEnvFile(name))
+        await this.docker.composeStop(`siteio-${name}`, files, this.composeEnvFile(app))
       } else if (this.docker.containerExists(name)) {
         await this.docker.stop(name)
       }
@@ -1065,7 +1075,7 @@ export class AgentServer {
     try {
       if (app.compose) {
         const files = await this.composeFiles(app)
-        await this.docker.composeRestart(`siteio-${name}`, files, this.composeEnvFile(name))
+        await this.docker.composeRestart(`siteio-${name}`, files, this.composeEnvFile(app))
         const updated = this.appStorage.update(name, { status: "running" })
         return this.json(updated && scrubApp(updated))
       }
@@ -1092,7 +1102,7 @@ export class AgentServer {
       if (app.compose) {
         const primary = app.compose.primaryService
         const files = await this.composeFiles(app)
-        const ps = await this.docker.composePs(`siteio-${name}`, files, this.composeEnvFile(name))
+        const ps = await this.docker.composePs(`siteio-${name}`, files, this.composeEnvFile(app))
         services = ps.map((s) => ({
           service: s.service,
           primary: s.service === primary,
@@ -1138,7 +1148,7 @@ export class AgentServer {
       let logs: string
       if (app.compose) {
         const files = await this.composeFiles(app)
-        logs = await this.docker.composeLogs(`siteio-${name}`, files, this.composeEnvFile(name), {
+        logs = await this.docker.composeLogs(`siteio-${name}`, files, this.composeEnvFile(app), {
           tail,
           all,
           service: all ? undefined : (service ?? app.compose.primaryService),
@@ -2322,11 +2332,12 @@ export class AgentServer {
    * is stored, so an invalid file or unknown service fails now, not at deploy.
    * Returns the warnings for the file; skipped when docker is unavailable.
    */
-  private async checkUploadedCompose(name: string, primaryService: string): Promise<string[]> {
+  private async checkUploadedCompose(app: Pick<App, "name" | "domains" | "compose">, primaryService: string): Promise<string[]> {
     if (!this.docker.isAvailable()) return []
+    const { name } = app
     let spec: ComposeSpec
     try {
-      spec = await this.docker.composeConfig(`siteio-${name}`, [this.compose.baseInlinePath(name)], this.composeEnvFile(name))
+      spec = await this.docker.composeConfig(`siteio-${name}`, [this.compose.baseInlinePath(name)], this.composeEnvFile(app))
     } catch (err) {
       throw new ValidationError(err instanceof Error ? err.message : String(err))
     }
@@ -2340,17 +2351,34 @@ export class AgentServer {
     return app.compose?.source === "inline" ? this.compose.rootDir() : undefined
   }
 
-  private composeEnvFile(appName: string): string | undefined {
-    return this.compose.envFileExists(appName) ? this.compose.baseEnvPath(appName) : undefined
+  /**
+   * Env file for every docker compose call on an app. It gives compose files
+   * `${SITEIO_URL}`, `${SITEIO_DOMAIN}` and `${SITEIO_APP}` for interpolation,
+   * followed by the user's own .env: the uploaded one, or for git stacks the
+   * repo's .env next to the compose file (--env-file stops compose loading it).
+   * Rebuilt on each call so domain changes apply.
+   */
+  private composeEnvFile(app: Pick<App, "name" | "domains" | "compose">): string {
+    const [domain] = this.appDomains(app)
+    const userEnv = this.compose.envFileExists(app.name)
+      ? this.compose.baseEnvPath(app.name)
+      : app.compose?.source === "git"
+        ? join(dirname(join(this.git.repoPath(app.name), app.compose.path)), ".env")
+        : undefined
+    return this.compose.writeSiteioEnv(
+      app.name,
+      { SITEIO_APP: app.name, SITEIO_DOMAIN: domain!, SITEIO_URL: `https://${domain}` },
+      userEnv
+    )
   }
 
   /** Custom domains if set, otherwise the default `<app>.<domain>` subdomain. */
-  private appDomains(app: App): string[] {
+  private appDomains(app: Pick<App, "name" | "domains">): string[] {
     return app.domains.length > 0 ? app.domains : [`${app.name}.${this.config.domain}`]
   }
 
   /** Public URL the app is served at: its first routed domain. */
-  private appUrl(app: App): string {
+  private appUrl(app: Pick<App, "name" | "domains">): string {
     return `https://${this.appDomains(app)[0]}`
   }
 
