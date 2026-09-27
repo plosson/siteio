@@ -164,6 +164,8 @@ export interface ServerConfig {
 
 // Config stored in ~/.config/siteio/config.json
 export interface ClientConfig {
+  hetznerToken?: string
+  cloudflareToken?: string
   // Current active server domain
   current?: string
   // All stored servers keyed by domain

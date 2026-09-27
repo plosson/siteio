@@ -29,7 +29,7 @@ describe("Cloudflare token template URL", () => {
     expect(url).toContain("https://dash.cloudflare.com/profile/api-tokens")
     expect(url).toContain("permissionGroupKeys")
     expect(url).toContain("zone")
-    expect(url).toContain("zone_dns")
+    expect(url).toContain("dns")
     expect(url).toContain("siteio")
   })
 

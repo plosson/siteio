@@ -478,6 +478,28 @@ apps
     await unsetAppCommand(name, { ...options, json: program.opts().json })
   })
 
+// Cloud infrastructure managed from the client laptop.
+const server = program.command("server").description("Provision and destroy Hetzner servers")
+server.command("create [name]")
+  .description("Provision a VM, configure DNS, install the agent and log in (resumes by name)")
+  .option("--type <type>", "Hetzner x86 server type (default: cheapest available)")
+  .option("--location <location>", "Hetzner location (default: fsn1 / Falkenstein)")
+  .option("--sslip", "Use a free sslip.io domain without Cloudflare")
+  .option("--domain <domain>", "Use an existing Cloudflare zone")
+  .option("--email <email>", "Email for Let's Encrypt")
+  .option("-i, --identity <keyfile>", "SSH private key (default: select from ~/.ssh)")
+  .action(async (name, options) => {
+    const { serverCreateCommand } = await import("./commands/server/create.ts")
+    await serverCreateCommand(name, options)
+  })
+server.command("destroy <name>")
+  .description("Delete a saved VM, firewall and owned DNS record; keep the domain")
+  .option("-y, --yes", "Confirm destruction without prompting")
+  .action(async (name, options) => {
+    const { serverDestroyCommand } = await import("./commands/server/destroy.ts")
+    await serverDestroyCommand(name, options)
+  })
+
 // Agent command (for running the server)
 const agent = program
   .command("agent")

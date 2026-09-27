@@ -8,6 +8,7 @@ const IPIFY_API = "https://api.ipify.org"
 export interface CloudflareZone {
   id: string
   name: string
+  account?: { id: string; name: string }
 }
 
 export interface CloudflareDNSRecord {
@@ -15,6 +16,8 @@ export interface CloudflareDNSRecord {
   name: string
   type: string
   content: string
+  comment?: string
+  proxied?: boolean
 }
 
 export class CloudflareError extends Error {
@@ -40,27 +43,7 @@ export async function getPublicIP(): Promise<string> {
  * List zones accessible by the token
  */
 export async function listZones(token: string): Promise<CloudflareZone[]> {
-  const response = await fetch(`${CLOUDFLARE_API}/zones`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-  })
-
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403) {
-      throw new CloudflareError("Invalid or expired Cloudflare API token")
-    }
-    throw new CloudflareError(`Cloudflare API error: ${response.statusText}`)
-  }
-
-  const data = await response.json() as { success: boolean; errors?: { message: string }[]; result?: CloudflareZone[] }
-  if (!data.success) {
-    const errorMsg = data.errors?.[0]?.message || "Unknown error"
-    throw new CloudflareError(`Cloudflare API error: ${errorMsg}`)
-  }
-
-  return data.result || []
+  return cloudflareList<CloudflareZone>(token, "/zones")
 }
 
 /**
@@ -90,23 +73,9 @@ export async function getRecord(
   type: string = "A"
 ): Promise<CloudflareDNSRecord | null> {
   const params = new URLSearchParams({ name, type })
-  const response = await fetch(`${CLOUDFLARE_API}/zones/${zoneId}/dns_records?${params}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-  })
-
-  if (!response.ok) {
-    throw new CloudflareError(`Cloudflare API error: ${response.statusText}`)
-  }
-
-  const data = await response.json() as { success: boolean; result?: CloudflareDNSRecord[] }
-  if (!data.success || !data.result?.length) {
-    return null
-  }
-
-  return data.result[0] ?? null
+  const records = await cloudflareList<CloudflareDNSRecord>(token, `/zones/${zoneId}/dns_records?${params}`)
+  if (records.length > 1) throw new CloudflareError(`Multiple ${type} records exist for ${name}; resolve them before provisioning`)
+  return records[0] ?? null
 }
 
 /**
@@ -116,28 +85,12 @@ export async function createARecord(
   token: string,
   zoneId: string,
   name: string,
-  ip: string
-): Promise<void> {
-  const response = await fetch(`${CLOUDFLARE_API}/zones/${zoneId}/dns_records`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      type: "A",
-      name,
-      content: ip,
-      ttl: 1, // Auto TTL
-      proxied: false, // Direct connection for wildcard certs
-    }),
+  ip: string,
+  comment?: string
+): Promise<CloudflareDNSRecord> {
+  return cloudflareRequest<CloudflareDNSRecord>(token, `/zones/${zoneId}/dns_records`, "POST", {
+    type: "A", name, content: ip, ttl: 1, proxied: false, ...(comment ? { comment } : {}),
   })
-
-  if (!response.ok) {
-    const data = await response.json() as { errors?: { message: string }[] }
-    const errorMsg = data.errors?.[0]?.message || response.statusText
-    throw new CloudflareError(`Failed to create DNS record: ${errorMsg}`)
-  }
 }
 
 /**
@@ -148,18 +101,10 @@ export async function deleteRecord(
   zoneId: string,
   recordId: string
 ): Promise<void> {
-  const response = await fetch(`${CLOUDFLARE_API}/zones/${zoneId}/dns_records/${recordId}`, {
-    method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-  })
-
-  if (!response.ok) {
-    const data = await response.json() as { errors?: { message: string }[] }
-    const errorMsg = data.errors?.[0]?.message || response.statusText
-    throw new CloudflareError(`Failed to delete DNS record: ${errorMsg}`)
+  try {
+    await cloudflareRequest(token, `/zones/${zoneId}/dns_records/${recordId}`, "DELETE")
+  } catch (error) {
+    if (!(error instanceof CloudflareAPIError && error.status === 404)) throw error
   }
 }
 
@@ -169,10 +114,11 @@ export async function deleteRecord(
  */
 export async function setupWildcardDNS(
   token: string,
-  domain: string
-): Promise<{ success: boolean; message: string; skipped?: boolean }> {
+  domain: string,
+  options: { ip?: string; owner?: string; zoneId?: string } = {}
+): Promise<{ success: boolean; message: string; skipped?: boolean; zoneId?: string; recordId?: string; owned?: boolean }> {
   // Get public IP
-  const publicIP = await getPublicIP()
+  const publicIP = options.ip || await getPublicIP()
 
   // List zones
   const zones = await listZones(token)
@@ -181,7 +127,7 @@ export async function setupWildcardDNS(
   }
 
   // Find matching zone
-  const zone = findMatchingZone(domain, zones)
+  const zone = options.zoneId ? zones.find(z => z.id === options.zoneId && (domain === z.name || domain.endsWith(`.${z.name}`))) : findMatchingZone(domain, zones)
   if (!zone) {
     const availableZones = zones.map((z) => z.name).join(", ")
     throw new CloudflareError(
@@ -194,7 +140,12 @@ export async function setupWildcardDNS(
   const existingRecord = await getRecord(token, zone.id, wildcardName)
 
   if (existingRecord) {
+    if (options.ip && (existingRecord.content !== publicIP || existingRecord.proxied)) {
+      throw new CloudflareError(`DNS record ${wildcardName} already exists with different settings; refusing to overwrite it`)
+    }
     return {
+      zoneId: zone.id, recordId: existingRecord.id,
+      owned: Boolean(options.owner && existingRecord.comment === options.owner),
       success: true,
       skipped: true,
       message: `DNS record ${wildcardName} already exists (pointing to ${existingRecord.content}), skipping`,
@@ -202,11 +153,12 @@ export async function setupWildcardDNS(
   }
 
   // Create the wildcard record
-  await createARecord(token, zone.id, wildcardName, publicIP)
+  const record = await createARecord(token, zone.id, wildcardName, publicIP, options.owner)
 
   return {
     success: true,
     message: `Created DNS record ${wildcardName} → ${publicIP}`,
+    zoneId: zone.id, recordId: record.id, owned: true,
   }
 }
 
@@ -272,16 +224,92 @@ export function isSslipDomain(domain: string): boolean {
 
 /**
  * Build a Cloudflare dashboard URL with pre-filled token permissions
- * Pre-selects Zone:Read + DNS:Edit permissions
+ * Pre-selects Zone:Read, DNS:Edit, account discovery and Registrar permissions
  */
 export function buildCloudflareTokenUrl(tokenName: string = "siteio DNS Token"): string {
   const permissions = JSON.stringify([
     { key: "zone", type: "read" },
-    { key: "zone_dns", type: "edit" },
+    { key: "dns", type: "edit" },
+    { key: "account_settings", type: "read" },
+    { key: "registrar", type: "edit" },
   ])
   const params = new URLSearchParams({
     permissionGroupKeys: permissions,
+    accountId: "*",
+    zoneId: "all",
     name: tokenName,
   })
   return `https://dash.cloudflare.com/profile/api-tokens?${params}`
+}
+
+
+export class CloudflareAPIError extends CloudflareError {
+  constructor(message: string, public status: number) { super(message) }
+}
+
+interface CloudflareResponse<T> {
+  success: boolean
+  result: T
+  errors?: { message: string }[]
+  result_info?: { total_pages: number }
+}
+
+async function cloudflareResponse<T>(token: string, path: string, method = "GET", body?: unknown): Promise<CloudflareResponse<T>> {
+  const response = await fetch(`${CLOUDFLARE_API}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  })
+  const data = await response.json() as CloudflareResponse<T>
+  if (!response.ok || !data.success) {
+    throw new CloudflareAPIError(`Cloudflare: ${data.errors?.map(e => e.message).join("; ") || response.statusText}`, response.status)
+  }
+  return data
+}
+
+export async function cloudflareRequest<T>(token: string, path: string, method = "GET", body?: unknown): Promise<T> {
+  return (await cloudflareResponse<T>(token, path, method, body)).result
+}
+
+async function cloudflareList<T>(token: string, path: string): Promise<T[]> {
+  const results: T[] = []
+  for (let page = 1; ; page++) {
+    const data = await cloudflareResponse<T[]>(token, `${path}${path.includes("?") ? "&" : "?"}per_page=50&page=${page}`)
+    results.push(...data.result)
+    if (page >= (data.result_info?.total_pages ?? 1)) return results
+  }
+}
+
+export async function listCloudflareAccounts(token: string): Promise<{ id: string; name: string }[]> {
+  return cloudflareList(token, "/accounts")
+}
+
+export interface DomainAvailability {
+  name: string
+  registrable: boolean
+  reason?: string
+  tier?: string
+  pricing?: { currency: string; registration_cost: string; renewal_cost: string }
+}
+export interface RegistrationStatus {
+  state: string
+  completed: boolean
+  error?: { code: string; message: string }
+}
+
+export async function checkDomain(token: string, account: string, domain: string): Promise<DomainAvailability> {
+  const result = await cloudflareRequest<{ domains: DomainAvailability[] }>(token,
+    `/accounts/${encodeURIComponent(account)}/registrar/domain-check`, "POST", { domains: [domain] })
+  const match = result.domains.find(d => d.name === domain)
+  if (!match) throw new CloudflareError("Cloudflare returned no availability result for this domain")
+  return match
+}
+
+export async function registerDomain(token: string, account: string, domain: string): Promise<RegistrationStatus> {
+  return cloudflareRequest(token, `/accounts/${encodeURIComponent(account)}/registrar/registrations`, "POST", { domain_name: domain })
+}
+
+export async function getRegistrationStatus(token: string, account: string, domain: string): Promise<RegistrationStatus> {
+  return cloudflareRequest(token, `/accounts/${encodeURIComponent(account)}/registrar/registrations/${encodeURIComponent(domain)}/registration-status`)
 }
