@@ -80,10 +80,7 @@ export class DockerManager implements Runtime {
 
     // Add volume mounts
     for (const vol of config.volumes) {
-      // If name is an absolute path, use it directly; otherwise use volumesDir
-      const hostPath = vol.name.startsWith("/")
-        ? vol.name
-        : join(this.volumesDir, config.name, vol.name)
+      const hostPath = this.volumeHostPath(config.name, vol)
       const volumeSpec = vol.readonly
         ? `${hostPath}:${vol.mountPath}:ro`
         : `${hostPath}:${vol.mountPath}`
@@ -103,6 +100,77 @@ export class DockerManager implements Runtime {
     }
 
     return args
+  }
+
+  /**
+   * Where a volume lives on the host. An absolute name is a path the user
+   * chose; anything else is a directory siteio manages under volumesDir.
+   */
+  volumeHostPath(appName: string, vol: VolumeMount): string {
+    return vol.name.startsWith("/") ? vol.name : join(this.volumesDir, appName, vol.name)
+  }
+
+  /**
+   * Build the docker run arguments that give an empty siteio-managed volume the
+   * owner its mount path has in the image, or null when there is nothing to do.
+   *
+   * Docker creates a missing bind-mount directory as root, so an image that runs
+   * as a non-root user cannot write to a fresh volume. Named Docker volumes avoid
+   * this by copying the image's ownership into an empty volume on first use; this
+   * applies the same rule to siteio's bind-mounted volumes. It runs through
+   * Docker rather than touching the filesystem directly, so it works whether the
+   * agent runs on the host or in a container. Volumes that already hold data,
+   * read-only volumes and user-chosen absolute paths are never touched.
+   */
+  buildVolumeOwnershipArgs(config: ContainerRunConfig, vol: VolumeMount): string[] | null {
+    if (vol.readonly || vol.name.startsWith("/")) return null
+
+    const target = "/siteio-volume"
+    const script =
+      `[ -z "$(ls -A ${target})" ] || exit 0; ` +
+      `owner=$(stat -c %u:%g "$1" 2>/dev/null) || exit 0; ` +
+      `chown "$owner" ${target}`
+
+    return [
+      "run",
+      "--rm",
+      "--network",
+      "none",
+      "--user",
+      "0",
+      "--entrypoint",
+      "sh",
+      "-v",
+      `${this.volumeHostPath(config.name, vol)}:${target}`,
+      config.image,
+      "-c",
+      script,
+      "sh",
+      vol.mountPath,
+    ]
+  }
+
+  /**
+   * Prepare siteio-managed volumes before a container starts. Best effort: an
+   * image without a shell or coreutils is left as it was before this existed.
+   */
+  private prepareVolumes(config: ContainerRunConfig): void {
+    for (const vol of config.volumes) {
+      const args = this.buildVolumeOwnershipArgs(config, vol)
+      if (!args) continue
+
+      const result = spawnSync({
+        cmd: ["docker", ...args],
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+
+      if (result.exitCode !== 0) {
+        console.log(
+          `> Could not set ownership of volume '${vol.name}' for '${config.name}': ${result.stderr.toString().trim()}`
+        )
+      }
+    }
   }
 
   /**
@@ -149,6 +217,7 @@ export class DockerManager implements Runtime {
    * Run a container with the given configuration
    */
   async run(config: ContainerRunConfig): Promise<string> {
+    this.prepareVolumes(config)
     const args = this.buildRunArgs(config)
 
     const result = spawnSync({
