@@ -136,6 +136,133 @@ describe("Unit: DockerManager", () => {
     })
   })
 
+  describe("buildVolumeOwnershipArgs", () => {
+    const base = {
+      name: "myapp",
+      image: "myimage:latest",
+      internalPort: 80,
+      env: {},
+      volumes: [],
+      restartPolicy: "unless-stopped" as const,
+      network: "siteio-network",
+      labels: {},
+    }
+
+    test("never touches a read-only volume", () => {
+      expect(docker.buildVolumeOwnershipArgs(base, { name: "data", mountPath: "/data", readonly: true })).toBeNull()
+    })
+
+    test("never touches a user-chosen absolute path", () => {
+      expect(docker.buildVolumeOwnershipArgs(base, { name: "/srv/shared", mountPath: "/data" })).toBeNull()
+    })
+
+    test("mounts the app's managed volume, not another app's", () => {
+      const args = docker.buildVolumeOwnershipArgs(base, { name: "data", mountPath: "/data" })!
+      expect(args).toContain(`${join(testDir, "volumes", "myapp", "data")}:/siteio-volume`)
+      expect(args.some((a) => a.includes(join("volumes", "other")))).toBe(false)
+    })
+
+    test("runs as root, without network, and removes itself", () => {
+      const args = docker.buildVolumeOwnershipArgs(base, { name: "data", mountPath: "/data" })!
+      expect(args.slice(0, 2)).toEqual(["run", "--rm"])
+      expect(args[args.indexOf("--user") + 1]).toBe("0")
+      expect(args[args.indexOf("--network") + 1]).toBe("none")
+    })
+
+    test("passes a hostile mount path as an argument, never as script text", () => {
+      const mountPath = '/data"; rm -rf / #'
+      const args = docker.buildVolumeOwnershipArgs(base, { name: "data", mountPath })!
+      const script = args[args.indexOf("-c") + 1]!
+      expect(script).not.toContain("rm -rf")
+      expect(args[args.length - 1]).toBe(mountPath)
+    })
+
+    describe("against Docker", () => {
+      const image = "siteio-volume-owner-test:latest"
+      const probe = (hostPath: string) =>
+        Bun.spawnSync({
+          cmd: ["docker", "run", "--rm", "--user", "0", "--entrypoint", "sh", "-v", `${hostPath}:/v`, image, "-c", "stat -c %u /v"],
+          stdout: "pipe",
+          stderr: "pipe",
+        }).stdout.toString().trim()
+      const seed = (vol: { name: string; mountPath: string }) =>
+        Bun.spawnSync({ cmd: ["docker", ...docker.buildVolumeOwnershipArgs({ ...base, image }, vol)!], stdout: "pipe", stderr: "pipe" })
+
+      const withImage = async (fn: () => void) => {
+        if (!isDockerAvailable()) {
+          console.log("Test skipped: Docker not available")
+          return
+        }
+        const contextDir = join(testDir, "ctx")
+        mkdirSync(contextDir, { recursive: true })
+        writeFileSync(
+          join(contextDir, "Dockerfile"),
+          `FROM alpine:latest
+RUN adduser -D -u 10001 app && mkdir /data && chown app /data
+USER app
+`
+        )
+        await docker.build({ contextPath: contextDir, dockerfilePath: join(contextDir, "Dockerfile"), tag: image })
+        try {
+          fn()
+        } finally {
+          Bun.spawnSync({ cmd: ["docker", "rmi", "-f", image], stdout: "pipe", stderr: "pipe" })
+        }
+      }
+
+      // Docker Desktop on macOS ignores chown on directories shared from the
+      // host, so ownership can only be observed where Docker runs natively.
+      const hostHonoursChown = (hostPath: string) => {
+        Bun.spawnSync({
+          cmd: ["docker", "run", "--rm", "--user", "0", "--entrypoint", "sh", "-v", `${hostPath}:/v`, image, "-c", "chown 12345 /v"],
+          stdout: "pipe",
+          stderr: "pipe",
+        })
+        const honoured = probe(hostPath) === "12345"
+        Bun.spawnSync({
+          cmd: ["docker", "run", "--rm", "--user", "0", "--entrypoint", "sh", "-v", `${hostPath}:/v`, image, "-c", "chown 0:0 /v"],
+          stdout: "pipe",
+          stderr: "pipe",
+        })
+        return honoured
+      }
+
+      test("gives an empty volume the owner of the mount path in the image", async () => {
+        await withImage(() => {
+          const hostPath = join(testDir, "volumes", "myapp", "data")
+          mkdirSync(hostPath, { recursive: true })
+          if (!hostHonoursChown(hostPath)) {
+            console.log("Test skipped: this Docker host ignores chown on bind mounts")
+            return
+          }
+          expect(seed({ name: "data", mountPath: "/data" }).exitCode).toBe(0)
+          expect(probe(hostPath)).toBe("10001")
+        })
+      }, 120_000)
+
+      test("leaves a volume that already holds data alone", async () => {
+        await withImage(() => {
+          const hostPath = join(testDir, "volumes", "myapp", "data")
+          mkdirSync(hostPath, { recursive: true })
+          writeFileSync(join(hostPath, "existing.db"), "keep me")
+          const before = probe(hostPath)
+          expect(seed({ name: "data", mountPath: "/data" }).exitCode).toBe(0)
+          expect(probe(hostPath)).toBe(before)
+        })
+      }, 120_000)
+
+      test("does nothing when the mount path does not exist in the image", async () => {
+        await withImage(() => {
+          const hostPath = join(testDir, "volumes", "myapp", "data")
+          mkdirSync(hostPath, { recursive: true })
+          const before = probe(hostPath)
+          expect(seed({ name: "data", mountPath: "/nowhere" }).exitCode).toBe(0)
+          expect(probe(hostPath)).toBe(before)
+        })
+      }, 120_000)
+    })
+  })
+
   describe("buildTraefikLabels", () => {
     test("builds Traefik host and TLS labels", () => {
       const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80)
