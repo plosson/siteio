@@ -30,7 +30,9 @@ describe("Install flow: cloudflare template URL", () => {
     const permissions = JSON.parse(parsed.searchParams.get("permissionGroupKeys")!)
     expect(permissions).toEqual([
       { key: "zone", type: "read" },
-      { key: "zone_dns", type: "edit" },
+      { key: "dns", type: "edit" },
+      { key: "account_settings", type: "read" },
+      { key: "registrar", type: "edit" },
     ])
   })
 

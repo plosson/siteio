@@ -12,7 +12,7 @@ import { formatSuccess, formatError } from "../utils/output.ts"
 import { decodeToken } from "../utils/token.ts"
 import type { LoginOptions } from "../types.ts"
 
-export async function loginCommand(options: LoginOptions): Promise<void> {
+export async function loginCommand(options: LoginOptions, behavior: { exit?: boolean } = {}): Promise<void> {
   p.intro(chalk.bgCyan(" siteio login "))
 
   // Check for token from env var or CLI option
@@ -196,5 +196,5 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
   // a share link, so point it at the instructions it will not think to ask for.
   p.log.info("Using an AI agent? Run 'siteio skill' for usage instructions.")
   p.outro(formatSuccess(`Logged in to ${domain}`))
-  process.exit(0)
+  if (behavior.exit !== false) process.exit(0)
 }

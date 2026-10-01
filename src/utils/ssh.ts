@@ -19,7 +19,7 @@ export async function sshExec(
   command: string,
   identity?: string
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const sshArgs = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes"]
+  const sshArgs = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
   if (identity) {
     sshArgs.push("-i", identity)
   }
@@ -62,4 +62,9 @@ export async function sshExecStream(
 
     proc.exited.then((code) => resolve(code ?? 1))
   })
+}
+
+/** Quote one argument for the remote POSIX shell. */
+export function shellQuote(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'"
 }

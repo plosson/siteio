@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, renameSync } from "fs"
 import { homedir } from "os"
 import { join } from "path"
 import type { ClientConfig, ServerConfig } from "../types.ts"
@@ -36,6 +36,7 @@ function migrateConfig(config: ClientConfig): ClientConfig {
   if (config.apiUrl && config.apiKey) {
     const domain = extractDomain(config.apiUrl)
     return {
+      ...config,
       current: domain,
       servers: {
         [domain]: {
@@ -88,20 +89,12 @@ export function loadConfig(): ClientConfig {
  * Save config to file
  */
 export function saveConfig(config: ClientConfig): void {
-  try {
-    if (!existsSync(CONFIG_DIR)) {
-      mkdirSync(CONFIG_DIR, { recursive: true })
-    }
-    // Only save the new format fields
-    const toSave: ClientConfig = {
-      current: config.current,
-      servers: config.servers,
-      username: config.username,
-    }
-    writeFileSync(CONFIG_FILE, JSON.stringify(toSave, null, 2))
-  } catch {
-    // Silently fail - config is optional
-  }
+  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 })
+  const { apiUrl: _url, apiKey: _key, ...toSave } = migrateConfig(config)
+  const temporary = `${CONFIG_FILE}.${process.pid}.tmp`
+  writeFileSync(temporary, JSON.stringify(toSave, null, 2), { mode: 0o600 })
+  chmodSync(temporary, 0o600)
+  renameSync(temporary, CONFIG_FILE)
 }
 
 /**
@@ -115,6 +108,7 @@ export function addServer(apiUrl: string, apiKey: string): string {
   servers[domain] = { apiUrl, apiKey }
 
   saveConfig({
+    ...config,
     current: domain,
     servers,
   })
@@ -176,6 +170,7 @@ export function removeServer(domain: string): boolean {
   }
 
   saveConfig({
+    ...config,
     current: newCurrent,
     servers: config.servers,
   })
@@ -221,4 +216,17 @@ export function setUsername(username: string): void {
   const config = migrateConfig(loadRawConfig())
   config.username = username
   saveConfig(config)
+}
+
+export type ProviderTokenKey = "hetznerToken" | "cloudflareToken"
+
+export function getProviderToken(key: ProviderTokenKey): string | undefined {
+  const env = key === "hetznerToken"
+    ? process.env.HETZNER_TOKEN || process.env.HCLOUD_TOKEN
+    : process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_TOKEN
+  return env || loadRawConfig()[key]
+}
+
+export function setProviderToken(key: ProviderTokenKey, value: string): void {
+  saveConfig({ ...loadRawConfig(), [key]: value })
 }

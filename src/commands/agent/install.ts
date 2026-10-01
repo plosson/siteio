@@ -6,7 +6,7 @@ import { spawnSync } from "bun"
 import { randomBytes } from "crypto"
 import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts"
 import { encodeToken } from "../../utils/token.ts"
-import { isRemoteTarget, sshExec, sshExecStream } from "../../utils/ssh.ts"
+import { isRemoteTarget, sshExec, sshExecStream, shellQuote } from "../../utils/ssh.ts"
 import { openBrowser } from "../../utils/browser.ts"
 import { setupWildcardDNS, CloudflareError, getPublicIP, buildSslipDomain, isSslipDomain, buildCloudflareTokenUrl } from "../../lib/cloudflare.ts"
 import { waitForDNS, waitForCertificate } from "../../lib/verification.ts"
@@ -323,13 +323,13 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
   // Use full path since PATH update from .bashrc hasn't taken effect yet
   const sitioBin = siteioInstalled ? "siteio" : "$HOME/.local/bin/siteio"
   let remoteCmd = `${sitioBin} agent install`
-  remoteCmd += ` --domain ${domain}`
-  remoteCmd += ` --data-dir ${dataDir}`
+  remoteCmd += ` --domain ${shellQuote(domain)}`
+  remoteCmd += ` --data-dir ${shellQuote(dataDir)}`
   if (email) {
-    remoteCmd += ` --email ${email}`
+    remoteCmd += ` --email ${shellQuote(email)}`
   }
   if (cloudflareToken) {
-    remoteCmd += ` --cloudflare-token ${cloudflareToken}`
+    remoteCmd += ` --cloudflare-token ${shellQuote(cloudflareToken)}`
   }
 
   // Run remote install

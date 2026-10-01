@@ -31,6 +31,68 @@ siteio login --token <connection-token>
 
 ---
 
+## Provision a server
+
+Create a fresh Hetzner VM from your laptop, install the agent, and log in:
+
+```bash
+siteio config set hetznerToken <hetzner-cloud-token>
+siteio server create mybox --sslip --email you@yourdomain.com --identity ~/.ssh/id_ed25519
+```
+
+Without `--sslip`, a configured Cloudflare token enables an interactive zone picker
+with **Buy a new domain** as the last option:
+
+```bash
+siteio config set cloudflareToken <cloudflare-api-token>
+siteio server create mybox
+# Or use an existing zone without prompts:
+siteio server create mybox --domain yourdomain.com --email you@yourdomain.com --identity ~/.ssh/id_ed25519
+```
+
+`HETZNER_TOKEN` (also `HCLOUD_TOKEN`) and `CLOUDFLARE_API_TOKEN` (also
+`CLOUDFLARE_TOKEN`) override saved credentials. Config files are written with mode
+0600 and tokens are masked by `config get` and `config set`, including JSON output.
+The SSH public key must be next to its private key as `<identity>.pub`; multiple
+keys in `~/.ssh` trigger a picker unless `--identity` is given.
+
+By default the command resolves the cheapest currently available x86 VM type from
+Hetzner's API in Falkenstein (`fsn1`) and uses the `docker-ce` app image. Override
+with `--type <type>` and `--location <location>`. The VM is billable and its firewall
+allows inbound TCP 22, 80 and 443. Custom wildcard DNS points directly to the VM.
+Existing DNS with different settings is rejected; matching pre-existing records
+are preserved during destruction.
+
+Cloudflare requires Zone Read and DNS Edit permissions; buying also needs Registrar
+Write and Account Settings Read for account discovery. Verify these permissions in
+the dashboard when creating the token; the Registrar template key still needs live
+dashboard validation. Purchases display the domain,
+registration price and renewal price and require an explicit, non-refundable purchase
+confirmation. Set up the account's payment method, default registrant contact and
+Domain Registration Agreement in the Cloudflare dashboard first. API-supported TLDs
+are checked at runtime; premium domains are not purchased. Auto-renew defaults to off.
+See the [Cloudflare Registrar workflow](https://developers.cloudflare.com/registrar/registrar-api/).
+
+Progress is saved in `~/.config/siteio/provisioned-servers/<name>.json` after each
+step. Run `siteio server create mybox` again to resume. Omitted names default to
+`siteio`. Keep the saved files: they identify resources owned by this command.
+A pending or uncertain purchase is checked by domain status and is never submitted
+again automatically. If Cloudflare reports a failed, blocked or action-required
+registration, resolve it in the dashboard before resuming. DNS propagation, VM boot
+and certificate issuance may require another run after a timeout.
+
+```bash
+siteio server destroy mybox
+# For scripts, explicitly confirm destruction:
+siteio server destroy mybox --yes
+```
+
+Destroy removes the VM, firewall, owned wildcard DNS and local login entry. It keeps
+the domain registration and uploaded SSH key. Failed cleanup can be resumed with the
+same command. `server` manages cloud infrastructure; `agent` manages software on a box.
+
+---
+
 ## Try It Out
 
 This repo includes working examples you can deploy immediately:

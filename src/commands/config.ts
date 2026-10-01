@@ -1,8 +1,8 @@
 import chalk from "chalk"
-import { getUsername, setUsername } from "../config/loader.ts"
+import { getUsername, setUsername, getProviderToken, setProviderToken } from "../config/loader.ts"
 import { handleError, ValidationError } from "../utils/errors.ts"
 
-const VALID_CONFIG_KEYS = ["username"] as const
+const VALID_CONFIG_KEYS = ["username", "hetznerToken", "cloudflareToken"] as const
 type ConfigKey = (typeof VALID_CONFIG_KEYS)[number]
 
 function validateConfigKey(key: string): asserts key is ConfigKey {
@@ -18,12 +18,14 @@ export async function configSetCommand(
 ): Promise<void> {
   try {
     validateConfigKey(key)
-    setUsername(value)
+    if (key === "username") setUsername(value)
+    else setProviderToken(key, value)
+    const displayValue = key === "username" ? value : "********"
 
     if (options.json) {
-      console.log(JSON.stringify({ success: true, data: { [key]: value } }, null, 2))
+      console.log(JSON.stringify({ success: true, data: { [key]: displayValue } }, null, 2))
     } else {
-      console.error(chalk.green(`Set ${key} to "${value}"`))
+      console.error(chalk.green(`Set ${key} to "${displayValue}"`))
     }
   } catch (err) {
     handleError(err)
@@ -36,7 +38,8 @@ export async function configGetCommand(
 ): Promise<void> {
   try {
     validateConfigKey(key)
-    const value = getUsername()
+    const rawValue = key === "username" ? getUsername() : getProviderToken(key)
+    const value = key === "username" ? rawValue : rawValue ? "********" : undefined
 
     if (options.json) {
       console.log(JSON.stringify({ success: true, data: { [key]: value || null } }, null, 2))
