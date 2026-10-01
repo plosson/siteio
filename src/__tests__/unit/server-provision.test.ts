@@ -30,7 +30,7 @@ function hetznerFixture() {
   client.ensureSSHKey = async () => { calls.push("key"); return 1 }
   client.findOwned = async <T>(resource: "servers" | "firewalls"): Promise<T | undefined> => resource === "servers" && created ? vm as T : undefined
   client.createFirewall = async () => { calls.push("firewall"); return 2 }
-  client.resolveType = async () => ({ id: 3, name: "cheap", architecture: "x86", prices: [] })
+  client.resolveType = async () => ({ id: 3, name: "cheap", architecture: "x86", prices: [], locations: [] })
   client.dockerImage = async () => 4
   client.createServer = async () => {
     calls.push("server")
@@ -59,18 +59,29 @@ function runtimeFixture() {
 }
 
 describe("Hetzner API", () => {
-  test("selects cheapest available x86 type by local price", async () => {
-    mockFetch(url => url.pathname.endsWith("datacenters") ? { datacenters: [{ location: { name: "fsn1" }, server_types: { available: [1, 2, 3, 4] } }] } : {
-      server_types: [
-        { id: 1, name: "arm", architecture: "arm", prices: [{ location: "fsn1", price_monthly: { gross: "1" } }] },
-        { id: 2, name: "expensive", architecture: "x86", prices: [{ location: "fsn1", price_monthly: { gross: "12" } }] },
-        { id: 3, name: "cheap", architecture: "x86", prices: [{ location: "fsn1", price_monthly: { gross: "3" } }] },
-        { id: 4, name: "retired", architecture: "x86", deprecated: true, prices: [{ location: "fsn1", price_monthly: { gross: "1" } }] },
-        { id: 5, name: "sold-out", architecture: "x86", prices: [{ location: "fsn1", price_monthly: { gross: "2" } }] },
-      ],
+  test("selects cheapest available x86 type by local price from per-location availability", async () => {
+    const price = (gross: string, location = "fsn1") => [{ location, price_monthly: { gross } }]
+    const at = (name: string, available = true, deprecation: object | null = null) => [{ name, available, deprecation }]
+    const requested: string[] = []
+    mockFetch(url => {
+      requested.push(url.pathname)
+      return { server_types: [
+        { id: 1, name: "arm", architecture: "arm", prices: price("1"), locations: at("fsn1") },
+        { id: 2, name: "expensive", architecture: "x86", prices: price("12"), locations: at("fsn1") },
+        { id: 3, name: "cheap", architecture: "x86", prices: price("3"), locations: at("fsn1") },
+        { id: 4, name: "retired", architecture: "x86", prices: price("1"), locations: at("fsn1", true, { unavailable_after: "2026-12-01T00:00:00Z" }) },
+        { id: 5, name: "sold-out", architecture: "x86", prices: price("2"), locations: at("fsn1", false) },
+        { id: 6, name: "elsewhere", architecture: "x86", prices: price("1", "hel1"), locations: at("hel1") },
+        { id: 7, name: "unpriced", architecture: "x86", prices: price("1", "hel1"), locations: at("fsn1") },
+        { id: 8, name: "unlisted", architecture: "x86", prices: price("1") },
+      ] }
     })
     expect((await new HetznerClient("token").resolveType("fsn1")).name).toBe("cheap")
-    await expect(new HetznerClient("token").resolveType("fsn1", "sold-out")).rejects.toThrow("No available")
+    for (const name of ["sold-out", "retired", "elsewhere", "unpriced", "unlisted", "arm"]) {
+      await expect(new HetznerClient("token").resolveType("fsn1", name)).rejects.toThrow("No available")
+    }
+    // The datacenters server_types fields were dropped on 2026-10-01; never depend on them again.
+    expect(requested.every(path => path.endsWith("/server_types"))).toBe(true)
   })
   test("paginates and reuses SSH key material despite a different comment", async () => {
     let pages = 0
