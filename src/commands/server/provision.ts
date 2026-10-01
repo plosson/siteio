@@ -1,3 +1,5 @@
+import * as p from "@clack/prompts"
+import chalk from "chalk"
 import { HetznerClient, type HetznerServer } from "../../lib/hetzner.ts"
 import { buildSslipDomain, setupWildcardDNS, getRegistrationStatus, listZones } from "../../lib/cloudflare.ts"
 import { installAgentCommand } from "../agent/install.ts"
@@ -10,6 +12,19 @@ export const provisionRuntime = {
   install: installAgentCommand,
   login: (apiUrl: string, apiKey: string) => loginCommand({ apiUrl, apiKey }, { exit: false }),
   sleep: (ms: number) => Bun.sleep(ms),
+  // Long-running steps get a spinner so silent polling (VM boot, SSH, TLS) stays visible.
+  task: async <T>(message: string, done: string, run: () => Promise<T>): Promise<T> => {
+    const s = p.spinner()
+    s.start(message)
+    try {
+      const result = await run()
+      s.stop(chalk.green(done))
+      return result
+    } catch (error) {
+      s.stop(chalk.red(`${message} failed`))
+      throw error
+    }
+  },
 }
 
 export async function finishRegistration(state: ProvisionState, token: string, save: () => void, sleep = provisionRuntime.sleep): Promise<void> {
@@ -40,7 +55,9 @@ export async function provisionServer(
 ): Promise<void> {
   if (state.destroying) throw new Error("This server is being destroyed; finish server destroy first")
   if (state.purchase === "selected") throw new Error("Domain purchase must be confirmed before provisioning")
-  if (state.purchase === "submitted") await finishRegistration(state, cloudflareToken!, save, runtime.sleep)
+  if (state.purchase === "submitted") {
+    await runtime.task(`Waiting for ${state.domain} registration`, `Registered ${state.domain}`, () => finishRegistration(state, cloudflareToken!, save, runtime.sleep))
+  }
   if (!state.sslip && !state.zoneId) {
     const zone = (await listZones(cloudflareToken!)).find(z => z.name === state.domain && (!state.accountId || z.account?.id === state.accountId))
     if (!zone) throw new Error("Cloudflare zone is not available yet; rerun server create to resume")
@@ -49,27 +66,31 @@ export async function provisionServer(
   }
 
   if (!state.sshKeyId) {
-    state.sshKeyId = await hetzner.ensureSSHKey(publicKey, `siteio-${state.owner}`)
+    state.sshKeyId = await runtime.task("Uploading SSH key to Hetzner", "SSH key ready", () => hetzner.ensureSSHKey(publicKey, `siteio-${state.owner}`))
     save()
   }
   if (!state.firewallId) {
-    const existing = await hetzner.findOwned<{ id: number }>("firewalls", state.owner)
-    state.firewallId = existing?.id ?? await hetzner.createFirewall(`siteio-${state.name}`, state.owner)
+    state.firewallId = await runtime.task("Creating firewall (TCP 22, 80, 443)", "Firewall ready", async () => {
+      const existing = await hetzner.findOwned<{ id: number }>("firewalls", state.owner)
+      return existing?.id ?? await hetzner.createFirewall(`siteio-${state.name}`, state.owner)
+    })
     save()
   }
   if (!state.serverId) {
     let server = await hetzner.findOwned<HetznerServer>("servers", state.owner)
     if (!server) {
-      const type = await hetzner.resolveType(state.location, state.type)
+      const type = await runtime.task(`Finding the cheapest server type in ${state.location}`, "Server type selected", () => hetzner.resolveType(state.location, state.type))
       state.type = type.name
       save()
-      const image = await hetzner.dockerImage()
-      server = await hetzner.createServer(state.name, state.owner, type.name, state.location, image, state.sshKeyId, state.firewallId)
+      server = await runtime.task(`Creating ${type.name} VM in ${state.location}`, `VM ${state.name} created (${type.name})`, async () => {
+        const image = await hetzner.dockerImage()
+        return hetzner.createServer(state.name, state.owner, type.name, state.location, image, state.sshKeyId!, state.firewallId!)
+      })
     }
     state.serverId = server.id
     save()
   }
-  const server = await hetzner.waitForServer(state.serverId)
+  const server = await runtime.task("Waiting for the VM to boot", "VM running", () => hetzner.waitForServer(state.serverId!))
   const ip = server.public_net.ipv4!.ip
   if (state.ip && state.ip !== ip) throw new Error("The saved server IP changed; inspect DNS before resuming")
   state.ip = ip
@@ -78,7 +99,7 @@ export async function provisionServer(
 
   if (!state.sslip && !state.dnsReady) {
     if (!cloudflareToken) throw new Error("Cloudflare token is required to set up DNS")
-    const dns = await setupWildcardDNS(cloudflareToken, state.domain!, { ip, owner: `siteio:${state.owner}`, zoneId: state.zoneId })
+    const dns = await runtime.task(`Pointing *.${state.domain} to ${ip}`, "DNS ready", () => setupWildcardDNS(cloudflareToken, state.domain!, { ip, owner: `siteio:${state.owner}`, zoneId: state.zoneId }))
     state.zoneId = dns.zoneId
     state.dnsRecordId = dns.recordId
     state.dnsOwned = dns.owned
@@ -86,15 +107,15 @@ export async function provisionServer(
     save()
   }
 
-  console.error(`Waiting for SSH and Docker on ${ip}…`)
   const target = `root@${ip}`
-  let ready = false
-  for (let attempt = 0; attempt < 60; attempt++) {
-    const result = await runtime.ssh(target, "docker info >/dev/null 2>&1", state.identity)
-    if (result.exitCode === 0) { ready = true; break }
-    await runtime.sleep(5000)
-  }
-  if (!ready) throw new Error("SSH/Docker did not become ready; rerun server create to resume")
+  await runtime.task(`Waiting for SSH and Docker on ${ip}`, "SSH and Docker ready", async () => {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const result = await runtime.ssh(target, "docker info >/dev/null 2>&1", state.identity)
+      if (result.exitCode === 0) return
+      await runtime.sleep(5000)
+    }
+    throw new Error("SSH/Docker did not become ready; rerun server create to resume")
+  })
 
   // Recover an installation that succeeded before the local checkpoint was written.
   if (!state.installed) {
@@ -113,15 +134,16 @@ export async function provisionServer(
   if (config.domain !== state.domain || !config.apiKey) throw new Error("Installed agent configuration does not match this server")
   const apiUrl = `https://api.${state.domain}`
   // TLS issuance may lag behind SSH and Docker readiness, including on sslip.io.
-  let healthy = false
-  for (let attempt = 0; attempt < 30; attempt++) {
-    try {
-      const response = await fetch(`${apiUrl}/health`, { headers: { "X-API-Key": config.apiKey }, signal: AbortSignal.timeout(5000) })
-      if (response.ok) { healthy = true; break }
-    } catch { /* DNS/TLS may still be propagating */ }
-    await runtime.sleep(5000)
-  }
-  if (!healthy) throw new Error("Agent HTTPS is not ready; rerun server create to finish login")
+  await runtime.task(`Waiting for HTTPS certificate on ${apiUrl}`, "Agent reachable over HTTPS", async () => {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      try {
+        const response = await fetch(`${apiUrl}/health`, { headers: { "X-API-Key": config.apiKey }, signal: AbortSignal.timeout(5000) })
+        if (response.ok) return
+      } catch { /* DNS/TLS may still be propagating */ }
+      await runtime.sleep(5000)
+    }
+    throw new Error("Agent HTTPS is not ready; rerun server create to finish login")
+  })
   await runtime.login(apiUrl, config.apiKey)
   state.loggedIn = true
   save()

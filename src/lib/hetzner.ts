@@ -11,8 +11,8 @@ export interface ServerType {
   id: number
   name: string
   architecture: string
-  deprecated?: boolean
   prices: { location: string; price_monthly: { gross: string } }[]
+  locations: { name: string; available: boolean; deprecation: object | null }[]
 }
 interface Action { id: number; status: string; error?: { message: string } | null }
 
@@ -51,9 +51,8 @@ export class HetznerClient {
   async resolveType(location: string, requested?: string): Promise<ServerType> {
     const types = await this.list<ServerType>("server_types")
     // Availability and prices are location-specific; never pin a soon-obsolete SKU.
-    const datacenters = await this.list<{ location: { name: string }; server_types: { available: number[] } }>("datacenters")
-    const available = new Set(datacenters.filter(d => d.location.name === location).flatMap(d => d.server_types.available))
-    const candidates = types.filter(t => t.architecture === "x86" && !t.deprecated && available.has(t.id)
+    const candidates = types.filter(t => t.architecture === "x86"
+      && t.locations?.some(l => l.name === location && l.available && !l.deprecation)
       && t.prices.some(p => p.location === location && Number.isFinite(Number(p.price_monthly.gross)))
       && (!requested || t.name === requested))
     candidates.sort((a, b) => Number(a.prices.find(p => p.location === location)!.price_monthly.gross)

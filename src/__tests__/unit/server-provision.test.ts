@@ -30,7 +30,7 @@ function hetznerFixture() {
   client.ensureSSHKey = async () => { calls.push("key"); return 1 }
   client.findOwned = async <T>(resource: "servers" | "firewalls"): Promise<T | undefined> => resource === "servers" && created ? vm as T : undefined
   client.createFirewall = async () => { calls.push("firewall"); return 2 }
-  client.resolveType = async () => ({ id: 3, name: "cheap", architecture: "x86", prices: [] })
+  client.resolveType = async () => ({ id: 3, name: "cheap", architecture: "x86", prices: [], locations: [] })
   client.dockerImage = async () => 4
   client.createServer = async () => {
     calls.push("server")
@@ -48,6 +48,7 @@ function runtimeFixture() {
   const calls: string[] = []
   const runtime: typeof provisionRuntime = {
     sleep: async () => {},
+    task: (_message, _done, run) => run(),
     ssh: async (_target, command) => ({
       exitCode: command.startsWith("systemctl") && !installed ? 1 : 0,
       stdout: JSON.stringify({ domain: "192-0-2-1.sslip.io", apiKey: "secret" }), stderr: "",
@@ -59,18 +60,29 @@ function runtimeFixture() {
 }
 
 describe("Hetzner API", () => {
-  test("selects cheapest available x86 type by local price", async () => {
-    mockFetch(url => url.pathname.endsWith("datacenters") ? { datacenters: [{ location: { name: "fsn1" }, server_types: { available: [1, 2, 3, 4] } }] } : {
-      server_types: [
-        { id: 1, name: "arm", architecture: "arm", prices: [{ location: "fsn1", price_monthly: { gross: "1" } }] },
-        { id: 2, name: "expensive", architecture: "x86", prices: [{ location: "fsn1", price_monthly: { gross: "12" } }] },
-        { id: 3, name: "cheap", architecture: "x86", prices: [{ location: "fsn1", price_monthly: { gross: "3" } }] },
-        { id: 4, name: "retired", architecture: "x86", deprecated: true, prices: [{ location: "fsn1", price_monthly: { gross: "1" } }] },
-        { id: 5, name: "sold-out", architecture: "x86", prices: [{ location: "fsn1", price_monthly: { gross: "2" } }] },
-      ],
+  test("selects cheapest available x86 type by local price from per-location availability", async () => {
+    const price = (gross: string, location = "fsn1") => [{ location, price_monthly: { gross } }]
+    const at = (name: string, available = true, deprecation: object | null = null) => [{ name, available, deprecation }]
+    const requested: string[] = []
+    mockFetch(url => {
+      requested.push(url.pathname)
+      return { server_types: [
+        { id: 1, name: "arm", architecture: "arm", prices: price("1"), locations: at("fsn1") },
+        { id: 2, name: "expensive", architecture: "x86", prices: price("12"), locations: at("fsn1") },
+        { id: 3, name: "cheap", architecture: "x86", prices: price("3"), locations: at("fsn1") },
+        { id: 4, name: "retired", architecture: "x86", prices: price("1"), locations: at("fsn1", true, { unavailable_after: "2026-12-01T00:00:00Z" }) },
+        { id: 5, name: "sold-out", architecture: "x86", prices: price("2"), locations: at("fsn1", false) },
+        { id: 6, name: "elsewhere", architecture: "x86", prices: price("1", "hel1"), locations: at("hel1") },
+        { id: 7, name: "unpriced", architecture: "x86", prices: price("1", "hel1"), locations: at("fsn1") },
+        { id: 8, name: "unlisted", architecture: "x86", prices: price("1") },
+      ] }
     })
     expect((await new HetznerClient("token").resolveType("fsn1")).name).toBe("cheap")
-    await expect(new HetznerClient("token").resolveType("fsn1", "sold-out")).rejects.toThrow("No available")
+    for (const name of ["sold-out", "retired", "elsewhere", "unpriced", "unlisted", "arm"]) {
+      await expect(new HetznerClient("token").resolveType("fsn1", name)).rejects.toThrow("No available")
+    }
+    // The datacenters server_types fields were dropped on 2026-10-01; never depend on them again.
+    expect(requested.every(path => path.endsWith("/server_types"))).toBe(true)
   })
   test("paginates and reuses SSH key material despite a different comment", async () => {
     let pages = 0
@@ -224,6 +236,26 @@ describe("resumable provisioning", () => {
     expect(saved.serverId).toBeUndefined()
     expect(saved.firewallId).toBe(2)
     expect(saved.destroying).toBe(true)
+  })
+})
+
+describe("progress output", () => {
+  test("task returns the step result and rethrows the original error so resume state stays accurate", async () => {
+    expect(await provisionRuntime.task("Step", "Done", async () => 42)).toBe(42)
+    const original = new Error("SSH/Docker did not become ready")
+    await expect(provisionRuntime.task("Step", "Done", async () => { throw original })).rejects.toBe(original)
+  })
+  test("a failure inside a spinner step leaves the step unsaved for resume", async () => {
+    mockFetch(() => ({}))
+    const saved = state(), h = hetznerFixture(), r = runtimeFixture()
+    const started: string[] = []
+    r.runtime.task = (message, _done, run) => { started.push(message); return run() }
+    h.client.waitForServer = async () => { throw new Error("Timed out waiting for VM") }
+    await expect(provisionServer(saved, () => {}, h.client, "key", undefined, r.runtime)).rejects.toThrow("Timed out waiting for VM")
+    expect(saved.serverId).toBe(10)
+    expect(saved.ip).toBeUndefined()
+    expect(started.at(-1)).toBe("Waiting for the VM to boot")
+    expect(r.calls).toEqual([])
   })
 })
 
