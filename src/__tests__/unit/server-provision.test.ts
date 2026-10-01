@@ -48,6 +48,7 @@ function runtimeFixture() {
   const calls: string[] = []
   const runtime: typeof provisionRuntime = {
     sleep: async () => {},
+    task: (_message, _done, run) => run(),
     ssh: async (_target, command) => ({
       exitCode: command.startsWith("systemctl") && !installed ? 1 : 0,
       stdout: JSON.stringify({ domain: "192-0-2-1.sslip.io", apiKey: "secret" }), stderr: "",
@@ -235,6 +236,26 @@ describe("resumable provisioning", () => {
     expect(saved.serverId).toBeUndefined()
     expect(saved.firewallId).toBe(2)
     expect(saved.destroying).toBe(true)
+  })
+})
+
+describe("progress output", () => {
+  test("task returns the step result and rethrows the original error so resume state stays accurate", async () => {
+    expect(await provisionRuntime.task("Step", "Done", async () => 42)).toBe(42)
+    const original = new Error("SSH/Docker did not become ready")
+    await expect(provisionRuntime.task("Step", "Done", async () => { throw original })).rejects.toBe(original)
+  })
+  test("a failure inside a spinner step leaves the step unsaved for resume", async () => {
+    mockFetch(() => ({}))
+    const saved = state(), h = hetznerFixture(), r = runtimeFixture()
+    const started: string[] = []
+    r.runtime.task = (message, _done, run) => { started.push(message); return run() }
+    h.client.waitForServer = async () => { throw new Error("Timed out waiting for VM") }
+    await expect(provisionServer(saved, () => {}, h.client, "key", undefined, r.runtime)).rejects.toThrow("Timed out waiting for VM")
+    expect(saved.serverId).toBe(10)
+    expect(saved.ip).toBeUndefined()
+    expect(started.at(-1)).toBe("Waiting for the VM to boot")
+    expect(r.calls).toEqual([])
   })
 })
 
