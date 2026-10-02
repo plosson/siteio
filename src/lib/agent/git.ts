@@ -141,8 +141,22 @@ export class GitManager {
   async lsRemote(url: string, patterns: string[], token?: string, timeoutMs = 30_000): Promise<RemoteRef[]> {
     const { env, cleanup } = this.gitEnv(token)
     try {
+      // Bun's timeout kills only `git`, not its git-remote-http child, so make
+      // the transport abort itself when the transfer stalls for that long.
+      const lowSpeedTime = String(Math.max(1, Math.ceil(timeoutMs / 1000)))
       const proc = Bun.spawn({
-        cmd: ["git", "-c", "protocol.version=2", "ls-remote", url, ...patterns],
+        cmd: [
+          "git",
+          "-c",
+          "protocol.version=2",
+          "-c",
+          "http.lowSpeedLimit=1",
+          "-c",
+          `http.lowSpeedTime=${lowSpeedTime}`,
+          "ls-remote",
+          url,
+          ...patterns,
+        ],
         stdout: "pipe",
         stderr: "pipe",
         env,
@@ -155,6 +169,9 @@ export class GitManager {
       const stderrP = new Response(proc.stderr).text()
       const exitCode = await proc.exited
       if (proc.signalCode) {
+        // Abandoned reads: a later stream error must not become an unhandled rejection.
+        stdoutP.catch(() => {})
+        stderrP.catch(() => {})
         throw new SiteioError(`Timed out listing remote refs after ${Math.round(timeoutMs / 1000)}s`)
       }
       const [stdout, stderr] = await Promise.all([stdoutP, stderrP])
