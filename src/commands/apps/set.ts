@@ -21,6 +21,7 @@ export interface SetAppOptions {
   restart?: string
   image?: string
   dockerfile?: string
+  git?: string
   gitToken?: string
   autoDeploy?: string
   composeFile?: string
@@ -119,21 +120,29 @@ function validateRestartPolicy(policy: string): RestartPolicy {
 }
 
 /**
- * The partial git patch for --dockerfile, --git-token and --auto-deploy.
+ * The partial git patch for --git, --dockerfile, --git-token and --auto-deploy.
  * The server merges it with the stored git source.
  */
 export function buildGitPatch(
   current: Pick<App, "git" | "compose">,
-  options: Pick<SetAppOptions, "dockerfile" | "gitToken" | "autoDeploy">
-): { dockerfile?: string; token?: string; autoDeploy?: AutoDeployMode } {
+  options: Pick<SetAppOptions, "git" | "dockerfile" | "gitToken" | "autoDeploy">
+): { repoUrl?: string; dockerfile?: string; token?: string; autoDeploy?: AutoDeployMode } {
   const autoDeploy = options.autoDeploy !== undefined ? parseAutoDeployFlag(options.autoDeploy) : undefined
   if (!current.git) {
-    throw new ValidationError("Cannot set --dockerfile, --git-token or --auto-deploy on a non-git app")
+    throw new ValidationError("Cannot set --git, --dockerfile, --git-token or --auto-deploy on a non-git app")
   }
   if (autoDeploy !== undefined && current.compose) {
     throw new ValidationError("--auto-deploy is not supported for compose apps")
   }
-  const patch: { dockerfile?: string; token?: string; autoDeploy?: AutoDeployMode } = {}
+  const patch: { repoUrl?: string; dockerfile?: string; token?: string; autoDeploy?: AutoDeployMode } = {}
+  if (options.git !== undefined) {
+    // An empty URL would only fail at the next deploy, after the app was changed.
+    const repoUrl = options.git.trim()
+    if (!repoUrl) {
+      throw new ValidationError("--git needs a repository URL")
+    }
+    patch.repoUrl = repoUrl
+  }
   if (options.dockerfile) {
     patch.dockerfile = options.dockerfile
   }
@@ -229,7 +238,12 @@ export async function setAppCommand(
       updates.image = options.image
     }
 
-    if (options.dockerfile || options.gitToken !== undefined || options.autoDeploy !== undefined) {
+    if (
+      options.git !== undefined ||
+      options.dockerfile ||
+      options.gitToken !== undefined ||
+      options.autoDeploy !== undefined
+    ) {
       // Validate against the current app. Server does the field-level merge.
       updates.git = buildGitPatch(await client.getApp(name), options)
     }
@@ -244,7 +258,7 @@ export async function setAppCommand(
 
     if (Object.keys(updates).length === 0) {
       throw new ValidationError(
-        "No updates specified. Use --env, --secret, --secret-file, --secret-stdin, --volume, --domain, --port, --restart, --image, --dockerfile, --auto-deploy, --compose-file, --env-file, or --service"
+        "No updates specified. Use --env, --secret, --secret-file, --secret-stdin, --volume, --domain, --port, --restart, --image, --git, --dockerfile, --auto-deploy, --compose-file, --env-file, or --service"
       )
     }
 
@@ -303,6 +317,9 @@ export async function setAppCommand(
       }
 
       if (updates.git) {
+        if (updates.git.repoUrl) {
+          console.log(`Repo: ${updates.git.repoUrl}`)
+        }
         if (options.dockerfile) {
           console.log(`Dockerfile: ${updates.git.dockerfile}`)
         }

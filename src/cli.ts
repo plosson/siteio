@@ -462,6 +462,7 @@ apps
   .option("-p, --port <port>", "Set internal port", intArg)
   .option("-r, --restart <policy>", "Set restart policy (always, unless-stopped, on-failure, no)")
   .option("--image <image>", "Set Docker image")
+  .option("--git <url>", "Build from a different Git repository from the next deploy (git-based apps only)")
   .option("--dockerfile <path>", "Set Dockerfile path (git-based apps only)")
   .option("--git-token <token>", "Update the token used to clone a private HTTPS git repo (pass empty string to clear)")
   .option("--auto-deploy <mode>", "Redeploy on new commits (commit), on higher vX.Y.Z tags (tag), or never (off) — git apps only")

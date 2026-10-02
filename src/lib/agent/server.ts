@@ -783,6 +783,18 @@ export class AgentServer {
           return this.error("autoDeploy is only supported on single-container git apps")
         }
       }
+      // A new repository is cloned at the next deploy; an empty one would only
+      // fail there, after the app had already been changed.
+      const repoUrl = incomingGit?.repoUrl
+      if (repoUrl !== undefined) {
+        if (!app.git) {
+          return this.error("repoUrl can only be changed on a git app")
+        }
+        if (typeof repoUrl !== "string" || !repoUrl.trim()) {
+          return this.error("repoUrl cannot be empty")
+        }
+        ;(body.git as { repoUrl?: string }).repoUrl = repoUrl.trim()
+      }
       const changed = (incoming: unknown, current: unknown) => incoming !== undefined && incoming !== current
       const autoDeployReset =
         changed(autoDeploy, app.git?.autoDeploy ?? "off") ||
