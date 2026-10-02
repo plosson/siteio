@@ -118,7 +118,8 @@ export async function startAgentCommand(): Promise<void> {
   // Seconds between auto-deploy checks. Env var wins over persisted config.
   let autoDeployInterval: number
   try {
-    autoDeployInterval = parseAutoDeployInterval(process.env.SITEIO_AUTODEPLOY_INTERVAL ?? persistedConfig.autoDeployInterval)
+    // An empty env var counts as unset
+    autoDeployInterval = parseAutoDeployInterval(process.env.SITEIO_AUTODEPLOY_INTERVAL || persistedConfig.autoDeployInterval)
   } catch (err) {
     console.error(formatError((err as Error).message))
     process.exit(1)

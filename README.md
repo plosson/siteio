@@ -208,7 +208,7 @@ siteio apps set myapi --auto-deploy off
 - A failed build leaves the running version up and is not retried until a newer
   commit or tag appears. `siteio apps info` shows the error.
 - Compose apps are not supported.
-- Set the interval with `SITEIO_AUTODEPLOY_INTERVAL` (seconds, default 300, minimum 60) on the agent.
+- Set the interval with `SITEIO_AUTODEPLOY_INTERVAL` (seconds, default 300, minimum 60) on the agent, or with `autoDeployInterval` in the agent's `agent-config.json`. The env var wins when set and not empty.
 
 ### Example 3: Monorepo Deployment
 
