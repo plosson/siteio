@@ -23,6 +23,10 @@ export interface VolumeMount {
   readonly?: boolean // Optional read-only flag
 }
 
+// When a git app redeploys itself: never, on each new commit of its branch,
+// or on each higher vX.Y.Z tag. See docs/plans/2026-10-02-auto-deploy.md.
+export type AutoDeployMode = "off" | "commit" | "tag"
+
 // Git source configuration for building from repo
 export interface GitSource {
   repoUrl: string
@@ -33,6 +37,7 @@ export interface GitSource {
   // Set by the server on outgoing API responses — true when a token is stored.
   // Never sent by clients; the server ignores it on PATCH.
   tokenSet?: boolean
+  autoDeploy?: AutoDeployMode // missing means "off"
 }
 
 // Inline Dockerfile source - file is uploaded by the client and built remotely
@@ -88,6 +93,11 @@ export interface App {
   // Git build state
   commitHash?: string
   lastBuildAt?: string
+
+  // Auto-deploy state, owned by the server (clients can't set these)
+  autoDeployRef?: string // last tag (tag mode) or SHA (commit mode) the poller acted on
+  autoDeployCheckedAt?: string // ISO time of the last check
+  autoDeployError?: string // last check or deploy failure
 }
 
 // App info returned to clients (subset of App)
@@ -106,6 +116,9 @@ export interface AppInfo {
   createdAt: string
   commitHash?: string
   lastBuildAt?: string
+  autoDeployRef?: string
+  autoDeployCheckedAt?: string
+  autoDeployError?: string
   tls?: TlsStatus
   // Whether a generated card preview exists (fetched via
   // GET /apps/:name/thumbnail). Only single-container apps get one.
