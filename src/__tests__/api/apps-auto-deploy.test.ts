@@ -125,6 +125,26 @@ describe("update", () => {
     expect(res.body.data?.autoDeployRef).toBe("v1.0.0")
   })
 
+  test.each([
+    ["repoUrl", { repoUrl: "https://x.test/other.git" }],
+    ["branch", { branch: "release" }],
+  ])("changing %s clears the poller state", async (_field, change) => {
+    await call("POST", "/apps", { name: "web", git: { ...GIT, autoDeploy: "tag" } })
+    new AppStorage(dir).update("web", { autoDeployRef: "v1.0.0", autoDeployError: "deploy failed for v1.0.0: x" })
+    const res = await call<App>("PATCH", "/apps/web", { git: change })
+    expect(res.status).toBe(200)
+    expect(res.body.data?.autoDeployRef).toBeUndefined()
+    expect(res.body.data?.autoDeployError).toBeUndefined()
+    expect(new AppStorage(dir).get("web")?.autoDeployRef).toBeUndefined()
+  })
+
+  test("resending the same repoUrl and branch keeps the poller state", async () => {
+    await call("POST", "/apps", { name: "web", git: { ...GIT, autoDeploy: "tag" } })
+    new AppStorage(dir).update("web", { autoDeployRef: "v1.0.0" })
+    const res = await call<App>("PATCH", "/apps/web", { git: { ...GIT } })
+    expect(res.body.data?.autoDeployRef).toBe("v1.0.0")
+  })
+
   test("server-owned fields are ignored", async () => {
     await call("POST", "/apps", { name: "web", git: { ...GIT, autoDeploy: "tag" } })
     new AppStorage(dir).update("web", { autoDeployRef: "v1.0.0" })

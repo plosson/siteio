@@ -771,9 +771,10 @@ export class AgentServer {
         }
       }
 
-      // Auto-deploy only runs single-container git apps. A new mode starts
-      // from a clean poller state.
-      const autoDeploy = (body.git as { autoDeploy?: unknown } | undefined)?.autoDeploy
+      // Auto-deploy only runs single-container git apps. A new mode, repository
+      // or branch starts from a clean poller state.
+      const incomingGit = body.git as { autoDeploy?: unknown; repoUrl?: unknown; branch?: unknown } | undefined
+      const autoDeploy = incomingGit?.autoDeploy
       if (autoDeploy !== undefined) {
         if (!isAutoDeployMode(autoDeploy)) {
           return this.error(`autoDeploy must be one of: ${AUTO_DEPLOY_MODES.join(", ")}`)
@@ -782,8 +783,11 @@ export class AgentServer {
           return this.error("autoDeploy is only supported on single-container git apps")
         }
       }
+      const changed = (incoming: unknown, current: unknown) => incoming !== undefined && incoming !== current
       const autoDeployReset =
-        autoDeploy !== undefined && autoDeploy !== (app.git?.autoDeploy ?? "off")
+        changed(autoDeploy, app.git?.autoDeploy ?? "off") ||
+        changed(incomingGit?.repoUrl, app.git?.repoUrl) ||
+        changed(incomingGit?.branch, app.git?.branch)
           ? { autoDeployRef: undefined, autoDeployError: undefined }
           : {}
 
@@ -833,6 +837,9 @@ export class AgentServer {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
+    }
+    if (this.isDeploying(name)) {
+      return this.error("Deploy already in progress", 409)
     }
 
     if (app.compose) {
@@ -1066,7 +1073,9 @@ export class AgentServer {
         imageToRun = app.image
       }
 
-      // The new image is ready: only now replace the running container.
+      // The new image is ready: only now replace the running container, if
+      // the app still exists.
+      if (!this.appStorage.get(name)) throw new DeployError("App not found", 404)
       swapped = true
       if (this.docker.containerExists(name)) {
         await this.docker.remove(name)
@@ -1098,8 +1107,9 @@ export class AgentServer {
       this.captureAppThumbnail(updated)
       return updated
     } catch (err) {
-      // Before the swap the old container is untouched, so its status stands.
-      if (swapped) this.appStorage.update(name, { status: "failed" })
+      // Before the swap an existing container is untouched, so its status
+      // stands; with none, nothing is running.
+      if (swapped || !this.docker.containerExists(name)) this.appStorage.update(name, { status: "failed" })
       if (err instanceof DeployError) throw err
       throw new DeployError(err instanceof Error ? err.message : "Failed to deploy app", 500)
     } finally {
@@ -1111,6 +1121,9 @@ export class AgentServer {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
+    }
+    if (this.isDeploying(name)) {
+      return this.error("Deploy already in progress", 409)
     }
     try {
       if (app.compose) {
@@ -1131,6 +1144,9 @@ export class AgentServer {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
+    }
+    if (this.isDeploying(name)) {
+      return this.error("Deploy already in progress", 409)
     }
     try {
       if (app.compose) {
@@ -2302,12 +2318,12 @@ export class AgentServer {
     }
   }
 
-  // `host` defaults to "localhost" so existing api-route tests pass the api gate;
-  // MCP/OAuth tests pass a real site host (e.g. "blog.example.com").
   isDeploying(name: string): boolean {
     return this.deploying.has(name)
   }
 
+  // `host` defaults to "localhost" so existing api-route tests pass the api gate;
+  // MCP/OAuth tests pass a real site host (e.g. "blog.example.com").
   handleRequestForTest(req: Request, host = "localhost"): Promise<Response> {
     const headers = new Headers(req.headers)
     headers.set("host", host)

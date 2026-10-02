@@ -183,3 +183,79 @@ describe("deploy lock", () => {
     await first
   })
 })
+
+describe("deploy lock against stop, restart and delete", () => {
+  async function holdBuild(): Promise<{ deploy: Promise<{ status: number }>; release: () => void }> {
+    await createGitApp()
+    storage().update("web", { status: "running", containerId: "old-id" })
+    let release!: () => void
+    runtime.buildGate = new Promise<void>((r) => (release = r))
+    const deploy = call<App>("POST", "/apps/web/deploy")
+    while (!server.isDeploying("web")) await Bun.sleep(5)
+    return { deploy, release }
+  }
+
+  test.each([
+    ["stop", "POST", "/apps/web/stop"],
+    ["restart", "POST", "/apps/web/restart"],
+    ["delete", "DELETE", "/apps/web"],
+  ])("%s during a build gets 409 and the deploy then completes", async (_label, method, path) => {
+    const { deploy, release } = await holdBuild()
+    const res = await call(method, path)
+    expect(res.status).toBe(409)
+    expect(res.body.error).toContain("Deploy already in progress")
+    expect(methods()).not.toContain("stop")
+    expect(methods()).not.toContain("restart")
+    expect(methods()).not.toContain("remove")
+    expect(storage().get("web")).not.toBeNull()
+
+    release()
+    expect((await deploy).status).toBe(200)
+    const app = storage().get("web")!
+    expect(app.status).toBe("running")
+    expect(app.containerId).toBe(runtime.runReturn)
+  })
+
+  test("an app removed during the build is not swapped in", async () => {
+    const { deploy, release } = await holdBuild()
+    storage().delete("web")
+    release()
+    const res = await deploy
+    expect(res.status).toBe(404)
+    expect(methods()).not.toContain("remove")
+    expect(methods()).not.toContain("run")
+    expect(storage().get("web")).toBeNull()
+  })
+})
+
+describe("status after a failed deploy", () => {
+  test("a failure before the swap with no container marks the app failed", async () => {
+    await createGitApp()
+    runtime.containerExistsReturn = false
+    runtime.buildError = new Error("boom")
+    const res = await call<App>("POST", "/apps/web/deploy")
+    expect(res.status).toBe(500)
+    expect(storage().get("web")!.status).toBe("failed")
+  })
+
+  test("a failure before the swap with a container keeps the status", async () => {
+    await createGitApp()
+    storage().update("web", { status: "stopped" })
+    runtime.buildError = new Error("boom")
+    await call<App>("POST", "/apps/web/deploy")
+    expect(storage().get("web")!.status).toBe("stopped")
+  })
+
+  test("a 404 for an app removed mid-build does not recreate it", async () => {
+    await createGitApp()
+    runtime.containerExistsReturn = false
+    let release!: () => void
+    runtime.buildGate = new Promise<void>((r) => (release = r))
+    const deploy = call<App>("POST", "/apps/web/deploy")
+    while (!server.isDeploying("web")) await Bun.sleep(5)
+    storage().delete("web")
+    release()
+    expect((await deploy).status).toBe(404)
+    expect(storage().get("web")).toBeNull()
+  })
+})
