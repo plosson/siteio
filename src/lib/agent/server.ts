@@ -29,7 +29,7 @@ import { encodeToken } from "../../utils/token.ts"
 import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
-import { AUTO_DEPLOY_MODES, isAutoDeployMode } from "./auto-deploy.ts"
+import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
 // gets the same window (clamped to the code). The per-grant spend cap is a
@@ -140,6 +140,7 @@ export class AgentServer {
   // test mode (skipTraefik) so tests never touch real Docker.
   private thumbnails: ThumbnailManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
+  private autoDeployer: AutoDeployer
 
   constructor(
     config: AgentConfig,
@@ -199,6 +200,25 @@ export class AgentServer {
       })
       this.thumbnails = new ThumbnailManager(config.dataDir)
     }
+
+    this.autoDeployer = new AutoDeployer(
+      {
+        listApps: () => this.appStorage.list(),
+        getApp: (name) => this.appStorage.get(name),
+        updateApp: (name, patch) => {
+          this.appStorage.update(name, patch)
+        },
+        lsRemote: (url, patterns, token) => this.git.lsRemote(url, patterns, token),
+        deploy: async (name, ref) => {
+          await this.deployContainerApp(name, { ref })
+        },
+        isDeploying: (name) => this.isDeploying(name),
+        log: (line) => console.log(`> ${line}`),
+        now: () => Date.now(),
+        random: () => Math.random(),
+      },
+      (config.autoDeployInterval ?? parseAutoDeployInterval(undefined)) * 1000
+    )
   }
 
   private json<T>(data: T, status = 200): Response {
@@ -2309,6 +2329,8 @@ export class AgentServer {
     this.oauth.gc()
     // Remove chat workspaces orphaned by a crash before finally-cleanup ran.
     this.chatController?.sweepWorkspaces()
+    // Poll auto-deploy apps' remotes (apps-disabled hosts have no apps to poll)
+    if (this.config.appsEnabled !== false) this.autoDeployer.start()
 
     const port = this.config.port || 3000
 
@@ -2435,6 +2457,7 @@ export class AgentServer {
   }
 
   stop(): void {
+    this.autoDeployer.stop()
     this.traefik?.stop()
     this.thumbnails?.stop()
     if (this.server) {

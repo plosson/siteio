@@ -213,6 +213,7 @@ export interface AgentConfig {
   skipTraefik?: boolean // For testing without Traefik
   port?: number // Override internal API port
   appsEnabled?: boolean // Whether the /apps/* surface is available (default true)
+  autoDeployInterval?: number // seconds between auto-deploy checks of each app (default 300)
   chat?: ChatConfig // AI site-chat editor settings; absent/unconfigured hides the feature
 }
 

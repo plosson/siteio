@@ -17,6 +17,7 @@ export interface PersistedAgentConfig {
   acmeDnsProvider?: string
   acmeDnsEnv?: Record<string, string>
   appsEnabled?: boolean
+  autoDeployInterval?: number // seconds; SITEIO_AUTODEPLOY_INTERVAL wins
   // AI site-chat editor. `llmOauthToken` is a Claude subscription token
   // (preferred); `llmApiKey` is an Anthropic API key alternative. Either enables
   // the feature. See docs/plans/2026-08-20-site-chat-ai-editor.md.

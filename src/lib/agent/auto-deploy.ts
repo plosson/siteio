@@ -115,3 +115,163 @@ export function isAutoDeployable(app: Pick<App, "git" | "compose">): boolean {
   const mode = app.git?.autoDeploy
   return !app.compose && isAutoDeployMode(mode) && mode !== "off"
 }
+
+const DEFAULT_INTERVAL_SECONDS = 300
+const MIN_INTERVAL_SECONDS = 60
+const MAX_BACKOFF_MS = 60 * 60 * 1000
+const TICK_MS = 15_000
+
+/** SITEIO_AUTODEPLOY_INTERVAL / autoDeployInterval, in whole seconds. */
+export function parseAutoDeployInterval(value: unknown): number {
+  if (value === undefined || value === "") return DEFAULT_INTERVAL_SECONDS
+  const seconds = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : NaN
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+    throw new Error(`SITEIO_AUTODEPLOY_INTERVAL must be a whole number of seconds, got: ${String(value)}`)
+  }
+  return Math.max(seconds, MIN_INTERVAL_SECONDS)
+}
+
+export interface AutoDeployDeps {
+  listApps(): App[]
+  getApp(name: string): App | null
+  updateApp(name: string, patch: Partial<App>): void
+  lsRemote(url: string, patterns: string[], token?: string): Promise<RemoteRef[]>
+  deploy(name: string, ref?: string): Promise<void> // throws on failure; a 409 carries `status: 409`
+  isDeploying(name: string): boolean
+  log(line: string): void
+  now(): number
+  random(): number
+}
+
+interface Schedule {
+  nextAt: number
+  backoffMs: number // 0 after a successful check
+}
+
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+/**
+ * Checks each auto-deploy app's remote on an interval and deploys a new
+ * commit or a higher release tag. One app at a time; schedules are in memory,
+ * the last target acted on is stored on the app.
+ */
+export class AutoDeployer {
+  private schedules = new Map<string, Schedule>()
+  private timer: ReturnType<typeof setInterval> | undefined
+  private ticking = false
+
+  constructor(
+    private deps: AutoDeployDeps,
+    private intervalMs: number
+  ) {}
+
+  start(): void {
+    if (this.timer) return
+    this.timer = setInterval(() => void this.tick(), TICK_MS)
+    this.timer.unref?.()
+  }
+
+  stop(): void {
+    if (this.timer) clearInterval(this.timer)
+    this.timer = undefined
+  }
+
+  async tick(): Promise<void> {
+    if (this.ticking) return
+    this.ticking = true
+    try {
+      const watched = new Set<string>()
+      for (const listed of this.deps.listApps()) {
+        if (!isAutoDeployable(listed)) continue
+        watched.add(listed.name)
+        let schedule = this.schedules.get(listed.name)
+        if (!schedule) {
+          schedule = { nextAt: this.deps.now() + Math.floor(this.deps.random() * this.intervalMs), backoffMs: 0 }
+          this.schedules.set(listed.name, schedule)
+        }
+        if (this.deps.now() < schedule.nextAt) continue
+        try {
+          await this.check(listed.name, schedule)
+        } catch (err) {
+          this.deps.log(`auto-deploy ${listed.name}: ${messageOf(err)}`)
+        }
+      }
+      for (const name of this.schedules.keys()) {
+        if (!watched.has(name)) this.schedules.delete(name)
+      }
+    } finally {
+      this.ticking = false
+    }
+  }
+
+  private async check(name: string, schedule: Schedule): Promise<void> {
+    // Re-read: the app may have changed or gone since it was listed
+    const app = this.deps.getApp(name)
+    if (!app || !isAutoDeployable(app)) return
+    // A deploy is running: stay due, try again next tick
+    if (this.deps.isDeploying(name)) return
+
+    const git = app.git!
+    const mode = git.autoDeploy as "commit" | "tag"
+    const checkedAt = new Date(this.deps.now()).toISOString()
+    const hadCheckError = schedule.backoffMs > 0
+
+    let target: DeployTarget | null
+    try {
+      const refs = await this.deps.lsRemote(git.repoUrl, refPatterns(mode, git.branch), git.token)
+      target = resolveTarget(mode, git.branch, refs)
+    } catch (err) {
+      schedule.backoffMs = Math.min(
+        schedule.backoffMs ? schedule.backoffMs * 2 : this.intervalMs * 2,
+        Math.max(MAX_BACKOFF_MS, this.intervalMs)
+      )
+      schedule.nextAt = this.deps.now() + schedule.backoffMs
+      const message = `check failed: ${messageOf(err)}`
+      this.deps.updateApp(name, { autoDeployCheckedAt: checkedAt, autoDeployError: message })
+      this.deps.log(`auto-deploy ${name}: ${message}`)
+      return
+    }
+
+    schedule.backoffMs = 0
+    schedule.nextAt = this.deps.now() + this.intervalMs
+
+    if (!target) {
+      const message = mode === "tag" ? "no vX.Y.Z tag found" : `branch '${git.branch}' not found`
+      this.deps.updateApp(name, { autoDeployCheckedAt: checkedAt, autoDeployError: message })
+      return
+    }
+
+    if (!shouldDeploy(mode, app, target)) {
+      // A deploy failure stays visible until a deploy succeeds
+      this.deps.updateApp(name, { autoDeployCheckedAt: checkedAt, ...(hadCheckError && { autoDeployError: undefined }) })
+      return
+    }
+
+    const label = mode === "tag" ? target.ref : target.sha.slice(0, 7)
+    const previousRef = app.autoDeployRef
+    this.deps.updateApp(name, {
+      autoDeployCheckedAt: checkedAt,
+      autoDeployRef: target.ref,
+      ...(hadCheckError && { autoDeployError: undefined }),
+    })
+    this.deps.log(`auto-deploy ${name}: deploying ${label}`)
+
+    try {
+      await this.deps.deploy(name, mode === "tag" ? target.ref : undefined)
+      this.deps.log(`auto-deploy ${name}: deployed ${label}`)
+    } catch (err) {
+      if ((err as { status?: number }).status === 409) {
+        // A manual deploy started in between: this target was not tried
+        this.deps.updateApp(name, { autoDeployRef: previousRef })
+        schedule.nextAt = this.deps.now()
+        this.deps.log(`auto-deploy ${name}: deploy in progress, retrying ${label} next tick`)
+        return
+      }
+      const message = `deploy failed for ${label}: ${messageOf(err)}`
+      this.deps.updateApp(name, { autoDeployError: message })
+      this.deps.log(`auto-deploy ${name}: ${message}`)
+    }
+  }
+}
