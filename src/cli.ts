@@ -336,6 +336,7 @@ apps
   .option("--branch <branch>", "Git branch (default: main)")
   .option("--context <path>", "Build context subdirectory for monorepos")
   .option("--git-token <token>", "Personal access token for cloning a private HTTPS git repo")
+  .option("--auto-deploy <mode>", "Redeploy on new commits (commit), on higher vX.Y.Z tags (tag), or never (off, default)")
   .option("-p, --port <port>", "Internal port the container listens on", intArg)
   .option("--deploy", "Deploy right after creating, as 'siteio apps deploy <name>' would")
   .addHelpText(
@@ -457,6 +458,7 @@ apps
   .option("--image <image>", "Set Docker image")
   .option("--dockerfile <path>", "Set Dockerfile path (git-based apps only)")
   .option("--git-token <token>", "Update the token used to clone a private HTTPS git repo (pass empty string to clear)")
+  .option("--auto-deploy <mode>", "Redeploy on new commits (commit), on higher vX.Y.Z tags (tag), or never (off) — git apps only")
   .option("--compose-file <path>", "Replace the uploaded docker-compose.yml (compose apps created with --compose-file)")
   .option("--env-file <path>", "Replace the .env file used for compose variable interpolation (compose apps only)")
   .option("--service <name>", "Change which compose service receives traffic (compose apps only)")

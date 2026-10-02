@@ -7,7 +7,8 @@ import { formatSuccess, printComposeWarnings } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { resolveAppName } from "../../utils/site-config.ts"
 import { readFlagFile } from "../../utils/files.ts"
-import type { VolumeMount, RestartPolicy } from "../../types.ts"
+import { parseAutoDeployFlag } from "../../lib/agent/auto-deploy.ts"
+import type { App, AutoDeployMode, VolumeMount, RestartPolicy } from "../../types.ts"
 
 export interface SetAppOptions {
   env?: string[]
@@ -21,6 +22,7 @@ export interface SetAppOptions {
   image?: string
   dockerfile?: string
   gitToken?: string
+  autoDeploy?: string
   composeFile?: string
   envFile?: string
   service?: string
@@ -116,6 +118,35 @@ function validateRestartPolicy(policy: string): RestartPolicy {
   return policy as RestartPolicy
 }
 
+/**
+ * The partial git patch for --dockerfile, --git-token and --auto-deploy.
+ * The server merges it with the stored git source.
+ */
+export function buildGitPatch(
+  current: Pick<App, "git" | "compose">,
+  options: Pick<SetAppOptions, "dockerfile" | "gitToken" | "autoDeploy">
+): { dockerfile?: string; token?: string; autoDeploy?: AutoDeployMode } {
+  const autoDeploy = options.autoDeploy !== undefined ? parseAutoDeployFlag(options.autoDeploy) : undefined
+  if (!current.git) {
+    throw new ValidationError("Cannot set --dockerfile, --git-token or --auto-deploy on a non-git app")
+  }
+  if (autoDeploy !== undefined && current.compose) {
+    throw new ValidationError("--auto-deploy is not supported for compose apps")
+  }
+  const patch: { dockerfile?: string; token?: string; autoDeploy?: AutoDeployMode } = {}
+  if (options.dockerfile) {
+    patch.dockerfile = options.dockerfile
+  }
+  if (options.gitToken !== undefined) {
+    // Empty string clears the stored token
+    patch.token = options.gitToken === "" ? undefined : options.gitToken
+  }
+  if (autoDeploy !== undefined) {
+    patch.autoDeploy = autoDeploy
+  }
+  return patch
+}
+
 export async function setAppCommand(
   name: string | undefined,
   options: SetAppOptions = {}
@@ -145,7 +176,7 @@ export async function setAppCommand(
       restartPolicy?: RestartPolicy
       image?: string
       // Partial patch — server merges with existing app.git
-      git?: { repoUrl?: string; branch?: string; dockerfile?: string; context?: string; token?: string }
+      git?: { repoUrl?: string; branch?: string; dockerfile?: string; context?: string; token?: string; autoDeploy?: AutoDeployMode }
       composeContent?: string
       envFileContent?: string
       primaryService?: string
@@ -198,21 +229,9 @@ export async function setAppCommand(
       updates.image = options.image
     }
 
-    if (options.dockerfile || options.gitToken !== undefined) {
-      // Validate the app is git-based. Server does the field-level merge.
-      const current = await client.getApp(name)
-      if (!current.git) {
-        throw new ValidationError("Cannot set --dockerfile or --git-token on a non-git app")
-      }
-      const gitPatch: { dockerfile?: string; token?: string } = {}
-      if (options.dockerfile) {
-        gitPatch.dockerfile = options.dockerfile
-      }
-      if (options.gitToken !== undefined) {
-        // Empty string clears the stored token
-        gitPatch.token = options.gitToken === "" ? undefined : options.gitToken
-      }
-      updates.git = gitPatch
+    if (options.dockerfile || options.gitToken !== undefined || options.autoDeploy !== undefined) {
+      // Validate against the current app. Server does the field-level merge.
+      updates.git = buildGitPatch(await client.getApp(name), options)
     }
 
     // Compose apps: replace the stored compose file / .env / primary service.
@@ -225,7 +244,7 @@ export async function setAppCommand(
 
     if (Object.keys(updates).length === 0) {
       throw new ValidationError(
-        "No updates specified. Use --env, --secret, --secret-file, --secret-stdin, --volume, --domain, --port, --restart, --image, --dockerfile, --compose-file, --env-file, or --service"
+        "No updates specified. Use --env, --secret, --secret-file, --secret-stdin, --volume, --domain, --port, --restart, --image, --dockerfile, --auto-deploy, --compose-file, --env-file, or --service"
       )
     }
 

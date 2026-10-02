@@ -187,6 +187,29 @@ siteio apps create myapi --git https://github.com/user/myapi \
 siteio apps deploy myapi --no-cache
 ```
 
+#### Auto-deploy
+
+A git app can redeploy itself. The agent checks the repository every 5 minutes;
+nothing has to change in the repository.
+
+```bash
+# Redeploy on each new commit of the tracked branch
+siteio apps set myapi --auto-deploy commit
+
+# Redeploy on each higher release tag (vMAJOR.MINOR.PATCH only; v1.2.3-rc1 is ignored)
+siteio apps set myapi --auto-deploy tag
+
+# Stop
+siteio apps set myapi --auto-deploy off
+```
+
+- In `tag` mode the tag itself is built, and an older tag never causes a downgrade.
+- A manual `siteio apps deploy` still builds the branch HEAD. Use it to deploy a pre-release.
+- A failed build leaves the running version up and is not retried until a newer
+  commit or tag appears. `siteio apps info` shows the error.
+- Compose apps are not supported.
+- Set the interval with `SITEIO_AUTODEPLOY_INTERVAL` (seconds, default 300, minimum 60) on the agent, or with `autoDeployInterval` in the agent's `agent-config.json`. The env var wins when set and not empty.
+
 ### Example 3: Monorepo Deployment
 
 Deploy a service from a monorepo by specifying the build context:

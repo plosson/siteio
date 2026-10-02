@@ -21,6 +21,9 @@ export class FakeRuntime implements Runtime {
   // Fixtures tests can override per-test:
   runReturn = "fake-container-id-123"
   buildReturn = "siteio-fake:latest"
+  buildError: Error | null = null
+  // When set, build() waits for it, so a test can hold a deploy mid-build.
+  buildGate: Promise<void> | null = null
   logsReturn = ""
   inspectReturn: ContainerInspect | null = null
   isAvailableReturn = true
@@ -65,6 +68,8 @@ export class FakeRuntime implements Runtime {
 
   async build(config: BuildConfig): Promise<string> {
     this.record("build", [config])
+    if (this.buildGate) await this.buildGate
+    if (this.buildError) throw this.buildError
     return this.buildReturn
   }
 

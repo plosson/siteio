@@ -1,4 +1,4 @@
-import { mkdirSync } from "fs"
+import { existsSync, mkdirSync } from "fs"
 import { dirname, join } from "path"
 import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
@@ -27,8 +27,9 @@ import { POCKETBASE_VERSION, pocketbaseImage } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
 import { encodeToken } from "../../utils/token.ts"
 import { assertSafePublicUrl } from "../../utils/ssrf.ts"
-import { ValidationError } from "../../utils/errors.ts"
+import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
+import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
 // gets the same window (clamped to the code). The per-grant spend cap is a
@@ -106,7 +107,20 @@ function scrubApp(app: App | AppInfo): App | AppInfo {
   return scrubbed
 }
 
+// A deploy failure with the HTTP status the route should answer with.
+export class DeployError extends SiteioError {
+  constructor(
+    message: string,
+    public status: number
+  ) {
+    super(message, status < 500 ? "USER" : "SYSTEM")
+    this.name = "DeployError"
+  }
+}
+
 export class AgentServer {
+  // Apps with a deploy in progress. One deploy per app at a time.
+  private deploying = new Set<string>()
   private config: AgentConfig
   private storage: SiteStorage
   private appStorage: AppStorage
@@ -126,6 +140,7 @@ export class AgentServer {
   // test mode (skipTraefik) so tests never touch real Docker.
   private thumbnails: ThumbnailManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
+  private autoDeployer: AutoDeployer
 
   constructor(
     config: AgentConfig,
@@ -185,6 +200,25 @@ export class AgentServer {
       })
       this.thumbnails = new ThumbnailManager(config.dataDir)
     }
+
+    this.autoDeployer = new AutoDeployer(
+      {
+        listApps: () => this.appStorage.list(),
+        getApp: (name) => this.appStorage.get(name),
+        updateApp: (name, patch) => {
+          this.appStorage.update(name, patch)
+        },
+        lsRemote: (url, patterns, token) => this.git.lsRemote(url, patterns, token),
+        deploy: async (name, ref) => {
+          await this.deployContainerApp(name, { ref })
+        },
+        isDeploying: (name) => this.isDeploying(name),
+        log: (line) => console.log(`> ${line}`),
+        now: () => Date.now(),
+        random: () => Math.random(),
+      },
+      (config.autoDeployInterval ?? parseAutoDeployInterval(undefined)) * 1000
+    )
   }
 
   private json<T>(data: T, status = 200): Response {
@@ -565,6 +599,7 @@ export class AgentServer {
           dockerfile?: string
           context?: string
           token?: string
+          autoDeploy?: unknown
         }
         dockerfileContent?: string
         composeContent?: string
@@ -619,6 +654,14 @@ export class AgentServer {
       if (body.git && !body.git.repoUrl) {
         return this.error("Git repository URL is required")
       }
+      if (body.git?.autoDeploy !== undefined) {
+        if (!isAutoDeployMode(body.git.autoDeploy)) {
+          return this.error(`autoDeploy must be one of: ${AUTO_DEPLOY_MODES.join(", ")}`)
+        }
+        if (hasCompose) {
+          return this.error("autoDeploy is only supported on single-container git apps")
+        }
+      }
 
       // Determine image tag for locally-built or compose-tagged apps.
       const image =
@@ -660,6 +703,7 @@ export class AgentServer {
                 dockerfile: body.git.dockerfile || "Dockerfile",
                 context: body.git.context,
                 token: body.git.token,
+                ...(isAutoDeployMode(body.git.autoDeploy) && { autoDeploy: body.git.autoDeploy }),
               }
             : undefined,
           dockerfile: body.dockerfileContent ? { source: "inline" } : undefined,
@@ -693,9 +737,16 @@ export class AgentServer {
       }
 
       // `compose` is server-owned: clients change it through primaryService only
-      const { composeContent, envFileContent, primaryService, compose: _ignored, ...body } = (await req.json()) as Partial<
-        Omit<App, "name" | "createdAt">
-      > & {
+      const {
+        composeContent,
+        envFileContent,
+        primaryService,
+        compose: _ignored,
+        autoDeployRef: _ref,
+        autoDeployCheckedAt: _checkedAt,
+        autoDeployError: _error,
+        ...body
+      } = (await req.json()) as Partial<Omit<App, "name" | "createdAt">> & {
         secrets?: Record<string, string>
         composeContent?: string
         envFileContent?: string
@@ -720,6 +771,26 @@ export class AgentServer {
         }
       }
 
+      // Auto-deploy only runs single-container git apps. A new mode, repository
+      // or branch starts from a clean poller state.
+      const incomingGit = body.git as { autoDeploy?: unknown; repoUrl?: unknown; branch?: unknown } | undefined
+      const autoDeploy = incomingGit?.autoDeploy
+      if (autoDeploy !== undefined) {
+        if (!isAutoDeployMode(autoDeploy)) {
+          return this.error(`autoDeploy must be one of: ${AUTO_DEPLOY_MODES.join(", ")}`)
+        }
+        if (!app.git || app.compose) {
+          return this.error("autoDeploy is only supported on single-container git apps")
+        }
+      }
+      const changed = (incoming: unknown, current: unknown) => incoming !== undefined && incoming !== current
+      const autoDeployReset =
+        changed(autoDeploy, app.git?.autoDeploy ?? "off") ||
+        changed(incomingGit?.repoUrl, app.git?.repoUrl) ||
+        changed(incomingGit?.branch, app.git?.branch)
+          ? { autoDeployRef: undefined, autoDeployError: undefined }
+          : {}
+
       // Field-level merge for git so partial updates (e.g. only --git-token or
       // only --dockerfile) preserve other stored fields. Also strip clients'
       // incoming `tokenSet` — it's an output-only hint.
@@ -742,7 +813,11 @@ export class AgentServer {
           // Checked against the domains this same request may set
           warnings = await this.checkUploadedCompose({ name, domains: body.domains ?? app.domains, compose })
         }
-        updated = this.appStorage.update(name, { ...body, ...(compose !== app.compose && { compose }) })
+        updated = this.appStorage.update(name, {
+          ...body,
+          ...autoDeployReset,
+          ...(compose !== app.compose && { compose }),
+        })
       } catch (err) {
         if (previous) this.compose.restore(name, previous)
         throw err
@@ -762,6 +837,9 @@ export class AgentServer {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
+    }
+    if (this.isDeploying(name)) {
+      return this.error("Deploy already in progress", 409)
     }
 
     if (app.compose) {
@@ -842,162 +920,168 @@ export class AgentServer {
       return this.error("Cannot override Dockerfile: app was not created with -f", 400)
     }
 
+    if (!app.compose) {
+      try {
+        const updated = await this.deployContainerApp(name, { noCache, dockerfileContent: newDockerfileContent })
+        return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.config.domain) })
+      } catch (err) {
+        const status = err instanceof DeployError ? err.status : 500
+        return this.error(err instanceof Error ? err.message : "Failed to deploy app", status)
+      }
+    }
+
     try {
       // Check Docker availability
       if (!this.docker.isAvailable()) {
         return this.error("Docker is not available", 500)
       }
 
-      const { existsSync } = await import("fs")
-      const { join } = await import("path")
-
       // ---------- COMPOSE BRANCH ----------
-      if (app.compose) {
-        // Ensure Traefik can reach the service
-        this.docker.ensureNetwork()
-
-        // Resolve base compose file (git stacks are cloned first)
-        if (app.compose.source === "git") {
-          if (!app.git) {
-            this.appStorage.update(name, { status: "failed" })
-            return this.error("Git source missing on compose app", 500)
-          }
-          await this.git.clone(name, app.git.repoUrl, app.git.branch, app.git.token)
-        }
-        const basePath = this.composeBasePath(app)
-        if (!existsSync(basePath)) {
-          this.appStorage.update(name, { status: "failed" })
-          return this.error(
-            app.compose.source === "git" ? `Compose file not found at '${app.compose.path}'` : "Compose file not found for app",
-            400
-          )
-        }
-
-        const project = `siteio-${name}`
-
-        // Resolve the base file alone: it must hold the primary service, and
-        // the override needs the networks that service is already on.
-        let resolved: { spec: ComposeSpec; warnings: string[] }
-        try {
-          resolved = await this.resolveComposeBase(app)
-        } catch (err) {
-          if (!(err instanceof ValidationError)) throw err
-          this.appStorage.update(name, { status: "failed" })
-          return this.error(err.message, 400)
-        }
-        const { spec, warnings } = resolved
-        const primary = spec.services[app.compose.primaryService] as { networks?: Record<string, unknown> }
-
-        // Write the override (regenerate every deploy so env/domain updates apply)
-        const overrideYaml = buildOverride(app, {
-          domains: this.appStorage.routedDomains(app, this.config.domain),
-          baseNetworks: Object.keys(primary.networks ?? {}),
-          dataDir: this.config.dataDir,
-        })
-        this.compose.writeOverride(name, overrideYaml)
-        const files = [basePath, this.compose.overridePath(name)]
-        const envFile = this.writeComposeEnvFile(app)
-
-        // Bring up the project
-        await this.docker.composeUp(project, files, envFile)
-
-        // Resolve primary service's container ID via ps
-        const psOutput = await this.docker.composePs(project, files, envFile)
-        const primaryState = psOutput.find((s) => s.service === app.compose!.primaryService)
-
-        const composeCommitHash = app.compose.source === "git" ? await this.git.getCommitHash(name) : undefined
-        const composeLastBuildAt = new Date().toISOString()
-
-        const updatedCompose = this.appStorage.update(name, {
-          status: "running",
-          containerId: primaryState?.containerId,
-          deployedAt: new Date().toISOString(),
-          lastBuildAt: composeLastBuildAt,
-          ...(composeCommitHash && { commitHash: composeCommitHash }),
-        })
-
-        return this.json({ ...(updatedCompose && scrubApp(updatedCompose)), url: this.appStorage.url(app, this.config.domain), warnings })
-      }
-      // ---------- END COMPOSE BRANCH ----------
-
-      // Ensure network exists (container flow)
+      // Ensure Traefik can reach the service
       this.docker.ensureNetwork()
 
-      // Remove existing container if it exists
-      if (this.docker.containerExists(name)) {
-        await this.docker.remove(name)
+      // Resolve base compose file (git stacks are cloned first)
+      if (app.compose.source === "git") {
+        if (!app.git) {
+          this.appStorage.update(name, { status: "failed" })
+          return this.error("Git source missing on compose app", 500)
+        }
+        await this.git.clone(name, app.git.repoUrl, app.git.branch, app.git.token)
       }
+      const basePath = this.composeBasePath(app)
+      if (!existsSync(basePath)) {
+        this.appStorage.update(name, { status: "failed" })
+        return this.error(
+          app.compose.source === "git" ? `Compose file not found at '${app.compose.path}'` : "Compose file not found for app",
+          400
+        )
+      }
+
+      const project = `siteio-${name}`
+
+      // Resolve the base file alone: it must hold the primary service, and
+      // the override needs the networks that service is already on.
+      let resolved: { spec: ComposeSpec; warnings: string[] }
+      try {
+        resolved = await this.resolveComposeBase(app)
+      } catch (err) {
+        if (!(err instanceof ValidationError)) throw err
+        this.appStorage.update(name, { status: "failed" })
+        return this.error(err.message, 400)
+      }
+      const { spec, warnings } = resolved
+      const primary = spec.services[app.compose.primaryService] as { networks?: Record<string, unknown> }
+
+      // Write the override (regenerate every deploy so env/domain updates apply)
+      const overrideYaml = buildOverride(app, {
+        domains: this.appStorage.routedDomains(app, this.config.domain),
+        baseNetworks: Object.keys(primary.networks ?? {}),
+        dataDir: this.config.dataDir,
+      })
+      this.compose.writeOverride(name, overrideYaml)
+      const files = [basePath, this.compose.overridePath(name)]
+      const envFile = this.writeComposeEnvFile(app)
+
+      // Bring up the project
+      await this.docker.composeUp(project, files, envFile)
+
+      // Resolve primary service's container ID via ps
+      const psOutput = await this.docker.composePs(project, files, envFile)
+      const primaryState = psOutput.find((s) => s.service === app.compose!.primaryService)
+
+      const composeCommitHash = app.compose.source === "git" ? await this.git.getCommitHash(name) : undefined
+      const composeLastBuildAt = new Date().toISOString()
+
+      const updatedCompose = this.appStorage.update(name, {
+        status: "running",
+        containerId: primaryState?.containerId,
+        deployedAt: new Date().toISOString(),
+        lastBuildAt: composeLastBuildAt,
+        ...(composeCommitHash && { commitHash: composeCommitHash }),
+      })
+
+      return this.json({ ...(updatedCompose && scrubApp(updatedCompose)), url: this.appStorage.url(app, this.config.domain), warnings })
+      // ---------- END COMPOSE BRANCH ----------
+    } catch (err) {
+      // Update status to failed
+      this.appStorage.update(name, { status: "failed" })
+      const message = err instanceof Error ? err.message : "Failed to deploy app"
+      return this.error(message, 500)
+    }
+  }
+
+  /**
+   * Deploy a single-container app: build or pull the new image while the old
+   * container keeps running, then swap. `ref` overrides the git branch (a tag,
+   * for auto-deploy). Throws DeployError.
+   */
+  async deployContainerApp(
+    name: string,
+    opts: { ref?: string; noCache?: boolean; dockerfileContent?: string } = {}
+  ): Promise<App> {
+    const app = this.appStorage.get(name)
+    if (!app) throw new DeployError("App not found", 404)
+    if (app.compose) throw new DeployError("Compose apps are not single-container apps", 400)
+    if (this.deploying.has(name)) throw new DeployError("Deploy already in progress", 409)
+
+    this.deploying.add(name)
+    let swapped = false
+    try {
+      if (!this.docker.isAvailable()) throw new DeployError("Docker is not available", 500)
+      this.docker.ensureNetwork()
 
       let imageToRun: string
       let commitHash: string | undefined
       let lastBuildAt: string | undefined
 
       if (app.git) {
-        // Git-based app: clone and build
-
-        // Clone repository
-        await this.git.clone(name, app.git.repoUrl, app.git.branch, app.git.token)
-
+        await this.git.clone(name, app.git.repoUrl, opts.ref ?? app.git.branch, app.git.token)
         const repoPath = this.git.repoPath(name)
 
-        // Determine build context path
+        // Context and Dockerfile paths are relative to the repo root, like docker -f
         const contextPath = app.git.context ? join(repoPath, app.git.context) : repoPath
-
-        // Validate context directory exists
         if (app.git.context && !existsSync(contextPath)) {
-          return this.error(`Context directory not found at '${app.git.context}'`, 400)
+          throw new DeployError(`Context directory not found at '${app.git.context}'`, 400)
         }
-
-        // Validate Dockerfile exists (path is relative to repo root, like docker -f)
         const dockerfilePath = join(repoPath, app.git.dockerfile)
         if (!existsSync(dockerfilePath)) {
-          return this.error(`Dockerfile not found at '${app.git.dockerfile}'`, 400)
+          throw new DeployError(`Dockerfile not found at '${app.git.dockerfile}'`, 400)
         }
 
-        // Build image
-        const imageTag = this.docker.imageTag(name)
-        await this.docker.build({
-          contextPath,
-          dockerfilePath,
-          tag: imageTag,
-          noCache,
-        })
-
-        // Get commit hash
+        imageToRun = this.docker.imageTag(name)
+        await this.docker.build({ contextPath, dockerfilePath, tag: imageToRun, noCache: opts.noCache })
         commitHash = await this.git.getCommitHash(name)
         lastBuildAt = new Date().toISOString()
-        imageToRun = imageTag
       } else if (app.dockerfile) {
         // Inline-dockerfile app: build from the stored Dockerfile in an empty context.
         // The Dockerfile must be self-contained (no COPY/ADD from context).
-        if (newDockerfileContent) {
-          this.dockerfiles.write(name, newDockerfileContent)
-        }
-
+        if (opts.dockerfileContent) this.dockerfiles.write(name, opts.dockerfileContent)
         if (!this.dockerfiles.exists(name)) {
-          return this.error("Dockerfile not found for app — re-run deploy with -f", 400)
+          throw new DeployError("Dockerfile not found for app — re-run deploy with -f", 400)
         }
-
-        const imageTag = this.docker.imageTag(name)
+        imageToRun = this.docker.imageTag(name)
         await this.docker.build({
           contextPath: this.dockerfiles.contextPath(name),
           dockerfilePath: this.dockerfiles.dockerfilePath(name),
-          tag: imageTag,
-          noCache,
+          tag: imageToRun,
+          noCache: opts.noCache,
         })
-
         lastBuildAt = new Date().toISOString()
-        imageToRun = imageTag
       } else {
         // Image-based app: pull from registry
         await this.docker.pull(app.image)
         imageToRun = app.image
       }
 
-      // Build Traefik labels for routing
-      const labels = this.docker.buildTraefikLabels(name, this.appStorage.routedDomains(app, this.config.domain), app.internalPort)
+      // The new image is ready: only now replace the running container, if
+      // the app still exists.
+      if (!this.appStorage.get(name)) throw new DeployError("App not found", 404)
+      swapped = true
+      if (this.docker.containerExists(name)) {
+        await this.docker.remove(name)
+      }
 
-      // Run container
+      const labels = this.docker.buildTraefikLabels(name, this.appStorage.routedDomains(app, this.config.domain), app.internalPort)
       const containerId = await this.docker.run({
         name: app.name,
         image: imageToRun,
@@ -1009,24 +1093,27 @@ export class AgentServer {
         labels,
       })
 
-      // Update app status
       const updated = this.appStorage.update(name, {
         status: "running",
         containerId,
         deployedAt: new Date().toISOString(),
+        autoDeployError: undefined,
         ...(commitHash && { commitHash }),
         ...(lastBuildAt && { lastBuildAt }),
       })
+      if (!updated) throw new DeployError("App not found", 404)
 
       // Refresh the card preview in the background — deploy stays fast.
-      if (updated) this.captureAppThumbnail(updated)
-
-      return this.json(updated && { ...scrubApp(updated), url: this.appStorage.url(updated, this.config.domain) })
+      this.captureAppThumbnail(updated)
+      return updated
     } catch (err) {
-      // Update status to failed
-      this.appStorage.update(name, { status: "failed" })
-      const message = err instanceof Error ? err.message : "Failed to deploy app"
-      return this.error(message, 500)
+      // Before the swap an existing container is untouched, so its status
+      // stands; with none, nothing is running.
+      if (swapped || !this.docker.containerExists(name)) this.appStorage.update(name, { status: "failed" })
+      if (err instanceof DeployError) throw err
+      throw new DeployError(err instanceof Error ? err.message : "Failed to deploy app", 500)
+    } finally {
+      this.deploying.delete(name)
     }
   }
 
@@ -1034,6 +1121,9 @@ export class AgentServer {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
+    }
+    if (this.isDeploying(name)) {
+      return this.error("Deploy already in progress", 409)
     }
     try {
       if (app.compose) {
@@ -1054,6 +1144,9 @@ export class AgentServer {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
+    }
+    if (this.isDeploying(name)) {
+      return this.error("Deploy already in progress", 409)
     }
     try {
       if (app.compose) {
@@ -2225,6 +2318,10 @@ export class AgentServer {
     }
   }
 
+  isDeploying(name: string): boolean {
+    return this.deploying.has(name)
+  }
+
   // `host` defaults to "localhost" so existing api-route tests pass the api gate;
   // MCP/OAuth tests pass a real site host (e.g. "blog.example.com").
   handleRequestForTest(req: Request, host = "localhost"): Promise<Response> {
@@ -2248,6 +2345,8 @@ export class AgentServer {
     this.oauth.gc()
     // Remove chat workspaces orphaned by a crash before finally-cleanup ran.
     this.chatController?.sweepWorkspaces()
+    // Poll auto-deploy apps' remotes (apps-disabled hosts have no apps to poll)
+    if (this.config.appsEnabled !== false) this.autoDeployer.start()
 
     const port = this.config.port || 3000
 
@@ -2374,6 +2473,7 @@ export class AgentServer {
   }
 
   stop(): void {
+    this.autoDeployer.stop()
     this.traefik?.stop()
     this.thumbnails?.stop()
     if (this.server) {

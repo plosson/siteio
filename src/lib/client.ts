@@ -1,7 +1,7 @@
 import { loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
 import type {
-  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, WithComposeWarnings, ShareGrantInfo, ShareGrantCreated, EditLinkCreated,
+  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, WithComposeWarnings, ShareGrantInfo, ShareGrantCreated, EditLinkCreated, AutoDeployMode,
 } from "../types.ts"
 
 export interface ClientOptions {
@@ -248,6 +248,7 @@ export class SiteioClient {
       dockerfile?: string
       context?: string
       token?: string
+      autoDeploy?: AutoDeployMode
     }
     dockerfileContent?: string
     composeContent?: string
@@ -297,7 +298,7 @@ export class SiteioClient {
       internalPort?: number
       restartPolicy?: string
       image?: string
-      git?: { repoUrl?: string; branch?: string; dockerfile?: string; context?: string; token?: string }
+      git?: { repoUrl?: string; branch?: string; dockerfile?: string; context?: string; token?: string; autoDeploy?: AutoDeployMode }
       composeContent?: string
       envFileContent?: string
       primaryService?: string

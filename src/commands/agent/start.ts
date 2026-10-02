@@ -4,6 +4,7 @@ import { randomBytes } from "crypto"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { formatError } from "../../utils/output.ts"
 import { encodeToken } from "../../utils/token.ts"
+import { parseAutoDeployInterval } from "../../lib/agent/auto-deploy.ts"
 import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import type { AgentConfig, AcmeConfig, ChatConfig } from "../../types.ts"
 
@@ -114,6 +115,16 @@ export async function startAgentCommand(): Promise<void> {
     true
   )
 
+  // Seconds between auto-deploy checks. Env var wins over persisted config.
+  let autoDeployInterval: number
+  try {
+    // An empty env var counts as unset
+    autoDeployInterval = parseAutoDeployInterval(process.env.SITEIO_AUTODEPLOY_INTERVAL || persistedConfig.autoDeployInterval)
+  } catch (err) {
+    console.error(formatError((err as Error).message))
+    process.exit(1)
+  }
+
   if (!email) {
     console.error(formatError("SITEIO_EMAIL environment variable is required for Let's Encrypt certificates"))
     console.error(chalk.gray("  Set it in your systemd service file or environment"))
@@ -145,6 +156,7 @@ export async function startAgentCommand(): Promise<void> {
     email,
     acme,
     appsEnabled,
+    autoDeployInterval,
     chat,
   }
 
@@ -159,6 +171,7 @@ export async function startAgentCommand(): Promise<void> {
   console.log(`  Max upload: ${maxUploadSize / 1024 / 1024}MB`)
   console.log(`  Ports:      ${httpPort} (HTTP), ${httpsPort} (HTTPS)`)
   console.log(`  Apps:       ${appsEnabled ? "enabled" : "disabled"}`)
+  console.log(`  Auto-deploy: every ${autoDeployInterval}s`)
   console.log(
     `  Chat:       ${chat ? `enabled (${chat.provider}${chat.model ? "/" + chat.model : ""}, ${chat.sandbox ? "sandboxed" : "host"})` : "disabled (no LLM credential)"}`
   )

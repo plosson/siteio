@@ -7,6 +7,25 @@ import { handleError, ValidationError } from "../../utils/errors.ts"
 import { resolveAppName } from "../../utils/site-config.ts"
 import type { App } from "../../types.ts"
 
+function formatAgo(then: number, now: number): string {
+  if (Number.isNaN(then)) return "at an unknown time"
+  const seconds = Math.max(0, Math.round((now - then) / 1000))
+  if (seconds < 60) return "just now"
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`
+  return `${Math.floor(seconds / 86400)} d ago`
+}
+
+/** e.g. "tag (last v3.8.2, checked 2 min ago)" */
+export function formatAutoDeploy(app: Pick<App, "git" | "autoDeployRef" | "autoDeployCheckedAt">, now: number): string {
+  const mode = app.git?.autoDeploy ?? "off"
+  const last = app.autoDeployRef ? (mode === "commit" ? app.autoDeployRef.slice(0, 7) : app.autoDeployRef) : "none yet"
+  const checked = app.autoDeployCheckedAt
+    ? `checked ${formatAgo(Date.parse(app.autoDeployCheckedAt), now)}`
+    : "not checked yet"
+  return `${mode} (last ${last}, ${checked})`
+}
+
 export async function infoAppCommand(
   name: string | undefined,
   options: { json?: boolean } = {}
@@ -59,6 +78,12 @@ export async function infoAppCommand(
       }
       if (app.lastBuildAt) {
         console.log(`  Built:   ${new Date(app.lastBuildAt).toLocaleString()}`)
+      }
+      if (app.git.autoDeploy && app.git.autoDeploy !== "off") {
+        console.log(`  Auto-deploy: ${formatAutoDeploy(app, Date.now())}`)
+      }
+      if (app.autoDeployError) {
+        console.log(`  Auto-deploy error: ${chalk.red(app.autoDeployError)}`)
       }
     } else {
       console.log(`  Image:   ${app.image}`)

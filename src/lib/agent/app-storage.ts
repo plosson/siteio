@@ -165,6 +165,9 @@ export class AppStorage {
       createdAt: app.createdAt,
       commitHash: app.commitHash,
       lastBuildAt: app.lastBuildAt,
+      autoDeployRef: app.autoDeployRef,
+      autoDeployCheckedAt: app.autoDeployCheckedAt,
+      autoDeployError: app.autoDeployError,
     }
   }
 
