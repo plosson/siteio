@@ -7,7 +7,8 @@ import { handleError, ValidationError } from "../../utils/errors.ts"
 import { saveProjectConfig } from "../../utils/site-config.ts"
 import { readFlagFile } from "../../utils/files.ts"
 import { deployAppCommand } from "./deploy.ts"
-import type { AppInfo } from "../../types.ts"
+import { parseAutoDeployFlag } from "../../lib/agent/auto-deploy.ts"
+import type { AutoDeployMode, AppInfo } from "../../types.ts"
 
 export interface CreateAppOptions {
   image?: string
@@ -21,6 +22,7 @@ export interface CreateAppOptions {
   branch?: string
   context?: string
   gitToken?: string
+  autoDeploy?: string
   port?: number
   deploy?: boolean // deploy right after creating
   json?: boolean
@@ -68,6 +70,15 @@ export function validateCreateOptions(options: CreateAppOptions): void {
   if (options.gitToken && !hasGit) {
     throw new ValidationError("--git-token requires --git")
   }
+  if (options.autoDeploy !== undefined) {
+    parseAutoDeployFlag(options.autoDeploy)
+    if (!hasGit) {
+      throw new ValidationError("--auto-deploy requires --git")
+    }
+    if (options.compose) {
+      throw new ValidationError("--auto-deploy is not supported for compose apps")
+    }
+  }
 }
 
 function printCreatedApp(app: AppInfo, options: CreateAppOptions): void {
@@ -90,6 +101,7 @@ function printCreatedApp(app: AppInfo, options: CreateAppOptions): void {
     if (options.branch) console.log(`  Branch: ${options.branch}`)
     if (options.dockerfile) console.log(`  Dockerfile: ${options.dockerfile}`)
     if (options.context) console.log(`  Context: ${options.context}`)
+    if (options.autoDeploy) console.log(`  Auto-deploy: ${options.autoDeploy}`)
   } else if (options.file) {
     console.log(`  Source: ${chalk.blue("dockerfile")}`)
     console.log(`  File:   ${options.file}`)
@@ -140,6 +152,7 @@ export async function createAppCommand(
             dockerfile: options.dockerfile,
             context: options.context,
             token: options.gitToken,
+            autoDeploy: options.autoDeploy as AutoDeployMode | undefined,
           }
         : undefined,
       dockerfileContent,
