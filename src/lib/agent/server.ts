@@ -29,6 +29,7 @@ import { encodeToken } from "../../utils/token.ts"
 import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
+import { AUTO_DEPLOY_MODES, isAutoDeployMode } from "./auto-deploy.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
 // gets the same window (clamped to the code). The per-grant spend cap is a
@@ -565,6 +566,7 @@ export class AgentServer {
           dockerfile?: string
           context?: string
           token?: string
+          autoDeploy?: unknown
         }
         dockerfileContent?: string
         composeContent?: string
@@ -619,6 +621,14 @@ export class AgentServer {
       if (body.git && !body.git.repoUrl) {
         return this.error("Git repository URL is required")
       }
+      if (body.git?.autoDeploy !== undefined) {
+        if (!isAutoDeployMode(body.git.autoDeploy)) {
+          return this.error(`autoDeploy must be one of: ${AUTO_DEPLOY_MODES.join(", ")}`)
+        }
+        if (hasCompose) {
+          return this.error("autoDeploy is only supported on single-container git apps")
+        }
+      }
 
       // Determine image tag for locally-built or compose-tagged apps.
       const image =
@@ -660,6 +670,7 @@ export class AgentServer {
                 dockerfile: body.git.dockerfile || "Dockerfile",
                 context: body.git.context,
                 token: body.git.token,
+                ...(isAutoDeployMode(body.git.autoDeploy) && { autoDeploy: body.git.autoDeploy }),
               }
             : undefined,
           dockerfile: body.dockerfileContent ? { source: "inline" } : undefined,
@@ -693,9 +704,16 @@ export class AgentServer {
       }
 
       // `compose` is server-owned: clients change it through primaryService only
-      const { composeContent, envFileContent, primaryService, compose: _ignored, ...body } = (await req.json()) as Partial<
-        Omit<App, "name" | "createdAt">
-      > & {
+      const {
+        composeContent,
+        envFileContent,
+        primaryService,
+        compose: _ignored,
+        autoDeployRef: _ref,
+        autoDeployCheckedAt: _checkedAt,
+        autoDeployError: _error,
+        ...body
+      } = (await req.json()) as Partial<Omit<App, "name" | "createdAt">> & {
         secrets?: Record<string, string>
         composeContent?: string
         envFileContent?: string
@@ -720,6 +738,22 @@ export class AgentServer {
         }
       }
 
+      // Auto-deploy only runs single-container git apps. A new mode starts
+      // from a clean poller state.
+      const autoDeploy = (body.git as { autoDeploy?: unknown } | undefined)?.autoDeploy
+      if (autoDeploy !== undefined) {
+        if (!isAutoDeployMode(autoDeploy)) {
+          return this.error(`autoDeploy must be one of: ${AUTO_DEPLOY_MODES.join(", ")}`)
+        }
+        if (!app.git || app.compose) {
+          return this.error("autoDeploy is only supported on single-container git apps")
+        }
+      }
+      const autoDeployReset =
+        autoDeploy !== undefined && autoDeploy !== (app.git?.autoDeploy ?? "off")
+          ? { autoDeployRef: undefined, autoDeployError: undefined }
+          : {}
+
       // Field-level merge for git so partial updates (e.g. only --git-token or
       // only --dockerfile) preserve other stored fields. Also strip clients'
       // incoming `tokenSet` — it's an output-only hint.
@@ -742,7 +776,11 @@ export class AgentServer {
           // Checked against the domains this same request may set
           warnings = await this.checkUploadedCompose({ name, domains: body.domains ?? app.domains, compose })
         }
-        updated = this.appStorage.update(name, { ...body, ...(compose !== app.compose && { compose }) })
+        updated = this.appStorage.update(name, {
+          ...body,
+          ...autoDeployReset,
+          ...(compose !== app.compose && { compose }),
+        })
       } catch (err) {
         if (previous) this.compose.restore(name, previous)
         throw err
