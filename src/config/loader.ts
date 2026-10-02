@@ -3,7 +3,7 @@ import { homedir } from "os"
 import { join } from "path"
 import type { ClientConfig, ServerConfig } from "../types.ts"
 
-const CONFIG_DIR = join(homedir(), ".config", "siteio")
+export const CONFIG_DIR = join(homedir(), ".config", "siteio")
 const CONFIG_FILE = join(CONFIG_DIR, "config.json")
 
 const DEFAULTS: ClientConfig = {}

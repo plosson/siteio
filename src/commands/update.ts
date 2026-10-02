@@ -38,7 +38,7 @@ function getCurrentVersion(): string {
   return "0.0.0"
 }
 
-function getPlatform(): string {
+export function getPlatform(): string {
   const platform = os.platform()
   const arch = os.arch()
 
@@ -53,7 +53,7 @@ function getPlatform(): string {
   throw new Error(`Unsupported platform: ${platform}-${arch}`)
 }
 
-function getAssetName(platform: string): string {
+export function getAssetName(platform: string): string {
   if (platform === "windows-x64") {
     return `siteio-${platform}.exe`
   }
@@ -128,7 +128,7 @@ async function fetchLatestRelease(): Promise<GitHubRelease> {
 
 // Prefer the redirect; fall back to the REST API so a GitHub change to the
 // redirect shape degrades to the old behaviour rather than breaking updates.
-async function resolveLatestRelease(): Promise<LatestRelease> {
+export async function resolveLatestRelease(): Promise<LatestRelease> {
   const tag = await fetchLatestTagViaRedirect()
   if (tag) return { tag, assets: null }
 
@@ -138,7 +138,7 @@ async function resolveLatestRelease(): Promise<LatestRelease> {
 
 // The redirect path never sees the asset list, so the download URL is built from
 // the tag and probed with a HEAD to keep the "no binary for this platform" error.
-async function resolveDownloadUrl(release: LatestRelease, assetName: string, platform: string): Promise<string> {
+export async function resolveDownloadUrl(release: LatestRelease, assetName: string, platform: string): Promise<string> {
   if (release.assets) {
     const asset = release.assets.find((a) => a.name === assetName)
     if (!asset) {
@@ -157,7 +157,7 @@ async function resolveDownloadUrl(release: LatestRelease, assetName: string, pla
   return url
 }
 
-function compareVersions(current: string, latest: string): number {
+export function compareVersions(current: string, latest: string): number {
   const parseVersion = (v: string) =>
     v
       .replace(/^v/, "")
@@ -249,7 +249,7 @@ function moveFile(src: string, dest: string): void {
   }
 }
 
-async function updateBinary(downloadUrl: string, targetPath: string): Promise<void> {
+export async function updateBinary(downloadUrl: string, targetPath: string): Promise<void> {
   const platform = os.platform()
   const isWindows = platform === "win32"
 
@@ -257,7 +257,7 @@ async function updateBinary(downloadUrl: string, targetPath: string): Promise<vo
   const ext = isWindows ? ".exe" : ""
   const tmpFile = path.join(targetDir, `.siteio-update-${Date.now()}${ext}`)
 
-  console.log("Downloading update...")
+  console.error("Downloading update...")
   await downloadBinary(downloadUrl, tmpFile)
 
   const stats = fs.statSync(tmpFile)
@@ -273,7 +273,7 @@ async function updateBinary(downloadUrl: string, targetPath: string): Promise<vo
     // Use default
   }
 
-  console.log("Installing update...")
+  console.error("Installing update...")
 
   if (isWindows) {
     const backupPath = targetPath + ".old"
