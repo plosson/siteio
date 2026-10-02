@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { SiteioError } from "../../utils/errors"
+import { parseLsRemote, type RemoteRef } from "./auto-deploy"
 
 // Helper invoked by git through GIT_ASKPASS. Reads the token from the env var
 // we set on the clone subprocess so it never lands in argv or stderr.
@@ -21,17 +22,10 @@ function redactToken(text: string, token: string | undefined): string {
   return text.split(token).join("***")
 }
 
-// Map git clone stderr to a clear, accurate error message.
-//
-// Order matters: GitHub hides private repos behind "Repository not found" (which
-// contains the substring "not found"), so the branch check must be specific to
-// real "remote branch missing" messages and must run AFTER the auth and
-// repository-not-found checks — otherwise an auth/access failure is mislabeled
-// as "Branch '<branch>' not found".
-export function cloneErrorMessage(
-  stderr: string,
-  opts: { branch: string; url: string; hasToken: boolean },
-): string {
+// Auth and repository-access failures, worded the same for every git command.
+// GitHub hides private repos behind "Repository not found", so this must run
+// before any "not found" check of a caller.
+function accessErrorMessage(stderr: string, opts: { url: string; hasToken: boolean }): string | undefined {
   if (
     stderr.includes("Authentication failed") ||
     stderr.includes("could not read Username") ||
@@ -44,6 +38,22 @@ export function cloneErrorMessage(
   if (stderr.includes("Repository not found") || stderr.includes("not appear to be a git repository")) {
     return `Repository not found (or token lacks access): ${opts.url}`
   }
+  return undefined
+}
+
+// Map git clone stderr to a clear, accurate error message.
+//
+// Order matters: GitHub hides private repos behind "Repository not found" (which
+// contains the substring "not found"), so the branch check must be specific to
+// real "remote branch missing" messages and must run AFTER the auth and
+// repository-not-found checks — otherwise an auth/access failure is mislabeled
+// as "Branch '<branch>' not found".
+export function cloneErrorMessage(
+  stderr: string,
+  opts: { branch: string; url: string; hasToken: boolean },
+): string {
+  const access = accessErrorMessage(stderr, opts)
+  if (access) return access
   if (
     stderr.includes("Remote branch") ||
     stderr.includes("not found in upstream") ||
@@ -52,6 +62,11 @@ export function cloneErrorMessage(
     return `Branch '${opts.branch}' not found in repository`
   }
   return `Failed to clone repository: ${stderr}`
+}
+
+/** Map `git ls-remote` stderr to a clear error message. */
+export function lsRemoteErrorMessage(stderr: string, opts: { url: string; hasToken: boolean }): string {
+  return accessErrorMessage(stderr, opts) ?? `Failed to list remote refs: ${stderr}`
 }
 
 export class GitManager {
@@ -69,10 +84,31 @@ export class GitManager {
   }
 
   /**
-   * Clone a repository (shallow clone for speed)
+   * Environment for a git subprocess. With a token, git reads it through
+   * GIT_ASKPASS so it never lands in argv or stderr. Call cleanup() when the
+   * subprocess has exited.
+   */
+  private gitEnv(token?: string): { env: Record<string, string>; cleanup: () => void } {
+    const env: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      GIT_TERMINAL_PROMPT: "0",
+    }
+    if (!token) return { env, cleanup: () => {} }
+
+    const askpassDir = mkdtempSync(join(tmpdir(), "siteio-askpass-"))
+    const askpassPath = join(askpassDir, "askpass.sh")
+    writeFileSync(askpassPath, ASKPASS_SCRIPT)
+    chmodSync(askpassPath, 0o700)
+    env.GIT_ASKPASS = askpassPath
+    env.SITEIO_GIT_TOKEN = token
+    return { env, cleanup: () => rmSync(askpassDir, { recursive: true, force: true }) }
+  }
+
+  /**
+   * Clone a repository at a branch or tag (shallow clone for speed).
    * Always does a fresh clone - removes existing repo first
    */
-  async clone(appName: string, url: string, branch: string, token?: string): Promise<void> {
+  async clone(appName: string, url: string, ref: string, token?: string): Promise<void> {
     const targetDir = this.repoPath(appName)
 
     // Remove existing repo if present
@@ -80,24 +116,10 @@ export class GitManager {
       rmSync(targetDir, { recursive: true, force: true })
     }
 
-    const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
-      GIT_TERMINAL_PROMPT: "0",
-    }
-
-    let askpassDir: string | undefined
-    if (token) {
-      askpassDir = mkdtempSync(join(tmpdir(), "siteio-askpass-"))
-      const askpassPath = join(askpassDir, "askpass.sh")
-      writeFileSync(askpassPath, ASKPASS_SCRIPT)
-      chmodSync(askpassPath, 0o700)
-      env.GIT_ASKPASS = askpassPath
-      env.SITEIO_GIT_TOKEN = token
-    }
-
+    const { env, cleanup } = this.gitEnv(token)
     try {
       const result = spawnSync({
-        cmd: ["git", "clone", "--depth", "1", "--branch", branch, url, targetDir],
+        cmd: ["git", "clone", "--depth", "1", "--branch", ref, url, targetDir],
         stdout: "pipe",
         stderr: "pipe",
         env,
@@ -105,12 +127,43 @@ export class GitManager {
 
       if (result.exitCode !== 0) {
         const stderr = redactToken(result.stderr.toString(), token)
-        throw new SiteioError(cloneErrorMessage(stderr, { branch, url, hasToken: !!token }))
+        throw new SiteioError(cloneErrorMessage(stderr, { branch: ref, url, hasToken: !!token }))
       }
     } finally {
-      if (askpassDir && existsSync(askpassDir)) {
-        rmSync(askpassDir, { recursive: true, force: true })
+      cleanup()
+    }
+  }
+
+  /**
+   * List the remote refs matching `patterns` without cloning. Protocol v2 lets
+   * the server send only those refs. Killed after `timeoutMs`.
+   */
+  async lsRemote(url: string, patterns: string[], token?: string, timeoutMs = 30_000): Promise<RemoteRef[]> {
+    const { env, cleanup } = this.gitEnv(token)
+    try {
+      const proc = Bun.spawn({
+        cmd: ["git", "-c", "protocol.version=2", "ls-remote", url, ...patterns],
+        stdout: "pipe",
+        stderr: "pipe",
+        env,
+        timeout: timeoutMs,
+      })
+      // Read the pipes concurrently, but decide on the exit first: when the kill
+      // lands, git's transport child can hold the pipes open until its own
+      // network timeout, so a timed-out call must not wait for them.
+      const stdoutP = new Response(proc.stdout).text()
+      const stderrP = new Response(proc.stderr).text()
+      const exitCode = await proc.exited
+      if (proc.signalCode) {
+        throw new SiteioError(`Timed out listing remote refs after ${Math.round(timeoutMs / 1000)}s`)
       }
+      const [stdout, stderr] = await Promise.all([stdoutP, stderrP])
+      if (exitCode !== 0) {
+        throw new SiteioError(lsRemoteErrorMessage(redactToken(stderr, token), { url, hasToken: !!token }))
+      }
+      return parseLsRemote(stdout)
+    } finally {
+      cleanup()
     }
   }
 

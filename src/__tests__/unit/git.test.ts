@@ -2,7 +2,8 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { mkdtempSync, rmSync, existsSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { GitManager, cloneErrorMessage } from "../../lib/agent/git"
+import { GitManager, cloneErrorMessage, lsRemoteErrorMessage } from "../../lib/agent/git"
+import { makeRepo } from "../helpers/git-repo"
 
 describe("cloneErrorMessage", () => {
   const opts = { branch: "main", url: "https://github.com/u/private.git", hasToken: true }
@@ -128,5 +129,122 @@ describe("GitManager", () => {
     test("does not throw for non-existent repo", async () => {
       await expect(git.remove("nonexistent")).resolves.toBeUndefined()
     })
+  })
+})
+
+describe("lsRemoteErrorMessage", () => {
+  const opts = { url: "https://github.com/u/private.git", hasToken: true }
+
+  test("auth failure uses the clone wording", () => {
+    expect(lsRemoteErrorMessage("fatal: Authentication failed for 'https://...'", opts)).toContain("Authentication failed")
+  })
+
+  test("repository not found uses the clone wording", () => {
+    expect(lsRemoteErrorMessage("remote: Repository not found.", opts)).toContain("Repository not found")
+  })
+
+  test("never says 'Branch ... not found' (ls-remote has no branch argument)", () => {
+    expect(lsRemoteErrorMessage("fatal: Remote branch main not found in upstream origin", opts)).not.toContain("Branch")
+  })
+
+  test("anything else is a listing failure, not a clone failure", () => {
+    const msg = lsRemoteErrorMessage("fatal: unable to access: timeout", opts)
+    expect(msg).toContain("Failed to list remote refs")
+    expect(msg).not.toContain("clone")
+  })
+})
+
+describe("GitManager.lsRemote", () => {
+  let root: string
+  let git: GitManager
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "siteio-lsremote-test-"))
+    git = new GitManager(join(root, "data"))
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test("returns only the requested branch", async () => {
+    const repo = makeRepo(root)
+    repo.tag("v1.0.0")
+    repo.push()
+    const refs = await git.lsRemote(repo.url, ["refs/heads/main"])
+    expect(refs.map((r) => r.ref)).toEqual(["refs/heads/main"])
+  })
+
+  test("returns v* tags, with the peeled line for annotated ones", async () => {
+    const repo = makeRepo(root)
+    repo.tag("v1.0.0")
+    repo.commit("two")
+    repo.tag("v1.1.0", true)
+    repo.tag("other")
+    repo.push()
+    const refs = (await git.lsRemote(repo.url, ["refs/tags/v*"])).map((r) => r.ref).sort()
+    expect(refs).toEqual(["refs/tags/v1.0.0", "refs/tags/v1.1.0", "refs/tags/v1.1.0^{}"])
+  })
+
+  test("a missing repository maps to the repository error", async () => {
+    await expect(git.lsRemote(`file://${join(root, "nope.git")}`, ["refs/heads/main"])).rejects.toThrow(
+      /Repository not found|not appear to be a git repository|Failed to list remote refs/
+    )
+  })
+
+  test("hanging remote times out", async () => {
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Promise<Response>(() => {}) })
+    try {
+      const started = Date.now()
+      await expect(
+        git.lsRemote(`http://127.0.0.1:${server.port}/repo.git`, ["refs/heads/main"], undefined, 500)
+      ).rejects.toThrow(/Timed out/)
+      expect(Date.now() - started).toBeLessThan(5_000)
+    } finally {
+      server.stop(true)
+    }
+  })
+
+  test("the token never appears in the error", async () => {
+    const token = "ghp_TOKEN_MUST_NOT_LEAK_123"
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response("no", { status: 401, headers: { "WWW-Authenticate": 'Basic realm="x"' } }),
+    })
+    try {
+      const err = await git
+        .lsRemote(`http://127.0.0.1:${server.port}/repo.git`, ["refs/heads/main"], token)
+        .then(() => null, (e: Error) => e)
+      expect(err).not.toBeNull()
+      expect(err!.message).toContain("Authentication failed")
+      expect(err!.message).not.toContain(token)
+    } finally {
+      server.stop(true)
+    }
+  })
+})
+
+describe("GitManager.clone with a tag", () => {
+  let root: string
+  let git: GitManager
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "siteio-clone-tag-test-"))
+    git = new GitManager(join(root, "data"))
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test("checks out the tagged commit, not the branch head", async () => {
+    const repo = makeRepo(root)
+    const tagged = repo.commit("release")
+    repo.tag("v1.0.0", true)
+    repo.commit("after release")
+    repo.push()
+    await git.clone("app", repo.url, "v1.0.0")
+    expect(await git.getCommitHash("app")).toBe(tagged)
   })
 })
