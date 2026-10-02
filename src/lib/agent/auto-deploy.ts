@@ -120,6 +120,8 @@ const DEFAULT_INTERVAL_SECONDS = 300
 const MIN_INTERVAL_SECONDS = 60
 const MAX_BACKOFF_MS = 60 * 60 * 1000
 const TICK_MS = 15_000
+// Prefix of a stored deploy failure; such an error outlives healthy checks until a deploy succeeds.
+const DEPLOY_FAILED_PREFIX = "deploy failed for "
 
 /** SITEIO_AUTODEPLOY_INTERVAL / autoDeployInterval, in whole seconds. */
 export function parseAutoDeployInterval(value: unknown): number {
@@ -182,8 +184,15 @@ export class AutoDeployer {
     if (this.ticking) return
     this.ticking = true
     try {
+      let apps: App[]
+      try {
+        apps = this.deps.listApps()
+      } catch (err) {
+        this.deps.log(`auto-deploy: ${messageOf(err)}`)
+        return
+      }
       const watched = new Set<string>()
-      for (const listed of this.deps.listApps()) {
+      for (const listed of apps) {
         if (!isAutoDeployable(listed)) continue
         watched.add(listed.name)
         let schedule = this.schedules.get(listed.name)
@@ -216,7 +225,6 @@ export class AutoDeployer {
     const git = app.git!
     const mode = git.autoDeploy as "commit" | "tag"
     const checkedAt = new Date(this.deps.now()).toISOString()
-    const hadCheckError = schedule.backoffMs > 0
 
     let target: DeployTarget | null
     try {
@@ -243,9 +251,12 @@ export class AutoDeployer {
       return
     }
 
+    // A healthy check clears an error that came from a check; a deploy failure stays
+    const clearable = app.autoDeployError && !app.autoDeployError.startsWith(DEPLOY_FAILED_PREFIX) ? { autoDeployError: undefined } : {}
+
     if (!shouldDeploy(mode, app, target)) {
       // A deploy failure stays visible until a deploy succeeds
-      this.deps.updateApp(name, { autoDeployCheckedAt: checkedAt, ...(hadCheckError && { autoDeployError: undefined }) })
+      this.deps.updateApp(name, { autoDeployCheckedAt: checkedAt, ...clearable })
       return
     }
 
@@ -254,7 +265,7 @@ export class AutoDeployer {
     this.deps.updateApp(name, {
       autoDeployCheckedAt: checkedAt,
       autoDeployRef: target.ref,
-      ...(hadCheckError && { autoDeployError: undefined }),
+      ...clearable,
     })
     this.deps.log(`auto-deploy ${name}: deploying ${label}`)
 
@@ -269,7 +280,7 @@ export class AutoDeployer {
         this.deps.log(`auto-deploy ${name}: deploy in progress, retrying ${label} next tick`)
         return
       }
-      const message = `deploy failed for ${label}: ${messageOf(err)}`
+      const message = `${DEPLOY_FAILED_PREFIX}${label}: ${messageOf(err)}`
       this.deps.updateApp(name, { autoDeployError: message })
       this.deps.log(`auto-deploy ${name}: ${message}`)
     }

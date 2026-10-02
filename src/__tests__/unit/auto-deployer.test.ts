@@ -205,6 +205,43 @@ describe("failed checks", () => {
   })
 })
 
+describe("stale errors", () => {
+  test("a fresh deployer clears a stored check error on a healthy check", async () => {
+    const { state, deployer, app } = harness([makeApp("tag", { autoDeployRef: "v1.0.0", autoDeployError: "check failed: x" })])
+    state.refs = tagRefs("v1.0.0")
+    await deployer.tick()
+    expect(app().autoDeployError).toBeUndefined()
+  })
+
+  test("a no-target error clears once the target reappears with nothing to deploy", async () => {
+    const { state, deployer, app } = harness([makeApp("tag", { autoDeployRef: "v1.0.0" })])
+    state.refs = tagRefs("v1.0.0-rc1")
+    await deployer.tick()
+    expect(app().autoDeployError).toBe("no vX.Y.Z tag found")
+    state.refs = tagRefs("v1.0.0")
+    state.now += INTERVAL
+    await deployer.tick()
+    expect(app().autoDeployError).toBeUndefined()
+  })
+})
+
+describe("listing failures", () => {
+  test("a throwing listApps is logged and the next tick works", async () => {
+    const { state, deployer } = harness([makeApp("tag")])
+    state.refs = tagRefs("v1.0.0")
+    const deps = (deployer as unknown as { deps: AutoDeployDeps }).deps
+    const original = deps.listApps
+    deps.listApps = () => {
+      throw new Error("ENOENT")
+    }
+    await deployer.tick()
+    expect(state.logs).toContain("auto-deploy: ENOENT")
+    deps.listApps = original
+    await deployer.tick()
+    expect(state.lsCalls).toBe(1)
+  })
+})
+
 describe("races and skips", () => {
   test("lock race: a 409 from deploy restores the previous ref and retries next tick", async () => {
     const { state, deployer, app } = harness([makeApp("tag", { autoDeployRef: "v1.0.0" })])
