@@ -672,4 +672,4 @@ Examples:
     await completionCommand(shell)
   })
 
-await program.parseAsync()
+void program.parseAsync()
