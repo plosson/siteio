@@ -333,6 +333,99 @@ describe("races and skips", () => {
   })
 })
 
+describe("final review fixes", () => {
+  test("F1: a stopped app is never checked or redeployed", async () => {
+    const { state, deployer } = harness([makeApp("tag", { status: "stopped", autoDeployRef: "v1.0.0" })])
+    state.refs = tagRefs("v1.0.0", "v2.0.0")
+    await deployer.tick()
+    expect(state.lsCalls).toBe(0)
+    expect(state.deploys).toEqual([])
+  })
+
+  test("F1: a pending (never deployed) app is still deployed", async () => {
+    const { state, deployer } = harness([makeApp("tag", { status: "pending" })])
+    state.refs = tagRefs("v1.0.0")
+    await deployer.tick()
+    expect(state.deploys).toEqual([{ name: "web", ref: "v1.0.0" }])
+  })
+
+  test("M3: a deploy in flight is stored as interrupted until it settles", async () => {
+    const { state, deployer, app } = harness([makeApp("tag")])
+    state.refs = tagRefs("v1.0.0")
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const deps = (deployer as unknown as { deps: AutoDeployDeps }).deps
+    const original = deps.deploy
+    deps.deploy = async (name, ref) => {
+      await gate
+      await original(name, ref)
+      deps.updateApp(name, { autoDeployError: undefined }) // a successful deploy clears it
+    }
+    const ticking = deployer.tick()
+    while (app().autoDeployRef !== "v1.0.0") await Bun.sleep(1)
+    expect(app().autoDeployError).toBe("deploy failed for v1.0.0: interrupted")
+    release()
+    await ticking
+    expect(app().autoDeployError).toBeUndefined()
+    expect(app().autoDeployRef).toBe("v1.0.0")
+  })
+
+  test("M3: a failure replaces the interrupted marker with the real error", async () => {
+    const { state, deployer, app } = harness([makeApp("tag")])
+    state.refs = tagRefs("v1.0.0")
+    state.deployError = new Error("docker build failed")
+    await deployer.tick()
+    expect(app().autoDeployError).toBe("deploy failed for v1.0.0: docker build failed")
+  })
+
+  test("M3: a 409 restores the previous ref and the previous deploy error", async () => {
+    const previous = "deploy failed for v1.0.0: boom"
+    const { state, deployer, app } = harness([makeApp("tag", { autoDeployRef: "v1.0.0", autoDeployError: previous })])
+    state.refs = tagRefs("v1.0.0", "v1.1.0")
+    state.deployError = Object.assign(new Error("Deploy already in progress"), { status: 409 })
+    await deployer.tick()
+    expect(app().autoDeployRef).toBe("v1.0.0")
+    expect(app().autoDeployError).toBe(previous)
+  })
+
+  test("M4: a missing target keeps a stored deploy failure", async () => {
+    const previous = "deploy failed for v1.0.0: boom"
+    const { state, deployer, app } = harness([makeApp("tag", { autoDeployRef: "v1.0.0", autoDeployError: previous })])
+    state.refs = tagRefs("v1.0.0-rc1")
+    await deployer.tick()
+    expect(app().autoDeployError).toBe(previous)
+    expect(app().autoDeployCheckedAt).toBe(new Date(1_000_000).toISOString())
+  })
+
+  test("M4: a missing target still replaces a check error", async () => {
+    const { state, deployer, app } = harness([makeApp("commit", { autoDeployError: "check failed: x" })])
+    state.refs = []
+    await deployer.tick()
+    expect(app().autoDeployError).toBe("branch 'main' not found")
+  })
+
+  test.each([
+    ["switched off", (a: App): App | null => ({ ...a, git: { ...a.git!, autoDeploy: "off" } })],
+    ["switched to commit mode", (a: App): App | null => ({ ...a, git: { ...a.git!, autoDeploy: "commit" } })],
+    ["stopped", (a: App): App | null => ({ ...a, status: "stopped" })],
+    ["deleted", (): App | null => null],
+  ])("M6: an app %s while ls-remote runs is not deployed", async (_label, change) => {
+    const { state, deployer, app } = harness([makeApp("tag")])
+    state.refs = tagRefs("v1.0.0")
+    const deps = (deployer as unknown as { deps: AutoDeployDeps }).deps
+    const original = deps.lsRemote
+    deps.lsRemote = async (...args) => {
+      const changed = change(app())
+      if (changed) state.apps.set("web", changed)
+      else state.apps.delete("web")
+      return original(...args)
+    }
+    await deployer.tick()
+    expect(state.deploys).toEqual([])
+    expect(state.apps.get("web")?.autoDeployRef).toBeUndefined()
+  })
+})
+
 describe("parseAutoDeployInterval", () => {
   test("defaults to 300 seconds", () => {
     expect(parseAutoDeployInterval(undefined)).toBe(300)

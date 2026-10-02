@@ -217,12 +217,12 @@ export class AutoDeployer {
 
   private async check(name: string, schedule: Schedule): Promise<void> {
     // Re-read: the app may have changed or gone since it was listed
-    const app = this.deps.getApp(name)
-    if (!app || !isAutoDeployable(app)) return
+    const listed = this.deps.getApp(name)
+    if (!listed || !this.watchable(listed)) return
     // A deploy is running: stay due, try again next tick
     if (this.deps.isDeploying(name)) return
 
-    const git = app.git!
+    const git = listed.git!
     const mode = git.autoDeploy as "commit" | "tag"
     const checkedAt = new Date(this.deps.now()).toISOString()
 
@@ -245,27 +245,36 @@ export class AutoDeployer {
     schedule.backoffMs = 0
     schedule.nextAt = this.deps.now() + this.intervalMs
 
+    // Re-read again: the app may have changed while ls-remote ran
+    const app = this.deps.getApp(name)
+    if (!app || !this.watchable(app) || app.git!.autoDeploy !== mode) return
+
+    // A deploy failure stays visible until a deploy succeeds
+    const deployFailed = app.autoDeployError?.startsWith(DEPLOY_FAILED_PREFIX) ?? false
+
     if (!target) {
       const message = mode === "tag" ? "no vX.Y.Z tag found" : `branch '${git.branch}' not found`
-      this.deps.updateApp(name, { autoDeployCheckedAt: checkedAt, autoDeployError: message })
+      this.deps.updateApp(name, { autoDeployCheckedAt: checkedAt, ...(!deployFailed && { autoDeployError: message }) })
       return
     }
 
-    // A healthy check clears an error that came from a check; a deploy failure stays
-    const clearable = app.autoDeployError && !app.autoDeployError.startsWith(DEPLOY_FAILED_PREFIX) ? { autoDeployError: undefined } : {}
+    // A healthy check clears an error that came from a check
+    const clearable = app.autoDeployError && !deployFailed ? { autoDeployError: undefined } : {}
 
     if (!shouldDeploy(mode, app, target)) {
-      // A deploy failure stays visible until a deploy succeeds
       this.deps.updateApp(name, { autoDeployCheckedAt: checkedAt, ...clearable })
       return
     }
 
     const label = mode === "tag" ? target.ref : target.sha.slice(0, 7)
     const previousRef = app.autoDeployRef
+    const previousError = app.autoDeployError
+    // Stored before the deploy so an agent restart mid-deploy leaves a trace:
+    // success clears it, a failure replaces it with the real error.
     this.deps.updateApp(name, {
       autoDeployCheckedAt: checkedAt,
       autoDeployRef: target.ref,
-      ...clearable,
+      autoDeployError: `${DEPLOY_FAILED_PREFIX}${label}: interrupted`,
     })
     this.deps.log(`auto-deploy ${name}: deploying ${label}`)
 
@@ -275,7 +284,7 @@ export class AutoDeployer {
     } catch (err) {
       if ((err as { status?: number }).status === 409) {
         // A manual deploy started in between: this target was not tried
-        this.deps.updateApp(name, { autoDeployRef: previousRef })
+        this.deps.updateApp(name, { autoDeployRef: previousRef, autoDeployError: previousError })
         schedule.nextAt = this.deps.now()
         this.deps.log(`auto-deploy ${name}: deploy in progress, retrying ${label} next tick`)
         return
@@ -284,5 +293,10 @@ export class AutoDeployer {
       this.deps.updateApp(name, { autoDeployError: message })
       this.deps.log(`auto-deploy ${name}: ${message}`)
     }
+  }
+
+  // Auto-deploy on and not stopped by a user. `pending` (never deployed) is deployed.
+  private watchable(app: App): boolean {
+    return isAutoDeployable(app) && app.status !== "stopped"
   }
 }
