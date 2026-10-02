@@ -19,6 +19,12 @@ const program = new Command()
     `
 AI agents: run 'siteio skill' for usage instructions.`
   )
+  .hook("preAction", async (_thisCommand, actionCommand) => {
+    const commandPath: string[] = []
+    for (let cmd: Command | null = actionCommand; cmd?.parent; cmd = cmd.parent) commandPath.unshift(cmd.name())
+    const { maybeAutoUpdate } = await import("./commands/auto-update.ts")
+    await maybeAutoUpdate(commandPath)
+  })
 
 // Status command
 program
@@ -666,4 +672,4 @@ Examples:
     await completionCommand(shell)
   })
 
-program.parse()
+await program.parseAsync()

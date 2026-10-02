@@ -20,3 +20,8 @@ export function getVersion(): string {
     return "0.0.0"
   }
 }
+
+/** True only for a release binary: release.yml is the one build that sets BUILD_VERSION. */
+export function isReleaseBinary(): boolean {
+  return typeof BUILD_VERSION !== "undefined"
+}
