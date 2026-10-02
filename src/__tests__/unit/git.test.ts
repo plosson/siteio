@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, existsSync } from "fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { GitManager, cloneErrorMessage, lsRemoteErrorMessage } from "../../lib/agent/git"
@@ -246,5 +246,101 @@ describe("GitManager.clone with a tag", () => {
     repo.push()
     await git.clone("app", repo.url, "v1.0.0")
     expect(await git.getCommitHash("app")).toBe(tagged)
+  })
+})
+
+describe("GitManager.clone without blocking", () => {
+  let root: string
+  let git: GitManager
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "siteio-clone-async-test-"))
+    git = new GitManager(join(root, "data"))
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test("a hanging remote times out, and the event loop keeps running meanwhile", async () => {
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Promise<Response>(() => {}) })
+    let ticks = 0
+    const ticker = setInterval(() => ticks++, 20)
+    try {
+      const started = Date.now()
+      await expect(git.clone("app", `http://127.0.0.1:${server.port}/repo.git`, "main", undefined, 500)).rejects.toThrow(
+        "Timed out cloning repository after 1s"
+      )
+      expect(Date.now() - started).toBeLessThan(5_000)
+      expect(ticks).toBeGreaterThan(5)
+    } finally {
+      clearInterval(ticker)
+      server.stop(true)
+    }
+  })
+
+  test("the token never appears in a clone error", async () => {
+    const token = "ghp_CLONE_TOKEN_MUST_NOT_LEAK"
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response("no", { status: 401, headers: { "WWW-Authenticate": 'Basic realm="x"' } }),
+    })
+    try {
+      const err = await git
+        .clone("app", `http://127.0.0.1:${server.port}/repo.git`, "main", token)
+        .then(() => null, (e: Error) => e)
+      expect(err).not.toBeNull()
+      expect(err!.message).toContain("Authentication failed")
+      expect(err!.message).not.toContain(token)
+    } finally {
+      server.stop(true)
+    }
+  })
+})
+
+describe("GIT_SSH_COMMAND", () => {
+  let root: string
+  let git: GitManager
+  let argsFile: string
+  const saved = { PATH: process.env.PATH, GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND }
+
+  // A fake `ssh` first on PATH that records its arguments and fails.
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "siteio-ssh-cmd-test-"))
+    git = new GitManager(join(root, "data"))
+    const bin = join(root, "bin")
+    argsFile = join(root, "ssh-args")
+    mkdirSync(bin)
+    writeFileSync(join(bin, "ssh"), `#!/bin/sh\necho "$0 $*" > "${argsFile}"\nexit 255\n`)
+    chmodSync(join(bin, "ssh"), 0o755)
+    process.env.PATH = `${bin}:${saved.PATH}`
+    delete process.env.GIT_SSH_COMMAND
+  })
+
+  afterEach(() => {
+    process.env.PATH = saved.PATH
+    if (saved.GIT_SSH_COMMAND === undefined) delete process.env.GIT_SSH_COMMAND
+    else process.env.GIT_SSH_COMMAND = saved.GIT_SSH_COMMAND
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test("ssh never prompts and gives up on a dead connection", async () => {
+    await expect(git.lsRemote("ssh://git@example.invalid/r.git", ["refs/heads/main"])).rejects.toThrow()
+    const args = readFileSync(argsFile, "utf-8")
+    expect(args).toContain("-o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=2")
+  })
+
+  test("applies to clone too", async () => {
+    await expect(git.clone("app", "ssh://git@example.invalid/r.git", "main")).rejects.toThrow()
+    expect(readFileSync(argsFile, "utf-8")).toContain("BatchMode=yes")
+  })
+
+  test("an operator's GIT_SSH_COMMAND wins", async () => {
+    process.env.GIT_SSH_COMMAND = "ssh -o StrictHostKeyChecking=accept-new"
+    await expect(git.lsRemote("ssh://git@example.invalid/r.git", ["refs/heads/main"])).rejects.toThrow()
+    const args = readFileSync(argsFile, "utf-8")
+    expect(args).toContain("StrictHostKeyChecking=accept-new")
+    expect(args).not.toContain("BatchMode")
   })
 })

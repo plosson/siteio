@@ -202,14 +202,11 @@ export class DockerManager implements Runtime {
    * Pull a Docker image
    */
   async pull(image: string): Promise<void> {
-    const result = spawnSync({
-      cmd: ["docker", "pull", image],
-      stdout: "pipe",
-      stderr: "pipe",
-    })
+    // Async: a pull can take minutes and must not block the agent's event loop
+    const result = await dockerAsync(["pull", image])
 
     if (result.exitCode !== 0) {
-      throw new SiteioError(`Failed to pull image ${image}: ${result.stderr.toString()}`)
+      throw new SiteioError(`Failed to pull image ${image}: ${result.stderr}`)
     }
   }
 
@@ -393,14 +390,11 @@ export class DockerManager implements Runtime {
 
     args.push(config.contextPath)
 
-    const result = spawnSync({
-      cmd: ["docker", ...args],
-      stdout: "pipe",
-      stderr: "pipe",
-    })
+    // Async: a build can take minutes and must not block the agent's event loop
+    const result = await dockerAsync(args)
 
     if (result.exitCode !== 0) {
-      throw new SiteioError(`Docker build failed: ${result.stderr.toString()}`)
+      throw new SiteioError(`Docker build failed: ${result.stderr}`)
     }
 
     return config.tag

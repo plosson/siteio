@@ -8,6 +8,7 @@ const GIT_ENV = {
   GIT_COMMITTER_NAME: "test",
   GIT_COMMITTER_EMAIL: "test@example.com",
   GIT_CONFIG_NOSYSTEM: "1",
+  GIT_CONFIG_GLOBAL: "/dev/null",
 }
 
 function git(cwd: string, ...args: string[]): string {

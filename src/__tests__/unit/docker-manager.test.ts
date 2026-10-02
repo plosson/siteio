@@ -292,6 +292,26 @@ USER app
   })
 
   describe("build", () => {
+    test("does not block the event loop, and a failure keeps its message", async () => {
+      if (!isDockerAvailable()) {
+        console.log("Test skipped: Docker not available")
+        return
+      }
+      const contextDir = join(testDir, "slow")
+      mkdirSync(contextDir, { recursive: true })
+      writeFileSync(join(contextDir, "Dockerfile"), "FROM alpine:latest\nRUN sleep 1 && exit 3\n")
+      let ticks = 0
+      const ticker = setInterval(() => ticks++, 20)
+      try {
+        await expect(
+          docker.build({ contextPath: contextDir, dockerfilePath: join(contextDir, "Dockerfile"), tag: "siteio-slow-test:latest", noCache: true })
+        ).rejects.toThrow("Docker build failed:")
+      } finally {
+        clearInterval(ticker)
+      }
+      expect(ticks).toBeGreaterThan(10)
+    }, 60000)
+
     test("should build image from Dockerfile in context subdirectory", async () => {
       if (!isDockerAvailable()) {
         console.log("Test skipped: Docker not available")

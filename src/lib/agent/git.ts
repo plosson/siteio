@@ -69,6 +69,46 @@ export function lsRemoteErrorMessage(stderr: string, opts: { url: string; hasTok
   return accessErrorMessage(stderr, opts) ?? `Failed to list remote refs: ${stderr}`
 }
 
+// Ssh never prompts (no tty on the agent) and gives up on a dead connection.
+const SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=2"
+
+/**
+ * Run git, killed after `timeoutMs`. Bun's timeout kills only `git`, not its
+ * git-remote-http child, so the transport is also told to abort itself when
+ * the transfer stalls for that long. Throws `timeoutMessage` on a timeout.
+ */
+async function runGit(
+  args: string[],
+  opts: { env: Record<string, string>; timeoutMs: number; timeoutMessage: string }
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const lowSpeedTime = String(Math.max(1, Math.ceil(opts.timeoutMs / 1000)))
+  const proc = Bun.spawn({
+    cmd: ["git", "-c", "http.lowSpeedLimit=1", "-c", `http.lowSpeedTime=${lowSpeedTime}`, ...args],
+    stdout: "pipe",
+    stderr: "pipe",
+    env: opts.env,
+    timeout: opts.timeoutMs,
+  })
+  // Read the pipes concurrently, but decide on the exit first: when the kill
+  // lands, git's transport child can hold the pipes open until its own
+  // network timeout, so a timed-out call must not wait for them.
+  const stdoutP = new Response(proc.stdout).text()
+  const stderrP = new Response(proc.stderr).text()
+  const exitCode = await proc.exited
+  if (proc.signalCode) {
+    // Abandoned reads: a later stream error must not become an unhandled rejection.
+    stdoutP.catch(() => {})
+    stderrP.catch(() => {})
+    throw new SiteioError(opts.timeoutMessage)
+  }
+  const [stdout, stderr] = await Promise.all([stdoutP, stderrP])
+  return { exitCode, stdout, stderr }
+}
+
+function seconds(ms: number): number {
+  return Math.round(ms / 1000)
+}
+
 export class GitManager {
   private reposDir: string
 
@@ -93,6 +133,7 @@ export class GitManager {
       ...(process.env as Record<string, string>),
       GIT_TERMINAL_PROMPT: "0",
     }
+    if (!env.GIT_SSH_COMMAND) env.GIT_SSH_COMMAND = SSH_COMMAND
     if (!token) return { env, cleanup: () => {} }
 
     const askpassDir = mkdtempSync(join(tmpdir(), "siteio-askpass-"))
@@ -106,9 +147,9 @@ export class GitManager {
 
   /**
    * Clone a repository at a branch or tag (shallow clone for speed).
-   * Always does a fresh clone - removes existing repo first
+   * Always does a fresh clone - removes existing repo first. Killed after `timeoutMs`.
    */
-  async clone(appName: string, url: string, ref: string, token?: string): Promise<void> {
+  async clone(appName: string, url: string, ref: string, token?: string, timeoutMs = 300_000): Promise<void> {
     const targetDir = this.repoPath(appName)
 
     // Remove existing repo if present
@@ -118,15 +159,13 @@ export class GitManager {
 
     const { env, cleanup } = this.gitEnv(token)
     try {
-      const result = spawnSync({
-        cmd: ["git", "clone", "--depth", "1", "--branch", ref, url, targetDir],
-        stdout: "pipe",
-        stderr: "pipe",
+      const result = await runGit(["clone", "--depth", "1", "--branch", ref, url, targetDir], {
         env,
+        timeoutMs,
+        timeoutMessage: `Timed out cloning repository after ${seconds(timeoutMs)}s`,
       })
-
       if (result.exitCode !== 0) {
-        const stderr = redactToken(result.stderr.toString(), token)
+        const stderr = redactToken(result.stderr, token)
         throw new SiteioError(cloneErrorMessage(stderr, { branch: ref, url, hasToken: !!token }))
       }
     } finally {
@@ -141,44 +180,15 @@ export class GitManager {
   async lsRemote(url: string, patterns: string[], token?: string, timeoutMs = 30_000): Promise<RemoteRef[]> {
     const { env, cleanup } = this.gitEnv(token)
     try {
-      // Bun's timeout kills only `git`, not its git-remote-http child, so make
-      // the transport abort itself when the transfer stalls for that long.
-      const lowSpeedTime = String(Math.max(1, Math.ceil(timeoutMs / 1000)))
-      const proc = Bun.spawn({
-        cmd: [
-          "git",
-          "-c",
-          "protocol.version=2",
-          "-c",
-          "http.lowSpeedLimit=1",
-          "-c",
-          `http.lowSpeedTime=${lowSpeedTime}`,
-          "ls-remote",
-          url,
-          ...patterns,
-        ],
-        stdout: "pipe",
-        stderr: "pipe",
+      const result = await runGit(["-c", "protocol.version=2", "ls-remote", url, ...patterns], {
         env,
-        timeout: timeoutMs,
+        timeoutMs,
+        timeoutMessage: `Timed out listing remote refs after ${seconds(timeoutMs)}s`,
       })
-      // Read the pipes concurrently, but decide on the exit first: when the kill
-      // lands, git's transport child can hold the pipes open until its own
-      // network timeout, so a timed-out call must not wait for them.
-      const stdoutP = new Response(proc.stdout).text()
-      const stderrP = new Response(proc.stderr).text()
-      const exitCode = await proc.exited
-      if (proc.signalCode) {
-        // Abandoned reads: a later stream error must not become an unhandled rejection.
-        stdoutP.catch(() => {})
-        stderrP.catch(() => {})
-        throw new SiteioError(`Timed out listing remote refs after ${Math.round(timeoutMs / 1000)}s`)
+      if (result.exitCode !== 0) {
+        throw new SiteioError(lsRemoteErrorMessage(redactToken(result.stderr, token), { url, hasToken: !!token }))
       }
-      const [stdout, stderr] = await Promise.all([stdoutP, stderrP])
-      if (exitCode !== 0) {
-        throw new SiteioError(lsRemoteErrorMessage(redactToken(stderr, token), { url, hasToken: !!token }))
-      }
-      return parseLsRemote(stdout)
+      return parseLsRemote(result.stdout)
     } finally {
       cleanup()
     }
