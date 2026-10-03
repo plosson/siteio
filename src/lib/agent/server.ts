@@ -924,39 +924,40 @@ export class AgentServer {
       return this.error("Cannot override Dockerfile: app was not created with -f", 400)
     }
 
-    if (!app.compose) {
-      try {
-        const updated = await this.deployContainerApp(name, { noCache, dockerfileContent: newDockerfileContent })
-        return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.config.domain) })
-      } catch (err) {
-        const status = err instanceof DeployError ? err.status : 500
-        return this.error(err instanceof Error ? err.message : "Failed to deploy app", status)
-      }
-    }
-
     try {
-      // Check Docker availability
-      if (!this.docker.isAvailable()) {
-        return this.error("Docker is not available", 500)
+      if (app.compose) {
+        const { updated, warnings } = await this.deployComposeApp(app)
+        return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.config.domain), warnings })
       }
+      const updated = await this.deployContainerApp(name, { noCache, dockerfileContent: newDockerfileContent })
+      return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.config.domain) })
+    } catch (err) {
+      const status = err instanceof DeployError ? err.status : 500
+      return this.error(err instanceof Error ? err.message : "Failed to deploy app", status)
+    }
+  }
 
-      // ---------- COMPOSE BRANCH ----------
+  /**
+   * Deploy a compose app: (re)write the siteio override and bring the project
+   * up. Throws DeployError.
+   */
+  private async deployComposeApp(app: App): Promise<{ updated: App; warnings: string[] }> {
+    const { name, compose } = app
+    if (!compose) throw new DeployError("Not a compose app", 400)
+    if (!this.docker.isAvailable()) throw new DeployError("Docker is not available", 500)
+    try {
       // Ensure Traefik can reach the service
       this.docker.ensureNetwork()
 
       // Resolve base compose file (git stacks are cloned first)
-      if (app.compose.source === "git") {
-        if (!app.git) {
-          this.appStorage.update(name, { status: "failed" })
-          return this.error("Git source missing on compose app", 500)
-        }
+      if (compose.source === "git") {
+        if (!app.git) throw new DeployError("Git source missing on compose app", 500)
         await this.git.clone(name, app.git.repoUrl, app.git.branch, app.git.token)
       }
       const basePath = this.composeBasePath(app)
       if (!existsSync(basePath)) {
-        this.appStorage.update(name, { status: "failed" })
-        return this.error(
-          app.compose.source === "git" ? `Compose file not found at '${app.compose.path}'` : "Compose file not found for app",
+        throw new DeployError(
+          compose.source === "git" ? `Compose file not found at '${compose.path}'` : "Compose file not found for app",
           400
         )
       }
@@ -970,11 +971,10 @@ export class AgentServer {
         resolved = await this.resolveComposeBase(app)
       } catch (err) {
         if (!(err instanceof ValidationError)) throw err
-        this.appStorage.update(name, { status: "failed" })
-        return this.error(err.message, 400)
+        throw new DeployError(err.message, 400)
       }
       const { spec, warnings } = resolved
-      const primary = spec.services[app.compose.primaryService] as { networks?: Record<string, unknown> }
+      const primary = spec.services[compose.primaryService] as { networks?: Record<string, unknown> }
 
       // Write the override (regenerate every deploy so env/domain updates apply)
       const overrideYaml = buildOverride(app, {
@@ -991,29 +991,29 @@ export class AgentServer {
 
       // Resolve primary service's container ID via ps
       const psOutput = await this.docker.composePs(project, files, envFile)
-      const primaryState = psOutput.find((s) => s.service === app.compose!.primaryService)
+      const primaryState = psOutput.find((s) => s.service === compose.primaryService)
 
-      const composeCommitHash = app.compose.source === "git" ? await this.git.getCommitHash(name) : undefined
-      const composeLastBuildAt = new Date().toISOString()
+      const commitHash = compose.source === "git" ? await this.git.getCommitHash(name) : undefined
 
-      const updatedCompose = this.appStorage.update(name, {
+      const updated = this.appStorage.update(name, {
         status: "running",
         containerId: primaryState?.containerId,
         deployedAt: new Date().toISOString(),
-        lastBuildAt: composeLastBuildAt,
-        ...(composeCommitHash && { commitHash: composeCommitHash }),
+        lastBuildAt: new Date().toISOString(),
+        ...(commitHash && { commitHash }),
       })
-
-      this.pageApp(updatedCompose ?? app, "deployed")
-      return this.json({ ...(updatedCompose && scrubApp(updatedCompose)), url: this.appStorage.url(app, this.config.domain), warnings })
-      // ---------- END COMPOSE BRANCH ----------
+      if (!updated) throw new DeployError("App not found", 404)
+      this.pageApp(updated, "deployed")
+      return { updated, warnings }
     } catch (err) {
-      // Update status to failed
       this.appStorage.update(name, { status: "failed" })
       const message = err instanceof Error ? err.message : "Failed to deploy app"
-      return this.error(message, 500)
+      this.pageAppFailure(app, message)
+      if (err instanceof DeployError) throw err
+      throw new DeployError(message, 500)
     }
   }
+
 
   /**
    * Deploy a single-container app: build or pull the new image while the old
@@ -1116,8 +1116,10 @@ export class AgentServer {
       // Before the swap an existing container is untouched, so its status
       // stands; with none, nothing is running.
       if (swapped || !this.docker.containerExists(name)) this.appStorage.update(name, { status: "failed" })
+      const message = err instanceof Error ? err.message : "Failed to deploy app"
+      this.pageAppFailure(app, message)
       if (err instanceof DeployError) throw err
-      throw new DeployError(err instanceof Error ? err.message : "Failed to deploy app", 500)
+      throw new DeployError(message, 500)
     } finally {
       this.deploying.delete(name)
     }
@@ -1605,28 +1607,38 @@ export class AgentServer {
     deployedBy?: string,
     message?: string
   ): Promise<SiteInfo> {
-    const { size, version: codeVersion } = await this.storage.extractCode(site.name, zipData)
+    let updated: Site
+    try {
+      const { size, version } = await this.storage.extractCode(site.name, zipData)
 
-    await this.docker.pull(pocketbaseImage(site.pocketbaseVersion))
-    const containerId = await this.startSiteContainer(site)
+      await this.docker.pull(pocketbaseImage(site.pocketbaseVersion))
+      const containerId = await this.startSiteContainer(site)
 
-    const updated = this.storage.update(site.name, {
-      status: "running",
-      containerId,
-      size,
-      version: codeVersion,
-      deployedAt: new Date().toISOString(),
-      deployedBy,
-      // Always set (even to undefined) so the current version's message
-      // reflects THIS deploy rather than lingering from the previous one.
-      message,
-    })!
+      updated = this.storage.update(site.name, {
+        status: "running",
+        containerId,
+        size,
+        version,
+        deployedAt: new Date().toISOString(),
+        deployedBy,
+        // Always set (even to undefined) so the current version's message
+        // reflects THIS deploy rather than lingering from the previous one.
+        message,
+      })!
+    } catch (err) {
+      this.pager?.notify({
+        title: `Site '${site.name}' deploy failed`,
+        message: err instanceof Error ? err.message : String(err),
+        url: this.storage.toInfo(site, this.config.domain).url,
+      })
+      throw err
+    }
     // Refresh the card preview in the background — deploy stays fast.
     this.captureThumbnail(updated.name, this.siteInternalUrl(updated.name))
     const info = this.storage.toInfo(updated, this.config.domain)
     this.pager?.notify({
       title: `Site '${site.name}' deployed`,
-      message: [`v${codeVersion}`, deployedBy && `by ${deployedBy}`, message].filter(Boolean).join(" · "),
+      message: [`v${updated.version}`, deployedBy && `by ${deployedBy}`, message].filter(Boolean).join(" · "),
       url: info.url,
     })
     return info
@@ -2332,6 +2344,14 @@ export class AgentServer {
     }
   }
 
+  private pageAppFailure(app: App, error: string): void {
+    this.pager?.notify({
+      title: `App '${app.name}' deploy failed`,
+      message: error,
+      url: this.appStorage.url(app, this.config.domain),
+    })
+  }
+
   private pageApp(app: App, event: "deployed" | "restarted"): void {
     this.pager?.notify({
       title: `App '${app.name}' ${event}`,
@@ -2411,6 +2431,11 @@ export class AgentServer {
         "/ui/chat-core.js": (req) => serveUiAsset(req, CHAT_CORE_JS, "application/javascript; charset=utf-8", chatCoreEtag),
       },
       fetch: (req) => this.handleRequest(req),
+    })
+    this.pager?.notify({
+      title: "siteio agent started",
+      message: `v${getVersion()} on ${this.config.domain}`,
+      url: `https://api.${this.config.domain}/ui`,
     })
 
     // Download the site-preview browser image in the background so the first
