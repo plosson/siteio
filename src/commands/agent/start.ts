@@ -147,9 +147,10 @@ export async function startAgentCommand(): Promise<void> {
   const chat = buildChatConfig(process.env, persistedConfig)
 
   // Optional: page the operator on every app/site deploy or restart.
-  const pagerUrl = process.env.PAGERIO_URL || undefined
+  // Env var wins over persisted config.
+  const pagerUrl = process.env.PAGERIO_URL || persistedConfig.pagerUrl || undefined
   if (pagerUrl && !/^https?:\/\//.test(pagerUrl)) {
-    console.error(formatError("PAGERIO_URL must start with http:// or https://"))
+    console.error(formatError("PAGERIO_URL (or pagerUrl) must start with http:// or https://"))
     process.exit(1)
   }
 
@@ -183,7 +184,7 @@ export async function startAgentCommand(): Promise<void> {
   console.log(
     `  Chat:       ${chat ? `enabled (${chat.provider}${chat.model ? "/" + chat.model : ""}, ${chat.sandbox ? "sandboxed" : "host"})` : "disabled (no LLM credential)"}`
   )
-  console.log(`  Pager:      ${pagerUrl ? "enabled" : "disabled (PAGERIO_URL not set)"}`)
+  console.log(`  Pager:      ${pagerUrl ? "enabled" : "disabled (set PAGERIO_URL or pagerUrl)"}`)
   console.log("")
 
   // Connection credentials - easy to copy/paste

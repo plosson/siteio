@@ -73,7 +73,7 @@ Optional:
 - `SITEIO_API_KEY` - API key (auto-generated if not set)
 - `SITEIO_DATA_DIR` - Data directory (default: `/data`)
 - `SITEIO_EMAIL` - Email for Let's Encrypt
-- `PAGERIO_URL` - [pagerio](https://pagerio.chuut.com) URL; when set, the agent pages it on every app/site deploy (success or failure), app restart and agent start
+- `PAGERIO_URL` - [pagerio](https://pagerio.chuut.com) URL; when set, the agent pages it on every app/site deploy (success or failure), app restart and agent start. Can also be persisted with `siteio agent config set pagerUrl <url>` (env var wins; restart the agent after changing it)
 
 AI site-chat editor (optional; enables the "Chat" tab on a site — edit a site by
 chatting with an LLM that redeploys it — plus the **in-site live editor**: run

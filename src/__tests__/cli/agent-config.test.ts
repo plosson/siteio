@@ -63,6 +63,31 @@ describe("CLI: agent config (LLM keys)", () => {
     expect(statSync(p).mode & 0o777).toBe(0o600)
   })
 
+  test("pagerUrl round-trips but is masked in list output", async () => {
+    const url = "https://pagerio.example.com/p/supersecretABCD"
+    expect((await runCli(["agent", "config", "set", "pagerUrl", url])).exitCode).toBe(0)
+
+    const get = await runCli(["--json", "agent", "config", "get", "pagerUrl"])
+    expect(JSON.parse(get.stdout).pagerUrl).toBe(url)
+
+    const list = await runCli(["--json", "agent", "config", "list"])
+    expect(list.stdout).not.toContain("supersecret")
+    expect(JSON.parse(list.stdout).pagerUrl).toBe("****ABCD")
+
+    const set = await runCli(["--json", "agent", "config", "set", "pagerUrl", url])
+    expect(set.stdout).not.toContain("supersecret")
+  })
+
+  test.each(["pagerio.example.com/p/x", "ftp://pagerio.example.com/p/x", "javascript:alert(1)", ""])(
+    "pagerUrl rejects a non-http(s) value: %p",
+    async (bad) => {
+      const res = await runCli(["agent", "config", "set", "pagerUrl", bad])
+      expect(res.exitCode).toBe(1)
+      expect(res.stderr).toContain("must start with http:// or https://")
+      expect(existsSync(join(dataDir, "agent-config.json"))).toBe(false)
+    }
+  )
+
   test("an unknown key is still rejected", async () => {
     const res = await runCli(["agent", "config", "set", "bogusKey", "x"])
     expect(res.exitCode).toBe(1)
