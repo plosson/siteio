@@ -15,6 +15,8 @@ const VALID_KEYS: (keyof PersistedAgentConfig)[] = [
   // AI site-chat editor credentials/settings. llmOauthToken/llmApiKey are masked
   // via isSensitiveKey and written to the 0600 agent-config.json.
   "llmProvider", "llmModel", "llmOauthToken", "llmApiKey",
+  // pagerio URL paged on deploys/restarts (masked: the URL is the secret).
+  "pagerUrl",
 ]
 
 function getDataDir(): string {
@@ -102,6 +104,11 @@ export async function setConfigCommand(
   options: { json?: boolean }
 ): Promise<void> {
   validateKey(key)
+
+  if (key === "pagerUrl" && !/^https?:\/\//.test(value)) {
+    console.error(formatError("pagerUrl must start with http:// or https://"))
+    process.exit(1)
+  }
 
   const dataDir = getDataDir()
 

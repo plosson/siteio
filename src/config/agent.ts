@@ -25,6 +25,7 @@ export interface PersistedAgentConfig {
   llmModel?: string
   llmOauthToken?: string
   llmApiKey?: string
+  pagerUrl?: string // pagerio URL paged on deploys/restarts; PAGERIO_URL wins. The URL is the secret.
 }
 
 const CONFIG_FILENAME = "agent-config.json"
@@ -134,6 +135,6 @@ export function maskSensitiveValue(value: string): string {
  * Check if a key contains sensitive data
  */
 export function isSensitiveKey(key: string): boolean {
-  const sensitiveKeys = ["apiKey", "cloudflareToken", "acmeDnsEnv", "llmOauthToken", "llmApiKey"]
+  const sensitiveKeys = ["apiKey", "cloudflareToken", "acmeDnsEnv", "llmOauthToken", "llmApiKey", "pagerUrl"]
   return sensitiveKeys.includes(key)
 }
