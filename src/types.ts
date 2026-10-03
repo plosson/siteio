@@ -215,6 +215,7 @@ export interface AgentConfig {
   appsEnabled?: boolean // Whether the /apps/* surface is available (default true)
   autoDeployInterval?: number // seconds between auto-deploy checks of each app (default 300)
   chat?: ChatConfig // AI site-chat editor settings; absent/unconfigured hides the feature
+  pagerUrl?: string // pagerio URL paged on every app/site deploy or restart (PAGERIO_URL)
 }
 
 // AI site-chat editor configuration (see docs/plans/2026-08-20-site-chat-ai-editor.md).

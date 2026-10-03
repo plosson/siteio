@@ -16,6 +16,7 @@ import { OAuthStore } from "./oauth-store.ts"
 import { OAuthProvider } from "./oauth-provider.ts"
 import { McpHandler } from "./mcp.ts"
 import { DockerManager } from "./docker.ts"
+import { Pager } from "./pager.ts"
 import type { Runtime } from "./runtime.ts"
 import { GitManager } from "./git.ts"
 import { DockerfileStorage } from "./dockerfile-storage.ts"
@@ -141,6 +142,8 @@ export class AgentServer {
   private thumbnails: ThumbnailManager | null = null
   private server: ReturnType<typeof Bun.serve> | null = null
   private autoDeployer: AutoDeployer
+  // Pages the operator on deploys/restarts; null unless PAGERIO_URL is set.
+  private pager: Pager | null
 
   constructor(
     config: AgentConfig,
@@ -158,6 +161,7 @@ export class AgentServer {
     this.git = new GitManager(config.dataDir)
     this.dockerfiles = new DockerfileStorage(config.dataDir)
     this.compose = new ComposeStorage(config.dataDir)
+    this.pager = config.pagerUrl ? new Pager(config.pagerUrl) : null
     this.oauthProvider = new OAuthProvider({
       grants: this.grants,
       oauth: this.oauth,
@@ -1000,6 +1004,7 @@ export class AgentServer {
         ...(composeCommitHash && { commitHash: composeCommitHash }),
       })
 
+      this.pageApp(updatedCompose ?? app, "deployed")
       return this.json({ ...(updatedCompose && scrubApp(updatedCompose)), url: this.appStorage.url(app, this.config.domain), warnings })
       // ---------- END COMPOSE BRANCH ----------
     } catch (err) {
@@ -1102,6 +1107,7 @@ export class AgentServer {
         ...(lastBuildAt && { lastBuildAt }),
       })
       if (!updated) throw new DeployError("App not found", 404)
+      this.pageApp(updated, "deployed")
 
       // Refresh the card preview in the background — deploy stays fast.
       this.captureAppThumbnail(updated)
@@ -1153,11 +1159,13 @@ export class AgentServer {
         const files = this.composeFiles(app)
         await this.docker.composeRestart(`siteio-${name}`, files, this.writeComposeEnvFile(app))
         const updated = this.appStorage.update(name, { status: "running" })
+        this.pageApp(app, "restarted")
         return this.json(updated && scrubApp(updated))
       }
       if (this.docker.containerExists(name)) {
         await this.docker.restart(name)
         const updated = this.appStorage.update(name, { status: "running" })
+        this.pageApp(app, "restarted")
         return this.json(updated && scrubApp(updated))
       }
       return this.error("Container does not exist. Deploy the app first.", 400)
@@ -1615,7 +1623,13 @@ export class AgentServer {
     })!
     // Refresh the card preview in the background — deploy stays fast.
     this.captureThumbnail(updated.name, this.siteInternalUrl(updated.name))
-    return this.storage.toInfo(updated, this.config.domain)
+    const info = this.storage.toInfo(updated, this.config.domain)
+    this.pager?.notify({
+      title: `Site '${site.name}' deployed`,
+      message: [`v${codeVersion}`, deployedBy && `by ${deployedBy}`, message].filter(Boolean).join(" · "),
+      url: info.url,
+    })
+    return info
   }
 
   // Narrow surface for a scoped share-code credential: it may only download or
@@ -2316,6 +2330,16 @@ export class AgentServer {
         console.log(`> Failed to start migrated site '${name}': ${message}`)
       }
     }
+  }
+
+  private pageApp(app: App, event: "deployed" | "restarted"): void {
+    this.pager?.notify({
+      title: `App '${app.name}' ${event}`,
+      message: [event === "deployed" && app.commitHash && `commit ${app.commitHash.slice(0, 7)}`, `on ${this.config.domain}`]
+        .filter(Boolean)
+        .join(" · "),
+      url: this.appStorage.url(app, this.config.domain),
+    })
   }
 
   isDeploying(name: string): boolean {
