@@ -588,7 +588,7 @@ export class AgentServer {
     if (!app) {
       return this.error("App not found", 404)
     }
-    return this.json(scrubApp(app))
+    return this.json({ ...scrubApp(app), url: this.appStorage.url(app, this.config.domain) })
   }
 
   private async handleCreateApp(req: Request): Promise<Response> {

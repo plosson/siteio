@@ -3,754 +3,693 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>siteio admin</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230969da'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-family='system-ui' font-size='18' font-weight='700'>s</text></svg>" />
-
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Fira+Mono:wght@400;500&display=swap" rel="stylesheet" />
-
-  <link rel="stylesheet" href="https://sets.hugeicons.com/7v2rm862ty6.css" crossorigin="anonymous" />
-
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              blue: "#0969da",
-              green: "#2da44e",
-            },
-            gray: {
-              50: "#f6f8fa",
-              100: "#eaeef2",
-              200: "#d0d7de",
-              300: "#afb8c1",
-              400: "#8c959f",
-              500: "#6e7781",
-              600: "#57606a",
-              700: "#424a53",
-              800: "#32383f",
-              900: "#1f2328",
-            },
-          },
-          fontFamily: {
-            sans: ["Geist", "system-ui", "sans-serif"],
-            mono: ["Fira Mono", "monospace"],
-          },
-        },
-      },
-    }
-  </script>
-
+  <title>siteio</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'><defs><linearGradient id='b' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='%232DB878'/><stop offset='1' stop-color='%231F9D63'/></linearGradient></defs><rect width='256' height='256' rx='57' fill='url(%23b)'/><path d='M66 38 H188 L214 64 V196 Q214 218 192 218 H66 Q42 218 42 196 V60 Q42 38 66 38 Z' fill='%23F8F0E0'/><rect x='82' y='38' width='100' height='62' rx='8' fill='%23283030'/><rect x='64' y='118' width='128' height='80' rx='14' fill='%23283030'/><rect x='64' y='118' width='128' height='16' rx='8' fill='%231F9D63'/><rect x='80' y='150' width='58' height='9' rx='4.5' fill='%23FFB547'/></svg>" />
   <link rel="stylesheet" href="/ui/ui.css" />
-
   <script defer src="/ui/chat-core.js"></script>
   <script defer src="/ui/ui.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3.15.3/dist/cdn.min.js"></script>
 </head>
-<body class="font-sans bg-gray-50 text-gray-900 antialiased" x-data="siteioAdmin()" x-init="init()" @keydown.escape.window="onEscape()">
+<body x-data="siteioAdmin()" @keydown.window="onKey($event)">
 
+  <!-- Gate -->
   <template x-if="!authed">
-    <div id="login-view" class="min-h-screen flex items-center justify-center p-6 bg-gray-50">
-      <div class="w-full max-w-sm bg-white rounded-lg shadow p-6">
-        <div class="mb-4">
-          <h1 class="text-lg font-semibold text-gray-900">Sign in to siteio</h1>
-          <p class="text-sm text-gray-500 mt-1">Enter your server API key.</p>
+    <main id="login-view" class="gate">
+      <div class="gate-box">
+        <div class="gate-lockup">
+          <svg viewBox="0 0 256 256" aria-hidden="true">
+            <defs>
+              <linearGradient id="gbg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2DB878"/><stop offset="1" stop-color="#1F9D63"/></linearGradient>
+              <linearGradient id="gbody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF9EC"/><stop offset="1" stop-color="#EEE2CA"/></linearGradient>
+              <linearGradient id="gdark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1F2526"/><stop offset="1" stop-color="#343C3D"/></linearGradient>
+            </defs>
+            <rect width="256" height="256" rx="57" fill="url(#gbg)"/>
+            <path d="M66 38 H188 L214 64 V196 Q214 218 192 218 H66 Q42 218 42 196 V60 Q42 38 66 38 Z" fill="url(#gbody)"/>
+            <rect x="82" y="38" width="100" height="62" rx="8" fill="#283030"/>
+            <rect x="140" y="50" width="24" height="38" rx="6" fill="#151A1B"/>
+            <rect x="64" y="118" width="128" height="80" rx="14" fill="url(#gdark)"/>
+            <rect x="64" y="118" width="128" height="16" rx="8" fill="#2DB878"/>
+            <rect x="64" y="126" width="128" height="8" fill="#1F9D63"/>
+            <rect x="80" y="150" width="58" height="9" rx="4.5" fill="#FFB547"/>
+            <rect x="80" y="170" width="36" height="9" rx="4.5" fill="#FFB547" opacity="0.55"/>
+          </svg>
+          <span>siteio</span>
         </div>
-        <form @submit.prevent="login()">
-          <label class="block text-sm font-medium text-gray-700 mb-1" for="apiKeyInput">API key</label>
-          <input
-            id="apiKeyInput"
-            type="password"
-            x-model="apiKeyInput"
-            x-init="$nextTick(() => $el.focus())"
-            class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue"
-            autocomplete="off"
-            required
-          />
-          <template x-if="loginError">
-            <p id="login-error" class="mt-2 text-sm text-red-600" x-text="loginError"></p>
-          </template>
-          <button
-            type="submit"
-            :disabled="loginPending"
-            class="mt-4 w-full bg-brand-blue hover:bg-brand-blue/90 disabled:opacity-60 text-white font-medium py-2 rounded text-sm"
-          >
-            <span x-show="!loginPending">Sign in</span>
-            <span x-show="loginPending">Signing in…</span>
+        <h1>Sign in to continue</h1>
+        <p class="muted mt-1">Enter the API key of this server.</p>
+        <form @submit.prevent="login()" class="stack" novalidate>
+          <div class="field">
+            <label for="apiKeyInput">API key</label>
+            <input id="apiKeyInput" type="password" class="input input-mono" x-model="apiKeyInput"
+                   x-init="$nextTick(() => $el.focus())" autocomplete="off"
+                   :aria-invalid="loginError ? 'true' : 'false'" aria-describedby="login-error" />
+            <template x-if="loginError">
+              <p id="login-error" class="field-error" x-text="'✗ ' + loginError"></p>
+            </template>
+          </div>
+          <button type="submit" class="btn btn-strong" :disabled="loginPending">
+            <span x-text="loginPending ? 'Signing in…' : 'Sign in'"></span>
           </button>
+          <p class="help">Lost the key? Run <code>siteio ui</code> on a computer that is signed in, or <code>siteio agent config get apiKey</code> on the server.</p>
         </form>
       </div>
-    </div>
+    </main>
   </template>
 
   <template x-if="authed">
-    <div class="flex min-h-screen">
-      <aside class="w-56 shrink-0 border-r border-gray-200 bg-white flex flex-col">
-        <div class="p-4 border-b border-gray-200">
-          <div class="font-semibold text-gray-900">siteio</div>
-          <div class="text-xs text-gray-500 mt-1 font-mono" x-text="hostname"></div>
+    <div>
+      <header class="header">
+        <div class="header-bar">
+          <a href="#/" class="lockup" aria-label="siteio overview">
+            <svg viewBox="0 0 256 256" aria-hidden="true">
+              <defs>
+                <linearGradient id="hbg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2DB878"/><stop offset="1" stop-color="#1F9D63"/></linearGradient>
+                <linearGradient id="hbody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF9EC"/><stop offset="1" stop-color="#EEE2CA"/></linearGradient>
+                <linearGradient id="hdark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1F2526"/><stop offset="1" stop-color="#343C3D"/></linearGradient>
+              </defs>
+              <rect width="256" height="256" rx="64" fill="url(#hbg)"/>
+              <path d="M66 38 H188 L214 64 V196 Q214 218 192 218 H66 Q42 218 42 196 V60 Q42 38 66 38 Z" fill="url(#hbody)"/>
+              <rect x="82" y="38" width="100" height="62" rx="8" fill="#283030"/>
+              <rect x="140" y="50" width="24" height="38" rx="6" fill="#151A1B"/>
+              <rect x="64" y="118" width="128" height="80" rx="14" fill="url(#hdark)"/>
+              <rect x="64" y="118" width="128" height="16" rx="8" fill="#2DB878"/>
+              <rect x="64" y="126" width="128" height="8" fill="#1F9D63"/>
+              <rect x="80" y="150" width="58" height="9" rx="4.5" fill="#FFB547"/>
+              <rect x="80" y="170" width="36" height="9" rx="4.5" fill="#FFB547" opacity="0.55"/>
+            </svg>
+            <span>siteio</span>
+          </a>
+          <div class="where">
+            <span class="where-name" x-text="serverName()" :title="serverName()"></span>
+            <button type="button" class="btn-link" @click="logout()">Sign out</button>
+          </div>
         </div>
-        <nav class="flex-1 p-2 space-y-1">
-          <a href="#/services" :class="navClass('services')" class="flex items-center gap-2 px-3 py-2 rounded text-sm">
-            <i class="hgi hgi-stroke hgi-dashboard-square-01"></i> Services
-          </a>
-          <a href="#/settings" :class="navClass('settings')" class="flex items-center gap-2 px-3 py-2 rounded text-sm">
-            <i class="hgi hgi-stroke hgi-settings-02"></i> Settings
-          </a>
+        <nav class="tabs" aria-label="Sections">
+          <a href="#/" :aria-current="section() === 'overview' ? 'page' : null">Overview</a>
+          <a href="#/sites" :aria-current="section() === 'sites' ? 'page' : null">Sites</a>
+          <template x-if="appsEnabled()">
+            <a href="#/apps" :aria-current="section() === 'apps' ? 'page' : null">Apps</a>
+          </template>
+          <a href="#/settings" :aria-current="section() === 'settings' ? 'page' : null">Settings</a>
         </nav>
-        <div class="p-2 border-t border-gray-200">
-          <button @click="logout()" class="w-full flex items-center gap-2 px-3 py-2 rounded text-sm text-gray-700 hover:bg-gray-50">
-            <i class="hgi hgi-stroke hgi-logout-03"></i> Logout
-          </button>
-        </div>
-      </aside>
+      </header>
 
-      <main class="flex-1 overflow-auto">
-        <div class="p-6" id="main-content">
-          <!-- Services grid (unified sites + apps) -->
-          <template x-if="route.view === 'services'">
-            <section>
-              <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
-                <h1 class="text-xl font-semibold">Services</h1>
-                <button @click="loadServices()" :disabled="pending.has('services-list')"
-                        class="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
-                  <i class="hgi hgi-stroke hgi-refresh"></i>
-                  <span x-show="!pending.has('services-list')">Refresh</span>
-                  <span x-show="pending.has('services-list')">Loading…</span>
-                </button>
-              </div>
+      <main class="page" id="main-content">
+        <!-- Problem banner: the server can't be reached -->
+        <template x-if="unreachable">
+          <div class="banner banner-warn row-between" role="alert">
+            <span>✗ Can't reach the server.<span x-show="lastLoadedAt" x-text="' Last loaded at ' + formatClock(lastLoadedAt) + '.'"></span></span>
+            <button type="button" class="btn btn-small" @click="onRouteEnter()">Try again</button>
+          </div>
+        </template>
 
-              <!-- Filter tabs -->
-              <div class="flex items-center gap-2 mb-4">
-                <template x-for="f in [{k:'all',label:'All'},{k:'sites',label:'Sites'},{k:'apps',label:'Apps'}]" :key="f.k">
-                  <button @click="serviceFilter = f.k"
-                          :class="serviceFilter === f.k ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'"
-                          class="inline-flex items-center gap-1.5 px-3 py-1 text-sm rounded-full border">
-                    <span x-text="f.label"></span>
-                    <span :class="serviceFilter === f.k ? 'bg-white/20' : 'bg-gray-100 text-gray-600'"
-                          class="text-xs rounded-full px-1.5 py-0.5 font-medium" x-text="serviceCount(f.k)"></span>
-                  </button>
+        <!-- Overview -->
+        <template x-if="route.view === 'overview'">
+          <div class="stack">
+            <template x-if="attention().length > 0">
+              <div class="banner banner-warn" role="status">
+                <strong x-text="'! ' + attention().length + (attention().length === 1 ? ' needs attention: ' : ' need attention: ')"></strong>
+                <template x-for="(item, i) in attention()" :key="item.kind + ':' + item.name">
+                  <span><a :href="serviceHref(item)" x-text="item.name"></a> <span x-text="attentionLabel(item)"></span><span x-text="i < attention().length - 1 ? ' · ' : ''"></span></span>
                 </template>
               </div>
-
-              <template x-if="services === null">
-                <div class="text-sm text-gray-500">Loading services…</div>
-              </template>
-
-              <template x-if="services && filteredServices().length === 0">
-                <div class="text-sm text-gray-500 border border-dashed border-gray-200 rounded-lg p-8 text-center">
-                  Nothing here yet. Deploy a site with <code class="font-mono">siteio sites deploy</code>
-                  or create an app with <code class="font-mono">siteio apps create</code>.
+            </template>
+            <div class="cols">
+              <section class="stack" aria-labelledby="overview-title">
+                <h1 id="overview-title">Overview</h1>
+                <div class="display">
+                  <div class="display-label">Your server</div>
+                  <span class="display-value" x-text="serverName()"></span>
                 </div>
-              </template>
+                <p class="status" :class="overviewStatus().cls">
+                  <span x-text="overviewStatus().text"></span>
+                  <span class="muted" x-show="pending.has('services-list') && services !== null">· ⟳ Updating…</span>
+                </p>
+                <div class="actions">
+                  <button type="button" class="btn" @click="copy(serverName(), 'Server address copied')">Copy address</button>
+                </div>
+                <div class="card">
+                  <h2>Deploy a site</h2>
+                  <div class="stack-s">
+                    <p class="muted">Run this in the folder you want to publish.</p>
+                    <div class="code"><code>siteio sites deploy ./dist</code><button type="button" class="btn btn-small" @click="copy('siteio sites deploy ./dist', 'Command copied')">Copy</button></div>
+                  </div>
+                </div>
+              </section>
+              <section class="stack-s" aria-labelledby="activity-title">
+                <h2 id="activity-title">Recent deploys</h2>
+                <template x-if="services === null">
+                  <p class="muted">⟳ Loading…</p>
+                </template>
+                <template x-if="services && recentDeploys().length === 0">
+                  <div class="empty">No deploys yet. They will appear here as soon as you deploy a site or an app.</div>
+                </template>
+                <template x-if="services && recentDeploys().length > 0">
+                  <div class="stack-s">
+                    <ul class="list">
+                      <template x-for="item in recentDeploys().slice(0, activityLimit)" :key="item.kind + ':' + item.name">
+                        <li>
+                          <a class="list-row" :href="serviceHref(item)" :data-service-name="item.name">
+                            <span class="dot" :class="isRecent(item.deployedAt) ? 'dot-new' : ''" aria-hidden="true"></span>
+                            <span class="grow">
+                              <span class="list-title" x-text="item.name"></span>
+                              <span class="list-meta" x-text="(item.kind === 'site' ? 'Site' : 'App') + ' · deployed ' + formatRelativeTime(item.deployedAt)" :title="formatAbsoluteTime(item.deployedAt)"></span>
+                            </span>
+                            <span class="status" :class="statusClass(item)" x-text="statusText(item)"></span>
+                          </a>
+                        </li>
+                      </template>
+                    </ul>
+                    <template x-if="recentDeploys().length > activityLimit">
+                      <button type="button" class="btn" @click="activityLimit += 20">Show 20 more</button>
+                    </template>
+                  </div>
+                </template>
+              </section>
+            </div>
+          </div>
+        </template>
 
-              <template x-if="services && filteredServices().length > 0">
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  <template x-for="item in filteredServices()" :key="item.kind + ':' + item.name">
-                    <a :href="serviceHref(item)"
-                       :data-service-name="item.name"
-                       class="group block bg-white border border-gray-200 rounded-lg overflow-hidden hover:border-brand-blue hover:shadow-sm transition">
-                      <!-- Card preview: generated thumbnail when available, else a placeholder -->
-                      <div class="aspect-[16/9] bg-gradient-to-br from-gray-50 to-gray-200 flex flex-col items-center justify-center text-gray-400 relative overflow-hidden">
+        <!-- Collection: sites or apps -->
+        <template x-if="(route.view === 'sites' || route.view === 'apps') && !route.param">
+          <section class="stack">
+            <div class="row-between">
+              <h1><span x-text="route.view === 'sites' ? 'Sites' : 'Apps'"></span><span class="count" x-show="services" x-text="collection().length"></span></h1>
+              <span class="muted" x-show="pending.has('services-list') && services !== null">⟳ Updating…</span>
+            </div>
+            <div class="row-between">
+              <div class="field filter grow">
+                <label for="filterInput" class="sr-only">Filter</label>
+                <input id="filterInput" x-ref="filterEl" type="search" class="input" placeholder="Filter  ( / )" x-model="filterText" />
+              </div>
+              <div class="code">
+                <code x-text="route.view === 'sites' ? 'siteio sites deploy ./dist' : 'siteio apps create myapp -i nginx -p 80'"></code>
+                <button type="button" class="btn btn-small" @click="copy(route.view === 'sites' ? 'siteio sites deploy ./dist' : 'siteio apps create myapp -i nginx -p 80', 'Command copied')">Copy</button>
+              </div>
+            </div>
+
+            <template x-if="services === null">
+              <p class="muted">⟳ Loading…</p>
+            </template>
+            <template x-if="services && collection().length === 0">
+              <div class="empty" x-show="route.view === 'sites'">No sites yet. Deploy one with <code>siteio sites deploy ./dist</code>.</div>
+            </template>
+            <template x-if="services && collection().length === 0">
+              <div class="empty" x-show="route.view === 'apps'">No apps yet. Create one with <code>siteio apps create myapp -i nginx -p 80</code>.</div>
+            </template>
+            <template x-if="services && collection().length > 0 && filteredCollection().length === 0">
+              <div class="empty">Nothing matches “<span x-text="filterText"></span>”.</div>
+            </template>
+            <template x-if="services && filteredCollection().length > 0">
+              <ul class="list">
+                <template x-for="item in filteredCollection()" :key="item.kind + ':' + item.name">
+                  <li>
+                    <a class="list-row" :href="serviceHref(item)" :data-service-name="item.name">
+                      <span class="thumb" aria-hidden="true">
                         <template x-if="thumbs[item.kind + ':' + item.name]">
-                          <img :src="thumbs[item.kind + ':' + item.name]" alt=""
-                               class="absolute inset-0 w-full h-full object-cover object-top" />
+                          <img :src="thumbs[item.kind + ':' + item.name]" alt="" />
                         </template>
                         <template x-if="!thumbs[item.kind + ':' + item.name]">
-                          <div class="flex flex-col items-center justify-center">
-                            <i :class="item.kind === 'site' ? 'hgi-stroke hgi-globe' : 'hgi-stroke hgi-package'" class="hgi text-3xl"></i>
-                            <span class="text-[11px] mt-1 uppercase tracking-wide">No preview</span>
-                          </div>
+                          <span x-text="item.kind"></span>
                         </template>
-                        <!-- Regenerate the preview without following the card link -->
-                        <button @click.stop.prevent="refreshThumbnail(item)"
-                                :disabled="pending.has('thumb:' + item.kind + ':' + item.name)"
-                                :title="'Refresh preview'"
-                                class="absolute top-2 left-2 inline-flex items-center justify-center w-7 h-7 rounded bg-white/80 text-gray-500 hover:text-brand-blue hover:bg-white shadow-sm disabled:opacity-50">
-                          <i class="hgi hgi-stroke hgi-refresh"
-                             :class="pending.has('thumb:' + item.kind + ':' + item.name) ? 'animate-spin' : ''"></i>
-                        </button>
-                        <!-- Open the live URL in a new tab without triggering the card's link to detail -->
-                        <button @click.stop.prevent="window.open(item.url, '_blank', 'noopener')"
-                                :title="'Open ' + servicePrimaryDomain(item)"
-                                class="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded bg-white/80 text-gray-500 hover:text-brand-blue hover:bg-white shadow-sm">
-                          <i class="hgi hgi-stroke hgi-link-square-02"></i>
-                        </button>
-                      </div>
-                      <!-- Body -->
-                      <div class="p-3">
-                        <div class="flex items-center justify-between gap-2 mb-1.5">
-                          <span :class="item.kind === 'site' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-700'"
-                                class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded font-medium capitalize" x-text="item.kind"></span>
-                          <span :class="statusBadgeClass(item.status)"
-                                class="inline-block px-2 py-0.5 text-xs rounded font-medium" x-text="item.status"></span>
-                        </div>
-                        <div class="font-medium text-gray-900 truncate group-hover:text-brand-blue" x-text="servicePrimaryDomain(item)" :title="servicePrimaryDomain(item)"></div>
-                        <div class="text-xs text-gray-500 font-mono truncate" x-text="item.name"></div>
-                        <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
-                          <span x-text="serviceMeta(item)"></span>
-                          <span class="uppercase" x-text="item.tls ? ('tls: ' + item.tls) : ''"></span>
-                        </div>
-                        <template x-if="serviceUpdated(item)">
-                          <div class="mt-1 flex items-center gap-1 text-xs text-gray-400" :title="formatAbsoluteTime(item.deployedAt)">
-                            <i class="hgi hgi-stroke hgi-clock-01 text-[11px]"></i>
-                            <span x-text="serviceUpdated(item)"></span>
-                          </div>
-                        </template>
-                      </div>
+                      </span>
+                      <span class="grow">
+                        <span class="list-title" x-text="item.name"></span>
+                        <span class="list-meta" x-text="servicePrimaryDomain(item)"></span>
+                        <span class="list-meta" x-text="serviceMeta(item)"></span>
+                      </span>
+                      <span class="list-side">
+                        <span class="status" :class="statusClass(item)" x-text="statusText(item)"></span>
+                        <span class="list-meta" x-text="item.deployedAt ? 'Deployed ' + formatRelativeTime(item.deployedAt) : 'Not deployed yet'" :title="formatAbsoluteTime(item.deployedAt)"></span>
+                      </span>
                     </a>
+                  </li>
+                </template>
+              </ul>
+            </template>
+          </section>
+        </template>
+
+        <!-- Settings -->
+        <template x-if="route.view === 'settings'">
+          <section class="stack">
+            <h1>Settings</h1>
+            <template x-if="agentInfo === null">
+              <p class="muted">⟳ Loading…</p>
+            </template>
+            <template x-if="agentInfo">
+              <div class="stack">
+                <div class="card">
+                  <h2>About this server</h2>
+                  <dl class="kv">
+                    <dt>Address</dt><dd class="mono" x-text="agentInfo.domain"></dd>
+                    <dt>Version</dt><dd class="mono" x-text="agentInfo.version"></dd>
+                    <dt>Email for HTTPS</dt><dd x-text="agentInfo.email || 'Not set'"></dd>
+                    <dt>Sites</dt><dd x-text="agentInfo.siteCount"></dd>
+                    <dt>Apps</dt><dd x-text="agentInfo.appCount"></dd>
+                    <dt>Data folder</dt><dd class="mono" x-text="agentInfo.dataDir"></dd>
+                    <dt>HTTP / HTTPS ports</dt><dd class="mono" x-text="agentInfo.httpPort + ' / ' + agentInfo.httpsPort"></dd>
+                    <dt>Largest upload</dt><dd x-text="formatBytes(agentInfo.maxUploadSize)"></dd>
+                  </dl>
+                </div>
+                <div class="card">
+                  <h2>Optional features</h2>
+                  <dl class="kv">
+                    <dt>Apps</dt>
+                    <dd>
+                      <span class="status" :class="agentInfo.appsEnabled ? 'status-ok' : 'status-neutral'" x-text="agentInfo.appsEnabled ? '✓ On' : '○ Off'"></span>
+                      <template x-if="!agentInfo.appsEnabled">
+                        <p class="help">Run Docker apps next to your sites. Turn on with <code>siteio agent config set appsEnabled true</code>, then restart the agent.</p>
+                      </template>
+                    </dd>
+                    <dt>AI editing</dt>
+                    <dd>
+                      <span class="status" :class="agentInfo.chat && agentInfo.chat.configured ? 'status-ok' : 'status-neutral'" x-text="agentInfo.chat && agentInfo.chat.configured ? '✓ On' : '○ Off'"></span>
+                      <template x-if="agentInfo.chat && agentInfo.chat.configured">
+                        <span class="muted" x-text="' · ' + [agentInfo.chat.provider, agentInfo.chat.model, agentInfo.chat.sandbox ? 'sandboxed' : 'not sandboxed'].filter(Boolean).join(' · ')"></span>
+                      </template>
+                      <template x-if="!(agentInfo.chat && agentInfo.chat.configured)">
+                        <p class="help">Edit a site by describing a change. Turn on with <code>siteio agent config set llmOauthToken &lt;token&gt;</code> (from <code>claude setup-token</code>), then restart the agent.</p>
+                      </template>
+                    </dd>
+                  </dl>
+                </div>
+                <div class="note">These settings are changed on the server with <code>siteio agent config set &lt;key&gt; &lt;value&gt;</code>, then <code>siteio agent restart</code>.</div>
+              </div>
+            </template>
+          </section>
+        </template>
+
+        <!-- Detail: one site or app -->
+        <template x-if="(route.view === 'sites' || route.view === 'apps') && route.param">
+          <section class="stack">
+            <p class="path">
+              <a :href="'#/' + route.view" x-text="route.view === 'sites' ? 'Sites' : 'Apps'"></a> / <span x-text="route.param"></span>
+            </p>
+
+            <template x-if="detail() === null">
+              <div class="stack-s">
+                <h1 x-text="route.param"></h1>
+                <p class="muted">⟳ Loading…</p>
+              </div>
+            </template>
+
+            <template x-if="detail() === 'not-found'">
+              <div class="stack-s">
+                <h1 x-text="(route.view === 'sites' ? 'Site' : 'App') + ' not found'"></h1>
+                <p class="muted">It was removed or renamed.</p>
+                <p><a :href="'#/' + route.view" x-text="'Back to ' + (route.view === 'sites' ? 'sites' : 'apps')"></a></p>
+              </div>
+            </template>
+
+            <template x-if="detail() && detail() !== 'not-found'">
+              <div class="stack">
+                <div class="row-between">
+                  <div class="row">
+                    <h1 x-text="route.param"></h1>
+                    <span class="status" :class="statusClass(detail())" x-text="statusText(detail())"></span>
+                  </div>
+                  <div class="actions actions-stack">
+                    <template x-if="route.view === 'apps'">
+                      <div class="actions actions-stack">
+                        <button type="button" class="btn" :disabled="anyAppActionPending()" @click="stopApp(route.param)"
+                                x-text="pending.has('stop') ? 'Stopping…' : 'Stop'"></button>
+                        <button type="button" class="btn" :disabled="anyAppActionPending()" @click="restartApp(route.param)"
+                                x-text="pending.has('restart') ? 'Restarting…' : 'Restart'"></button>
+                        <button type="button" class="btn btn-primary" :disabled="anyAppActionPending()" @click="deployApp(route.param)"
+                                x-text="pending.has('deploy') ? 'Deploying…' : 'Deploy now'"></button>
+                      </div>
+                    </template>
+                    <template x-if="route.view === 'sites' && selectedSite.chatEnabled">
+                      <button type="button" class="btn btn-primary" @click="openLiveEditor(route.param)" :disabled="pending.has('editlink-' + route.param)">Open live editor</button>
+                    </template>
+                  </div>
+                </div>
+
+                <div class="display">
+                  <div class="display-label" x-text="route.view === 'sites' ? 'Your site' : 'Your app'"></div>
+                  <a class="display-value" :href="detail().url" target="_blank" rel="noreferrer" x-text="detail().url + ' ↗'"></a>
+                  <template x-if="(detail().domains || []).length > 1">
+                    <div class="display-second" x-text="'Also at ' + detail().domains.slice(1).join(', ')"></div>
                   </template>
                 </div>
-              </template>
-            </section>
-          </template>
 
-          <!-- Settings (read-only agent info) -->
-          <template x-if="route.view === 'settings'">
-            <section>
-              <div class="flex items-center justify-between mb-4">
-                <h1 class="text-xl font-semibold">Agent settings</h1>
-                <button @click="loadAgentInfo()" :disabled="pending.has('agent-info')"
-                        class="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
-                  <i class="hgi hgi-stroke hgi-refresh"></i> Refresh
-                </button>
-              </div>
+                <nav class="subtabs tabs" aria-label="Parts of this object">
+                  <template x-for="t in detailTabs()" :key="t.k">
+                    <a :href="'#/' + route.view + '/' + route.param + '/' + t.k" :aria-current="currentTab() === t.k ? 'page' : null" x-text="t.label"></a>
+                  </template>
+                </nav>
 
-              <template x-if="agentInfo === null">
-                <div class="text-sm text-gray-500">Loading settings…</div>
-              </template>
-
-              <template x-if="agentInfo">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl">
-                  <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                    <div class="text-xs uppercase text-gray-500 mb-2">Server</div>
-                    <div class="text-sm space-y-1">
-                      <div><span class="text-gray-500">Domain:</span> <span class="font-mono" x-text="agentInfo.domain"></span></div>
-                      <div><span class="text-gray-500">Agent version:</span> <span class="font-mono" x-text="agentInfo.version"></span></div>
-                      <div><span class="text-gray-500">Let's Encrypt email:</span> <span class="font-mono" x-text="agentInfo.email || '—'"></span></div>
+                <!-- Site: overview -->
+                <template x-if="route.view === 'sites' && currentTab() === 'overview'">
+                  <div class="cols">
+                    <div class="stack">
+                      <div class="card">
+                        <h2>Details</h2>
+                        <dl class="kv">
+                          <dt>Version</dt><dd x-text="selectedSite.version ? 'v' + selectedSite.version : 'None yet'"></dd>
+                          <dt>Deployed</dt><dd x-text="formatRelativeTime(selectedSite.deployedAt) || 'Not yet'" :title="formatAbsoluteTime(selectedSite.deployedAt)"></dd>
+                          <dt>Size</dt><dd x-text="formatBytes(selectedSite.size)"></dd>
+                          <dt>HTTPS</dt><dd><span class="status" :class="tlsInfo(selectedSite.tls).cls" x-text="tlsInfo(selectedSite.tls).text"></span></dd>
+                          <dt>Custom domains</dt>
+                          <dd>
+                            <template x-if="(selectedSite.domains || []).length === 0"><span class="muted">None. Add one with <code x-text="'siteio sites domain ' + route.param + ' add example.com'"></code></span></template>
+                            <template x-for="d in (selectedSite.domains || [])" :key="d">
+                              <a :href="'https://' + d" target="_blank" rel="noreferrer" class="mono" x-text="d"></a>
+                            </template>
+                          </dd>
+                        </dl>
+                      </div>
+                      <div class="card">
+                        <h2>Backend</h2>
+                        <dl class="kv">
+                          <dt>Database</dt><dd x-text="'PocketBase ' + selectedSite.pocketbaseVersion"></dd>
+                          <dt>Database admin</dt><dd><a :href="selectedSite.adminUrl" target="_blank" rel="noreferrer" class="mono" x-text="selectedSite.adminUrl"></a></dd>
+                        </dl>
+                      </div>
+                      <div class="card danger">
+                        <h2>Danger zone</h2>
+                        <div class="row-between">
+                          <p class="muted grow">Remove this site, its files and its data. This can't be undone.</p>
+                          <button type="button" class="btn btn-danger" :disabled="pending.has('undeploy')" @click="undeploySite(route.param)">Remove site</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="stack-s" x-data="{ k: 'site:' + route.param }">
+                      <div class="row-between">
+                        <h2>Preview</h2>
+                        <button type="button" class="btn btn-small" :disabled="pending.has('thumb:' + k)" @click="refreshThumbnail({ kind: 'site', name: route.param })"
+                                x-text="pending.has('thumb:' + k) ? '⟳ Refreshing…' : 'Refresh'"></button>
+                      </div>
+                      <div class="preview">
+                        <template x-if="thumbs[k]"><img :src="thumbs[k]" alt="Preview of the site" /></template>
+                        <template x-if="!thumbs[k]"><span class="small">No preview yet</span></template>
+                      </div>
                     </div>
                   </div>
-                  <div class="bg-white border border-gray-200 rounded p-4">
-                    <div class="text-xs uppercase text-gray-500 mb-2">Hosting</div>
-                    <div class="text-sm space-y-1">
-                      <div><span class="text-gray-500">Sites:</span> <span class="font-mono" x-text="agentInfo.siteCount"></span></div>
-                      <div><span class="text-gray-500">Apps:</span> <span class="font-mono" x-text="agentInfo.appCount"></span></div>
-                      <div><span class="text-gray-500">Apps surface:</span> <span class="font-mono" x-text="agentInfo.appsEnabled ? 'enabled' : 'disabled'"></span></div>
-                    </div>
-                  </div>
-                  <div class="bg-white border border-gray-200 rounded p-4">
-                    <div class="text-xs uppercase text-gray-500 mb-2">Runtime</div>
-                    <div class="text-sm space-y-1">
-                      <div><span class="text-gray-500">Data dir:</span> <span class="font-mono break-all" x-text="agentInfo.dataDir"></span></div>
-                      <div><span class="text-gray-500">HTTP / HTTPS:</span> <span class="font-mono" x-text="agentInfo.httpPort + ' / ' + agentInfo.httpsPort"></span></div>
-                      <div><span class="text-gray-500">Max upload:</span> <span class="font-mono" x-text="formatBytes(agentInfo.maxUploadSize)"></span></div>
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </section>
-          </template>
-
-          <!-- App detail -->
-          <template x-if="route.view === 'apps' && route.param">
-            <section>
-              <div class="flex items-center gap-3 mb-4 flex-wrap">
-                <a href="#/services" class="text-sm text-gray-500 hover:text-gray-700">← Services</a>
-                <h1 class="text-xl font-semibold" x-text="route.param"></h1>
-                <template x-if="selectedApp && selectedApp !== 'not-found'">
-                  <span :class="statusBadgeClass(selectedApp.status)" class="inline-block px-2 py-0.5 text-xs rounded font-medium" x-text="selectedApp.status"></span>
                 </template>
-                <div class="ml-auto flex items-center gap-2" x-show="selectedApp && selectedApp !== 'not-found'">
-                  <a :href="selectedApp?.url" target="_blank" rel="noreferrer"
-                     class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-gray-200 hover:bg-gray-50">
-                    <i class="hgi hgi-stroke hgi-link-square-02"></i> Open ↗
-                  </a>
-                  <button
-                    :disabled="anyAppActionPending()"
-                    @click="deployApp(route.param)"
-                    class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-brand-blue text-brand-blue hover:bg-brand-blue/5 disabled:opacity-60">
-                    <i class="hgi hgi-stroke hgi-rocket"></i>
-                    <span x-show="!pending.has('deploy')">Deploy</span>
-                    <span x-show="pending.has('deploy')">Deploying…</span>
-                  </button>
-                  <button
-                    :disabled="anyAppActionPending()"
-                    @click="stopApp(route.param)"
-                    class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-60">
-                    <i class="hgi hgi-stroke hgi-stop-circle"></i> Stop
-                  </button>
-                  <button
-                    :disabled="anyAppActionPending()"
-                    @click="restartApp(route.param)"
-                    class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-60">
-                    <i class="hgi hgi-stroke hgi-reload"></i> Restart
-                  </button>
-                  <button
-                    :disabled="anyAppActionPending()"
-                    @click="removeApp(route.param)"
-                    class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60">
-                    <i class="hgi hgi-stroke hgi-delete-02"></i> Remove
-                  </button>
-                </div>
-              </div>
 
-              <template x-if="selectedApp === null">
-                <div class="text-sm text-gray-500">Loading…</div>
-              </template>
-
-              <template x-if="selectedApp === 'not-found'">
-                <div class="text-sm text-gray-500">
-                  App not found — it may have been removed.
-                  <a href="#/services" class="text-brand-blue hover:underline ml-1">Back to services</a>.
-                </div>
-              </template>
-
-              <template x-if="selectedApp && selectedApp !== 'not-found'">
-                <div class="space-y-4">
-                  <!-- Sub-tabs -->
-                  <div class="border-b border-gray-200 flex gap-4">
-                    <button @click="window.location.hash = '#/apps/' + route.param + '/overview'"
-                            :class="(route.subtab === 'overview' || !route.subtab) ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                            class="border-b-2 pb-2 text-sm">
-                      Overview
-                    </button>
-                    <button @click="window.location.hash = '#/apps/' + route.param + '/logs'"
-                            :class="route.subtab === 'logs' ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                            class="border-b-2 pb-2 text-sm">
-                      Logs
-                    </button>
-                  </div>
-
-                  <!-- Overview pane -->
-                  <template x-if="!route.subtab || route.subtab === 'overview'">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div class="bg-white border border-gray-200 rounded p-4">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Source</div>
-                        <div class="text-sm font-mono break-all">
+                <!-- App: overview -->
+                <template x-if="route.view === 'apps' && currentTab() === 'overview'">
+                  <div class="cols">
+                    <div class="stack">
+                      <template x-if="selectedApp.autoDeployError">
+                        <div class="banner banner-warn" role="status">
+                          <strong>! Auto-deploy failed.</strong> <span x-text="selectedApp.autoDeployError"></span>
+                        </div>
+                      </template>
+                      <div class="card">
+                        <h2>Source</h2>
+                        <dl class="kv">
                           <template x-if="selectedApp.compose">
                             <div>
-                              compose (<span x-text="selectedApp.compose.source"></span>) · primary: <span x-text="selectedApp.compose.primaryService"></span>
-                              <template x-if="selectedApp.compose.path"><div class="text-gray-600" x-text="'path: ' + selectedApp.compose.path"></div></template>
+                              <dt>Compose</dt><dd x-text="selectedApp.compose.source"></dd>
+                              <dt>Main part</dt><dd class="mono" x-text="selectedApp.compose.primaryService"></dd>
+                              <template x-if="selectedApp.compose.path"><dt>File</dt></template>
+                              <template x-if="selectedApp.compose.path"><dd class="mono" x-text="selectedApp.compose.path"></dd></template>
                             </div>
                           </template>
                           <template x-if="selectedApp.git && !selectedApp.compose">
                             <div>
-                              <div x-text="selectedApp.git.repoUrl"></div>
-                              <div class="text-gray-600" x-text="'branch: ' + selectedApp.git.branch + ' · dockerfile: ' + selectedApp.git.dockerfile"></div>
-                              <template x-if="selectedApp.git.context"><div class="text-gray-600" x-text="'context: ' + selectedApp.git.context"></div></template>
-                              <template x-if="selectedApp.git.tokenSet"><div class="text-gray-600">token: *** (stored)</div></template>
+                              <dt>Git</dt><dd class="mono" x-text="selectedApp.git.repoUrl"></dd>
+                              <dt>Branch</dt><dd class="mono" x-text="selectedApp.git.branch"></dd>
+                              <dt>Dockerfile</dt><dd class="mono" x-text="selectedApp.git.dockerfile"></dd>
+                              <template x-if="selectedApp.git.context"><dt>Folder</dt></template>
+                              <template x-if="selectedApp.git.context"><dd class="mono" x-text="selectedApp.git.context"></dd></template>
+                              <template x-if="selectedApp.git.tokenSet"><dt>Access token</dt></template>
+                              <template x-if="selectedApp.git.tokenSet"><dd>Set</dd></template>
                             </div>
                           </template>
-                          <template x-if="selectedApp.dockerfile && !selectedApp.git">
-                            <div>inline dockerfile</div>
+                          <template x-if="selectedApp.dockerfile && !selectedApp.git && !selectedApp.compose">
+                            <div><dt>Build</dt><dd>Dockerfile sent from the command line</dd></div>
                           </template>
                           <template x-if="!selectedApp.compose && !selectedApp.git && !selectedApp.dockerfile">
-                            <div x-text="selectedApp.image"></div>
+                            <div><dt>Image</dt><dd class="mono" x-text="selectedApp.image"></dd></div>
                           </template>
-                        </div>
+                        </dl>
                       </div>
-
-                      <div class="bg-white border border-gray-200 rounded p-4">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Routing</div>
-                        <div class="text-sm">
-                          <div><span class="text-gray-500">Internal port:</span> <span class="font-mono" x-text="selectedApp.internalPort"></span></div>
-                          <div class="flex flex-wrap items-baseline gap-x-2">
-                            <span class="text-gray-500">Domains:</span>
-                            <template x-if="(selectedApp.domains || []).length === 0"><span class="font-mono">—</span></template>
+                      <div class="card">
+                        <h2>Routing</h2>
+                        <dl class="kv">
+                          <dt>Port in the container</dt><dd class="mono" x-text="selectedApp.internalPort"></dd>
+                          <dt>Custom domains</dt>
+                          <dd>
+                            <template x-if="(selectedApp.domains || []).length === 0"><span class="muted">None</span></template>
                             <template x-for="d in (selectedApp.domains || [])" :key="d">
-                              <a :href="'https://' + d" target="_blank" rel="noreferrer" class="font-mono text-brand-blue hover:underline" x-text="d"></a>
+                              <a :href="'https://' + d" target="_blank" rel="noreferrer" class="mono" x-text="d"></a>
                             </template>
-                          </div>
-                          <div><span class="text-gray-500">Restart policy:</span> <span class="font-mono" x-text="selectedApp.restartPolicy || 'unless-stopped'"></span></div>
-                        </div>
+                          </dd>
+                          <dt>Restart policy</dt><dd class="mono" x-text="selectedApp.restartPolicy || 'unless-stopped'"></dd>
+                        </dl>
                       </div>
-
-                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Environment</div>
-                        <template x-if="Object.keys(selectedApp.env || {}).length === 0">
-                          <div class="text-sm text-gray-500">No env vars set.</div>
+                      <div class="card">
+                        <h2>Environment</h2>
+                        <template x-if="envKeys().length === 0">
+                          <p class="muted">No environment variables. Set them with <code x-text="'siteio apps set ' + route.param + ' -e KEY=value'"></code></p>
                         </template>
-                        <template x-if="Object.keys(selectedApp.env || {}).length > 0">
-                          <ul class="text-sm font-mono space-y-1">
-                            <template x-for="k in Object.keys(selectedApp.env).sort()" :key="k">
-                              <li class="grid grid-cols-[max-content_1fr] gap-x-4">
-                                <span class="text-gray-700" x-text="k"></span>
-                                <span class="text-gray-900 break-all" x-text="selectedApp.env[k]"></span>
-                              </li>
+                        <template x-if="envKeys().length > 0">
+                          <dl class="kv">
+                            <template x-for="k in envKeys()" :key="k">
+                              <div>
+                                <dt class="mono" x-text="k"></dt>
+                                <dd class="mono" :class="isSecret(k) ? 'muted' : ''" x-text="isSecret(k) ? 'Set · hidden' : selectedApp.env[k]"></dd>
+                              </div>
                             </template>
-                          </ul>
+                          </dl>
                         </template>
                       </div>
-
-                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Volumes</div>
+                      <div class="card">
+                        <h2>Volumes</h2>
                         <template x-if="(selectedApp.volumes || []).length === 0">
-                          <div class="text-sm text-gray-500">No volumes.</div>
+                          <p class="muted">No volumes.</p>
                         </template>
                         <template x-if="(selectedApp.volumes || []).length > 0">
-                          <ul class="text-sm font-mono space-y-1">
+                          <dl class="kv">
                             <template x-for="v in selectedApp.volumes" :key="v.name + ':' + v.mountPath">
-                              <li x-text="v.name + ' → ' + v.mountPath + (v.readonly ? ' (ro)' : '')"></li>
+                              <div>
+                                <dt class="mono" x-text="v.name"></dt>
+                                <dd class="mono" x-text="v.mountPath + (v.readonly ? ' (read-only)' : '')"></dd>
+                              </div>
                             </template>
-                          </ul>
+                          </dl>
                         </template>
                       </div>
-
-
-                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Build / deploy state</div>
-                        <div class="text-sm font-mono space-y-1">
-                          <div><span class="text-gray-500">Created:</span> <span x-text="selectedApp.createdAt || '—'"></span></div>
-                          <div><span class="text-gray-500">Deployed:</span> <span x-text="selectedApp.deployedAt || '—'"></span></div>
-                          <template x-if="selectedApp.commitHash"><div><span class="text-gray-500">Commit:</span> <span x-text="selectedApp.commitHash"></span></div></template>
-                          <template x-if="selectedApp.lastBuildAt"><div><span class="text-gray-500">Last build:</span> <span x-text="selectedApp.lastBuildAt"></span></div></template>
-                          <template x-if="selectedApp.containerId"><div><span class="text-gray-500">Container:</span> <span x-text="selectedApp.containerId.substring(0, 12)"></span></div></template>
+                      <div class="card danger">
+                        <h2>Danger zone</h2>
+                        <div class="row-between">
+                          <p class="muted grow">Remove this app, its container and its image. This can't be undone.</p>
+                          <button type="button" class="btn btn-danger" :disabled="anyAppActionPending()" @click="removeApp(route.param)">Remove app</button>
                         </div>
                       </div>
                     </div>
-                  </template>
-
-                  <template x-if="route.subtab === 'logs'">
-                    <div>
-                      <div class="flex items-center gap-3 mb-2">
-                        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-                          <input type="checkbox" x-model="logsAuto" @change="logsAuto ? startLogsPoll() : stopLogsPoll()">
-                          Auto-refresh (3s)
-                        </label>
-                        <button
-                          @click="loadLogs(route.param)"
-                          :disabled="pending.has('logs')"
-                          class="ml-auto inline-flex items-center gap-1 px-3 py-1 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
-                          <i class="hgi hgi-stroke hgi-refresh"></i> Refresh now
-                        </button>
+                    <div class="stack">
+                      <div class="card">
+                        <h2>Deploys</h2>
+                        <dl class="kv">
+                          <dt>Created</dt><dd x-text="formatRelativeTime(selectedApp.createdAt) || 'Unknown'" :title="formatAbsoluteTime(selectedApp.createdAt)"></dd>
+                          <dt>Deployed</dt><dd x-text="formatRelativeTime(selectedApp.deployedAt) || 'Not yet'" :title="formatAbsoluteTime(selectedApp.deployedAt)"></dd>
+                          <template x-if="selectedApp.commitHash"><dt>Commit</dt></template>
+                          <template x-if="selectedApp.commitHash"><dd class="mono" x-text="selectedApp.commitHash.substring(0, 7)"></dd></template>
+                          <template x-if="selectedApp.lastBuildAt"><dt>Last build</dt></template>
+                          <template x-if="selectedApp.lastBuildAt"><dd x-text="formatRelativeTime(selectedApp.lastBuildAt)" :title="formatAbsoluteTime(selectedApp.lastBuildAt)"></dd></template>
+                          <template x-if="selectedApp.containerId"><dt>Container</dt></template>
+                          <template x-if="selectedApp.containerId"><dd class="mono" x-text="selectedApp.containerId.substring(0, 12)"></dd></template>
+                        </dl>
                       </div>
-                      <pre class="logs" x-ref="logsEl" x-text="logs || 'No logs yet.'"></pre>
+                      <div class="stack-s" x-data="{ k: 'app:' + route.param }">
+                        <div class="row-between">
+                          <h2>Preview</h2>
+                          <button type="button" class="btn btn-small" :disabled="pending.has('thumb:' + k)" @click="refreshThumbnail({ kind: 'app', name: route.param })"
+                                  x-text="pending.has('thumb:' + k) ? '⟳ Refreshing…' : 'Refresh'"></button>
+                        </div>
+                        <div class="preview">
+                          <template x-if="thumbs[k]"><img :src="thumbs[k]" alt="Preview of the app" /></template>
+                          <template x-if="!thumbs[k]"><span class="small">No preview yet</span></template>
+                        </div>
+                      </div>
                     </div>
-                  </template>
-
-                </div>
-              </template>
-            </section>
-          </template>
-
-          <!-- Site detail -->
-          <template x-if="route.view === 'sites' && route.param">
-            <section>
-              <div class="flex items-center gap-3 mb-4 flex-wrap">
-                <a href="#/services" class="text-sm text-gray-500 hover:text-gray-700">← Services</a>
-                <h1 class="text-xl font-semibold" x-text="route.param"></h1>
-                <template x-if="selectedSite && selectedSite !== 'not-found'">
-                  <span :class="statusBadgeClass(selectedSite.status)" class="inline-block px-2 py-0.5 text-xs rounded font-medium" x-text="selectedSite.status"></span>
-                </template>
-                <div class="ml-auto flex items-center gap-2" x-show="selectedSite && selectedSite !== 'not-found'">
-                  <a :href="selectedSite?.url" target="_blank" rel="noreferrer"
-                     class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-gray-200 hover:bg-gray-50">
-                    <i class="hgi hgi-stroke hgi-link-square-02"></i> Open ↗
-                  </a>
-                  <button
-                    :disabled="pending.has('undeploy')"
-                    @click="undeploySite(route.param)"
-                    class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60">
-                    <i class="hgi hgi-stroke hgi-delete-02"></i> Remove
-                  </button>
-                </div>
-              </div>
-
-              <template x-if="selectedSite === null"><div class="text-sm text-gray-500">Loading…</div></template>
-              <template x-if="selectedSite === 'not-found'">
-                <div class="text-sm text-gray-500">
-                  Site not found.
-                  <a href="#/services" class="text-brand-blue hover:underline ml-1">Back to services</a>.
-                </div>
-              </template>
-
-              <template x-if="selectedSite && selectedSite !== 'not-found'">
-                <div class="space-y-4">
-                  <div class="border-b border-gray-200 flex gap-4">
-                    <button @click="window.location.hash = '#/sites/' + route.param + '/overview'"
-                            :class="(route.subtab === 'overview' || !route.subtab) ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                            class="border-b-2 pb-2 text-sm">Overview</button>
-                    <button @click="window.location.hash = '#/sites/' + route.param + '/history'"
-                            :class="route.subtab === 'history' ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                            class="border-b-2 pb-2 text-sm">History</button>
-                    <button @click="window.location.hash = '#/sites/' + route.param + '/logs'"
-                            :class="route.subtab === 'logs' ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                            class="border-b-2 pb-2 text-sm">Logs</button>
-                    <template x-if="selectedSite.chatEnabled">
-                      <button @click="window.location.hash = '#/sites/' + route.param + '/chat'"
-                              :class="route.subtab === 'chat' ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                              class="border-b-2 pb-2 text-sm inline-flex items-center gap-1">
-                        <i class="hgi hgi-stroke hgi-ai-chat-02"></i> Chat
-                      </button>
-                    </template>
                   </div>
+                </template>
 
-                  <template x-if="!route.subtab || route.subtab === 'overview'">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <template x-if="selectedSite.chatEnabled">
-                        <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2 flex items-center justify-between gap-3">
-                          <div>
-                            <div class="text-xs uppercase text-gray-500 mb-1">Live editor</div>
-                            <div class="text-sm text-gray-700">Edit this site by chatting on the site itself — changes go live immediately.</div>
+                <!-- Site: history -->
+                <template x-if="route.view === 'sites' && currentTab() === 'history'">
+                  <div class="stack-s">
+                    <p class="muted small">The last 10 versions are kept. Restoring a version brings back its files; the site's data stays as it is now.</p>
+                    <ul class="list">
+                      <li class="list-row" data-current>
+                        <span class="grow">
+                          <span class="list-title" x-text="'v' + (selectedSite.version || '–')"></span>
+                          <span class="list-meta" x-text="formatRelativeTime(selectedSite.deployedAt)" :title="formatAbsoluteTime(selectedSite.deployedAt)"></span>
+                        </span>
+                        <span class="version-live">✓ Live</span>
+                      </li>
+                      <template x-if="siteHistory === null">
+                        <li class="list-row muted">⟳ Loading older versions…</li>
+                      </template>
+                      <template x-for="v in (siteHistory || [])" :key="v.version">
+                        <li class="list-row" :data-version="v.version">
+                          <span class="grow">
+                            <span class="list-title" x-text="'v' + v.version + (v.message ? ' · ' + v.message : '')" dir="auto"></span>
+                            <span class="list-meta" x-text="[formatRelativeTime(v.deployedAt), v.deployedBy, formatBytes(v.size)].filter(Boolean).join(' · ')" :title="formatAbsoluteTime(v.deployedAt)"></span>
+                          </span>
+                          <template x-if="v.version === selectedSite.version"><span class="version-live">✓ Live</span></template>
+                          <template x-if="v.version !== selectedSite.version">
+                            <button type="button" class="btn btn-small" :disabled="pending.has('rollback-' + v.version)" @click="restoreVersion(route.param, v.version)"
+                                    x-text="pending.has('rollback-' + v.version) ? 'Restoring…' : 'Restore'"></button>
+                          </template>
+                        </li>
+                      </template>
+                      <template x-if="siteHistory && siteHistory.length === 0">
+                        <li class="list-row muted">No older versions yet. Each new deploy keeps the previous one here.</li>
+                      </template>
+                    </ul>
+                  </div>
+                </template>
+
+                <!-- Logs (sites and apps) -->
+                <template x-if="currentTab() === 'logs'">
+                  <div>
+                    <div class="logs-toolbar">
+                      <label class="switch">
+                        <input type="checkbox" role="switch" x-model="logsAuto" @change="logsAuto ? startLogsPoll() : stopLogsPoll()" />
+                        <span x-text="logsAuto ? 'Following' : 'Paused'"></span>
+                      </label>
+                      <div class="grow filter">
+                        <label for="logsFilter" class="sr-only">Highlight lines</label>
+                        <input id="logsFilter" type="search" class="input" placeholder="Highlight" x-model="logsFilter" />
+                      </div>
+                      <button type="button" class="btn btn-small" @click="copy(logs, 'Logs copied')" :disabled="!logs">Copy</button>
+                      <button type="button" class="btn btn-small" @click="downloadLogs(route.param)" :disabled="!logs">Download</button>
+                    </div>
+                    <pre class="logs" x-ref="logsEl" @scroll="onLogsScroll()"><template x-if="!logs"><span class="log-empty" x-text="logsError ? 'Can\'t read the logs. ' + logsError : 'No output yet.'"></span></template><template x-for="(line, i) in logLines()" :key="i"><span :class="logLineClass(line)" x-text="line + '\n'"></span></template></pre>
+                    <p class="help">Shows the last 200 lines. Scroll up or press Esc to pause.</p>
+                  </div>
+                </template>
+
+                <!-- Site: chat turned off on this server -->
+                <template x-if="route.view === 'sites' && currentTab() === 'chat' && !selectedSite.chatEnabled">
+                  <div class="note">AI editing is off on this server. Turn it on with <code>siteio agent config set llmOauthToken &lt;token&gt;</code> (from <code>claude setup-token</code>), then restart the agent.</div>
+                </template>
+
+                <!-- Site: chat (AI editor) -->
+                <template x-if="route.view === 'sites' && currentTab() === 'chat' && selectedSite.chatEnabled">
+                  <div class="chat">
+                    <div class="row-between small muted chat-head">
+                      <span x-show="chatStatus">
+                        <span x-text="(chatStatus?.provider || 'AI')"></span><span x-show="chatStatus?.model" x-text="' · ' + chatStatus?.model"></span>
+                        <span x-show="chatStatus?.sandbox"> · sandboxed</span>
+                      </span>
+                      <button type="button" class="btn btn-small" @click="clearChat(route.param)" :disabled="chatStreaming || !(chatMessages && chatMessages.length)">Clear history</button>
+                    </div>
+
+                    <div class="chat-log" x-ref="chatScroll" aria-live="polite">
+                      <template x-if="chatMessages === null">
+                        <p class="muted">⟳ Loading the conversation…</p>
+                      </template>
+
+                      <template x-if="chatMessages && chatMessages.length === 0 && !chatStreaming">
+                        <div class="stack-s">
+                          <h2>Edit this site by chatting</h2>
+                          <p class="muted">Describe a change. The AI edits the site's files and publishes them. Changes go live to visitors as soon as they're made, and you can undo each one.</p>
+                          <div class="chat-examples">
+                            <template x-for="ex in chatExamples" :key="ex">
+                              <button type="button" class="btn" @click="chatInput = ex; $refs.chatInputEl && $refs.chatInputEl.focus()" x-text="ex"></button>
+                            </template>
                           </div>
-                          <button @click="openLiveEditor(route.param)" :disabled="pending.has('editlink-' + route.param)"
-                                  class="shrink-0 px-3 py-2 text-sm rounded bg-brand-blue text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1">
-                            <i class="hgi hgi-stroke hgi-pencil-edit-02"></i> Open live editor
-                          </button>
                         </div>
                       </template>
-                      <div class="bg-white border border-gray-200 rounded p-4">
-                        <div class="text-xs uppercase text-gray-500 mb-2">URL</div>
-                        <a :href="selectedSite.url" target="_blank" rel="noreferrer" class="text-brand-blue hover:underline font-mono text-sm break-all" x-text="selectedSite.url"></a>
-                      </div>
-                      <div class="bg-white border border-gray-200 rounded p-4">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Deployed</div>
-                        <div class="text-sm font-mono" x-text="selectedSite.deployedAt"></div>
-                        <div class="text-sm"><span class="text-gray-500">Version:</span> <span class="font-mono" x-text="selectedSite.version || '—'"></span></div>
-                        <div class="text-sm"><span class="text-gray-500">Size:</span> <span class="font-mono" x-text="formatBytes(selectedSite.size)"></span></div>
-                        <div class="text-sm"><span class="text-gray-500">TLS:</span> <span class="font-mono" x-text="selectedSite.tls || '—'"></span></div>
-                      </div>
-                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Custom domains</div>
-                        <template x-if="(selectedSite.domains || []).length === 0"><div class="text-sm font-mono">—</div></template>
-                        <div class="text-sm font-mono flex flex-wrap gap-x-3 gap-y-1">
-                          <template x-for="d in (selectedSite.domains || [])" :key="d">
-                            <a :href="'https://' + d" target="_blank" rel="noreferrer" class="text-brand-blue hover:underline" x-text="d"></a>
+
+                      <template x-for="m in (chatMessages || [])" :key="m.id">
+                        <div class="msg" :class="chatBubbleClass(m)">
+                          <div class="msg-text" dir="auto" x-text="m.text"></div>
+                          <template x-if="m.target">
+                            <div class="msg-target break">✎ <span x-text="targetLabel(m.target)"></span></div>
+                          </template>
+                          <template x-if="m.toolCalls && m.toolCalls.length">
+                            <div class="steps">
+                              <template x-for="(tc, i) in m.toolCalls" :key="i">
+                                <span class="step" x-text="tc.name + (tc.detail ? ' ' + tc.detail : '')"></span>
+                              </template>
+                            </div>
+                          </template>
+                          <template x-if="m.role === 'assistant' && m.deployed">
+                            <div class="msg-result">
+                              <div class="row">
+                                <span class="status status-ok">✓ Deployed v<span x-text="m.versionAfter"></span></span>
+                                <a :href="selectedSite.url" target="_blank" rel="noreferrer">See it live ↗</a>
+                                <button type="button" class="btn btn-small" @click="revertTurn(route.param, m)"
+                                        :disabled="pending.has('revert-' + m.id) || m.versionBefore === undefined || m.versionBefore === 0">Undo this change</button>
+                              </div>
+                              <template x-if="m.changedFiles && m.changedFiles.length">
+                                <div class="mono small muted break" x-text="m.changedFiles.length + ' file' + (m.changedFiles.length === 1 ? '' : 's') + ': ' + m.changedFiles.join(', ')"></div>
+                              </template>
+                            </div>
+                          </template>
+                          <template x-if="m.role === 'assistant' && m.status === 'no_changes'">
+                            <div class="small muted">No change was made, so nothing was published.</div>
                           </template>
                         </div>
-                      </div>
-                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Backend</div>
-                        <div class="text-sm"><span class="text-gray-500">Status:</span> <span class="font-mono" x-text="selectedSite.status"></span></div>
-                        <div class="text-sm"><span class="text-gray-500">PocketBase:</span> <span class="font-mono" x-text="selectedSite.pocketbaseVersion"></span></div>
-                        <div class="text-sm"><span class="text-gray-500">Admin:</span> <a :href="selectedSite.adminUrl" target="_blank" rel="noreferrer" class="text-brand-blue hover:underline font-mono break-all" x-text="selectedSite.adminUrl"></a></div>
-                      </div>
-                    </div>
-                  </template>
+                      </template>
 
-                  <template x-if="route.subtab === 'history'">
-                    <div>
-                      <template x-if="siteHistory === null"><div class="text-sm text-gray-500">Loading history…</div></template>
-                      <template x-if="siteHistory && siteHistory.length === 0"><div class="text-sm text-gray-500">No history.</div></template>
-                      <template x-if="siteHistory && siteHistory.length > 0">
-                        <div class="border border-gray-200 rounded overflow-hidden bg-white">
-                          <table class="w-full text-sm">
-                            <thead class="bg-gray-50 text-left text-xs uppercase text-gray-600">
-                              <tr>
-                                <th class="px-3 py-2">Version</th>
-                                <th class="px-3 py-2">Deployed</th>
-                                <th class="px-3 py-2">By</th>
-                                <th class="px-3 py-2">Size</th>
-                                <th class="px-3 py-2"></th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <template x-for="v in siteHistory" :key="v.version">
-                                <tr class="border-t border-gray-100" :data-version="v.version">
-                                  <td class="px-3 py-2 font-mono" x-text="v.version"></td>
-                                  <td class="px-3 py-2 font-mono text-gray-700" x-text="v.deployedAt"></td>
-                                  <td class="px-3 py-2 text-gray-700" x-text="v.deployedBy || '—'"></td>
-                                  <td class="px-3 py-2 text-gray-700" x-text="formatBytes(v.size)"></td>
-                                  <td class="px-3 py-2 text-right">
-                                    <button
-                                      :disabled="pending.has('rollback-' + v.version) || v.version === selectedSite.version"
-                                      @click="rollbackSite(route.param, v.version)"
-                                      class="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
-                                      <template x-if="v.version === selectedSite.version"><span>current</span></template>
-                                      <template x-if="v.version !== selectedSite.version"><span>Rollback</span></template>
-                                    </button>
-                                  </td>
-                                </tr>
+                      <template x-if="chatStreaming">
+                        <div class="msg msg-ai">
+                          <div class="msg-text" x-text="chatLiveText || '…'"></div>
+                          <template x-if="chatLiveTools.length">
+                            <div class="steps">
+                              <template x-for="(tc, i) in chatLiveTools" :key="i">
+                                <span class="step" x-text="tc.name + (tc.detail ? ' ' + tc.detail : '')"></span>
                               </template>
-                            </tbody>
-                          </table>
+                            </div>
+                          </template>
+                          <div class="small muted"><span class="spin" aria-hidden="true">⟳</span> <span x-text="chatLiveStatus || 'Working…'"></span></div>
                         </div>
                       </template>
+
+                      <template x-if="!chatStreaming && chatStatus && chatStatus.active">
+                        <p class="small muted"><span class="spin" aria-hidden="true">⟳</span> A change is being made from another window…</p>
+                      </template>
                     </div>
-                  </template>
 
-                  <template x-if="route.subtab === 'logs'">
-                    <div>
-                      <div class="flex items-center gap-3 mb-2">
-                        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-                          <input type="checkbox" x-model="logsAuto" @change="logsAuto ? startLogsPoll() : stopLogsPoll()">
-                          Auto-refresh (3s)
-                        </label>
-                        <button
-                          @click="loadLogs(route.param)"
-                          :disabled="pending.has('logs')"
-                          class="ml-auto inline-flex items-center gap-1 px-3 py-1 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
-                          <i class="hgi hgi-stroke hgi-refresh"></i> Refresh now
-                        </button>
-                      </div>
-                      <pre class="logs" x-ref="logsEl" x-text="logs || 'No logs yet.'"></pre>
-                    </div>
-                  </template>
-
-                  <!-- Chat (AI editor) -->
-                  <template x-if="route.subtab === 'chat' && !selectedSite.chatEnabled">
-                    <div class="bg-white border border-gray-200 rounded p-6 text-sm text-gray-600">
-                      Chat is not configured on this agent. Set a Claude subscription token
-                      (<code class="font-mono">SITEIO_LLM_OAUTH_TOKEN</code>) or
-                      <code class="font-mono">SITEIO_LLM_API_KEY</code> and restart the agent to enable it.
-                    </div>
-                  </template>
-
-                  <template x-if="route.subtab === 'chat' && selectedSite.chatEnabled">
-                    <div class="flex flex-col" style="height: calc(100vh - 230px); min-height: 420px;">
-                      <!-- Header -->
-                      <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-                        <div class="text-xs text-gray-500">
-                          <span x-show="chatStatus">
-                            <span x-text="(chatStatus?.provider || 'ai')"></span><span x-show="chatStatus?.model" x-text="' · ' + chatStatus?.model"></span>
-                            <span x-show="chatStatus?.sandbox" class="ml-1 inline-flex items-center gap-1 text-brand-green"><i class="hgi hgi-stroke hgi-shield-01 text-[11px]"></i>sandboxed</span>
-                          </span>
-                        </div>
-                        <button @click="clearChat(route.param)"
-                                :disabled="chatStreaming || !(chatMessages && chatMessages.length)"
-                                class="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-40">
-                          <i class="hgi hgi-stroke hgi-delete-02"></i> Clear
-                        </button>
-                      </div>
-
-                      <!-- Transcript -->
-                      <div class="flex-1 overflow-auto border border-gray-200 rounded bg-gray-50 p-3 space-y-3" x-ref="chatScroll">
-                        <template x-if="chatMessages === null">
-                          <div class="text-sm text-gray-500">Loading conversation…</div>
-                        </template>
-
-                        <!-- Empty state -->
-                        <template x-if="chatMessages && chatMessages.length === 0 && !chatStreaming">
-                          <div class="text-sm text-gray-600 space-y-3">
-                            <div class="font-medium text-gray-900">Edit this site by chatting</div>
-                            <div>Describe a change and the AI will edit the site's files and
-                              <span class="font-medium">deploy it live immediately</span>. Every change can be reverted from its message.</div>
-                            <div class="space-y-1">
-                              <template x-for="ex in chatExamples" :key="ex">
-                                <button @click="chatInput = ex; $refs.chatInputEl && $refs.chatInputEl.focus()"
-                                        class="block w-full text-left px-3 py-2 bg-white border border-gray-200 rounded hover:border-brand-blue text-gray-700" x-text="ex"></button>
-                              </template>
-                            </div>
-                          </div>
-                        </template>
-
-                        <!-- Messages -->
-                        <template x-for="m in (chatMessages || [])" :key="m.id">
-                          <div :class="m.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
-                            <div :class="chatBubbleClass(m)" class="max-w-[85%] rounded-lg px-3 py-2 text-sm border">
-                              <div class="whitespace-pre-wrap break-words" x-text="m.text"></div>
-
-                              <!-- picked element/text this message was anchored to -->
-                              <template x-if="m.target">
-                                <div class="mt-1.5 pt-1.5 border-t border-white/25 text-[11px] opacity-80 break-all">
-                                  ✎ <span x-text="targetLabel(m.target)"></span>
-                                </div>
-                              </template>
-
-                              <!-- tool call chips -->
-                              <template x-if="m.toolCalls && m.toolCalls.length">
-                                <div class="mt-2 flex flex-wrap gap-1">
-                                  <template x-for="(tc, i) in m.toolCalls" :key="i">
-                                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-mono rounded bg-gray-100 text-gray-600">
-                                      <span x-text="tc.name"></span><span x-show="tc.detail" class="text-gray-400" x-text="tc.detail"></span>
-                                    </span>
-                                  </template>
-                                </div>
-                              </template>
-
-                              <!-- changed files + deploy + revert -->
-                              <template x-if="m.role === 'assistant' && m.deployed">
-                                <div class="mt-2 pt-2 border-t border-gray-200/70 text-xs text-gray-600">
-                                  <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="inline-flex items-center gap-1 text-brand-green"><i class="hgi hgi-stroke hgi-checkmark-circle-02"></i>Deployed v<span x-text="m.versionAfter"></span></span>
-                                    <a :href="selectedSite.url" target="_blank" rel="noreferrer" class="text-brand-blue hover:underline inline-flex items-center gap-1"><i class="hgi hgi-stroke hgi-link-square-02"></i>View live</a>
-                                    <button @click="revertTurn(route.param, m)"
-                                            :disabled="pending.has('revert-' + m.id) || m.versionBefore === undefined || m.versionBefore === 0"
-                                            class="ml-auto inline-flex items-center gap-1 px-2 py-0.5 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-40">
-                                      <i class="hgi hgi-stroke hgi-arrow-turn-backward"></i> Revert this change
-                                    </button>
-                                  </div>
-                                  <template x-if="m.changedFiles && m.changedFiles.length">
-                                    <div class="mt-1 font-mono text-gray-500 break-all" x-text="m.changedFiles.length + ' file' + (m.changedFiles.length===1?'':'s') + ': ' + m.changedFiles.join(', ')"></div>
-                                  </template>
-                                </div>
-                              </template>
-
-                              <template x-if="m.role === 'assistant' && m.status === 'no_changes'">
-                                <div class="mt-1 text-xs text-gray-400">No changes — nothing deployed.</div>
-                              </template>
-                            </div>
-                          </div>
-                        </template>
-
-                        <!-- Live in-progress turn -->
-                        <template x-if="chatStreaming">
-                          <div class="flex justify-start">
-                            <div class="max-w-[85%] rounded-lg px-3 py-2 text-sm border bg-white border-gray-200 text-gray-800">
-                              <div class="whitespace-pre-wrap break-words" x-text="chatLiveText || '…'"></div>
-                              <template x-if="chatLiveTools.length">
-                                <div class="mt-2 flex flex-wrap gap-1">
-                                  <template x-for="(tc, i) in chatLiveTools" :key="i">
-                                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-mono rounded bg-gray-100 text-gray-600">
-                                      <span x-text="tc.name"></span><span x-show="tc.detail" class="text-gray-400" x-text="tc.detail"></span>
-                                    </span>
-                                  </template>
-                                </div>
-                              </template>
-                              <template x-if="chatLiveStatus">
-                                <div class="mt-1 text-xs text-brand-blue inline-flex items-center gap-1"><i class="hgi hgi-stroke hgi-loading-03 animate-spin"></i><span x-text="chatLiveStatus"></span></div>
-                              </template>
-                            </div>
-                          </div>
-                        </template>
-
-                        <!-- Another client's turn is running -->
-                        <template x-if="!chatStreaming && chatStatus && chatStatus.active">
-                          <div class="text-xs text-gray-500 inline-flex items-center gap-1"><i class="hgi hgi-stroke hgi-loading-03 animate-spin"></i> A turn is running…</div>
-                        </template>
-                      </div>
-
-                      <!-- Composer -->
-                      <form @submit.prevent="sendChat(route.param)" class="mt-2 flex items-end gap-2">
-                        <textarea x-ref="chatInputEl" x-model="chatInput" rows="2"
-                                  @keydown.enter.exact.prevent="sendChat(route.param)"
-                                  :disabled="chatStreaming"
-                                  placeholder="Describe a change… (Enter to send, Shift+Enter for newline)"
-                                  class="flex-1 px-3 py-2 border border-gray-200 rounded text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue disabled:bg-gray-50"></textarea>
-                        <template x-if="!chatStreaming">
-                          <button type="submit" :disabled="!chatInput.trim()"
-                                  class="inline-flex items-center gap-1 px-4 py-2 text-sm rounded bg-brand-blue text-white hover:bg-brand-blue/90 disabled:opacity-50">
-                            <i class="hgi hgi-stroke hgi-sent"></i> Send
-                          </button>
-                        </template>
-                        <template x-if="chatStreaming">
-                          <button type="button" @click="stopChat(route.param)"
-                                  class="inline-flex items-center gap-1 px-4 py-2 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50">
-                            <i class="hgi hgi-stroke hgi-stop-circle"></i> Stop
-                          </button>
-                        </template>
-                      </form>
-                    </div>
-                  </template>
-                </div>
-              </template>
-            </section>
-          </template>
-
-        </div>
+                    <form @submit.prevent="sendChat(route.param)" class="composer">
+                      <label for="chatInput" class="sr-only">Describe a change</label>
+                      <textarea id="chatInput" x-ref="chatInputEl" x-model="chatInput" rows="2" class="input"
+                                @keydown.enter.exact.prevent="sendChat(route.param)"
+                                :disabled="chatStreaming || (chatStatus && chatStatus.active)"
+                                :placeholder="chatStreaming ? 'Wait for this change to finish…' : 'Describe a change… (Enter to send, Shift+Enter for a new line)'"></textarea>
+                      <template x-if="!chatStreaming">
+                        <button type="submit" class="btn btn-primary" :disabled="!chatInput.trim()">Send</button>
+                      </template>
+                      <template x-if="chatStreaming">
+                        <button type="button" class="btn btn-danger" @click="stopChat(route.param)">Stop</button>
+                      </template>
+                    </form>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </section>
+        </template>
       </main>
+
+      <footer class="footer" x-text="agentInfo ? 'siteio ' + agentInfo.version : ''"></footer>
     </div>
   </template>
 
-  <div class="fixed bottom-4 right-4 z-50 space-y-2 pointer-events-none" aria-live="polite">
-    <template x-for="t in toasts" :key="t.id">
-      <div :class="t.type === 'error' ? 'bg-red-600' : (t.type === 'success' ? 'bg-brand-green' : 'bg-gray-900')"
-           class="pointer-events-auto text-white text-sm px-3 py-2 rounded shadow-md min-w-[220px] max-w-sm">
-        <span x-text="t.message"></span>
+  <!-- Confirmation dialog, shared by every destructive action -->
+  <dialog class="dialog" x-ref="confirmDlg" @close="onConfirmClose()" aria-labelledby="confirm-title">
+    <form method="dialog">
+      <h2 id="confirm-title" x-text="confirmState.title"></h2>
+      <p class="muted" x-text="confirmState.body"></p>
+      <div class="actions">
+        <button type="submit" value="cancel" class="btn">Cancel</button>
+        <button type="submit" value="ok" class="btn btn-danger" x-text="confirmState.verb"></button>
       </div>
+    </form>
+  </dialog>
+
+  <div class="toasts" role="status" aria-live="polite">
+    <template x-for="t in toasts" :key="t.id">
+      <div class="toast" x-text="(t.type === 'error' ? '✗ ' : (t.type === 'success' ? '✓ ' : '')) + t.message"></div>
     </template>
   </div>
 </body>

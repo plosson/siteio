@@ -61,14 +61,35 @@ test("restart button calls POST /apps/:name/restart", async ({ page, context }) 
   await expect.poll(() => capture.find(c => c.path === "/apps/actionable/restart" && c.method === "POST")).toBeTruthy()
 })
 
-test("remove button confirms then calls DELETE /apps/:name and returns to list", async ({ page, context }) => {
+test("remove asks in a dialog that names the app, then calls DELETE /apps/:name and returns to the list", async ({ page, context }) => {
   await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "right-key"))
   const capture: { path: string; method: string }[] = []
   await interceptActionEndpoints(page, capture)
-  page.on("dialog", (d) => d.accept())
   await page.goto(`${srv.url}/ui#/apps/actionable`)
-  await page.click('button:has-text("Remove")')
+  await page.click('button:has-text("Remove app")')
+  const dialog = page.locator("dialog[open]")
+  await expect(dialog).toContainText("actionable")
+  await expect(dialog).toContainText("can't be undone")
+  await dialog.locator('button:has-text("Remove app")').click()
   await expect.poll(() => capture.find(c => c.path === "/apps/actionable" && c.method === "DELETE")).toBeTruthy()
-  // Redirected to the unified services grid
-  await expect.poll(() => new URL(page.url()).hash).toBe("#/services")
+  await expect.poll(() => new URL(page.url()).hash).toBe("#/apps")
+})
+
+test("cancelling or pressing Esc on the remove dialog never deletes", async ({ page, context }) => {
+  await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "right-key"))
+  const capture: { path: string; method: string }[] = []
+  await interceptActionEndpoints(page, capture)
+  await page.goto(`${srv.url}/ui#/apps/actionable`)
+
+  await page.click('button:has-text("Remove app")')
+  await page.locator('dialog[open] button:has-text("Cancel")').click()
+  await expect(page.locator("dialog[open]")).toHaveCount(0)
+
+  await page.click('button:has-text("Remove app")')
+  await page.keyboard.press("Escape")
+  await expect(page.locator("dialog[open]")).toHaveCount(0)
+
+  await page.waitForTimeout(300)
+  expect(capture.filter(c => c.method === "DELETE")).toEqual([])
+  expect(new URL(page.url()).hash).toBe("#/apps/actionable")
 })
