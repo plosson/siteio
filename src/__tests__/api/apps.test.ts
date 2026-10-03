@@ -224,6 +224,21 @@ describe("API: Apps", () => {
       expect(data.data?.image).toBe("nginx:alpine")
     })
 
+    test("should include the public URL, and follow a custom domain instead of the default subdomain", async () => {
+      await request("POST", "/apps", { name: "urlapp", image: "nginx:alpine", internalPort: 80 })
+      let data = await parseJson<AppInfo>((await request("GET", "/apps/urlapp")).response)
+      expect(data.data?.url).toBe("https://urlapp.test.example.com")
+
+      await request("PATCH", "/apps/urlapp", { domains: ["shop.example.org", "www.shop.example.org"] })
+      data = await parseJson<AppInfo>((await request("GET", "/apps/urlapp")).response)
+      expect(data.data?.url).toBe("https://shop.example.org")
+      // The list and the detail must agree, or the UI links to two places.
+      const list = await parseJson<AppInfo[]>((await request("GET", "/apps")).response)
+      expect(list.data?.find((a) => a.name === "urlapp")?.url).toBe(data.data?.url)
+
+      await request("DELETE", "/apps/urlapp")
+    })
+
     test("should return 404 for non-existent app", async () => {
       const { response, status } = await request("GET", "/apps/nonexistent")
       expect(status).toBe(404)

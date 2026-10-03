@@ -54,3 +54,26 @@ test("pausing auto-refresh stops polling", async ({ page, context }) => {
   // Strict: absolutely no polls after pause took effect
   expect(hitCount).toBe(before)
 })
+
+test("logs of a removed app stop polling and raise no error toasts", async ({ page, context }) => {
+  await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "right-key"))
+  let hitCount = 0
+  await page.route(`${srv.url}/apps/gone-app/logs?*`, (route: Route) => { hitCount++; return route.continue() })
+  await page.goto(`${srv.url}/ui#/apps/gone-app/logs`)
+  await expect(page.getByText("App not found")).toHaveCount(1) // the heading only, no toast
+  await page.waitForTimeout(3500)
+  expect(hitCount).toBeLessThanOrEqual(1)
+  await expect(page.locator(".toast")).toHaveCount(0)
+})
+
+test("a log read error shows inside the viewer, once, not as repeated toasts", async ({ page, context }) => {
+  await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "right-key"))
+  await page.route(`${srv.url}/apps/logsapp/logs?*`, (route: Route) => route.fulfill({
+    status: 500, contentType: "application/json",
+    body: JSON.stringify({ success: false, error: "No such container: siteio-logsapp" }),
+  }))
+  await page.goto(`${srv.url}/ui#/apps/logsapp/logs`)
+  await expect(page.locator("pre.logs")).toContainText("Can't read the logs. No such container")
+  await page.waitForTimeout(3500) // at least one more poll
+  await expect(page.locator(".toast")).toHaveCount(0)
+})

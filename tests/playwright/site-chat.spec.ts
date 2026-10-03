@@ -60,7 +60,7 @@ test("chat tab shows empty state, active model, and example prompts", async ({ p
   await expect(page.getByText("sandboxed")).toBeHidden() // x-show off when sandbox:false
 })
 
-test("sending a message streams, deploys a new version, and offers revert", async ({ page, context }) => {
+test("sending a message streams, deploys a new version, and offers undo", async ({ page, context }) => {
   await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "right-key"))
   await page.goto(`${url}/ui#/sites/demo/chat`)
 
@@ -71,7 +71,7 @@ test("sending a message streams, deploys a new version, and offers revert", asyn
   await expect(page.getByText("change the headline")).toBeVisible()
   // ...and the completed assistant turn shows the deploy + revert affordance.
   await expect(page.getByText("Deployed v2")).toBeVisible()
-  await expect(page.getByRole("button", { name: /Revert this change/ })).toBeVisible()
+  await expect(page.getByRole("button", { name: /Undo this change/ })).toBeVisible()
   // Changed-files summary is surfaced.
   await expect(page.getByText(/1 file: index\.html/)).toBeVisible()
 })
@@ -110,8 +110,13 @@ test("chat tab is hidden when a site reports chat disabled", async ({ page, cont
     })
     await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "k2"))
     await page.goto(`http://127.0.0.1:${port2}/ui#/sites/demo/overview`)
-    await expect(page.getByRole("button", { name: "Overview" })).toBeVisible()
-    await expect(page.getByRole("button", { name: "Chat" })).toHaveCount(0)
+    const tabs = page.locator('nav[aria-label="Parts of this object"]')
+    await expect(tabs.getByRole("link", { name: "Overview" })).toBeVisible()
+    await expect(tabs.getByRole("link", { name: "Chat" })).toHaveCount(0)
+    // A stale link to the chat tab explains how to turn it on instead of a dead end.
+    await page.goto(`http://127.0.0.1:${port2}/ui#/sites/demo/chat`)
+    await expect(page.getByText("AI editing is off on this server")).toBeVisible()
+    await expect(page.locator("textarea")).toHaveCount(0)
   } finally {
     s2.stop()
     try { rmSync(dir2, { recursive: true, force: true }) } catch { /* ignore */ }
