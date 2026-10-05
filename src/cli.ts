@@ -123,6 +123,7 @@ function registerSiteCommands(sites: Command): void {
     .option("-n, --name <name>", "Site name (defaults to .siteio/config.json, then folder name)")
     .option("--test", "Deploy a simple test page (no folder required)")
     .option("--force", "Deploy even if there is a version conflict")
+    .option("--expected-version <n>", "Deploy only if the server is at this version (use after merging a newer version)", intArg)
     .action(async (folder, options) => {
       const { sitesDeployCommand } = await import("./commands/sites/deploy.ts")
       await sitesDeployCommand(folder, { ...options, json: program.opts().json })
@@ -150,6 +151,7 @@ function registerSiteCommands(sites: Command): void {
     .description("Download a deployed site's code to a local folder (defaults to ./<name>)")
     .option("-n, --name <name>", "Site to download (defaults to .siteio/config.json)")
     .option("-y, --yes", "Overwrite existing folder contents")
+    .option("-v, --version <n>", "Download a past version (see 'siteio sites history') instead of the current one", intArg)
     .action(async (outputFolder, options) => {
       const { sitesDownloadCommand } = await import("./commands/sites/download.ts")
       await sitesDownloadCommand(outputFolder, { ...options, json: program.opts().json })

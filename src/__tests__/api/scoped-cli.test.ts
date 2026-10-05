@@ -69,6 +69,18 @@ describe("API: scoped share-code CLI credential", () => {
     expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("<h1>original</h1>")
   })
 
+  test("a scoped code downloads the requested version, not silently the current one", async () => {
+    await deploy("blog", { "public/index.html": "<h1>second</h1>" })
+    const code = await mintCode("blog")
+    const res = await sReq("/_siteio/sites/blog/download?version=1", { method: "GET", headers: key(code) })
+    expect(res.status).toBe(200)
+    const files = unzipSync(new Uint8Array(await res.arrayBuffer()))
+    expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("<h1>original</h1>")
+
+    const bad = await sReq("/_siteio/sites/blog/download?version=../1", { method: "GET", headers: key(code) })
+    expect(bad.status).toBe(400)
+  })
+
   test("a scoped code can deploy its own site; backend preserved by default", async () => {
     const code = await mintCode("blog", { label: "Sam" })
     const res = await sReq("/_siteio/sites/blog", {

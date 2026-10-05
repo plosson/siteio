@@ -268,7 +268,18 @@ export class SiteStorage {
   // Zip the site's deployed code (public/**, pb_migrations/**, pb_hooks/**)
   // for download. The reverse of extractCode; NEVER includes pb_data.
   async zipCode(name: string): Promise<Uint8Array | null> {
-    const codePath = this.getCodePath(name)
+    return this.zipDir(this.getCodePath(name))
+  }
+
+  // Zip a specific version's code: the live code when `version` is the
+  // current one, otherwise its archived copy. Null if it is not available
+  // (never existed, or pruned from history).
+  async zipVersion(name: string, version: number): Promise<Uint8Array | null> {
+    if (this.get(name)?.version === version) return this.zipCode(name)
+    return this.zipDir(join(this.historyPath(name), `v${version}`))
+  }
+
+  private async zipDir(codePath: string): Promise<Uint8Array | null> {
     if (!existsSync(codePath)) return null
     const files: Record<string, Uint8Array> = {}
     const collect = (dir: string, base: string = dir): void => {

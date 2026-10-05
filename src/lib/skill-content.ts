@@ -132,6 +132,35 @@ When a user wants to edit a site by giving its URL (e.g., \`https://mysite.examp
 3. Edit the files in \`/tmp/mysite-edit/\`
 4. Re-deploy: \`siteio sites deploy /tmp/mysite-edit -n mysite\`
 
+## When a deploy is rejected (version conflict)
+
+A folder remembers the version it was deployed or downloaded from. If someone
+else deployed since (another person, a share link, the chat editor), the deploy
+is rejected and nothing changes. **Never answer this with \`--force\`**: it throws
+away their changes. Only use it if the user explicitly asks to discard them.
+
+Merge instead (a 3-way merge: the version you started from, theirs, yours).
+The rejection prints these exact commands, with real paths and versions
+(\`--json\` gives them as \`error.nextSteps\`):
+
+1. Download the version your folder started from (the base):
+   \`siteio sites download /tmp/base -n mysite -v <base> -y\`
+2. Download the current version (theirs):
+   \`siteio sites download /tmp/theirs -n mysite -v <current> -y\`
+3. Compare base and theirs (\`diff -rq /tmp/base /tmp/theirs\`, ignore \`.siteio/config.json\`). For each difference:
+   - **Changed by them**: \`git merge-file <your file> /tmp/base/<file> /tmp/theirs/<file>\`
+     (exit code 0 = merged cleanly; above 0 = conflict markers left in your file)
+   - **Added by them**: copy it into your folder (if you also added a different file at that path, treat it as a conflict)
+   - **Deleted by them**: delete it from your folder, unless you changed it too (then ask the user)
+4. If any conflict markers remain, show them to the user and let them decide. Never guess.
+5. Deploy against the version you merged:
+   \`siteio sites deploy <folder> -n mysite --expected-version <current>\`
+   If it is rejected again, someone deployed during your merge: repeat from step 1,
+   using \`<current>\` as the new base.
+
+Use \`-v\` for versions, not \`--version <n>\`: that prints the CLI version instead.
+Only code is versioned. Database data (pb_data) is never part of a deploy.
+
 ## Sharing a site for editing (delegate to another person's AI)
 
 Let someone else edit and redeploy a site without giving them your credentials:
