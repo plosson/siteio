@@ -174,6 +174,94 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
     expect(dec("pb_migrations/1_init.js")).toBe("// schema")
   })
 
+  describe("deploy_site when the owner deployed mid-session", () => {
+    const page = (title: string, footer: string) => `<h1>${title}</h1>\n<p>a</p>\n<p>b</p>\n<p>c</p>\n<footer>${footer}</footer>\n`
+    const live = async () => {
+      const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }))
+      const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
+      return Object.fromEntries(Object.entries(files).map(([k, v]) => [k, new TextDecoder().decode(v)]))
+    }
+    const versionCount = async () => {
+      const res = await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "GET", headers: AUTH }))
+      return ((await res.json()) as ApiResponse<{ version: number }>).data!.version
+    }
+
+    beforeEach(async () => {
+      await deploySite("blog", { "public/index.html": page("Hello", "2025"), "public/about.html": "about", "pb_migrations/1_init.js": "// schema" })
+    })
+
+    test("non-overlapping edits are merged: both the owner's and the invitee's changes go live", async () => {
+      const bearer = await connect("blog")
+      await call("/mcp", bearer, "read_file", { path: "index.html" }) // staging taken now
+      await deploySite("blog", { "public/index.html": page("Bonjour", "2025"), "public/about.html": "about", "public/new.html": "owner new", "pb_migrations/1_init.js": "// schema v2" })
+
+      await call("/mcp", bearer, "edit_file", { path: "index.html", old_string: "2025", new_string: "2026" })
+      const deploy = await call("/mcp", bearer, "deploy_site", { message: "Footer year" })
+      expect(deploy.body.result!.isError).toBeFalsy()
+      expect(toolText(deploy.body)).toContain("merged")
+
+      const files = await live()
+      expect(files["public/index.html"]).toBe(page("Bonjour", "2026"))
+      expect(files["public/new.html"]).toBe("owner new") // the owner's added file is not dropped
+      expect(files["pb_migrations/1_init.js"]).toBe("// schema v2")
+    })
+
+    test("a file the owner deleted is not resurrected by a stale copy", async () => {
+      const bearer = await connect("blog")
+      await call("/mcp", bearer, "list_files")
+      await deploySite("blog", { "public/index.html": page("Hello", "2025") }) // owner removes about.html
+
+      await call("/mcp", bearer, "edit_file", { path: "index.html", old_string: "2025", new_string: "2026" })
+      const deploy = await call("/mcp", bearer, "deploy_site", { message: "Footer year" })
+      expect(deploy.body.result!.isError).toBeFalsy()
+      expect((await live())["public/about.html"]).toBeUndefined()
+    })
+
+    test("overlapping edits publish nothing and leave markers to resolve; resolving then deploying works", async () => {
+      const bearer = await connect("blog")
+      await call("/mcp", bearer, "list_files")
+      await deploySite("blog", { "public/index.html": page("Bonjour", "2025"), "public/about.html": "about" })
+      const before = await versionCount()
+
+      await call("/mcp", bearer, "edit_file", { path: "index.html", old_string: "Hello", new_string: "Hola" })
+      const rejected = await call("/mcp", bearer, "deploy_site", { message: "Spanish title" })
+      expect(rejected.body.result!.isError).toBe(true)
+      expect(toolText(rejected.body)).toContain("Not published")
+      expect(toolText(rejected.body)).toContain("index.html")
+      expect(await versionCount()).toBe(before)
+      expect((await live())["public/index.html"]).toBe(page("Bonjour", "2025"))
+
+      // Deploying again without resolving is refused: markers never go live.
+      const again = await call("/mcp", bearer, "deploy_site", { message: "Spanish title" })
+      expect(again.body.result!.isError).toBe(true)
+      expect(toolText(again.body)).toContain("conflict markers")
+      expect(await versionCount()).toBe(before)
+
+      const staged = toolText((await call("/mcp", bearer, "read_file", { path: "index.html" })).body)
+      expect(staged).toContain("<<<<<<< your edits")
+      await call("/mcp", bearer, "write_file", { path: "index.html", content: page("Hola / Bonjour", "2025") })
+      const ok = await call("/mcp", bearer, "deploy_site", { message: "Both titles" })
+      expect(ok.body.result!.isError).toBeFalsy()
+      expect((await live())["public/index.html"]).toBe(page("Hola / Bonjour", "2025"))
+    })
+
+    test("after a successful merge, the next deploy in the same session is not merged again", async () => {
+      const bearer = await connect("blog")
+      await call("/mcp", bearer, "list_files")
+      await deploySite("blog", { "public/index.html": page("Bonjour", "2025"), "public/about.html": "about" })
+      await call("/mcp", bearer, "edit_file", { path: "index.html", old_string: "2025", new_string: "2026" })
+      await call("/mcp", bearer, "deploy_site", { message: "Footer year" })
+
+      await call("/mcp", bearer, "edit_file", { path: "about.html", old_string: "about", new_string: "about us" })
+      const second = await call("/mcp", bearer, "deploy_site", { message: "About" })
+      expect(second.body.result!.isError).toBeFalsy()
+      expect(toolText(second.body)).not.toContain("merged")
+      const files = await live()
+      expect(files["public/index.html"]).toBe(page("Bonjour", "2026"))
+      expect(files["public/about.html"]).toBe("about us")
+    })
+  })
+
   test("/mcp: edit_file replaces an exact snippet, staged then published", async () => {
     const bearer = await connect("blog")
     const res = await call("/mcp", bearer, "edit_file", {
