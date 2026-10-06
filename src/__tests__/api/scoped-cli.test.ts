@@ -69,6 +69,63 @@ describe("API: scoped share-code CLI credential", () => {
     expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("<h1>original</h1>")
   })
 
+  test("a scoped code downloads the requested version, not silently the current one", async () => {
+    await deploy("blog", { "public/index.html": "<h1>second</h1>" })
+    const code = await mintCode("blog")
+    const res = await sReq("/_siteio/sites/blog/download?version=1", { method: "GET", headers: key(code) })
+    expect(res.status).toBe(200)
+    const files = unzipSync(new Uint8Array(await res.arrayBuffer()))
+    expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("<h1>original</h1>")
+
+    const bad = await sReq("/_siteio/sites/blog/download?version=../1", { method: "GET", headers: key(code) })
+    expect(bad.status).toBe(400)
+  })
+
+  describe("version conflicts", () => {
+    const scopedDeploy = (code: string, html: string, expectedVersion?: number) =>
+      sReq("/_siteio/sites/blog", {
+        method: "POST",
+        headers: { ...keyZip(code), ...(expectedVersion !== undefined ? { "X-Expected-Version": String(expectedVersion) } : {}) },
+        body: zip({ "public/index.html": html }),
+      })
+    const liveIndex = async () => {
+      const res = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { headers: GOD }))
+      return new TextDecoder().decode(unzipSync(new Uint8Array(await res.arrayBuffer()))["public/index.html"]!)
+    }
+
+    test("a stale scoped deploy is rejected and the owner's newer version survives", async () => {
+      const code = await mintCode("blog")
+      await deploy("blog", { "public/index.html": "<h1>owner v2</h1>" })
+
+      const res = await scopedDeploy(code, "<h1>invitee</h1>", 1)
+      expect(res.status).toBe(409)
+      const body = (await res.json()) as ApiResponse<null>
+      expect(body.reason).toBe("version_conflict")
+      expect(await liveIndex()).toBe("<h1>owner v2</h1>")
+    })
+
+    test("a scoped deploy at the current version goes through", async () => {
+      const code = await mintCode("blog")
+      const res = await scopedDeploy(code, "<h1>invitee</h1>", 1)
+      expect(res.status).toBe(200)
+      expect(await liveIndex()).toBe("<h1>invitee</h1>")
+    })
+
+    test("a rejected scoped deploy does not touch the backend either", async () => {
+      const code = await mintCode("blog", { allowBackend: true })
+      await deploy("blog", { "public/index.html": "<h1>owner v2</h1>", "pb_migrations/1_init.js": "// owner schema v2" })
+      const res = await sReq("/_siteio/sites/blog", {
+        method: "POST",
+        headers: { ...keyZip(code), "X-Expected-Version": "1" },
+        body: zip({ "public/index.html": "x", "pb_migrations/1_init.js": "// invitee schema" }),
+      })
+      expect(res.status).toBe(409)
+      const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { headers: GOD }))
+      const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
+      expect(new TextDecoder().decode(files["pb_migrations/1_init.js"]!)).toBe("// owner schema v2")
+    })
+  })
+
   test("a scoped code can deploy its own site; backend preserved by default", async () => {
     const code = await mintCode("blog", { label: "Sam" })
     const res = await sReq("/_siteio/sites/blog", {

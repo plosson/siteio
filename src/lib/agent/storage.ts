@@ -5,6 +5,7 @@ import { join, resolve, sep } from "path"
 import { unzipSync, zipSync } from "fflate"
 import type { Site, SiteInfo, SiteVersion } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
+import { readTree } from "../../utils/files.ts"
 
 const MAX_HISTORY_VERSIONS = 10
 
@@ -268,19 +269,28 @@ export class SiteStorage {
   // Zip the site's deployed code (public/**, pb_migrations/**, pb_hooks/**)
   // for download. The reverse of extractCode; NEVER includes pb_data.
   async zipCode(name: string): Promise<Uint8Array | null> {
-    const codePath = this.getCodePath(name)
+    return this.zipDir(this.getCodePath(name))
+  }
+
+  // Zip a specific version's code: the live code when `version` is the
+  // current one, otherwise its archived copy. Null if it is not available
+  // (never existed, or pruned from history).
+  async zipVersion(name: string, version: number): Promise<Uint8Array | null> {
+    const codePath = this.getVersionCodePath(name, version)
+    return codePath ? this.zipDir(codePath) : null
+  }
+
+  // Directory holding a specific version's code: the live code dir for the
+  // current version, otherwise its archived copy. Null if it is not available.
+  getVersionCodePath(name: string, version: number): string | null {
+    if (this.get(name)?.version === version) return this.getCodePath(name)
+    const archived = join(this.historyPath(name), `v${version}`)
+    return existsSync(archived) ? archived : null
+  }
+
+  private async zipDir(codePath: string): Promise<Uint8Array | null> {
     if (!existsSync(codePath)) return null
-    const files: Record<string, Uint8Array> = {}
-    const collect = (dir: string, base: string = dir): void => {
-      for (const entry of readdirSync(dir)) {
-        const full = join(dir, entry)
-        const rel = full.slice(base.length + 1)
-        if (statSync(full).isDirectory()) collect(full, base)
-        else files[rel] = readFileSync(full)
-      }
-    }
-    collect(codePath)
-    return zipSync(files, { level: 6 })
+    return zipSync(readTree(codePath), { level: 6 })
   }
 
   // The site's primary hostname: always the default `<name>.<domain>`

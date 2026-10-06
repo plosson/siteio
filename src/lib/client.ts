@@ -4,6 +4,19 @@ import type {
   ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, WithComposeWarnings, ShareGrantInfo, ShareGrantCreated, EditLinkCreated, AutoDeployMode,
 } from "../types.ts"
 
+// Build an ApiError from a failed response, keeping the agent's message and
+// machine-readable reason when the body is a JSON ApiResponse.
+async function toApiError(response: Response): Promise<ApiError> {
+  const text = await response.text()
+  try {
+    const json = JSON.parse(text) as ApiResponse<unknown>
+    if (json.error) return new ApiError(json.error, response.status, json.reason)
+  } catch {
+    if (text) return new ApiError(text, response.status)
+  }
+  return new ApiError(`API error: ${response.status}`, response.status)
+}
+
 export interface ClientOptions {
   apiUrl?: string
   apiKey?: string
@@ -42,17 +55,7 @@ export class SiteioClient {
       body,
     })
 
-    if (!response.ok) {
-      const text = await response.text()
-      let message = `API error: ${response.status}`
-      try {
-        const json = JSON.parse(text) as ApiResponse<unknown>
-        if (json.error) message = json.error
-      } catch {
-        if (text) message = text
-      }
-      throw new ApiError(message, response.status)
-    }
+    if (!response.ok) throw await toApiError(response)
 
     return response.json() as Promise<T>
   }
@@ -64,17 +67,7 @@ export class SiteioClient {
       headers: { "X-API-Key": this.apiKey },
     })
 
-    if (!response.ok) {
-      const text = await response.text()
-      let message = `API error: ${response.status}`
-      try {
-        const json = JSON.parse(text) as ApiResponse<unknown>
-        if (json.error) message = json.error
-      } catch {
-        if (text) message = text
-      }
-      throw new ApiError(message, response.status)
-    }
+    if (!response.ok) throw await toApiError(response)
 
     return new Uint8Array(await response.arrayBuffer())
   }
@@ -114,8 +107,9 @@ export class SiteioClient {
     await this.request<ApiResponse<{ deleted: boolean }>>("DELETE", `/sites/${name}`)
   }
 
-  async downloadSite(name: string): Promise<Uint8Array> {
-    return this.requestBytes(`/sites/${name}/download`)
+  async downloadSite(name: string, version?: number): Promise<Uint8Array> {
+    const query = version !== undefined ? `?version=${version}` : ""
+    return this.requestBytes(`/sites/${name}/download${query}`)
   }
 
   async getSiteLogs(name: string, tail: number = 100): Promise<ContainerLogs> {

@@ -5,6 +5,8 @@ export interface ApiResponse<T> {
   success: boolean
   data?: T
   error?: string
+  // Machine-readable cause for some errors (e.g. "version_conflict").
+  reason?: string
 }
 
 // Container restart policies

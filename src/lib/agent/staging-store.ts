@@ -4,6 +4,7 @@ import {
 import { join, resolve, sep, dirname } from "path"
 import { zipSync } from "fflate"
 import { ValidationError } from "../../utils/errors.ts"
+import { readTree } from "../../utils/files.ts"
 import { PUBLIC_DIR } from "../site-layout.ts"
 import { mergeScopedDeploy } from "./deploy-merge.ts"
 
@@ -219,20 +220,29 @@ export class StagingStore {
   // the MCP invitee can never alter backend regardless of the grant's flags.
   buildDeployZip(grantId: string, codePath: string): Uint8Array {
     const incoming: Record<string, Uint8Array> = {}
-    const base = this.filesDir(grantId)
-    if (existsSync(base)) {
-      const walk = (dir: string): void => {
-        for (const entry of readdirSync(dir)) {
-          const full = join(dir, entry)
-          const rel = full.slice(base.length + 1).replace(/\\/g, "/")
-          if (statSync(full).isDirectory()) walk(full)
-          else incoming[`${PUBLIC_DIR}/${rel}`] = readFileSync(full)
-        }
-      }
-      walk(base)
-    }
+    for (const [rel, bytes] of Object.entries(this.readFiles(grantId))) incoming[`${PUBLIC_DIR}/${rel}`] = bytes
     const merged = mergeScopedDeploy({ incoming, currentCodePath: codePath, allowBackend: false })
     return zipSync(merged, { level: 6 })
+  }
+
+  // All staged web files, keyed by path relative to the web root.
+  readFiles(grantId: string): Record<string, Uint8Array> {
+    return readTree(this.filesDir(grantId))
+  }
+
+  // Replace the whole staged copy (e.g. with the result of merging in a newer
+  // site version) and re-stamp the version it is now based on. The content
+  // comes from the site itself and the invitee's own files, so no size check.
+  replaceFiles(grantId: string, files: Record<string, Uint8Array>, basedOnVersion: number): void {
+    const filesDir = this.filesDir(grantId)
+    rmSync(filesDir, { recursive: true, force: true })
+    mkdirSync(filesDir, { recursive: true, mode: 0o700 })
+    for (const [rel, bytes] of Object.entries(files)) {
+      const full = this.safePath(grantId, rel)
+      mkdirSync(dirname(full), { recursive: true, mode: 0o700 })
+      writeFileSync(full, bytes)
+    }
+    this.setSeededVersion(grantId, basedOnVersion)
   }
 
   remove(grantId: string): void {

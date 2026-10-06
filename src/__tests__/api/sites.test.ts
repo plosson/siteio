@@ -138,6 +138,67 @@ describe("API: sites", () => {
     expect(res.status).toBe(404)
   })
 
+  describe("Download a specific version", () => {
+    const deployContent = (html: string) =>
+      server.handleRequestForTest(new Request("http://x/sites/blog", {
+        method: "POST", headers: H, body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
+      }))
+    const download = (query: string) =>
+      server.handleRequestForTest(
+        new Request(`http://x/sites/blog/download${query}`, { method: "GET", headers: { "X-API-Key": "test-key" } })
+      )
+    const indexOf = async (res: Response) => {
+      const { unzipSync } = await import("fflate")
+      return new TextDecoder().decode(unzipSync(new Uint8Array(await res.arrayBuffer()))["public/index.html"]!)
+    }
+
+    test("returns archived and current versions by number", async () => {
+      await deployContent("one")
+      await deployContent("two")
+      await deployContent("three")
+      expect(await indexOf(await download("?version=1"))).toBe("one")
+      expect(await indexOf(await download("?version=2"))).toBe("two")
+      expect(await indexOf(await download("?version=3"))).toBe("three")
+    })
+
+    test("after a rollback, the version numbers still match what deploy returned", async () => {
+      await deployContent("one")
+      await deployContent("two")
+      await server.handleRequestForTest(new Request("http://x/sites/blog/rollback", {
+        method: "POST", headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1 }),
+      }))
+      expect(await indexOf(await download("?version=2"))).toBe("two")
+      expect(await indexOf(await download("?version=3"))).toBe("one")
+    })
+
+    test("a version that never existed returns 404", async () => {
+      await deployContent("one")
+      expect((await download("?version=2")).status).toBe(404)
+      expect((await download("?version=99")).status).toBe(404)
+    })
+
+    test("a version pruned from history returns 404", async () => {
+      for (let i = 1; i <= 12; i++) await deployContent(`v${i}`)
+      expect((await download("?version=1")).status).toBe(404)
+      expect(await indexOf(await download("?version=12"))).toBe("v12")
+    })
+
+    for (const bad of ["0", "-1", "abc", "1.5", "1e2", "..%2F..%2Fetc", "", "01"]) {
+      test(`rejects version=${JSON.stringify(bad)} with 400`, async () => {
+        await deployContent("one")
+        expect((await download(`?version=${bad}`)).status).toBe(400)
+      })
+    }
+
+    test("a missing site returns 404 even with a version", async () => {
+      const res = await server.handleRequestForTest(
+        new Request("http://x/sites/nope/download?version=1", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      )
+      expect(res.status).toBe(404)
+    })
+  })
+
   describe("Version conflict detection", () => {
     const deploy = (expectedVersion?: number) => {
       const headers: Record<string, string> = { ...H }
@@ -169,6 +230,7 @@ describe("API: sites", () => {
       expect(res.status).toBe(409)
       const body = (await res.json()) as ApiResponse<null>
       expect(body.error).toContain("Version conflict")
+      expect(body.reason).toBe("version_conflict")
     })
   })
 

@@ -12,7 +12,6 @@ function intArg(value: string): number {
 const program = new Command()
   .name("siteio")
   .description("Deploy static sites and apps with ease")
-  .version(getVersion())
   .option("--json", "Output results as JSON")
   .addHelpText(
     "after",
@@ -123,6 +122,7 @@ function registerSiteCommands(sites: Command): void {
     .option("-n, --name <name>", "Site name (defaults to .siteio/config.json, then folder name)")
     .option("--test", "Deploy a simple test page (no folder required)")
     .option("--force", "Deploy even if there is a version conflict")
+    .option("--expected-version <n>", "Deploy only if the server is at this version (use after merging a newer version)", intArg)
     .action(async (folder, options) => {
       const { sitesDeployCommand } = await import("./commands/sites/deploy.ts")
       await sitesDeployCommand(folder, { ...options, json: program.opts().json })
@@ -150,9 +150,10 @@ function registerSiteCommands(sites: Command): void {
     .description("Download a deployed site's code to a local folder (defaults to ./<name>)")
     .option("-n, --name <name>", "Site to download (defaults to .siteio/config.json)")
     .option("-y, --yes", "Overwrite existing folder contents")
+    .option("-v, --site-version <n>", "Download a past version (see 'siteio sites history') instead of the current one", intArg)
     .action(async (outputFolder, options) => {
       const { sitesDownloadCommand } = await import("./commands/sites/download.ts")
-      await sitesDownloadCommand(outputFolder, { ...options, json: program.opts().json })
+      await sitesDownloadCommand(outputFolder, { ...options, version: options.siteVersion, json: program.opts().json })
     })
 
   sites
@@ -183,11 +184,11 @@ function registerSiteCommands(sites: Command): void {
   sites
     .command("rollback [name]")
     .description("Rollback a site's code to a previous version (data is untouched)")
-    .option("-v, --version <version>", "Version to rollback to")
+    .option("-v, --site-version <version>", "Version to rollback to")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (name, options) => {
       const { sitesRollbackCommand } = await import("./commands/sites/rollback.ts")
-      await sitesRollbackCommand(name, options.version, { ...options, json: program.opts().json })
+      await sitesRollbackCommand(name, options.siteVersion, { ...options, json: program.opts().json })
     })
 
   sites
@@ -671,5 +672,12 @@ Examples:
     const { completionCommand } = await import("./commands/completion.ts")
     await completionCommand(shell)
   })
+
+// Root options are parsed anywhere on the line (that is how a trailing --json
+// works), so a root --version would swallow a subcommand's own `--version <n>`
+// (`sites rollback`, `sites download`). Only offer it when no subcommand is given.
+if (process.argv.slice(2).every((arg) => arg.startsWith("-"))) {
+  program.version(getVersion())
+}
 
 void program.parseAsync()

@@ -5,8 +5,12 @@ import type { SiteStorage } from "./storage.ts"
 import type { OAuthStore } from "./oauth-store.ts"
 import { MAX_STAGING_FILE_SIZE, MAX_STAGING_TOTAL_SIZE } from "./staging-store.ts"
 import { ValidationError } from "../../utils/errors.ts"
+import { readTree } from "../../utils/files.ts"
 import { getVersion } from "../version.ts"
+import { PUBLIC_DIR } from "../site-layout.ts"
+import { mergeTrees, hasConflictMarkers, YOURS_LABEL, THEIRS_LABEL, type MergeConflict } from "./three-way-merge.ts"
 import { randomBytes } from "crypto"
+import { join } from "path"
 
 const MCP_PROTOCOL_VERSION = "2024-11-05"
 
@@ -346,9 +350,32 @@ export class McpHandler {
     const site = this.deps.sites.get(grant.site)
     if (!site) return this.toolText(msg.id, grant, `Site "${grant.site}" no longer exists.`, true)
 
+    const unresolved = Object.entries(this.deps.staging.readFiles(grant.id))
+      .filter(([, bytes]) => hasConflictMarkers(bytes))
+      .map(([path]) => path)
+    if (unresolved.length > 0) {
+      return this.toolText(msg.id, grant,
+        `Not published: these files still contain conflict markers (\`<<<<<<< ${YOURS_LABEL}\` / \`>>>>>>> ${THEIRS_LABEL}\`): ` +
+        `${unresolved.join(", ")}. Resolve them, then call deploy_site again.`, true)
+    }
+
+    // The owner (or another link) deployed since this copy was taken: merge
+    // their changes into it instead of publishing over them.
     const seeded = this.deps.staging.seededVersion(grant.id)
     const current = site.version ?? 0
-    const rebased = current !== seeded // owner (or another link) deployed mid-session
+    const rebased = current !== seeded
+    if (rebased) {
+      const basePath = this.deps.sites.getVersionCodePath(grant.site, seeded)
+      const { files, conflicts } = mergeTrees(
+        basePath ? readTree(join(basePath, PUBLIC_DIR)) : {},
+        readTree(join(this.deps.sites.getCodePath(grant.site), PUBLIC_DIR)),
+        this.deps.staging.readFiles(grant.id),
+      )
+      this.deps.staging.replaceFiles(grant.id, files, current)
+      if (conflicts.length > 0) {
+        return this.toolText(msg.id, grant, describeConflicts(seeded, current, conflicts), true)
+      }
+    }
 
     const zip = this.deps.staging.buildDeployZip(grant.id, this.deps.sites.getCodePath(grant.site))
     const deployedBy = grant.label || "shared link"
@@ -359,9 +386,8 @@ export class McpHandler {
 
     let text = `Published to ${info.url} (version ${info.version}).`
     if (rebased) {
-      text +=
-        `\n\nNote: the site had changed since you started editing — your web changes were published on top of the latest version. ` +
-        `If something looks off, re-run list_files/read_file to review the current files.`
+      text += `\n\nNote: the site had changed since you started editing (v${seeded} → v${current}). ` +
+        `Those changes were merged with yours, so both are now live.`
     }
     return this.toolText(msg.id, grant, text)
   }
@@ -561,6 +587,23 @@ const MCP_TOOLS = [
   },
 ]
 
+const CONFLICT_HELP: Record<MergeConflict["reason"], string> = {
+  "both-edited": `you and the site changed the same lines. Edit the file: keep the right content between \`<<<<<<< ${YOURS_LABEL}\` and \`>>>>>>> ${THEIRS_LABEL}\`, and remove the marker lines`,
+  "binary": "you and the site both replaced this binary file. Your version was kept; re-upload the site's version if that one should win",
+  "deleted-by-you": "you deleted it, but the site changed it. It was restored; delete it again with delete_file if it should go",
+  "deleted-on-site": "the site deleted it, but you changed it. Your version was kept; delete it with delete_file if it should go",
+}
+
+// Tool result for a deploy that merged in newer site changes but hit conflicts.
+function describeConflicts(seeded: number, current: number, conflicts: MergeConflict[]): string {
+  return [
+    `Not published: the site changed since you started editing (v${seeded} → v${current}), and some of your edits overlap.`,
+    "Your staged copy now holds the latest site with your edits merged in, except:",
+    ...conflicts.map((c) => `- ${c.path}: ${CONFLICT_HELP[c.reason]}.`),
+    "Ask the user how to resolve anything ambiguous, then call deploy_site again.",
+  ].join("\n")
+}
+
 const MB = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
 
 // MCP Resources: static markdown guidance the client can load into context
@@ -600,7 +643,7 @@ const MCP_RESOURCES: McpResource[] = [
       "## Good to know",
       "- `site_info` reports the live URL and current published version; `list_history` is the deployment changelog (each entry shows its change message).",
       "- Only website files can be changed here. The backend (database, hooks, migrations) is managed by the owner and is off-limits.",
-      "- If the owner (or another link) deploys while you are editing, `deploy_site` publishes your web changes on top of the latest version and tells you so — re-read the files if something looks off.",
+      "- If the owner (or another link) deploys while you are editing, `deploy_site` merges their changes into your staged copy first. If your edits overlap with theirs, nothing is published: it lists the files to fix (overlapping lines are marked with `<<<<<<< your edits` / `>>>>>>> current site`). Fix them, then call `deploy_site` again.",
     ].join("\n"),
   },
   {

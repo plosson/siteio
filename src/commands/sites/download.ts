@@ -16,7 +16,7 @@ import { toLocalPath } from "../../lib/site-layout.ts"
 
 export async function sitesDownloadCommand(
   outputFolder: string | undefined,
-  options: { name?: string; yes?: boolean; json?: boolean }
+  options: { name?: string; yes?: boolean; version?: number; json?: boolean }
 ): Promise<void> {
   const spinner = ora()
   const tempDir = join(tmpdir(), `siteio-site-download-${Date.now()}`)
@@ -29,6 +29,9 @@ export async function sitesDownloadCommand(
     }
     if (!options.name) {
       console.error(chalk.dim(`Using site '${name}' from .siteio/config.json`))
+    }
+    if (options.version !== undefined && !(Number.isInteger(options.version) && options.version > 0)) {
+      throw new ValidationError("-v/--site-version must be a positive whole number")
     }
 
     // Default to a subfolder named after the site when no folder is given.
@@ -45,7 +48,8 @@ export async function sitesDownloadCommand(
       }
     }
 
-    console.error(chalk.cyan(`> Downloading site ${name} to ${targetFolder}`))
+    const label = options.version !== undefined ? `${name} v${options.version}` : name
+    console.error(chalk.cyan(`> Downloading site ${label} to ${targetFolder}`))
 
     const client = new SiteioClient()
 
@@ -53,7 +57,7 @@ export async function sitesDownloadCommand(
     // concurrently — the two round-trips are independent.
     spinner.start("Downloading")
     const [zipData, siteInfo] = await Promise.all([
-      client.downloadSite(name),
+      client.downloadSite(name, options.version),
       client.getSite(name).catch(() => null),
     ])
     spinner.succeed(`Downloaded ${formatBytes(zipData.length)}`)
@@ -80,7 +84,7 @@ export async function sitesDownloadCommand(
       site: name,
       domain: server?.domain ?? "",
       pocketbaseVersion: siteInfo?.pocketbaseVersion ?? POCKETBASE_VERSION,
-      version: siteInfo?.version,
+      version: options.version ?? siteInfo?.version,
     }, tempDir)
 
     // Sync to the output directory. Preserve any local .siteio/pb_data (dev DB)
@@ -91,7 +95,7 @@ export async function sitesDownloadCommand(
     spinner.succeed("Synced to output folder")
 
     if (options.json) {
-      console.log(JSON.stringify({ success: true, data: { site: name, path: outputPath, files: fileCount } }, null, 2))
+      console.log(JSON.stringify({ success: true, data: { site: name, version: options.version ?? siteInfo?.version ?? null, path: outputPath, files: fileCount } }, null, 2))
     } else {
       console.log("")
       console.log(formatSuccess("Site downloaded successfully!"))

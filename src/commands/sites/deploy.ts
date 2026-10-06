@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, statSync } from "fs"
 import { join, resolve, basename } from "path"
+import { tmpdir } from "os"
 import ora from "ora"
 import chalk from "chalk"
 import { zipSync } from "fflate"
@@ -80,18 +81,74 @@ function generateTestHtml(name: string): string {
 </html>`
 }
 
+interface ConflictContext {
+  client: SiteioClient
+  name: string
+  folder: string
+  expectedVersion: number
+}
+
+// Explain a rejected deploy and the merge steps, so a person or an LLM agent
+// merges the newer server version instead of overwriting it with --force.
+async function reportVersionConflict(err: ApiError, ctx: ConflictContext, json?: boolean): Promise<void> {
+  const { client, name, folder, expectedVersion } = ctx
+  const site = await client.getSite(name).catch(() => null)
+  const currentVersion = site?.version
+  const theirs = currentVersion ?? "latest"
+  const baseDir = join(tmpdir(), `siteio-${name}-v${expectedVersion}`)
+  const theirsDir = join(tmpdir(), `siteio-${name}-v${theirs}`)
+  const steps = [
+    `siteio sites download ${baseDir} -n ${name} -v ${expectedVersion} -y`,
+    `siteio sites download ${theirsDir} -n ${name}${currentVersion !== undefined ? ` -v ${currentVersion}` : ""} -y`,
+    `For each file that differs between the two downloads, merge it into ${folder}: git merge-file <file in ${folder}> <file in ${baseDir}> <file in ${theirsDir}>`,
+    `Resolve any conflict markers, then: siteio sites deploy ${folder} --expected-version ${currentVersion ?? "<current version>"}`,
+  ]
+
+  if (json) {
+    console.log(JSON.stringify({
+      success: false,
+      error: {
+        code: "version_conflict",
+        message: err.message,
+        site: name,
+        expectedVersion,
+        currentVersion: currentVersion ?? null,
+        deployedAt: site?.deployedAt ?? null,
+        nextSteps: steps,
+      },
+    }, null, 2))
+  }
+
+  console.error(chalk.red("Deploy rejected: version conflict"))
+  console.error(chalk.yellow(`  ${err.message}`))
+  console.error("")
+  console.error(`  Your folder is based on v${expectedVersion}; the server now has v${theirs}.`)
+  console.error("  Merge the server changes into your folder before deploying again:")
+  steps.forEach((step, i) => console.error(`    ${i + 1}. ${step}`))
+  console.error("")
+  console.error(chalk.dim("  Only use --force to discard the server changes on purpose (they stay in 'siteio sites history')."))
+}
+
 export interface SitesDeployOptions {
   json?: boolean
   force?: boolean
+  expectedVersion?: number
   name?: string
   test?: boolean
 }
 
 export async function sitesDeployCommand(folder: string | undefined, options: SitesDeployOptions = {}): Promise<void> {
   const spinner = ora()
+  let conflict: ConflictContext | null = null
   try {
     const server = getCurrentServer()
     if (!server) throw new ValidationError("Not logged in. Run 'siteio login' first.")
+    if (options.force && options.expectedVersion !== undefined) {
+      throw new ValidationError("--force and --expected-version cannot be used together")
+    }
+    if (options.expectedVersion !== undefined && !(Number.isInteger(options.expectedVersion) && options.expectedVersion > 0)) {
+      throw new ValidationError("--expected-version must be a positive whole number")
+    }
 
     let name: string
     let files: Record<string, Uint8Array>
@@ -146,10 +203,15 @@ export async function sitesDeployCommand(folder: string | undefined, options: Si
 
     spinner.start("Uploading")
 
-    // Determine expected version for optimistic concurrency control
-    const expectedVersion = (!options.force && !options.test && config?.version !== undefined)
-      ? config.version
-      : undefined
+    // Determine expected version for optimistic concurrency control.
+    // --expected-version overrides the folder's recorded version (used after
+    // merging a newer server version into the folder).
+    const expectedVersion = options.force || options.test
+      ? undefined
+      : options.expectedVersion ?? config?.version
+    if (expectedVersion !== undefined) {
+      conflict = { client, name, folder: folderPath ?? ".", expectedVersion }
+    }
 
     const info = await client.deploySite(name, zipData, {
       deployedBy: getUsername() || undefined,
@@ -174,12 +236,8 @@ export async function sitesDeployCommand(folder: string | undefined, options: Si
     process.exit(0)
   } catch (err) {
     spinner.stop()
-    if (err instanceof ApiError && err.statusCode === 409) {
-      console.error(chalk.red("Deploy rejected: version conflict"))
-      console.error(chalk.yellow(`  ${err.message}`))
-      console.error("")
-      console.error(chalk.dim("  Someone else deployed this site since your last push."))
-      console.error(chalk.dim("  Use --force to deploy anyway."))
+    if (err instanceof ApiError && err.statusCode === 409 && conflict) {
+      await reportVersionConflict(err, conflict, options.json)
       process.exit(1)
     }
     handleError(err)

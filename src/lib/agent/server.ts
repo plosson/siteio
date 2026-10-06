@@ -409,10 +409,10 @@ export class AgentServer {
       return this.handleGetSiteAdmin(siteAdminMatch[1]!)
     }
 
-    // GET /sites/:name/download - download site code as zip
+    // GET /sites/:name/download[?version=N] - download site code as zip
     const siteDownloadMatch = path.match(/^\/sites\/([a-z0-9-]+)\/download$/)
     if (siteDownloadMatch && req.method === "GET") {
-      return this.handleDownloadSite(siteDownloadMatch[1]!)
+      return this.handleDownloadSite(siteDownloadMatch[1]!, url.searchParams.get("version"))
     }
 
     // /sites/:name/thumbnail - GET the card preview image, POST to regenerate it
@@ -1382,11 +1382,21 @@ export class AgentServer {
     })
   }
 
-  private async handleDownloadSite(name: string): Promise<Response> {
+  // `version` (optional) selects a past version, e.g. the base of a 3-way merge.
+  private async handleDownloadSite(name: string, version: string | null = null): Promise<Response> {
     if (!this.storage.exists(name)) return this.error("Site not found", 404)
+    if (version !== null && !/^[1-9]\d*$/.test(version)) {
+      return this.error("version must be a positive whole number", 400)
+    }
     try {
-      const zipData = await this.storage.zipCode(name)
-      if (!zipData) return this.error("Failed to create zip", 500)
+      const zipData = version === null
+        ? await this.storage.zipCode(name)
+        : await this.storage.zipVersion(name, parseInt(version, 10))
+      if (!zipData) {
+        return version === null
+          ? this.error("Failed to create zip", 500)
+          : this.error(`Version ${version} not found in history`, 404)
+      }
       return new Response(zipData, {
         status: 200,
         headers: {
@@ -1563,17 +1573,8 @@ export class AgentServer {
     // Create metadata on first deploy (generates superuser creds).
     let site = this.storage.get(name)
 
-    // Check for version conflict (optimistic concurrency control)
-    const expectedVersionHeader = req.headers.get("X-Expected-Version")
-    if (expectedVersionHeader !== null) {
-      const expectedVersion = parseInt(expectedVersionHeader, 10)
-      if (!isNaN(expectedVersion) && site?.version !== undefined && site.version !== expectedVersion) {
-        return this.error(
-          `Version conflict: expected v${expectedVersion} but server has v${site.version}. Someone else deployed since your last push. Use --force to override.`,
-          409
-        )
-      }
-    }
+    const conflict = this.checkExpectedVersion(req, site)
+    if (conflict) return conflict
 
     if (!site) {
       site = this.storage.create({
@@ -1662,7 +1663,7 @@ export class AgentServer {
     const downloadMatch = path.match(/^\/sites\/([a-z0-9-]+)\/download$/)
     if (downloadMatch) {
       if (downloadMatch[1] !== grant.site) return this.error("This share code is not valid for that site", 403)
-      if (req.method === "GET") return this.handleDownloadSite(grant.site)
+      if (req.method === "GET") return this.handleDownloadSite(grant.site, new URL(req.url).searchParams.get("version"))
       return notAllowed()
     }
 
@@ -1697,10 +1698,27 @@ export class AgentServer {
   // merged with the site's current backend (preserved unless the grant allows
   // backend edits), then deployed via the shared core; the deploy is attributed
   // to the grant label and counts against the grant's budget.
+  // Optimistic concurrency control: a deploy carrying X-Expected-Version is
+  // rejected if someone else deployed since that version, instead of
+  // silently overwriting their changes. Returns the 409, or null to proceed.
+  private checkExpectedVersion(req: Request, site: Site | null): Response | null {
+    const expectedVersionHeader = req.headers.get("X-Expected-Version")
+    if (expectedVersionHeader === null) return null
+    const expectedVersion = parseInt(expectedVersionHeader, 10)
+    if (isNaN(expectedVersion) || site?.version === undefined || site.version === expectedVersion) return null
+    return this.error(
+      `Version conflict: expected v${expectedVersion} but server has v${site.version}. Someone else deployed since your last push.`,
+      409,
+      "version_conflict"
+    )
+  }
+
   private async handleScopedDeploy(grant: ShareGrant, req: Request): Promise<Response> {
     const name = grant.site
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
+    const conflict = this.checkExpectedVersion(req, site)
+    if (conflict) return conflict
 
     const contentType = req.headers.get("Content-Type") || ""
     if (!contentType.includes("application/zip")) return this.error("Expected application/zip body", 400)

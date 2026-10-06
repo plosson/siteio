@@ -20,7 +20,9 @@ export class ValidationError extends SiteioError {
 export class ApiError extends SiteioError {
   constructor(
     message: string,
-    public statusCode?: number
+    public statusCode?: number,
+    // Machine-readable cause from the agent's error body (e.g. "version_conflict").
+    public reason?: string
   ) {
     super(message, statusCode && statusCode >= 400 && statusCode < 500 ? "USER" : "SYSTEM")
     this.name = "ApiError"
