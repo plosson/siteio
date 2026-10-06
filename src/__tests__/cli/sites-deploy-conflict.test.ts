@@ -244,3 +244,28 @@ describe("CLI: sites download --version and the full merge", () => {
     })
   }
 })
+
+describe("CLI: the site version flag is not swallowed by the CLI's own --version", () => {
+  for (const flag of ["--site-version", "-v"]) {
+    test(`rollback ${flag} 1 really rolls back`, async () => {
+      writeIndex("one")
+      await deploy()
+      await deployElsewhere("two")
+
+      const r = await runCli(["sites", "rollback", "blog", flag, "1", "-y"])
+      expect(r.exitCode).toBe(0)
+      expect(await liveIndex()).toBe("one")
+    })
+
+    test(`download ${flag} 1 really downloads version 1`, async () => {
+      writeIndex("one")
+      await deploy()
+      await deployElsewhere("two")
+
+      const target = join(homeDir, "old")
+      const r = await runCli(["sites", "download", target, "-n", "blog", flag, "1"])
+      expect(r.exitCode).toBe(0)
+      expect(readFileSync(join(target, "index.html"), "utf-8")).toBe("one")
+    })
+  }
+})

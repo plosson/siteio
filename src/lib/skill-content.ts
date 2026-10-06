@@ -158,7 +158,6 @@ The rejection prints these exact commands, with real paths and versions
    If it is rejected again, someone deployed during your merge: repeat from step 1,
    using \`<current>\` as the new base.
 
-Use \`-v\` for versions, not \`--version <n>\`: that prints the CLI version instead.
 Only code is versioned. Database data (pb_data) is never part of a deploy.
 
 ## Sharing a site for editing (delegate to another person's AI)

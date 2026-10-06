@@ -151,10 +151,10 @@ function registerSiteCommands(sites: Command): void {
     .description("Download a deployed site's code to a local folder (defaults to ./<name>)")
     .option("-n, --name <name>", "Site to download (defaults to .siteio/config.json)")
     .option("-y, --yes", "Overwrite existing folder contents")
-    .option("-v, --version <n>", "Download a past version (see 'siteio sites history') instead of the current one", intArg)
+    .option("-v, --site-version <n>", "Download a past version (see 'siteio sites history') instead of the current one", intArg)
     .action(async (outputFolder, options) => {
       const { sitesDownloadCommand } = await import("./commands/sites/download.ts")
-      await sitesDownloadCommand(outputFolder, { ...options, json: program.opts().json })
+      await sitesDownloadCommand(outputFolder, { ...options, version: options.siteVersion, json: program.opts().json })
     })
 
   sites
@@ -185,11 +185,11 @@ function registerSiteCommands(sites: Command): void {
   sites
     .command("rollback [name]")
     .description("Rollback a site's code to a previous version (data is untouched)")
-    .option("-v, --version <version>", "Version to rollback to")
+    .option("-v, --site-version <version>", "Version to rollback to")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (name, options) => {
       const { sitesRollbackCommand } = await import("./commands/sites/rollback.ts")
-      await sitesRollbackCommand(name, options.version, { ...options, json: program.opts().json })
+      await sitesRollbackCommand(name, options.siteVersion, { ...options, json: program.opts().json })
     })
 
   sites

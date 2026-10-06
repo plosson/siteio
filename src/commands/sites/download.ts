@@ -31,7 +31,7 @@ export async function sitesDownloadCommand(
       console.error(chalk.dim(`Using site '${name}' from .siteio/config.json`))
     }
     if (options.version !== undefined && !(Number.isInteger(options.version) && options.version > 0)) {
-      throw new ValidationError("-v/--version must be a positive whole number")
+      throw new ValidationError("-v/--site-version must be a positive whole number")
     }
 
     // Default to a subfolder named after the site when no folder is given.
