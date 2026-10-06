@@ -12,7 +12,6 @@ function intArg(value: string): number {
 const program = new Command()
   .name("siteio")
   .description("Deploy static sites and apps with ease")
-  .version(getVersion())
   .option("--json", "Output results as JSON")
   .addHelpText(
     "after",
@@ -673,5 +672,12 @@ Examples:
     const { completionCommand } = await import("./commands/completion.ts")
     await completionCommand(shell)
   })
+
+// Root options are parsed anywhere on the line (that is how a trailing --json
+// works), so a root --version would swallow a subcommand's own `--version <n>`
+// (`sites rollback`, `sites download`). Only offer it when no subcommand is given.
+if (process.argv.slice(2).every((arg) => arg.startsWith("-"))) {
+  program.version(getVersion())
+}
 
 void program.parseAsync()

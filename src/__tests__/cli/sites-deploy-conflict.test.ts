@@ -269,3 +269,38 @@ describe("CLI: the site version flag is not swallowed by the CLI's own --version
     })
   }
 })
+
+describe("CLI: the old `--version <n>` form fails loudly instead of printing the CLI version", () => {
+  test("rollback --version 1 is refused and nothing is rolled back", async () => {
+    writeIndex("one")
+    await deploy()
+    await deployElsewhere("two")
+
+    const r = await runCli(["sites", "rollback", "blog", "--version", "1", "-y"])
+    expect(r.exitCode).toBe(1)
+    expect(r.stderr).toContain("unknown option '--version'")
+    expect(await liveIndex()).toBe("two")
+  })
+
+  test("download --version 1 is refused instead of exiting 0 with no download", async () => {
+    writeIndex("one")
+    await deploy()
+    const target = join(homeDir, "old")
+    const r = await runCli(["sites", "download", target, "-n", "blog", "--version", "1"])
+    expect(r.exitCode).toBe(1)
+    expect(r.stderr).toContain("unknown option '--version'")
+  })
+
+  for (const flag of ["--version", "-V"]) {
+    test(`siteio ${flag} still prints the CLI version`, async () => {
+      const r = await runCli([flag])
+      expect(r.exitCode).toBe(0)
+      expect(r.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/)
+    })
+  }
+
+  test("siteio --help still lists --version", async () => {
+    const r = await runCli(["--help"])
+    expect(r.stdout).toContain("-V, --version")
+  })
+})
