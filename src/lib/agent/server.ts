@@ -1573,18 +1573,8 @@ export class AgentServer {
     // Create metadata on first deploy (generates superuser creds).
     let site = this.storage.get(name)
 
-    // Check for version conflict (optimistic concurrency control)
-    const expectedVersionHeader = req.headers.get("X-Expected-Version")
-    if (expectedVersionHeader !== null) {
-      const expectedVersion = parseInt(expectedVersionHeader, 10)
-      if (!isNaN(expectedVersion) && site?.version !== undefined && site.version !== expectedVersion) {
-        return this.error(
-          `Version conflict: expected v${expectedVersion} but server has v${site.version}. Someone else deployed since your last push.`,
-          409,
-          "version_conflict"
-        )
-      }
-    }
+    const conflict = this.checkExpectedVersion(req, site)
+    if (conflict) return conflict
 
     if (!site) {
       site = this.storage.create({
@@ -1708,10 +1698,27 @@ export class AgentServer {
   // merged with the site's current backend (preserved unless the grant allows
   // backend edits), then deployed via the shared core; the deploy is attributed
   // to the grant label and counts against the grant's budget.
+  // Optimistic concurrency control: a deploy carrying X-Expected-Version is
+  // rejected if someone else deployed since that version, instead of
+  // silently overwriting their changes. Returns the 409, or null to proceed.
+  private checkExpectedVersion(req: Request, site: Site | null): Response | null {
+    const expectedVersionHeader = req.headers.get("X-Expected-Version")
+    if (expectedVersionHeader === null) return null
+    const expectedVersion = parseInt(expectedVersionHeader, 10)
+    if (isNaN(expectedVersion) || site?.version === undefined || site.version === expectedVersion) return null
+    return this.error(
+      `Version conflict: expected v${expectedVersion} but server has v${site.version}. Someone else deployed since your last push.`,
+      409,
+      "version_conflict"
+    )
+  }
+
   private async handleScopedDeploy(grant: ShareGrant, req: Request): Promise<Response> {
     const name = grant.site
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
+    const conflict = this.checkExpectedVersion(req, site)
+    if (conflict) return conflict
 
     const contentType = req.headers.get("Content-Type") || ""
     if (!contentType.includes("application/zip")) return this.error("Expected application/zip body", 400)
