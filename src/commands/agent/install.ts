@@ -3,9 +3,8 @@ import chalk from "chalk"
 import { existsSync, writeFileSync } from "fs"
 import { join } from "path"
 import { spawnSync } from "bun"
-import { randomBytes } from "crypto"
 import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts"
-import { encodeToken } from "../../utils/token.ts"
+import { encodeToken, generateApiKey } from "../../utils/token.ts"
 import { isRemoteTarget, sshExec, sshExecStream, shellQuote } from "../../utils/ssh.ts"
 import { openBrowser } from "../../utils/browser.ts"
 import { setupWildcardDNS, CloudflareError, getPublicIP, buildSslipDomain, isSslipDomain, buildCloudflareTokenUrl } from "../../lib/cloudflare.ts"
@@ -45,10 +44,6 @@ function findBinaryPath(): string {
   }
 
   throw new Error("Could not find siteio binary")
-}
-
-function generateApiKey(): string {
-  return randomBytes(32).toString("hex")
 }
 
 function generateServiceFile(binaryPath: string, dataDir: string, domain: string, apiKey: string, email?: string): string {

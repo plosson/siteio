@@ -1,4 +1,10 @@
+import { randomBytes } from "crypto"
 import { deflateSync, inflateSync } from "zlib"
+
+// A fresh API key: 32 random bytes, hex-encoded.
+export function generateApiKey(): string {
+  return randomBytes(32).toString("hex")
+}
 
 const SEPARATOR = "\n"
 

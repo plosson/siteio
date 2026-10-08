@@ -1,9 +1,8 @@
 import * as p from "@clack/prompts"
 import chalk from "chalk"
-import { randomBytes } from "crypto"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { formatError } from "../../utils/output.ts"
-import { encodeToken } from "../../utils/token.ts"
+import { encodeToken, generateApiKey } from "../../utils/token.ts"
 import { parseAutoDeployInterval } from "../../lib/agent/auto-deploy.ts"
 import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import type { AgentConfig, AcmeConfig, ChatConfig } from "../../types.ts"
@@ -33,10 +32,6 @@ function buildChatConfig(
     // Clamp to <255s so a turn can't outlive Bun's max SSE idle timeout.
     timeoutMs: Math.min(Math.max(timeoutMs, 30000), 240000),
   }
-}
-
-function generateApiKey(): string {
-  return randomBytes(32).toString("hex")
 }
 
 // Interpret a persisted (boolean) or env/config-set (string) flag as a boolean.
