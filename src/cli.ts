@@ -610,6 +610,36 @@ agentConfig
     await unsetConfigCommand(key, { json: program.opts().json })
   })
 
+const agentTenant = agent
+  .command("tenant")
+  .description("Manage tenants: extra base domains, each with its own API key (sites only)")
+
+agentTenant
+  .command("add <domain>")
+  .description("Add a tenant domain and print its login command")
+  .action(async (domain) => {
+    const { addTenantCommand } = await import("./commands/agent/tenant.ts")
+    await addTenantCommand(domain, { json: program.opts().json })
+  })
+
+agentTenant
+  .command("list")
+  .alias("ls")
+  .description("List tenant domains")
+  .action(async () => {
+    const { listTenantsCommand } = await import("./commands/agent/tenant.ts")
+    await listTenantsCommand({ json: program.opts().json })
+  })
+
+agentTenant
+  .command("remove <domain>")
+  .alias("rm")
+  .description("Remove a tenant domain (refused while it still has sites)")
+  .action(async (domain) => {
+    const { removeTenantCommand } = await import("./commands/agent/tenant.ts")
+    await removeTenantCommand(domain, { json: program.opts().json })
+  })
+
 // Update command
 program
   .command("update")

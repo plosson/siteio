@@ -1,4 +1,4 @@
-import type { ShareGrant, SiteInfo } from "../../types.ts"
+import type { ShareGrant, Site, SiteInfo } from "../../types.ts"
 import type { GrantStore } from "./grant-store.ts"
 import type { StagingStore } from "./staging-store.ts"
 import type { SiteStorage } from "./storage.ts"
@@ -11,6 +11,7 @@ import { PUBLIC_DIR } from "../site-layout.ts"
 import { mergeTrees, hasConflictMarkers, YOURS_LABEL, THEIRS_LABEL, type MergeConflict } from "./three-way-merge.ts"
 import { randomBytes } from "crypto"
 import { join } from "path"
+import type { TenantRegistry } from "./tenants.ts"
 
 const MCP_PROTOCOL_VERSION = "2024-11-05"
 
@@ -50,7 +51,7 @@ export interface McpDeps {
   staging: StagingStore
   sites: SiteStorage
   oauth: OAuthStore
-  domain: string // base domain, for building the site's public URL(s)
+  hosts: TenantRegistry // base domains, for building the site's public URL(s)
   // Deploy a merged web+backend zip as a new version of `siteName`. `message`
   // is the invitee's change description, recorded in the site history. Throws
   // on failure (missing site, Docker down, …). Provided by AgentServer.
@@ -142,7 +143,7 @@ export class McpHandler {
     switch (msg.method) {
       case "initialize": {
         const site = this.deps.sites.get(grant.site)
-        const info = site ? this.deps.sites.toInfo(site, this.deps.domain) : null
+        const info = site ? this.siteInfo(site) : null
         // Report the custom domain(s) once set — that becomes the canonical
         // public URL; otherwise fall back to the default <name>.<domain>.
         const liveUrls = info
@@ -152,7 +153,7 @@ export class McpHandler {
           : []
         const liveAt = liveUrls.length ? ` It is live at ${liveUrls.join(", ")}.` : ""
         const instructions =
-          `You can edit and publish the website "${grant.site}".${liveAt} Use list_files/read_file to inspect it, ` +
+          `You can edit and publish the website "${this.shownName(grant)}".${liveAt} Use list_files/read_file to inspect it, ` +
           `write_file/edit_file/delete_file to change the web files, then deploy_site (with a short change message) to publish. ` +
           `Prefer edit_file for small changes to large files. ` +
           `Only website files can be changed here; the site's backend (database, hooks) is managed by the owner.`
@@ -187,12 +188,23 @@ export class McpHandler {
     return { jsonrpc: "2.0", id: id ?? null, result }
   }
 
+  // The site name as shown to people: invitees of a tenant site never see the
+  // internal key.
+  private shownName(grant: ShareGrant): string {
+    return this.deps.hosts.displayName(grant.site)
+  }
+
+  // The site as its owner sees it: invitees work inside the owner's scope.
+  private siteInfo(site: Site): SiteInfo {
+    return this.deps.sites.toInfo(site, this.deps.hosts, this.deps.hosts.ownerOf(site.name))
+  }
+
   // The site's canonical public URL(s): the custom domain(s) once set, else the
   // default <name>.<domain> subdomain (never both).
   private liveUrls(grant: ShareGrant): string[] {
     const site = this.deps.sites.get(grant.site)
     if (!site) return []
-    const info = this.deps.sites.toInfo(site, this.deps.domain)
+    const info = this.siteInfo(site)
     return info.domains.length ? info.domains.map((d) => `https://${d}`) : [info.url]
   }
 
@@ -202,7 +214,7 @@ export class McpHandler {
   private siteContextBlock(grant: ShareGrant): { type: "text"; text: string } {
     const urls = this.liveUrls(grant)
     const where = urls.length ? ` · live at ${urls.join(", ")}` : ""
-    return { type: "text", text: `[editing site "${grant.site}"${where}]` }
+    return { type: "text", text: `[editing site "${this.shownName(grant)}"${where}]` }
   }
 
   private toolText(id: JsonRpcRequest["id"], grant: ShareGrant, text: string, isError = false): unknown {
@@ -300,11 +312,11 @@ export class McpHandler {
   // published version, so the model can reference the URL without deploying.
   private siteInfoText(grant: ShareGrant): string {
     const site = this.deps.sites.get(grant.site)
-    if (!site) return `Site "${grant.site}" no longer exists.`
-    const info = this.deps.sites.toInfo(site, this.deps.domain)
+    if (!site) return `Site "${this.shownName(grant)}" no longer exists.`
+    const info = this.siteInfo(site)
     const canonical = info.domains.length ? info.domains.map((d) => `https://${d}`) : [info.url]
     const lines = [
-      `Site: ${grant.site}`,
+      `Site: ${this.shownName(grant)}`,
       `Live at: ${canonical.join(", ")}`,
       info.domains.length
         ? `Custom domains: ${info.domains.join(", ")}`
@@ -319,7 +331,7 @@ export class McpHandler {
   // by whom (share deploys show the grant's label), and its change message.
   private historyText(grant: ShareGrant): string {
     const site = this.deps.sites.get(grant.site)
-    if (!site) return `Site "${grant.site}" no longer exists.`
+    if (!site) return `Site "${this.shownName(grant)}" no longer exists.`
     const fmt = (v: number | undefined, at?: string, by?: string, message?: string, suffix = "") => {
       const note = message ? `  — ${message}` : ""
       return `  v${v ?? "?"}  ${at ? new Date(at).toISOString() : "unknown"}  by ${by || "unknown"}${note}${suffix}`
@@ -327,8 +339,8 @@ export class McpHandler {
     const lines: string[] = []
     if (site.version !== undefined) lines.push(fmt(site.version, site.deployedAt, site.deployedBy, site.message, "  (current)"))
     for (const v of this.deps.sites.getHistory(grant.site)) lines.push(fmt(v.version, v.deployedAt, v.deployedBy, v.message))
-    if (lines.length === 0) return `No deployments yet for "${grant.site}".`
-    return `Deployment history for "${grant.site}" (newest first):\n${lines.join("\n")}`
+    if (lines.length === 0) return `No deployments yet for "${this.shownName(grant)}".`
+    return `Deployment history for "${this.shownName(grant)}" (newest first):\n${lines.join("\n")}`
   }
 
   private async handleDeployTool(
@@ -348,7 +360,7 @@ export class McpHandler {
 
     this.ensureSeeded(grant)
     const site = this.deps.sites.get(grant.site)
-    if (!site) return this.toolText(msg.id, grant, `Site "${grant.site}" no longer exists.`, true)
+    if (!site) return this.toolText(msg.id, grant, `Site "${this.shownName(grant)}" no longer exists.`, true)
 
     const unresolved = Object.entries(this.deps.staging.readFiles(grant.id))
       .filter(([, bytes]) => hasConflictMarkers(bytes))
@@ -462,7 +474,7 @@ export class McpHandler {
 
   private ensureSeeded(grant: ShareGrant): void {
     const site = this.deps.sites.get(grant.site)
-    if (!site) throw new ValidationError(`Site "${grant.site}" no longer exists.`)
+    if (!site) throw new ValidationError(`Site "${this.shownName(grant)}" no longer exists.`)
     if (!this.deps.staging.isSeeded(grant.id)) {
       this.deps.staging.seed(grant.id, this.deps.sites.getCodePath(grant.site), site.version ?? 0)
     }

@@ -1,11 +1,10 @@
 import * as p from "@clack/prompts"
 import chalk from "chalk"
-import { randomBytes } from "crypto"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { formatError } from "../../utils/output.ts"
-import { encodeToken } from "../../utils/token.ts"
+import { encodeToken, generateApiKey } from "../../utils/token.ts"
 import { parseAutoDeployInterval } from "../../lib/agent/auto-deploy.ts"
-import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
+import { getAgentDataDir, loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import type { AgentConfig, AcmeConfig, ChatConfig } from "../../types.ts"
 
 // Assemble the AI site-chat config from env (wins) then persisted config. The
@@ -33,10 +32,6 @@ function buildChatConfig(
     // Clamp to <255s so a turn can't outlive Bun's max SSE idle timeout.
     timeoutMs: Math.min(Math.max(timeoutMs, 30000), 240000),
   }
-}
-
-function generateApiKey(): string {
-  return randomBytes(32).toString("hex")
 }
 
 // Interpret a persisted (boolean) or env/config-set (string) flag as a boolean.
@@ -71,7 +66,7 @@ function parseSize(size: string): number {
 }
 
 export async function startAgentCommand(): Promise<void> {
-  const dataDir = process.env.SITEIO_DATA_DIR || "/data"
+  const dataDir = getAgentDataDir()
 
   // Load persistent config
   const persistedConfig = loadAgentConfig(dataDir)
@@ -154,6 +149,8 @@ export async function startAgentCommand(): Promise<void> {
     process.exit(1)
   }
 
+  const tenants = persistedConfig.tenants ?? []
+
   const config: AgentConfig = {
     apiKey,
     dataDir,
@@ -167,6 +164,7 @@ export async function startAgentCommand(): Promise<void> {
     autoDeployInterval,
     chat,
     pagerUrl,
+    tenants,
   }
 
   // Generate connection info
@@ -185,6 +183,7 @@ export async function startAgentCommand(): Promise<void> {
     `  Chat:       ${chat ? `enabled (${chat.provider}${chat.model ? "/" + chat.model : ""}, ${chat.sandbox ? "sandboxed" : "host"})` : "disabled (no LLM credential)"}`
   )
   console.log(`  Pager:      ${pagerUrl ? "enabled" : "disabled (set PAGERIO_URL or pagerUrl)"}`)
+  console.log(`  Tenants:    ${tenants.map((t) => t.domain).join(", ") || "none"}`)
   console.log("")
 
   // Connection credentials - easy to copy/paste

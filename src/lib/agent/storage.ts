@@ -5,6 +5,7 @@ import { join, resolve, sep } from "path"
 import { unzipSync, zipSync } from "fflate"
 import type { Site, SiteInfo, SiteVersion } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
+import type { Scope, TenantRegistry } from "./tenants.ts"
 import { readTree } from "../../utils/files.ts"
 
 const MAX_HISTORY_VERSIONS = 10
@@ -293,34 +294,32 @@ export class SiteStorage {
     return zipSync(readTree(codePath), { level: 6 })
   }
 
-  // The site's primary hostname: always the default `<name>.<domain>`
-  // subdomain. Single source of truth for URL construction.
-  primaryDomain(site: Site, domain: string): string {
-    return `${site.name}.${domain}`
-  }
-
   // Custom domains only. Earlier deploys stored the default subdomain inside
   // `domains` — filter it out defensively so those records need no migration.
-  customDomains(site: Site, domain: string): string[] {
-    return site.domains.filter((d) => d !== `${site.name}.${domain}`)
+  customDomains(site: Site, hosts: TenantRegistry): string[] {
+    const platform = hosts.host(site.name)
+    return site.domains.filter((d) => d !== platform)
   }
 
   // Reverse lookup: the site that owns a custom domain host (e.g. the sharing
   // endpoints resolve which site a request on a vanity domain belongs to).
-  findByCustomDomain(host: string, domain: string): Site | null {
+  findByCustomDomain(host: string, hosts: TenantRegistry): Site | null {
     for (const site of this.list()) {
-      if (this.customDomains(site, domain).includes(host)) return site
+      if (this.customDomains(site, hosts).includes(host)) return site
     }
     return null
   }
 
-  toInfo(site: Site, domain: string): SiteInfo {
-    const primary = this.primaryDomain(site, domain)
+  // `scope` is who is looking: a tenant sees its sites under bare names.
+  toInfo(site: Site, hosts: TenantRegistry, scope: Scope = null): SiteInfo {
+    // The platform subdomain (`<name>.<base domain of its owner>`) is the
+    // site's primary hostname. Single source of truth: TenantRegistry.host.
+    const primary = hosts.host(site.name)
     return {
-      name: site.name,
+      name: hosts.displayName(site.name, scope),
       url: `https://${primary}`,
       adminUrl: `https://${primary}/_/`,
-      domains: this.customDomains(site, domain),
+      domains: this.customDomains(site, hosts),
       status: site.status,
       pocketbaseVersion: site.pocketbaseVersion,
       size: site.size,

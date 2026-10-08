@@ -47,6 +47,7 @@ export interface TraefikConfig {
   httpPort: number
   httpsPort: number
   fileServerPort: number
+  apiHosts?: string[] // every `api.<base>` host (primary + tenants); defaults to api.<domain>
   acme?: AcmeConfig
 }
 
@@ -155,14 +156,14 @@ log:
   //     `/mcp` on an app host reaches the app, not the agent.
   // Everything else (sites and apps alike) routes via docker-label discovery.
   generateDynamicConfig(): string {
-    const { domain, fileServerPort } = this.config
+    const { domain, fileServerPort, apiHosts = [`api.${domain}`] } = this.config
     const hostUrl = `http://host.docker.internal:${fileServerPort}`
 
     const config: Record<string, unknown> = {
       http: {
         routers: {
           "api-router": {
-            rule: `Host(\`api.${domain}\`)`,
+            rule: apiHosts.map((h) => `Host(\`${h}\`)`).join(" || "),
             entryPoints: ["websecure"],
             service: "api-service",
             tls: {

@@ -1,5 +1,6 @@
 import chalk from "chalk"
 import {
+  getAgentDataDir,
   loadAgentConfig,
   setAgentConfigValue,
   deleteAgentConfigValue,
@@ -19,10 +20,6 @@ const VALID_KEYS: (keyof PersistedAgentConfig)[] = [
   "pagerUrl",
 ]
 
-function getDataDir(): string {
-  return process.env.SITEIO_DATA_DIR || "/data"
-}
-
 function validateKey(key: string): asserts key is keyof PersistedAgentConfig {
   if (!VALID_KEYS.includes(key as keyof PersistedAgentConfig)) {
     console.error(formatError(`Unknown config key: ${key}`))
@@ -32,7 +29,7 @@ function validateKey(key: string): asserts key is keyof PersistedAgentConfig {
 }
 
 export async function listConfigCommand(options: { json?: boolean }): Promise<void> {
-  const dataDir = getDataDir()
+  const dataDir = getAgentDataDir()
   const config = loadAgentConfig(dataDir)
 
   if (options.json) {
@@ -81,7 +78,7 @@ export async function getConfigCommand(
 ): Promise<void> {
   validateKey(key)
 
-  const dataDir = getDataDir()
+  const dataDir = getAgentDataDir()
   const value = getAgentConfigValue(dataDir, key)
 
   if (options.json) {
@@ -110,7 +107,7 @@ export async function setConfigCommand(
     process.exit(1)
   }
 
-  const dataDir = getDataDir()
+  const dataDir = getAgentDataDir()
 
   try {
     setAgentConfigValue(dataDir, key, value)
@@ -139,7 +136,7 @@ export async function unsetConfigCommand(
     process.exit(1)
   }
 
-  const dataDir = getDataDir()
+  const dataDir = getAgentDataDir()
 
   try {
     deleteAgentConfigValue(dataDir, key)
