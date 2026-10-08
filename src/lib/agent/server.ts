@@ -416,7 +416,7 @@ export class AgentServer {
 
     // GET /agent - sanitized agent settings (god key only)
     if (path === "/agent" && req.method === "GET") {
-      return this.handleGetAgentInfo()
+      return this.handleGetAgentInfo(scope)
     }
 
     // GET /sites - list all sites
@@ -1285,7 +1285,18 @@ export class AgentServer {
 
   // Sanitized, read-only view of the agent's runtime settings for the admin UI.
   // Secrets (apiKey, ACME/DNS env, Cloudflare token) are deliberately omitted.
-  private handleGetAgentInfo(): Response {
+  private handleGetAgentInfo(scope: Scope): Response {
+    // A tenant sees a sites-only agent of its own; host settings stay private.
+    if (scope) {
+      return this.json({
+        domain: scope.domain,
+        version: getVersion(),
+        appsEnabled: false,
+        siteCount: this.storage.list().filter((s) => this.tenants.inScope(s.name, scope)).length,
+        appCount: 0,
+        chat: { configured: false },
+      })
+    }
     const c = this.config
     return this.json({
       domain: c.domain,
@@ -1690,22 +1701,32 @@ export class AgentServer {
   // Narrow surface for a scoped share-code credential: it may only download or
   // (re)deploy its own site. Anything else — other sites, apps, admin creds,
   // delete/rename/domains — is refused.
-  private async handleScopedRequest(grant: ShareGrant, path: string, req: Request, _scope: Scope): Promise<Response> {
+  private async handleScopedRequest(grant: ShareGrant, path: string, req: Request, scope: Scope): Promise<Response> {
+    // Path names are as seen from the host's scope; the grant holds a key.
+    const isOwn = (name: string) => {
+      if (name.includes("--")) return false
+      try {
+        return this.tenants.keyFor(name, scope) === grant.site
+      } catch {
+        return false
+      }
+    }
+    const shown = this.tenants.nameIn(grant.site, scope) ?? grant.site
     const notAllowed = () =>
-      this.error(`This share code can only download or deploy the site '${grant.site}'`, 403)
+      this.error(`This share code can only download or deploy the site '${shown}'`, 403)
 
     const siteMatch = path.match(/^\/sites\/([a-z0-9-]+)$/)
     if (siteMatch) {
-      if (siteMatch[1] !== grant.site) return this.error("This share code is not valid for that site", 403)
-      if (req.method === "POST") return this.handleScopedDeploy(grant, req)
-      if (req.method === "GET") return this.handleGetSite(grant.site, this.tenants.ownerOf(grant.site))
+      if (!isOwn(siteMatch[1]!)) return this.error("This share code is not valid for that site", 403)
+      if (req.method === "POST") return this.handleScopedDeploy(grant, req, scope)
+      if (req.method === "GET") return this.handleGetSite(grant.site, scope)
       return notAllowed()
     }
 
     const downloadMatch = path.match(/^\/sites\/([a-z0-9-]+)\/download$/)
     if (downloadMatch) {
-      if (downloadMatch[1] !== grant.site) return this.error("This share code is not valid for that site", 403)
-      if (req.method === "GET") return this.handleDownloadSite(grant.site, new URL(req.url).searchParams.get("version"))
+      if (!isOwn(downloadMatch[1]!)) return this.error("This share code is not valid for that site", 403)
+      if (req.method === "GET") return this.handleDownloadSite(grant.site, new URL(req.url).searchParams.get("version"), scope)
       return notAllowed()
     }
 
@@ -1716,7 +1737,7 @@ export class AgentServer {
     if (isEditKind(grant)) {
       const editMatch = path.match(/^\/sites\/([a-z0-9-]+)\/(chat|chat\/stop|rollback)$/)
       if (editMatch) {
-        if (editMatch[1] !== grant.site) return this.error("This link is not valid for that site", 403)
+        if (!isOwn(editMatch[1]!)) return this.error("This link is not valid for that site", 403)
         const route = editMatch[2]
         if (route === "chat" && req.method === "GET") return this.handleGetSiteChat(grant.site)
         if (route === "chat" && req.method === "POST") {
@@ -1755,7 +1776,7 @@ export class AgentServer {
     )
   }
 
-  private async handleScopedDeploy(grant: ShareGrant, req: Request): Promise<Response> {
+  private async handleScopedDeploy(grant: ShareGrant, req: Request, scope: Scope): Promise<Response> {
     const name = grant.site
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
@@ -1780,7 +1801,7 @@ export class AgentServer {
         allowBackend: !!grant.allowBackend,
       })
       const mergedZip = zipSync(merged, { level: 6 })
-      const info = await this.runSiteDeploy(site, mergedZip, grant.label || "shared link")
+      const info = await this.runSiteDeploy(site, mergedZip, grant.label || "shared link", undefined, scope)
       this.grants.touch(grant.id)
       return this.json(info)
     } catch (err) {
@@ -1858,7 +1879,7 @@ export class AgentServer {
       const primaryHost = customs[0] ?? subdomain
       const cliToken = encodeToken(`https://${primaryHost}/_siteio`, token)
       return this.json({
-        grant: this.grants.toInfo(grant),
+        grant: { ...this.grants.toInfo(grant), site: this.tenants.nameIn(name, this.tenants.ownerOf(name)) ?? name },
         url: `https://${primaryHost}/mcp`,
         code: token,
         cliToken,
@@ -1870,9 +1891,10 @@ export class AgentServer {
     }
   }
 
-  private handleListGrants(name: string, _scope: Scope): Response {
+  private handleListGrants(name: string, scope: Scope): Response {
     if (!this.storage.exists(name)) return this.error("Site not found", 404)
-    return this.json(this.grants.listForSite(name).map((g) => this.grants.toInfo(g)))
+    const site = this.tenants.nameIn(name, scope) ?? name
+    return this.json(this.grants.listForSite(name).map((g) => ({ ...this.grants.toInfo(g), site })))
   }
 
   private handleRevokeGrant(name: string, id: string): Response {
@@ -2243,7 +2265,7 @@ export class AgentServer {
     return this.runRollback(grant.site, version, grant.label || "edit link")
   }
 
-  private async handleUpdateSiteDomains(name: string, req: Request, _scope: Scope): Promise<Response> {
+  private async handleUpdateSiteDomains(name: string, req: Request, scope: Scope): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
 
@@ -2262,29 +2284,28 @@ export class AgentServer {
         }
       }
 
-      // Reject subdomains within the base domain space (e.g., api.example.com)
-      // but allow the apex domain itself (e.g., example.com) as a custom domain
-      const baseDomainSuffix = `.${this.config.domain}`
+      // No platform hostname of any base domain, and no other scope's apex.
+      const owner = this.tenants.ownerOf(name)
       for (const domain of domains) {
-        if (domain.endsWith(baseDomainSuffix)) {
-          return this.error(`Cannot use '${domain}' as a custom domain — it conflicts with the base domain subdomains`)
-        }
+        const conflict = this.tenants.customDomainConflict(domain, owner)
+        if (conflict) return this.error(conflict)
       }
 
-      // Check for conflicts with other sites
+      // Custom domains are unique across the whole server. Name the other site
+      // only when the caller can see it.
       for (const other of this.storage.list()) {
         if (other.name === name) continue
         const overlap = domains.filter((d) => this.storage.customDomains(other, this.tenants).includes(d))
         if (overlap.length > 0) {
-          return this.error(`Domain(s) already in use by '${other.name}': ${overlap.join(", ")}`)
+          const seen = this.tenants.nameIn(other.name, scope)
+          return this.error(`Domain(s) already in use${seen ? ` by '${seen}'` : ""}: ${overlap.join(", ")}`)
         }
       }
 
-      // Check for conflicts with apps
       for (const app of this.appStorage.list()) {
         const overlap = domains.filter((d) => app.domains.includes(d))
         if (overlap.length > 0) {
-          return this.error(`Domain(s) already in use by app '${app.name}': ${overlap.join(", ")}`)
+          return this.error(`Domain(s) already in use${scope ? "" : ` by app '${app.name}'`}: ${overlap.join(", ")}`)
         }
       }
 
@@ -2297,7 +2318,7 @@ export class AgentServer {
         this.storage.update(name, { containerId })
       }
 
-      return this.json(this.storage.toInfo(this.storage.get(name)!, this.tenants))
+      return this.json(this.storage.toInfo(this.storage.get(name)!, this.tenants, scope))
     } catch (err) {
       if (err instanceof SyntaxError) return this.error("Invalid request body")
       const message = err instanceof Error ? err.message : "Failed to update domains"
@@ -2305,7 +2326,7 @@ export class AgentServer {
     }
   }
 
-  private async handleRenameSite(name: string, req: Request, _scope: Scope): Promise<Response> {
+  private async handleRenameSite(name: string, req: Request, scope: Scope): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
 
@@ -2316,12 +2337,18 @@ export class AgentServer {
       }
 
       const newName = body.newSubdomain.toLowerCase()
-      if (!/^[a-z0-9-]+$/.test(newName)) {
+      if (body.newSubdomain !== newName) {
         return this.error("Name must contain only lowercase letters, numbers, and hyphens")
       }
-      if (newName === "api") return this.error("'api' is a reserved name")
-      if (newName === name) return this.error("New name is the same as the current one")
-      if (this.storage.exists(newName)) {
+      try {
+        assertValidNewName(newName)
+      } catch (err) {
+        return this.error((err as Error).message)
+      }
+      // A rename never moves a site to another scope.
+      const newKey = this.tenants.keyFor(newName, this.tenants.ownerOf(name))
+      if (newKey === name) return this.error("New name is the same as the current one")
+      if (this.storage.exists(newKey)) {
         return this.error(`'${newName}' already exists`)
       }
 
@@ -2330,23 +2357,23 @@ export class AgentServer {
       const hadContainer = this.docker.isAvailable() && this.docker.containerExists(name)
       if (hadContainer) await this.docker.remove(name)
 
-      const renamed = this.storage.rename(name, newName)
+      const renamed = this.storage.rename(name, newKey)
       if (!renamed) return this.error("Failed to rename", 500)
 
       // Move the chat transcript alongside the site's other per-site trees.
-      this.chats.rename(name, newName)
+      this.chats.rename(name, newKey)
 
       if (hadContainer) {
         const containerId = await this.startSiteContainer(renamed)
-        this.storage.update(newName, { containerId })
+        this.storage.update(newKey, { containerId })
       }
 
       // The old preview is keyed by the old name and points at the old internal
       // URL — drop it and capture a fresh one under the new name.
       this.thumbnails?.delete(name)
-      if (hadContainer) this.captureThumbnail(newName, this.siteInternalUrl(newName))
+      if (hadContainer) this.captureThumbnail(newKey, this.siteInternalUrl(newKey))
 
-      return this.json(this.storage.toInfo(this.storage.get(newName)!, this.tenants))
+      return this.json(this.storage.toInfo(this.storage.get(newKey)!, this.tenants, scope))
     } catch (err) {
       if (err instanceof SyntaxError) return this.error("Invalid request body")
       const message = err instanceof Error ? err.message : "Failed to rename"

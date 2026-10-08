@@ -160,4 +160,100 @@ describe("API: tenants", () => {
       expect(info.url).toBe("https://blog.friend.com")
     })
   })
+
+  describe("tenant domains, renames, share links", () => {
+    const json = (key: string) => as(key, { "Content-Type": "application/json" })
+    const setDomains = (name: string, domains: string[], key: string, host: string) =>
+      req(`/sites/${name}/domains`, { method: "PATCH", headers: json(key), body: JSON.stringify({ domains }) }, host)
+
+    test("a tenant may use its own apex and unrelated domains", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      const res = await setDomains("blog", ["friend.com", "www.unrelated.net"], "key-a", "api.friend.com")
+      expect(res.status).toBe(200)
+    })
+
+    test("a tenant can't take another scope's apex or any platform hostname", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      for (const d of ["other.org", "example.com", "x.other.org", "x.example.com", "api.friend.com", "shop.friend.com"]) {
+        const res = await setDomains("blog", [d], "key-a", "api.friend.com")
+        expect(res.status).toBe(400)
+      }
+    })
+
+    test("a domain clash does not reveal the other scope's site name", async () => {
+      await deploy("secret-site", "god-key", "localhost")
+      await setDomains("secret-site", ["www.shared.net"], "god-key", "localhost")
+      await deploy("blog", "key-a", "api.friend.com")
+      const res = await setDomains("blog", ["www.shared.net"], "key-a", "api.friend.com")
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as ApiResponse<null>).error).not.toContain("secret-site")
+    })
+
+    test("a tenant rename stays inside the tenant", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      runtime.containerExistsReturn = true
+      const res = await req("/sites/blog/rename", {
+        method: "PATCH", headers: json("key-a"), body: JSON.stringify({ newSubdomain: "shop" }),
+      }, "api.friend.com")
+      expect(res.status).toBe(200)
+      expect(((await res.json()) as ApiResponse<SiteInfo>).data!.url).toBe("https://shop.friend.com")
+      const names = runtime.callsOf("run").map((c) => (c.args[0] as { name: string }).name)
+      expect(names.at(-1)).toBe("shop--friend-com")
+    })
+
+    test("a rename can't forge a key or leave the tenant", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      for (const newSubdomain of ["x--other-org", "api", "Shop"]) {
+        const res = await req("/sites/blog/rename", {
+          method: "PATCH", headers: json("key-a"), body: JSON.stringify({ newSubdomain }),
+        }, "api.friend.com")
+        expect(res.status).toBe(400)
+      }
+    })
+
+    test("a tenant share link lives on the tenant host and stays in its scope", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      await deploy("blog", "god-key", "localhost")
+      const minted = await req("/sites/blog/grants", { method: "POST", headers: json("key-a"), body: "{}" }, "api.friend.com")
+      const { url, code } = ((await minted.json()) as ApiResponse<{ url: string; code: string }>).data!
+      expect(url).toBe("https://blog.friend.com/mcp")
+
+      const ok = await req("/_siteio/sites/blog/download", { headers: as(code) }, "blog.friend.com")
+      expect(ok.status).toBe(200)
+      const viaApi = await req("/sites/blog/download", { headers: as(code) }, "api.friend.com")
+      expect(viaApi.status).toBe(200)
+
+      // Same bare name, other scopes: refused.
+      expect((await req("/_siteio/sites/blog/download", { headers: as(code) }, "blog.example.com")).status).toBe(403)
+      expect((await req("/sites/blog/download", { headers: as(code) }, "api.other.org")).status).toBe(403)
+      expect((await req("/sites/blog/download", { headers: as(code) })).status).toBe(403)
+    })
+
+    test("listed share links show the tenant's bare site name", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      await req("/sites/blog/grants", { method: "POST", headers: json("key-a"), body: "{}" }, "api.friend.com")
+      const res = await req("/sites/blog/grants", { headers: as("key-a") }, "api.friend.com")
+      const grants = ((await res.json()) as ApiResponse<Array<{ site: string }>>).data!
+      expect(grants.map((g) => g.site)).toEqual(["blog"])
+    })
+
+    test("/agent shows a tenant only its own domain", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      await deploy("shop", "god-key", "localhost")
+      const res = await req("/agent", { headers: as("key-a") }, "api.friend.com")
+      const info = ((await res.json()) as ApiResponse<Record<string, unknown>>).data!
+      expect(info.domain).toBe("friend.com")
+      expect(info.siteCount).toBe(1)
+      expect(info.appsEnabled).toBe(false)
+      expect(info.dataDir).toBeUndefined()
+      expect(info.email).toBeUndefined()
+    })
+
+    test("a tenant can't download or read logs of another tenant's site", async () => {
+      await deploy("blog", "key-b", "api.other.org")
+      for (const sub of ["download", "logs"]) {
+        expect((await req(`/sites/blog/${sub}`, { headers: as("key-a") }, "api.friend.com")).status).toBe(404)
+      }
+    })
+  })
 })
