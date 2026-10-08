@@ -253,7 +253,7 @@ export class OAuthProvider {
 
   private renderPage(ctx: HostCtx, p: URLSearchParams, error: string | null): string {
     // Invitees see the owner-scope name, never the internal tenant key.
-    const shown = this.deps.hosts.nameIn(ctx.site, this.deps.hosts.ownerOf(ctx.site)) ?? ctx.site
+    const shown = this.deps.hosts.displayName(ctx.site)
     const carry = ["response_type", "client_id", "redirect_uri", "code_challenge", "code_challenge_method", "state", "scope", "resource"]
     const hidden = carry
       .map((k) => (p.get(k) ? `<input type="hidden" name="${k}" value="${escapeHtml(p.get(k)!)}">` : ""))

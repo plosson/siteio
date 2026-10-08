@@ -1,4 +1,4 @@
-import type { ShareGrant, SiteInfo } from "../../types.ts"
+import type { ShareGrant, Site, SiteInfo } from "../../types.ts"
 import type { GrantStore } from "./grant-store.ts"
 import type { StagingStore } from "./staging-store.ts"
 import type { SiteStorage } from "./storage.ts"
@@ -143,7 +143,7 @@ export class McpHandler {
     switch (msg.method) {
       case "initialize": {
         const site = this.deps.sites.get(grant.site)
-        const info = site ? this.deps.sites.toInfo(site, this.deps.hosts, this.deps.hosts.ownerOf(site.name)) : null
+        const info = site ? this.siteInfo(site) : null
         // Report the custom domain(s) once set — that becomes the canonical
         // public URL; otherwise fall back to the default <name>.<domain>.
         const liveUrls = info
@@ -191,8 +191,12 @@ export class McpHandler {
   // The site name as shown to people: invitees of a tenant site never see the
   // internal key.
   private shownName(grant: ShareGrant): string {
-    const hosts = this.deps.hosts
-    return hosts.nameIn(grant.site, hosts.ownerOf(grant.site)) ?? grant.site
+    return this.deps.hosts.displayName(grant.site)
+  }
+
+  // The site as its owner sees it: invitees work inside the owner's scope.
+  private siteInfo(site: Site): SiteInfo {
+    return this.deps.sites.toInfo(site, this.deps.hosts, this.deps.hosts.ownerOf(site.name))
   }
 
   // The site's canonical public URL(s): the custom domain(s) once set, else the
@@ -200,7 +204,7 @@ export class McpHandler {
   private liveUrls(grant: ShareGrant): string[] {
     const site = this.deps.sites.get(grant.site)
     if (!site) return []
-    const info = this.deps.sites.toInfo(site, this.deps.hosts, this.deps.hosts.ownerOf(site.name))
+    const info = this.siteInfo(site)
     return info.domains.length ? info.domains.map((d) => `https://${d}`) : [info.url]
   }
 
@@ -309,7 +313,7 @@ export class McpHandler {
   private siteInfoText(grant: ShareGrant): string {
     const site = this.deps.sites.get(grant.site)
     if (!site) return `Site "${this.shownName(grant)}" no longer exists.`
-    const info = this.deps.sites.toInfo(site, this.deps.hosts, this.deps.hosts.ownerOf(site.name))
+    const info = this.siteInfo(site)
     const canonical = info.domains.length ? info.domains.map((d) => `https://${d}`) : [info.url]
     const lines = [
       `Site: ${this.shownName(grant)}`,

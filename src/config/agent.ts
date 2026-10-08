@@ -32,6 +32,13 @@ export interface PersistedAgentConfig {
 const CONFIG_FILENAME = "agent-config.json"
 
 /**
+ * The agent's data directory on this machine (SITEIO_DATA_DIR, default /data)
+ */
+export function getAgentDataDir(): string {
+  return process.env.SITEIO_DATA_DIR || "/data"
+}
+
+/**
  * Get the path to the agent config file
  */
 export function getAgentConfigPath(dataDir: string): string {

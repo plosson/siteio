@@ -15,6 +15,10 @@ const KEY_SEP = "--"
 const NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/
 const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/
 
+export function isValidDomain(domain: string): boolean {
+  return DOMAIN_RE.test(domain)
+}
+
 export function tenantSlug(domain: string): string {
   return domain.replace(/\./g, "-")
 }
@@ -41,14 +45,22 @@ export class TenantRegistry {
     return [null, ...this.tenants]
   }
 
-  // The key for `name` as addressed from `scope`.
+  // The key for `name` as addressed from `scope`. Throws on a name a tenant
+  // can't have; the primary scope addresses existing keys as-is.
   keyFor(name: string, scope: Scope): string {
     if (!scope) return name
-    if (!NAME_RE.test(name)) {
-      throw new ValidationError(`name must contain only lowercase letters, numbers, and hyphens`)
-    }
-    if (name.includes(KEY_SEP)) throw new ValidationError(`'${KEY_SEP}' is not allowed in names`)
+    assertValidNewName(name)
     return `${name}${KEY_SEP}${tenantSlug(scope.domain)}`
+  }
+
+  // The key `name` addresses from `scope`, or null when no site can have that
+  // name there. Primary sites that predate the `--` reservation keep
+  // resolving, unless the name is a tenant's key (that would let the primary
+  // domain forge it).
+  resolve(name: string, scope: Scope): string | null {
+    if (!NAME_RE.test(name) || name === "api") return null
+    if (name.includes(KEY_SEP) && (scope || this.ownerOf(name))) return null
+    return this.keyFor(name, scope)
   }
 
   // The tenant owning a key, or null for the primary domain.
@@ -63,6 +75,12 @@ export class TenantRegistry {
     if (!scope) return key
     if (this.ownerOf(key)?.domain !== scope.domain) return null
     return key.slice(0, key.indexOf(KEY_SEP))
+  }
+
+  // The name shown for a key: as `scope` sees it, defaulting to the owner's
+  // view (so a tenant site reads `blog`, never `blog--friend-com`).
+  displayName(key: string, scope: Scope = this.ownerOf(key)): string {
+    return this.nameIn(key, scope) ?? key
   }
 
   inScope(key: string, scope: Scope): boolean {
@@ -90,12 +108,8 @@ export class TenantRegistry {
     for (const scope of this.scopes()) {
       const suffix = `.${this.baseDomain(scope)}`
       if (!host.endsWith(suffix)) continue
-      const name = host.slice(0, -suffix.length)
-      if (!NAME_RE.test(name) || name === "api") return null
-      // Primary sites that predate the `--` reservation keep working, unless
-      // the name is a tenant's key (that would let the primary domain forge it).
-      if (name.includes(KEY_SEP) && (scope || this.ownerOf(name))) return null
-      return { key: this.keyFor(name, scope), scope }
+      const key = this.resolve(host.slice(0, -suffix.length), scope)
+      return key ? { key, scope } : null
     }
     return null
   }
@@ -130,7 +144,7 @@ export class TenantRegistry {
 
   // Why `domain` can't become a new tenant, or null.
   checkNewTenant(domain: string): string | null {
-    if (!DOMAIN_RE.test(domain)) return `Invalid domain: '${domain}'`
+    if (!isValidDomain(domain)) return `Invalid domain: '${domain}'`
     for (const scope of this.scopes()) {
       const base = this.baseDomain(scope)
       if (domain === base || domain.endsWith(`.${base}`) || base.endsWith(`.${domain}`)) {

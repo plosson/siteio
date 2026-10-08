@@ -294,16 +294,11 @@ export class SiteStorage {
     return zipSync(readTree(codePath), { level: 6 })
   }
 
-  // The site's primary hostname: always its platform subdomain
-  // (`<name>.<base domain of its owner>`). Single source of truth for URLs.
-  primaryDomain(site: Site, hosts: TenantRegistry): string {
-    return hosts.host(site.name)
-  }
-
   // Custom domains only. Earlier deploys stored the default subdomain inside
   // `domains` — filter it out defensively so those records need no migration.
   customDomains(site: Site, hosts: TenantRegistry): string[] {
-    return site.domains.filter((d) => d !== hosts.host(site.name))
+    const platform = hosts.host(site.name)
+    return site.domains.filter((d) => d !== platform)
   }
 
   // Reverse lookup: the site that owns a custom domain host (e.g. the sharing
@@ -317,9 +312,11 @@ export class SiteStorage {
 
   // `scope` is who is looking: a tenant sees its sites under bare names.
   toInfo(site: Site, hosts: TenantRegistry, scope: Scope = null): SiteInfo {
-    const primary = this.primaryDomain(site, hosts)
+    // The platform subdomain (`<name>.<base domain of its owner>`) is the
+    // site's primary hostname. Single source of truth: TenantRegistry.host.
+    const primary = hosts.host(site.name)
     return {
-      name: hosts.nameIn(site.name, scope) ?? site.name,
+      name: hosts.displayName(site.name, scope),
       url: `https://${primary}`,
       adminUrl: `https://${primary}/_/`,
       domains: this.customDomains(site, hosts),

@@ -1,5 +1,5 @@
 import chalk from "chalk"
-import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
+import { getAgentDataDir, loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import { SiteStorage } from "../../lib/agent/storage.ts"
 import { AppStorage } from "../../lib/agent/app-storage.ts"
 import { TenantRegistry, tenantSlug } from "../../lib/agent/tenants.ts"
@@ -8,10 +8,6 @@ import { formatError, formatSuccess } from "../../utils/output.ts"
 
 // On-box management of tenants: extra base domains, each with its own API key
 // that sees only its own sites. The running agent picks changes up on restart.
-
-function getDataDir(): string {
-  return process.env.SITEIO_DATA_DIR || "/data"
-}
 
 function fail(message: string): never {
   console.error(formatError(message))
@@ -26,30 +22,25 @@ function load(dataDir: string) {
 }
 
 export async function addTenantCommand(rawDomain: string, options: { json?: boolean }): Promise<void> {
-  const dataDir = getDataDir()
+  const dataDir = getAgentDataDir()
   const domain = rawDomain.trim().toLowerCase()
   const { tenants, registry } = load(dataDir)
 
   const reason = registry.checkNewTenant(domain)
   if (reason) fail(reason)
 
-  // Its hostnames must be free: no site or app may already use the domain or
-  // a subdomain of it as a custom domain.
+  // Its hostnames must be free (no site or app may already use the domain or
+  // a subdomain of it as a custom domain), and existing keys ending in its
+  // slug would be captured by it.
   const taken = (d: string) => d === domain || d.endsWith(`.${domain}`)
-  for (const site of new SiteStorage(dataDir).list()) {
-    if (site.domains.some(taken)) fail(`Site '${site.name}' already uses a domain under '${domain}'`)
-  }
-  for (const app of new AppStorage(dataDir).list()) {
-    if (app.domains.some(taken)) fail(`App '${app.name}' already uses a domain under '${domain}'`)
-  }
-
-  // Existing keys already ending in this tenant's slug would be captured by it.
   const suffix = `--${tenantSlug(domain)}`
-  for (const site of new SiteStorage(dataDir).list()) {
-    if (site.name.endsWith(suffix)) fail(`Site '${site.name}' would be captured by tenant '${domain}'`)
-  }
-  for (const app of new AppStorage(dataDir).list()) {
-    if (app.name.endsWith(suffix)) fail(`App '${app.name}' would be captured by tenant '${domain}'`)
+  const services = [
+    ...new SiteStorage(dataDir).list().map((s) => ({ kind: "Site", name: s.name, domains: s.domains })),
+    ...new AppStorage(dataDir).list().map((a) => ({ kind: "App", name: a.name, domains: a.domains })),
+  ]
+  for (const { kind, name, domains } of services) {
+    if (domains.some(taken)) fail(`${kind} '${name}' already uses a domain under '${domain}'`)
+    if (name.endsWith(suffix)) fail(`${kind} '${name}' would be captured by tenant '${domain}'`)
   }
 
   const tenant = { domain, apiKey: generateApiKey(), createdAt: new Date().toISOString() }
@@ -71,8 +62,9 @@ export async function addTenantCommand(rawDomain: string, options: { json?: bool
 }
 
 export async function listTenantsCommand(options: { json?: boolean }): Promise<void> {
-  const { tenants, registry } = load(getDataDir())
-  const sites = new SiteStorage(getDataDir()).list()
+  const dataDir = getAgentDataDir()
+  const { tenants, registry } = load(dataDir)
+  const sites = new SiteStorage(dataDir).list()
   const rows = tenants.map((t) => ({
     domain: t.domain,
     createdAt: t.createdAt,
@@ -90,7 +82,7 @@ export async function listTenantsCommand(options: { json?: boolean }): Promise<v
 }
 
 export async function removeTenantCommand(rawDomain: string, options: { json?: boolean }): Promise<void> {
-  const dataDir = getDataDir()
+  const dataDir = getAgentDataDir()
   const domain = rawDomain.trim().toLowerCase()
   const { tenants, registry } = load(dataDir)
   if (!tenants.some((t) => t.domain === domain)) fail(`No tenant '${domain}'`)

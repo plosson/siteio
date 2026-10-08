@@ -31,7 +31,7 @@ import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
-import { TenantRegistry, assertValidNewName, type Scope } from "./tenants.ts"
+import { TenantRegistry, assertValidNewName, isValidDomain, type Scope } from "./tenants.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
 // gets the same window (clamped to the code). The per-grant spend cap is a
@@ -404,13 +404,7 @@ export class AgentServer {
       if (path.includes("--") || !TENANT_ROUTE.test(path)) return this.error("Not found", 404)
       // A name that is no valid label can't exist in a tenant: 404, never a throw.
       const named = path.match(/^\/sites\/([a-z0-9-]+)/)
-      if (named) {
-        try {
-          this.tenants.keyFor(named[1]!, scope)
-        } catch {
-          return this.error("Site not found", 404)
-        }
-      }
+      if (named && !this.tenants.resolve(named[1]!, scope)) return this.error("Site not found", 404)
     }
     const k = (name: string) => this.tenants.keyFor(name, scope)
 
@@ -1346,11 +1340,7 @@ export class AgentServer {
       // best effort — proceed to remove metadata/code even if the container is gone
     }
     // A re-created site of the same key must not inherit old share/edit codes.
-    for (const g of [...this.grants.listForSite(name), ...this.grants.listEditForSite(name)]) {
-      this.grants.revoke(g.id)
-      this.staging.remove(g.id)
-      this.oauth.revokeTokensForGrant(g.id)
-    }
+    for (const g of [...this.grants.listForSite(name), ...this.grants.listEditForSite(name)]) this.revokeGrant(g.id)
     this.storage.delete(name)
     this.thumbnails?.delete(name)
     this.chats.clear(name)
@@ -1427,7 +1417,7 @@ export class AgentServer {
   private async handleGetSiteAdmin(name: string): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
-    const primary = this.storage.primaryDomain(site, this.tenants)
+    const primary = this.tenants.host(name)
     return this.json({
       email: site.superuserEmail,
       password: site.superuserPassword,
@@ -1454,7 +1444,7 @@ export class AgentServer {
         status: 200,
         headers: {
           "Content-Type": "application/zip",
-          "Content-Disposition": `attachment; filename="${this.tenants.nameIn(name, scope) ?? name}.zip"`,
+          "Content-Disposition": `attachment; filename="${this.tenants.displayName(name, scope)}.zip"`,
           "Content-Length": String(zipData.length),
         },
       })
@@ -1469,7 +1459,7 @@ export class AgentServer {
     const tail = parseInt(url.searchParams.get("tail") || "100", 10)
     try {
       const logs = await this.docker.logs(name, tail)
-      return this.json({ name: this.tenants.nameIn(name, scope) ?? name, logs, lines: tail } as ContainerLogs)
+      return this.json({ name: this.tenants.displayName(name, scope), logs, lines: tail } as ContainerLogs)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to get logs"
       return this.error(message, 500)
@@ -1631,7 +1621,7 @@ export class AgentServer {
 
     if (!site) {
       try {
-        assertValidNewName(this.tenants.nameIn(name, scope) ?? name)
+        assertValidNewName(this.tenants.displayName(name, scope))
       } catch (err) {
         return this.error((err as Error).message, 400)
       }
@@ -1709,16 +1699,8 @@ export class AgentServer {
   // delete/rename/domains — is refused.
   private async handleScopedRequest(grant: ShareGrant, path: string, req: Request, scope: Scope): Promise<Response> {
     // Path names are as seen from the host's scope; the grant holds a key.
-    const isOwn = (name: string) => {
-      // Legacy primary sites may contain `--`; a tenant's key never counts.
-      if (name.includes("--") && (scope || this.tenants.ownerOf(name))) return false
-      try {
-        return this.tenants.keyFor(name, scope) === grant.site
-      } catch {
-        return false
-      }
-    }
-    const shown = this.tenants.nameIn(grant.site, scope) ?? grant.site
+    const isOwn = (name: string) => this.tenants.resolve(name, scope) === grant.site
+    const shown = this.tenants.displayName(grant.site, scope)
     const notAllowed = () =>
       this.error(`This share code can only download or deploy the site '${shown}'`, 403)
 
@@ -1886,7 +1868,7 @@ export class AgentServer {
       const primaryHost = customs[0] ?? subdomain
       const cliToken = encodeToken(`https://${primaryHost}/_siteio`, token)
       return this.json({
-        grant: { ...this.grants.toInfo(grant), site: this.tenants.nameIn(name, scope) ?? name },
+        grant: { ...this.grants.toInfo(grant), site: this.tenants.displayName(name, scope) },
         url: `https://${primaryHost}/mcp`,
         code: token,
         cliToken,
@@ -1900,18 +1882,23 @@ export class AgentServer {
 
   private handleListGrants(name: string, scope: Scope): Response {
     if (!this.storage.exists(name)) return this.error("Site not found", 404)
-    const site = this.tenants.nameIn(name, scope) ?? name
+    const site = this.tenants.displayName(name, scope)
     return this.json(this.grants.listForSite(name).map((g) => ({ ...this.grants.toInfo(g), site })))
   }
 
   private handleRevokeGrant(name: string, id: string): Response {
     const grant = this.grants.get(id)
     if (!grant || grant.site !== name) return this.error("Share link not found", 404)
+    this.revokeGrant(id)
+    return this.json({ revoked: true })
+  }
+
+  // Revoke a grant everywhere: the grant itself, its staged uploads, and any
+  // OAuth access tokens leased on it, so live connectors stop at once.
+  private revokeGrant(id: string): void {
     this.grants.revoke(id)
     this.staging.remove(id)
-    // Kill any outstanding OAuth access tokens so live connectors stop at once.
     this.oauth.revokeTokensForGrant(id)
-    return this.json({ revoked: true })
   }
 
   // In-site live editor: mint a one-time, TTL'd code carried in the editor-shell
@@ -1935,9 +1922,9 @@ export class AgentServer {
       maxTurns: EDIT_MAX_TURNS,
     })
 
-    // primaryDomain is the platform subdomain (never a custom/CDN domain) — the
-    // single source of truth for the site URL (storage.ts §3.8).
-    const subdomain = this.storage.primaryDomain(site, this.tenants)
+    // The platform subdomain (never a custom/CDN domain) — the single source
+    // of truth for the site URL (§3.8).
+    const subdomain = this.tenants.host(name)
     const created: EditLinkCreated = {
       grant: this.grants.toInfo(grant),
       url: `https://${subdomain}/_siteio/edit#${token}`,
@@ -1955,8 +1942,7 @@ export class AgentServer {
     let revoked = 0
     for (const g of edits) {
       if (g.revoked) continue
-      this.grants.revoke(g.id)
-      this.oauth.revokeTokensForGrant(g.id)
+      this.revokeGrant(g.id)
       revoked++
     }
     return this.json({ revoked })
@@ -2030,10 +2016,7 @@ export class AgentServer {
   // the code itself — so a lost-cookie re-exchange stays possible within TTL.
   private revokeEditSessionsFor(codeId: string): void {
     for (const g of this.grants.list()) {
-      if (g.kind === "edit-session" && g.parentId === codeId && !g.revoked) {
-        this.grants.revoke(g.id)
-        this.oauth.revokeTokensForGrant(g.id)
-      }
+      if (g.kind === "edit-session" && g.parentId === codeId && !g.revoked) this.revokeGrant(g.id)
     }
   }
 
@@ -2072,7 +2055,7 @@ export class AgentServer {
   // `mcp-router` siphons them to the agent at priority 1000 (traefik.ts).
   private buildSiteRoutingLabels(site: Site): Record<string, string> {
     const name = site.name
-    const primary = this.storage.primaryDomain(site, this.tenants)
+    const primary = this.tenants.host(name)
     const customs = this.storage.customDomains(site, this.tenants)
     const containerName = this.docker.containerName(name)
 
@@ -2284,9 +2267,8 @@ export class AgentServer {
 
       const domains = body.domains.map((d) => d.toLowerCase())
 
-      const domainRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/
       for (const domain of domains) {
-        if (!domainRegex.test(domain)) {
+        if (!isValidDomain(domain)) {
           return this.error(`Invalid domain format: ${domain}`)
         }
       }
