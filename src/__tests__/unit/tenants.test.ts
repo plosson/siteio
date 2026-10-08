@@ -100,6 +100,12 @@ describe("TenantRegistry hosts", () => {
     expect(reg.siteFromHost("-blog.friend.com")).toBeNull()
   })
 
+  test("a primary site whose name contains -- stays addressable unless it forges a tenant key", () => {
+    expect(reg.siteFromHost("my--site.example.com")).toEqual({ key: "my--site", scope: null })
+    expect(reg.siteFromHost("blog--friend-com.example.com")).toBeNull()
+    expect(reg.siteFromHost("my--site.friend.com")).toBeNull()
+  })
+
   test("findByApiKey and apiHosts", () => {
     expect(reg.findByApiKey("key-b")?.domain).toBe("other.org")
     expect(reg.findByApiKey("")).toBeNull()
@@ -115,6 +121,15 @@ describe("TenantRegistry custom domains", () => {
     expect(reg.customDomainConflict("other.org", A)).not.toBeNull()
     expect(reg.customDomainConflict("example.com", A)).not.toBeNull()
     expect(reg.customDomainConflict("friend.com", null)).not.toBeNull()
+  })
+
+  test("a tenant can't claim a parent of any base domain; the primary can", () => {
+    const r = new TenantRegistry("siteio.example.com", [A])
+    expect(r.customDomainConflict("example.com", A)).toBe(
+      "Cannot use 'example.com' as a custom domain — it contains another domain on this server"
+    )
+    expect(r.customDomainConflict("example.com", null)).toBeNull()
+    expect(r.customDomainConflict("www.unrelated.net", A)).toBeNull()
   })
 
   test("no platform hostname of any base domain", () => {

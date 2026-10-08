@@ -252,6 +252,8 @@ export class OAuthProvider {
   // ---- Consent page ----
 
   private renderPage(ctx: HostCtx, p: URLSearchParams, error: string | null): string {
+    // Invitees see the owner-scope name, never the internal tenant key.
+    const shown = this.deps.hosts.nameIn(ctx.site, this.deps.hosts.ownerOf(ctx.site)) ?? ctx.site
     const carry = ["response_type", "client_id", "redirect_uri", "code_challenge", "code_challenge_method", "state", "scope", "resource"]
     const hidden = carry
       .map((k) => (p.get(k) ? `<input type="hidden" name="${k}" value="${escapeHtml(p.get(k)!)}">` : ""))
@@ -259,7 +261,7 @@ export class OAuthProvider {
     const errorHtml = error ? `<p class="err">${escapeHtml(error)}</p>` : ""
     return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect to ${escapeHtml(ctx.site)}</title>
+<title>Connect to ${escapeHtml(shown)}</title>
 <style>
   body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:420px;margin:80px auto;padding:24px;color:#1a1a1a}
   h1{font-size:20px} p{color:#555;line-height:1.5}
@@ -270,8 +272,8 @@ export class OAuthProvider {
   .site{font-weight:600;color:#111}
 </style></head>
 <body>
-  <h1>Edit <span class="site">${escapeHtml(ctx.site)}</span></h1>
-  <p>Enter the share code the site owner gave you to let this app edit and publish <code>${escapeHtml(ctx.site)}</code>.</p>
+  <h1>Edit <span class="site">${escapeHtml(shown)}</span></h1>
+  <p>Enter the share code the site owner gave you to let this app edit and publish <code>${escapeHtml(shown)}</code>.</p>
   ${errorHtml}
   <form method="POST">
     ${hidden}

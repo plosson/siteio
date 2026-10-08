@@ -37,17 +37,17 @@ import { TenantRegistry, assertValidNewName, type Scope } from "./tenants.ts"
 // gets the same window (clamped to the code). The per-grant spend cap is a
 // backstop against a runaway loop against the owner's LLM credential — generous
 // in Phase 1 (owner-only) where the operator already holds god access.
-// The API surface a tenant key may reach: site management only. Apps, chat,
-// edit links and anything new stay operator-only unless listed here.
-const TENANT_ROUTE =
-  /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|rename|grants|grants\/grt_[a-z0-9]+))?)$/
-
 const EDIT_CODE_TTL_MS = 30 * 60_000
 const EDIT_SESSION_TTL_MS = 30 * 60_000
 const EDIT_MAX_TURNS = 60
 // HttpOnly cookie carrying the derived edit-session token, scoped to /_siteio so
 // the framed site content (served at /) and its /api backend never receive it.
 const EDIT_SESSION_COOKIE = "siteio_edit"
+
+// The API surface a tenant key may reach: site management only. Apps, chat,
+// edit links and anything new stay operator-only unless listed here.
+const TENANT_ROUTE =
+  /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|rename|grants|grants\/grt_[a-z0-9]+))?)$/
 
 // Read one cookie value from a request's Cookie header (no external dep).
 function readCookie(req: Request, name: string): string | null {
@@ -518,7 +518,7 @@ export class AgentServer {
     const siteGrantsMatch = path.match(/^\/sites\/([a-z0-9-]+)\/grants$/)
     if (siteGrantsMatch) {
       const siteName = k(siteGrantsMatch[1]!)
-      if (req.method === "POST") return this.handleCreateGrant(siteName, req)
+      if (req.method === "POST") return this.handleCreateGrant(siteName, req, scope)
       if (req.method === "GET") return this.handleListGrants(siteName, scope)
     }
 
@@ -1345,6 +1345,12 @@ export class AgentServer {
     } catch {
       // best effort — proceed to remove metadata/code even if the container is gone
     }
+    // A re-created site of the same key must not inherit old share/edit codes.
+    for (const g of [...this.grants.listForSite(name), ...this.grants.listEditForSite(name)]) {
+      this.grants.revoke(g.id)
+      this.staging.remove(g.id)
+      this.oauth.revokeTokensForGrant(g.id)
+    }
     this.storage.delete(name)
     this.thumbnails?.delete(name)
     this.chats.clear(name)
@@ -1704,7 +1710,8 @@ export class AgentServer {
   private async handleScopedRequest(grant: ShareGrant, path: string, req: Request, scope: Scope): Promise<Response> {
     // Path names are as seen from the host's scope; the grant holds a key.
     const isOwn = (name: string) => {
-      if (name.includes("--")) return false
+      // Legacy primary sites may contain `--`; a tenant's key never counts.
+      if (name.includes("--") && (scope || this.tenants.ownerOf(name))) return false
       try {
         return this.tenants.keyFor(name, scope) === grant.site
       } catch {
@@ -1854,7 +1861,7 @@ export class AgentServer {
 
   // Share-grant (MCP link) handlers
 
-  private async handleCreateGrant(name: string, req: Request): Promise<Response> {
+  private async handleCreateGrant(name: string, req: Request, scope: Scope): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
     try {
@@ -1879,7 +1886,7 @@ export class AgentServer {
       const primaryHost = customs[0] ?? subdomain
       const cliToken = encodeToken(`https://${primaryHost}/_siteio`, token)
       return this.json({
-        grant: { ...this.grants.toInfo(grant), site: this.tenants.nameIn(name, this.tenants.ownerOf(name)) ?? name },
+        grant: { ...this.grants.toInfo(grant), site: this.tenants.nameIn(name, scope) ?? name },
         url: `https://${primaryHost}/mcp`,
         code: token,
         cliToken,

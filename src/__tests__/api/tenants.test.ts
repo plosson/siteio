@@ -1,8 +1,9 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
+import { SiteStorage } from "../../lib/agent/storage.ts"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ApiResponse, SiteInfo, Tenant } from "../../types.ts"
@@ -201,6 +202,18 @@ describe("API: tenants", () => {
       expect(names.at(-1)).toBe("shop--friend-com")
     })
 
+    test("the god key renaming a tenant site keeps it on the tenant domain", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      runtime.containerExistsReturn = true
+      const res = await req("/sites/blog--friend-com/rename", {
+        method: "PATCH", headers: json("god-key"), body: JSON.stringify({ newSubdomain: "shop" }),
+      })
+      expect(res.status).toBe(200)
+      expect(((await res.json()) as ApiResponse<SiteInfo>).data!.url).toBe("https://shop.friend.com")
+      const names = runtime.callsOf("run").map((c) => (c.args[0] as { name: string }).name)
+      expect(names.at(-1)).toBe("shop--friend-com")
+    })
+
     test("a rename can't forge a key or leave the tenant", async () => {
       await deploy("blog", "key-a", "api.friend.com")
       for (const newSubdomain of ["x--other-org", "api", "Shop"]) {
@@ -229,6 +242,36 @@ describe("API: tenants", () => {
       expect((await req("/sites/blog/download", { headers: as(code) })).status).toBe(403)
     })
 
+    test("the god key sees the internal key in a freshly minted grant, like in the listing", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      const res = await req("/sites/blog--friend-com/grants", { method: "POST", headers: json("god-key"), body: "{}" })
+      expect(((await res.json()) as ApiResponse<{ grant: { site: string } }>).data!.grant.site).toBe("blog--friend-com")
+    })
+
+    test("deleting a site revokes its share codes for a re-created site", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      const minted = await req("/sites/blog/grants", { method: "POST", headers: json("key-a"), body: "{}" }, "api.friend.com")
+      const { code } = ((await minted.json()) as ApiResponse<{ code: string }>).data!
+      expect((await req("/_siteio/sites/blog/download", { headers: as(code) }, "blog.friend.com")).status).toBe(200)
+
+      expect((await req("/sites/blog", { method: "DELETE", headers: as("key-a") }, "api.friend.com")).status).toBe(200)
+      await deploy("blog", "key-a", "api.friend.com")
+      const old = await req("/_siteio/sites/blog/download", { headers: as(code) }, "blog.friend.com")
+      expect([401, 403]).toContain(old.status)
+    })
+
+    test("the consent page of a tenant site shows the bare name, not the internal key", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      const qs = new URLSearchParams({
+        response_type: "code", client_id: "x", redirect_uri: "https://claude.ai/api/mcp/auth_callback",
+        code_challenge: "c", code_challenge_method: "S256", state: "s",
+      })
+      const res = await req(`/mcp/oauth/authorize?${qs}`, {}, "blog.friend.com")
+      const html = await res.text()
+      expect(html).toContain("blog")
+      expect(html).not.toContain("blog--friend-com")
+    })
+
     test("listed share links show the tenant's bare site name", async () => {
       await deploy("blog", "key-a", "api.friend.com")
       await req("/sites/blog/grants", { method: "POST", headers: json("key-a"), body: "{}" }, "api.friend.com")
@@ -255,5 +298,35 @@ describe("API: tenants", () => {
         expect((await req(`/sites/blog/${sub}`, { headers: as("key-a") }, "api.friend.com")).status).toBe(404)
       }
     })
+  })
+})
+
+describe("API: primary sites whose name contains --", () => {
+  let dataDir: string
+  let server: AgentServer
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), "siteio-dashsite-"))
+    server = new AgentServer({
+      apiKey: "god-key", dataDir, domain: "example.com",
+      maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+    }, new FakeRuntime())
+    new SiteStorage(dataDir).create({
+      name: "my--site", domains: [], pocketbaseVersion: "0.0.0", status: "running", size: 0, version: 1,
+    })
+    mkdirSync(join(dataDir, "pocket-code", "my--site", "public"), { recursive: true })
+    writeFileSync(join(dataDir, "pocket-code", "my--site", "public", "index.html"), "<h1>x</h1>")
+  })
+  afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  test("MCP discovery and share codes still work with no tenants", async () => {
+    const meta = await server.handleRequestForTest(new Request("http://x/.well-known/oauth-protected-resource"), "my--site.example.com")
+    expect(meta.status).toBe(200)
+
+    const minted = await server.handleRequestForTest(new Request("http://x/sites/my--site/grants", {
+      method: "POST", headers: { "X-API-Key": "god-key", "Content-Type": "application/json" }, body: "{}",
+    }), "localhost")
+    const { code } = ((await minted.json()) as ApiResponse<{ code: string }>).data!
+    const dl = await server.handleRequestForTest(new Request("http://x/sites/my--site/download", { headers: { "X-API-Key": code } }), "localhost")
+    expect(dl.status).toBe(200)
   })
 })

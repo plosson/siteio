@@ -91,7 +91,10 @@ export class TenantRegistry {
       const suffix = `.${this.baseDomain(scope)}`
       if (!host.endsWith(suffix)) continue
       const name = host.slice(0, -suffix.length)
-      if (!NAME_RE.test(name) || name === "api" || name.includes(KEY_SEP)) return null
+      if (!NAME_RE.test(name) || name === "api") return null
+      // Primary sites that predate the `--` reservation keep working, unless
+      // the name is a tenant's key (that would let the primary domain forge it).
+      if (name.includes(KEY_SEP) && (scope || this.ownerOf(name))) return null
       return { key: this.keyFor(name, scope), scope }
     }
     return null
@@ -112,6 +115,9 @@ export class TenantRegistry {
   customDomainConflict(domain: string, owner: Scope): string | null {
     for (const scope of this.scopes()) {
       const base = this.baseDomain(scope)
+      if (owner && base.endsWith(`.${domain}`)) {
+        return `Cannot use '${domain}' as a custom domain — it contains another domain on this server`
+      }
       if (domain.endsWith(`.${base}`)) {
         return `Cannot use '${domain}' as a custom domain — it conflicts with the base domain subdomains`
       }
