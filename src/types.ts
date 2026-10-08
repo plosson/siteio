@@ -202,6 +202,14 @@ export interface AcmeConfig {
   dnsEnv?: Record<string, string> // Provider-specific env vars passed to Traefik container
 }
 
+// An extra base domain served by this agent, with its own API key. Its sites
+// live at `<name>.<domain>`; its key sees and manages only those sites.
+export interface Tenant {
+  domain: string
+  apiKey: string
+  createdAt: string
+}
+
 // Agent configuration (from env vars)
 export interface AgentConfig {
   apiKey: string
