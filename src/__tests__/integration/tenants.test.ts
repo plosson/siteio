@@ -20,7 +20,7 @@ setDefaultTimeout(90000)
  *
  * Prerequisites:
  * - Docker daemon running
- * - Ports 19080, 19443, 14099 available (distinct from docker.test.ts)
+ * - Ports 20080, 20443, 15099 available (distinct from docker.test.ts and git-deploy.test.ts)
  */
 
 const DATA_DIR = join(import.meta.dir, ".test-data-tenants-integration")
@@ -31,9 +31,9 @@ const TENANT: Tenant = {
   apiKey: "tenants-integration-friend-key",
   createdAt: "2026-10-08T00:00:00.000Z",
 }
-const HTTP_PORT = 19080
-const HTTPS_PORT = 19443
-const API_PORT = 14099
+const HTTP_PORT = 20080
+const HTTPS_PORT = 20443
+const API_PORT = 15099
 // Only the containers this file creates — never other siteio containers.
 const CONTAINERS = ["siteio-blog", "siteio-blog--friend-local"]
 
