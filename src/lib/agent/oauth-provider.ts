@@ -1,6 +1,7 @@
 import type { GrantStore } from "./grant-store.ts"
 import type { OAuthStore } from "./oauth-store.ts"
 import type { SiteStorage } from "./storage.ts"
+import type { Scope, TenantRegistry } from "./tenants.ts"
 import { verifyPkceS256 } from "../../utils/oauth.ts"
 
 // Access tokens are leases on a grant, re-checked (for revocation) on every MCP
@@ -12,14 +13,15 @@ export interface OAuthDeps {
   grants: GrantStore
   oauth: OAuthStore
   sites: SiteStorage // for resolving custom-domain hosts to their owning site
-  domain: string // base domain; the site is derived from the request host
+  hosts: TenantRegistry // base domains; the site is derived from the request host
 }
 
 // Context resolved from the incoming request's Host header. Every public URL is
 // built from the site host — api.<domain> is never referenced.
 interface HostCtx {
   baseUrl: string // https://<site>.<domain>
-  site: string // <site>
+  site: string // the site's key
+  scope: Scope // whose site this is (null = the primary domain)
 }
 
 // The agent's minimal OAuth 2.0 authorization server, hosted per-site. It turns
@@ -36,21 +38,17 @@ export class OAuthProvider {
   constructor(private deps: OAuthDeps) {}
 
   // Resolve the site context from a host header, or null if the host isn't a
-  // servable site. Two cases: the default `<site>.<domain>` subdomain, or a
-  // site's custom domain (resolved via SiteStorage). `baseUrl` is always the
+  // servable site. Two cases: a platform subdomain `<site>.<base domain>` of the
+  // primary domain or any tenant, or a site's custom domain (resolved via SiteStorage). `baseUrl` is always the
   // host the client actually connected to, so every OAuth URL stays on it.
   hostContext(host: string): HostCtx | null {
     const bare = host.split(":")[0] || ""
-    const suffix = `.${this.deps.domain}`
-    if (bare.endsWith(suffix)) {
-      const site = bare.slice(0, bare.length - suffix.length)
-      if (!site || site === "api" || !/^[a-z0-9-]+$/.test(site)) return null
-      return { baseUrl: `https://${bare}`, site }
-    }
+    const hit = this.deps.hosts.siteFromHost(bare)
+    if (hit) return { baseUrl: `https://${bare}`, site: hit.key, scope: hit.scope }
     // Custom (vanity) domain → its owning site.
-    const owner = this.deps.sites.findByCustomDomain(bare, this.deps.domain)
+    const owner = this.deps.sites.findByCustomDomain(bare, this.deps.hosts)
     if (!owner) return null
-    return { baseUrl: `https://${bare}`, site: owner.name }
+    return { baseUrl: `https://${bare}`, site: owner.name, scope: this.deps.hosts.ownerOf(owner.name) }
   }
 
   private cors(headers: Record<string, string> = {}): Record<string, string> {

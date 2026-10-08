@@ -29,6 +29,15 @@ describe("Unit: TraefikManager", () => {
       ...extra,
     })
 
+  it("routes every api host to the agent", () => {
+    const dynamic = makeTraefik({ apiHosts: ["api.test.siteio.me", "api.friend.com"] }).generateDynamicConfig()
+    expect(dynamic).toContain("Host(`api.test.siteio.me`) || Host(`api.friend.com`)")
+  })
+
+  it("defaults to the primary api host", () => {
+    expect(makeTraefik().generateDynamicConfig()).toContain("Host(`api.test.siteio.me`)")
+  })
+
   it("generates static config with docker provider for container discovery", () => {
     const staticConfig = makeTraefik().generateStaticConfig()
     expect(staticConfig).toContain("docker:")

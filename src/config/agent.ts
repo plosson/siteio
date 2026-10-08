@@ -7,7 +7,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { join } from "path"
 
-import type { AcmeChallengeType } from "../types.ts"
+import type { AcmeChallengeType, Tenant } from "../types.ts"
 
 export interface PersistedAgentConfig {
   apiKey: string
@@ -26,6 +26,7 @@ export interface PersistedAgentConfig {
   llmOauthToken?: string
   llmApiKey?: string
   pagerUrl?: string // pagerio URL paged on deploys/restarts; PAGERIO_URL wins. The URL is the secret.
+  tenants?: Tenant[] // managed by `siteio agent tenant add|remove`; holds tenant API keys
 }
 
 const CONFIG_FILENAME = "agent-config.json"
@@ -135,6 +136,6 @@ export function maskSensitiveValue(value: string): string {
  * Check if a key contains sensitive data
  */
 export function isSensitiveKey(key: string): boolean {
-  const sensitiveKeys = ["apiKey", "cloudflareToken", "acmeDnsEnv", "llmOauthToken", "llmApiKey", "pagerUrl"]
+  const sensitiveKeys = ["apiKey", "cloudflareToken", "acmeDnsEnv", "llmOauthToken", "llmApiKey", "pagerUrl", "tenants"]
   return sensitiveKeys.includes(key)
 }

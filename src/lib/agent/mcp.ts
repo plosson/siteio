@@ -11,6 +11,7 @@ import { PUBLIC_DIR } from "../site-layout.ts"
 import { mergeTrees, hasConflictMarkers, YOURS_LABEL, THEIRS_LABEL, type MergeConflict } from "./three-way-merge.ts"
 import { randomBytes } from "crypto"
 import { join } from "path"
+import type { TenantRegistry } from "./tenants.ts"
 
 const MCP_PROTOCOL_VERSION = "2024-11-05"
 
@@ -50,7 +51,7 @@ export interface McpDeps {
   staging: StagingStore
   sites: SiteStorage
   oauth: OAuthStore
-  domain: string // base domain, for building the site's public URL(s)
+  hosts: TenantRegistry // base domains, for building the site's public URL(s)
   // Deploy a merged web+backend zip as a new version of `siteName`. `message`
   // is the invitee's change description, recorded in the site history. Throws
   // on failure (missing site, Docker down, …). Provided by AgentServer.
@@ -142,7 +143,7 @@ export class McpHandler {
     switch (msg.method) {
       case "initialize": {
         const site = this.deps.sites.get(grant.site)
-        const info = site ? this.deps.sites.toInfo(site, this.deps.domain) : null
+        const info = site ? this.deps.sites.toInfo(site, this.deps.hosts, this.deps.hosts.ownerOf(site.name)) : null
         // Report the custom domain(s) once set — that becomes the canonical
         // public URL; otherwise fall back to the default <name>.<domain>.
         const liveUrls = info
@@ -192,7 +193,7 @@ export class McpHandler {
   private liveUrls(grant: ShareGrant): string[] {
     const site = this.deps.sites.get(grant.site)
     if (!site) return []
-    const info = this.deps.sites.toInfo(site, this.deps.domain)
+    const info = this.deps.sites.toInfo(site, this.deps.hosts, this.deps.hosts.ownerOf(site.name))
     return info.domains.length ? info.domains.map((d) => `https://${d}`) : [info.url]
   }
 
@@ -301,7 +302,7 @@ export class McpHandler {
   private siteInfoText(grant: ShareGrant): string {
     const site = this.deps.sites.get(grant.site)
     if (!site) return `Site "${grant.site}" no longer exists.`
-    const info = this.deps.sites.toInfo(site, this.deps.domain)
+    const info = this.deps.sites.toInfo(site, this.deps.hosts, this.deps.hosts.ownerOf(site.name))
     const canonical = info.domains.length ? info.domains.map((d) => `https://${d}`) : [info.url]
     const lines = [
       `Site: ${grant.site}`,

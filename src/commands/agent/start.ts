@@ -167,6 +167,7 @@ export async function startAgentCommand(): Promise<void> {
     autoDeployInterval,
     chat,
     pagerUrl,
+    tenants: persistedConfig.tenants ?? [],
   }
 
   // Generate connection info
@@ -185,6 +186,7 @@ export async function startAgentCommand(): Promise<void> {
     `  Chat:       ${chat ? `enabled (${chat.provider}${chat.model ? "/" + chat.model : ""}, ${chat.sandbox ? "sandboxed" : "host"})` : "disabled (no LLM credential)"}`
   )
   console.log(`  Pager:      ${pagerUrl ? "enabled" : "disabled (set PAGERIO_URL or pagerUrl)"}`)
+  console.log(`  Tenants:    ${(persistedConfig.tenants ?? []).map((t) => t.domain).join(", ") || "none"}`)
   console.log("")
 
   // Connection credentials - easy to copy/paste

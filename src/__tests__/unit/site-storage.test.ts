@@ -4,6 +4,7 @@ import { join, sep } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
 import { SiteStorage } from "../../lib/agent/storage.ts"
+import { TenantRegistry } from "../../lib/agent/tenants.ts"
 import type { Site } from "../../types.ts"
 
 describe("Unit: SiteStorage", () => {
@@ -84,7 +85,7 @@ describe("Unit: SiteStorage", () => {
       superuserEmail: "a@b.co",
       superuserPassword: "secret",
     })
-    const info = storage.toInfo(p, "example.com")
+    const info = storage.toInfo(p, new TenantRegistry("example.com"))
     expect(info.url).toBe("https://blog.example.com")
     expect(info.adminUrl).toBe("https://blog.example.com/_/")
     const raw = info as unknown as { superuserPassword?: string; superuserEmail?: string }
@@ -95,7 +96,7 @@ describe("Unit: SiteStorage", () => {
   test("toInfo filters the legacy default-subdomain entry out of domains", () => {
     // Older deploys stored the default subdomain inside `domains`
     const p = storage.create({ ...base("blog"), domains: ["blog.example.com", "custom.org"] })
-    const info = storage.toInfo(p, "example.com")
+    const info = storage.toInfo(p, new TenantRegistry("example.com"))
     expect(info.domains).toEqual(["custom.org"])
   })
 

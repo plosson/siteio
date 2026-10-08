@@ -31,6 +31,7 @@ import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
+import { TenantRegistry, assertValidNewName, type Scope } from "./tenants.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
 // gets the same window (clamped to the code). The per-grant spend cap is a
@@ -126,6 +127,7 @@ export class AgentServer {
   private storage: SiteStorage
   private appStorage: AppStorage
   private grants: GrantStore
+  private tenants: TenantRegistry
   private staging: StagingStore
   private chats: ChatStore
   private chatController: ChatController | null = null
@@ -151,6 +153,7 @@ export class AgentServer {
     hooks?: { fetchAsset?: (url: string) => Promise<Uint8Array>; chatExecutor?: import("./chat/executor.ts").ChatExecutor }
   ) {
     this.config = config
+    this.tenants = new TenantRegistry(config.domain, config.tenants ?? [])
     this.storage = new SiteStorage(config.dataDir)
     this.appStorage = new AppStorage(config.dataDir)
     this.grants = new GrantStore(config.dataDir)
@@ -166,14 +169,14 @@ export class AgentServer {
       grants: this.grants,
       oauth: this.oauth,
       sites: this.storage,
-      domain: config.domain,
+      hosts: this.tenants,
     })
     this.mcp = new McpHandler({
       grants: this.grants,
       staging: this.staging,
       sites: this.storage,
       oauth: this.oauth,
-      domain: config.domain,
+      hosts: this.tenants,
       deploy: (siteName, zipData, deployedBy, message) => this.deploySiteViaGrant(siteName, zipData, deployedBy, message),
       fetchAsset: hooks?.fetchAsset ?? ((url) => this.fetchExternalAsset(url)),
     })
@@ -200,6 +203,7 @@ export class AgentServer {
         httpPort: config.httpPort,
         httpsPort: config.httpsPort,
         fileServerPort: config.port || 3000,
+        apiHosts: this.tenants.apiHosts(),
         acme: config.acme,
       })
       this.thumbnails = new ThumbnailManager(config.dataDir)
@@ -1272,7 +1276,7 @@ export class AgentServer {
     // docker labels — same convention as apps.
     const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
     return this.json(sites.map((p) => ({
-      ...this.storage.toInfo(p, this.config.domain),
+      ...this.storage.toInfo(p, this.tenants),
       tls: tlsStatusMap.get(`siteio-${p.name}`) || "pending",
       hasThumbnail: this.thumbnails?.has(p.name) ?? false,
     })))
@@ -1282,7 +1286,7 @@ export class AgentServer {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
     return this.json({
-      ...this.storage.toInfo(site, this.config.domain),
+      ...this.storage.toInfo(site, this.tenants),
       hasThumbnail: this.thumbnails?.has(name) ?? false,
       chatEnabled: !!this.chatController,
     })
@@ -1374,7 +1378,7 @@ export class AgentServer {
   private async handleGetSiteAdmin(name: string): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
-    const primary = this.storage.primaryDomain(site, this.config.domain)
+    const primary = this.storage.primaryDomain(site, this.tenants)
     return this.json({
       email: site.superuserEmail,
       password: site.superuserPassword,
@@ -1583,7 +1587,7 @@ export class AgentServer {
         pocketbaseVersion: POCKETBASE_VERSION,
         status: "pending",
         size: 0,
-        superuserEmail: `admin@${name}.${this.config.domain}`,
+        superuserEmail: `admin@${this.tenants.host(name)}`,
         superuserPassword: crypto.randomUUID().replace(/-/g, ""),
       })
     }
@@ -1630,13 +1634,13 @@ export class AgentServer {
       this.pager?.notify({
         title: `Site '${site.name}' deploy failed`,
         message: err instanceof Error ? err.message : String(err),
-        url: this.storage.toInfo(site, this.config.domain).url,
+        url: this.storage.toInfo(site, this.tenants).url,
       })
       throw err
     }
     // Refresh the card preview in the background — deploy stays fast.
     this.captureThumbnail(updated.name, this.siteInternalUrl(updated.name))
-    const info = this.storage.toInfo(updated, this.config.domain)
+    const info = this.storage.toInfo(updated, this.tenants)
     this.pager?.notify({
       title: `Site '${site.name}' deployed`,
       message: [`v${updated.version}`, deployedBy && `by ${deployedBy}`, message].filter(Boolean).join(" · "),
@@ -1811,8 +1815,8 @@ export class AgentServer {
       // (in case the custom domain's DNS/cert isn't ready yet). The CLI login
       // token points at the same primary host's scoped REST channel; either host
       // works, since the agent resolves the host to the site.
-      const subdomain = `${name}.${this.config.domain}`
-      const customs = this.storage.customDomains(site, this.config.domain)
+      const subdomain = this.tenants.host(name)
+      const customs = this.storage.customDomains(site, this.tenants)
       const primaryHost = customs[0] ?? subdomain
       const cliToken = encodeToken(`https://${primaryHost}/_siteio`, token)
       return this.json({
@@ -1866,7 +1870,7 @@ export class AgentServer {
 
     // primaryDomain is the platform subdomain (never a custom/CDN domain) — the
     // single source of truth for the site URL (storage.ts §3.8).
-    const subdomain = this.storage.primaryDomain(site, this.config.domain)
+    const subdomain = this.storage.primaryDomain(site, this.tenants)
     const created: EditLinkCreated = {
       grant: this.grants.toInfo(grant),
       url: `https://${subdomain}/_siteio/edit#${token}`,
@@ -2001,8 +2005,8 @@ export class AgentServer {
   // `mcp-router` siphons them to the agent at priority 1000 (traefik.ts).
   private buildSiteRoutingLabels(site: Site): Record<string, string> {
     const name = site.name
-    const primary = this.storage.primaryDomain(site, this.config.domain)
-    const customs = this.storage.customDomains(site, this.config.domain)
+    const primary = this.storage.primaryDomain(site, this.tenants)
+    const customs = this.storage.customDomains(site, this.tenants)
     const containerName = this.docker.containerName(name)
 
     const labels = this.docker.buildTraefikLabels(name, customs.length > 0 ? customs : [primary], 8090)
@@ -2080,7 +2084,7 @@ export class AgentServer {
     const from = site.pocketbaseVersion
     const to = POCKETBASE_VERSION
     if (from === to) {
-      return this.json({ from, to, upgraded: false, site: this.storage.toInfo(site, this.config.domain) })
+      return this.json({ from, to, upgraded: false, site: this.storage.toInfo(site, this.tenants) })
     }
     if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
 
@@ -2100,7 +2104,7 @@ export class AgentServer {
       this.storage.update(name, { containerId })
       await this.waitForSiteStarted(name)
       const updated = this.storage.update(name, { status: "running" })!
-      return this.json({ from, to, upgraded: true, backup, site: this.storage.toInfo(updated, this.config.domain) })
+      return this.json({ from, to, upgraded: true, backup, site: this.storage.toInfo(updated, this.tenants) })
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
       const logs = await this.docker.logs(name, 50).catch(() => "")
@@ -2174,7 +2178,7 @@ export class AgentServer {
         deployedAt: new Date().toISOString(),
         deployedBy,
       })!
-      return this.json(this.storage.toInfo(updated, this.config.domain))
+      return this.json(this.storage.toInfo(updated, this.tenants))
     } catch (err) {
       this.storage.update(name, { status: "failed" })
       const message = err instanceof Error ? err.message : "Failed to rollback"
@@ -2232,7 +2236,7 @@ export class AgentServer {
       // Check for conflicts with other sites
       for (const other of this.storage.list()) {
         if (other.name === name) continue
-        const overlap = domains.filter((d) => this.storage.customDomains(other, this.config.domain).includes(d))
+        const overlap = domains.filter((d) => this.storage.customDomains(other, this.tenants).includes(d))
         if (overlap.length > 0) {
           return this.error(`Domain(s) already in use by '${other.name}': ${overlap.join(", ")}`)
         }
@@ -2255,7 +2259,7 @@ export class AgentServer {
         this.storage.update(name, { containerId })
       }
 
-      return this.json(this.storage.toInfo(this.storage.get(name)!, this.config.domain))
+      return this.json(this.storage.toInfo(this.storage.get(name)!, this.tenants))
     } catch (err) {
       if (err instanceof SyntaxError) return this.error("Invalid request body")
       const message = err instanceof Error ? err.message : "Failed to update domains"
@@ -2304,7 +2308,7 @@ export class AgentServer {
       this.thumbnails?.delete(name)
       if (hadContainer) this.captureThumbnail(newName, this.siteInternalUrl(newName))
 
-      return this.json(this.storage.toInfo(this.storage.get(newName)!, this.config.domain))
+      return this.json(this.storage.toInfo(this.storage.get(newName)!, this.tenants))
     } catch (err) {
       if (err instanceof SyntaxError) return this.error("Invalid request body")
       const message = err instanceof Error ? err.message : "Failed to rename"

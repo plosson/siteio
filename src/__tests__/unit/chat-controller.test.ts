@@ -4,6 +4,7 @@ import { join } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
 import { SiteStorage } from "../../lib/agent/storage.ts"
+import { TenantRegistry } from "../../lib/agent/tenants.ts"
 import { ChatStore } from "../../lib/agent/chat-store.ts"
 import { ChatController, ChatBusyError, ChatUnavailableError } from "../../lib/agent/chat/controller.ts"
 import type { ChatConfig, ChatEvent, SiteInfo } from "../../types.ts"
@@ -61,7 +62,7 @@ describe("Unit: ChatController", () => {
       if (fail) throw new Error("boom")
       const { version } = await sites.extractCode(name, zip)
       const updated = sites.update(name, { version, status: "running", deployedAt: new Date().toISOString() })!
-      return sites.toInfo(updated, "example.com")
+      return sites.toInfo(updated, new TenantRegistry("example.com"))
     }
 
   beforeEach(async () => {
