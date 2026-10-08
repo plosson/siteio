@@ -248,6 +248,13 @@ log:
     writeFileSync(this.dynamicConfigPath, this.generateDynamicConfig())
   }
 
+  // Route a changed set of API hosts (a tenant was added). Traefik watches the
+  // dynamic config, so this takes effect without a restart.
+  setApiHosts(apiHosts: string[]): void {
+    this.config.apiHosts = apiHosts
+    this.updateDynamicConfig()
+  }
+
   private isDockerAvailable(): boolean {
     const result = spawnSync({ cmd: ["docker", "info"], stdout: "pipe", stderr: "pipe" })
     return result.exitCode === 0

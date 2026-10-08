@@ -2,7 +2,7 @@ import chalk from "chalk"
 import { getAgentDataDir, loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import { SiteStorage } from "../../lib/agent/storage.ts"
 import { AppStorage } from "../../lib/agent/app-storage.ts"
-import { TenantRegistry, tenantSlug } from "../../lib/agent/tenants.ts"
+import { TenantRegistry, tenantServices } from "../../lib/agent/tenants.ts"
 import { encodeToken, generateApiKey } from "../../utils/token.ts"
 import { formatError, formatSuccess } from "../../utils/output.ts"
 
@@ -26,22 +26,8 @@ export async function addTenantCommand(rawDomain: string, options: { json?: bool
   const domain = rawDomain.trim().toLowerCase()
   const { tenants, registry } = load(dataDir)
 
-  const reason = registry.checkNewTenant(domain)
+  const reason = registry.checkNewTenant(domain, tenantServices(new SiteStorage(dataDir), new AppStorage(dataDir)))
   if (reason) fail(reason)
-
-  // Its hostnames must be free (no site or app may already use the domain or
-  // a subdomain of it as a custom domain), and existing keys ending in its
-  // slug would be captured by it.
-  const taken = (d: string) => d === domain || d.endsWith(`.${domain}`)
-  const suffix = `--${tenantSlug(domain)}`
-  const services = [
-    ...new SiteStorage(dataDir).list().map((s) => ({ kind: "Site", name: s.name, domains: s.domains })),
-    ...new AppStorage(dataDir).list().map((a) => ({ kind: "App", name: a.name, domains: a.domains })),
-  ]
-  for (const { kind, name, domains } of services) {
-    if (domains.some(taken)) fail(`${kind} '${name}' already uses a domain under '${domain}'`)
-    if (name.endsWith(suffix)) fail(`${kind} '${name}' would be captured by tenant '${domain}'`)
-  }
 
   const tenant = { domain, apiKey: generateApiKey(), createdAt: new Date().toISOString() }
   updateAgentConfig(dataDir, { tenants: [...tenants, tenant] })
