@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { TraefikManager } from "../../lib/agent/traefik.ts"
-import { mkdirSync, rmSync, existsSync } from "fs"
+import { mkdirSync, rmSync, existsSync, readFileSync } from "fs"
 import { join } from "path"
 
 describe("Unit: TraefikManager", () => {
@@ -32,6 +32,14 @@ describe("Unit: TraefikManager", () => {
   it("routes every api host to the agent", () => {
     const dynamic = makeTraefik({ apiHosts: ["api.test.siteio.me", "api.friend.com"] }).generateDynamicConfig()
     expect(dynamic).toContain("Host(`api.test.siteio.me`) || Host(`api.friend.com`)")
+  })
+
+  it("rewrites the watched dynamic config when api hosts change", () => {
+    const traefik = makeTraefik()
+    traefik.updateDynamicConfig()
+    traefik.setApiHosts(["api.test.siteio.me", "api.third.net"])
+    const written = readFileSync(join(TEST_DATA_DIR, "traefik", "dynamic.yml"), "utf-8")
+    expect(written).toContain("Host(`api.test.siteio.me`) || Host(`api.third.net`)")
   })
 
   it("defaults to the primary api host", () => {

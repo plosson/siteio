@@ -155,4 +155,39 @@ describe("TenantRegistry.checkNewTenant", () => {
     const r = new TenantRegistry("example.com", [{ domain: "a-b.co.uk", apiKey: "k", createdAt: "" }])
     expect(r.checkNewTenant("a.b-co.uk")).not.toBeNull()
   })
+
+  test("refuses a domain a site or app already uses, at the apex or below", () => {
+    for (const domains of [["third.net"], ["www.third.net"], ["ok.io", "a.b.third.net"]]) {
+      expect(reg.checkNewTenant("third.net", [{ kind: "App", name: "x", domains }])).toBe(
+        `App 'x' already uses a domain under 'third.net'`
+      )
+    }
+  })
+
+  test("a lookalike custom domain is not under the tenant", () => {
+    expect(reg.checkNewTenant("third.net", [{ kind: "Site", name: "x", domains: ["notthird.net", "third.net.evil.com"] }])).toBeNull()
+  })
+
+  test("refuses a domain whose slug would capture an existing key", () => {
+    expect(reg.checkNewTenant("third.net", [{ kind: "Site", name: "blog--third-net", domains: [] }])).toBe(
+      `Site 'blog--third-net' would be captured by tenant 'third.net'`
+    )
+  })
+})
+
+describe("TenantRegistry.add", () => {
+  test("a new tenant is served at once: api host, key, site hosts, and checks", () => {
+    const r = new TenantRegistry("example.com", [A])
+    const C: Tenant = { domain: "third.net", apiKey: "key-c", createdAt: "" }
+    expect(r.apiScope("api.third.net")).toBeUndefined()
+
+    r.add(C)
+    expect(r.apiScope("api.third.net")).toBe(C)
+    expect(r.apiHosts()).toEqual(["api.example.com", "api.friend.com", "api.third.net"])
+    expect(r.findByApiKey("key-c")).toBe(C)
+    expect(r.siteFromHost("blog.third.net")).toEqual({ key: "blog--third-net", scope: C })
+    expect(r.ownerOf("blog--third-net")).toBe(C)
+    expect(r.checkNewTenant("third.net")).not.toBeNull()
+    expect(r.checkNewTenant("third-net.com")).toBeNull()
+  })
 })

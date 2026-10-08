@@ -6,6 +6,8 @@ import { zipSync } from "fflate"
 import { SiteStorage } from "../../lib/agent/storage.ts"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { FakeRuntime } from "../helpers/fake-runtime.ts"
+import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
+import { encodeToken } from "../../utils/token.ts"
 import type { AgentConfig, ApiResponse, SiteInfo, Tenant } from "../../types.ts"
 
 const A: Tenant = { domain: "friend.com", apiKey: "key-a", createdAt: "2026-10-08T00:00:00.000Z" }
@@ -297,6 +299,95 @@ describe("API: tenants", () => {
       for (const sub of ["download", "logs"]) {
         expect((await req(`/sites/blog/${sub}`, { headers: as("key-a") }, "api.friend.com")).status).toBe(404)
       }
+    })
+  })
+
+  describe("POST /tenants", () => {
+    const add = (body: unknown, key = "god-key", host = "localhost") =>
+      req("/tenants", {
+        method: "POST",
+        headers: as(key, { "Content-Type": "application/json" }),
+        body: typeof body === "string" ? body : JSON.stringify(body),
+      }, host)
+    const errorOf = async (res: Response) => ((await res.json()) as ApiResponse<null>).error
+
+    test("only the god key on the primary api host may add a tenant", async () => {
+      expect((await add({ domain: "third.net" }, "key-a", "api.friend.com")).status).toBe(404)
+      expect((await add({ domain: "third.net" }, "key-a")).status).toBe(401)
+      expect((await add({ domain: "third.net" }, "god-key", "api.friend.com")).status).toBe(401)
+      expect((await add({ domain: "third.net" }, "nope")).status).toBe(401)
+      expect(loadAgentConfig(dataDir).tenants).toBeUndefined()
+    })
+
+    test("a share code can't add a tenant", async () => {
+      await deploy("blog", "god-key", "localhost")
+      const minted = await req("/sites/blog/grants", {
+        method: "POST",
+        headers: as("god-key", { "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
+      })
+      const { code } = ((await minted.json()) as ApiResponse<{ code: string }>).data!
+      expect((await add({ domain: "third.net" }, code)).status).toBe(403)
+      expect(loadAgentConfig(dataDir).tenants).toBeUndefined()
+    })
+
+    test("refuses malformed bodies", async () => {
+      for (const body of ["not json", "null", {}, { domain: 42 }, { domain: ["third.net"] }]) {
+        const res = await add(body)
+        expect(res.status).toBe(400)
+      }
+    })
+
+    test("refuses invalid and overlapping domains", async () => {
+      for (const domain of ["", "nodot", "third.net/x", "*.third.net", "example.com", "x.example.com", "friend.com", "sub.friend.com", "com"]) {
+        expect((await add({ domain })).status).toBe(400)
+      }
+      expect(loadAgentConfig(dataDir).tenants).toBeUndefined()
+    })
+
+    test("refuses a domain a site already uses as a custom domain", async () => {
+      await deploy("shop", "god-key", "localhost")
+      await req("/sites/shop/domains", {
+        method: "PATCH",
+        headers: as("god-key", { "Content-Type": "application/json" }),
+        body: JSON.stringify({ domains: ["www.third.net"] }),
+      })
+      const res = await add({ domain: "third.net" })
+      expect(res.status).toBe(400)
+      expect(await errorOf(res)).toBe("Site 'shop' already uses a domain under 'third.net'")
+    })
+
+    test("adding twice is refused and keeps the first key", async () => {
+      const first = ((await (await add({ domain: "Third.NET " })).json()) as ApiResponse<{ apiKey: string }>).data!
+      const again = await add({ domain: "third.net" })
+      expect(again.status).toBe(400)
+      expect(loadAgentConfig(dataDir).tenants!.map((t) => [t.domain, t.apiKey])).toEqual([["third.net", first.apiKey]])
+    })
+
+    test("the new tenant is served at once and persisted", async () => {
+      const res = await add({ domain: "third.net" })
+      expect(res.status).toBe(200)
+      const out = ((await res.json()) as ApiResponse<{ domain: string; apiUrl: string; apiKey: string; token: string }>).data!
+      expect(out.domain).toBe("third.net")
+      expect(out.apiUrl).toBe("https://api.third.net")
+      expect(out.apiKey).not.toBe("god-key")
+      expect(out.token).toBe(encodeToken("https://api.third.net", out.apiKey))
+
+      const site = await deploy("blog", out.apiKey, "api.third.net")
+      expect(site.status).toBe(200)
+      expect(((await site.json()) as ApiResponse<SiteInfo>).data!.url).toBe("https://blog.third.net")
+      expect((await req("/sites", { headers: as(out.apiKey) }, "api.friend.com")).status).toBe(401)
+
+      const persisted = loadAgentConfig(dataDir).tenants!
+      expect(persisted.map((t) => t.domain)).toEqual(["third.net"])
+      expect(persisted[0]!.apiKey).toBe(out.apiKey)
+    })
+
+    test("tenants added on-box since start are kept on disk", async () => {
+      const onBox: Tenant = { domain: "pending.io", apiKey: "key-p", createdAt: "" }
+      updateAgentConfig(dataDir, { tenants: [onBox] })
+      await add({ domain: "third.net" })
+      expect(loadAgentConfig(dataDir).tenants!.map((t) => t.domain)).toEqual(["pending.io", "third.net"])
     })
   })
 })

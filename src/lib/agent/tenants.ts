@@ -1,5 +1,7 @@
 import type { Tenant } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
+import type { SiteStorage } from "./storage.ts"
+import type { AppStorage } from "./app-storage.ts"
 
 // Multi-tenant base domains. The agent's own domain is the primary scope
 // (`null`); each tenant adds a base domain whose sites live at
@@ -10,6 +12,16 @@ import { ValidationError } from "../../utils/errors.ts"
 // User-chosen names may never contain `--`, so a key splits unambiguously at
 // its first `--`.
 export type Scope = Tenant | null
+
+// A site or app as checkNewTenant sees it: its key and its custom domains.
+export type TenantService = { kind: "Site" | "App"; name: string; domains: string[] }
+
+export function tenantServices(sites: SiteStorage, apps: AppStorage): TenantService[] {
+  return [
+    ...sites.list().map((s) => ({ kind: "Site" as const, name: s.name, domains: s.domains })),
+    ...apps.list().map((a) => ({ kind: "App" as const, name: a.name, domains: a.domains })),
+  ]
+}
 
 const KEY_SEP = "--"
 const NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/
@@ -142,8 +154,10 @@ export class TenantRegistry {
     return null
   }
 
-  // Why `domain` can't become a new tenant, or null.
-  checkNewTenant(domain: string): string | null {
+  // Why `domain` can't become a new tenant, or null. Its hostnames must be
+  // free (no site or app may already use the domain or a subdomain of it as a
+  // custom domain), and existing keys ending in its slug would be captured by it.
+  checkNewTenant(domain: string, services: TenantService[] = []): string | null {
     if (!isValidDomain(domain)) return `Invalid domain: '${domain}'`
     for (const scope of this.scopes()) {
       const base = this.baseDomain(scope)
@@ -154,6 +168,18 @@ export class TenantRegistry {
     if (this.bySlug.has(tenantSlug(domain))) {
       return `'${domain}' maps to the same internal name as an existing tenant`
     }
+    const taken = (d: string) => d === domain || d.endsWith(`.${domain}`)
+    const suffix = `${KEY_SEP}${tenantSlug(domain)}`
+    for (const { kind, name, domains } of services) {
+      if (domains.some(taken)) return `${kind} '${name}' already uses a domain under '${domain}'`
+      if (name.endsWith(suffix)) return `${kind} '${name}' would be captured by tenant '${domain}'`
+    }
     return null
+  }
+
+  // Serve a new tenant from now on. Callers check it with checkNewTenant first.
+  add(tenant: Tenant): void {
+    this.tenants.push(tenant)
+    this.bySlug.set(tenantSlug(tenant.domain), tenant)
   }
 }

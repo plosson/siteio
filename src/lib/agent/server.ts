@@ -26,12 +26,13 @@ import { composeWarnings, missingPrimaryService, type ComposeSpec } from "./comp
 import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS, CHAT_CORE_JS, EDITOR_SHELL_HTML, PICKER_JS } from "./ui/assets.ts"
 import { POCKETBASE_VERSION, pocketbaseImage } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
-import { encodeToken } from "../../utils/token.ts"
+import { encodeToken, generateApiKey } from "../../utils/token.ts"
+import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
-import { TenantRegistry, assertValidNewName, isValidDomain, type Scope } from "./tenants.ts"
+import { TenantRegistry, assertValidNewName, isValidDomain, tenantServices, type Scope } from "./tenants.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
 // gets the same window (clamped to the code). The per-grant spend cap is a
@@ -411,6 +412,11 @@ export class AgentServer {
     // GET /agent - sanitized agent settings (god key only)
     if (path === "/agent" && req.method === "GET") {
       return this.handleGetAgentInfo(scope)
+    }
+
+    // POST /tenants - add a tenant domain (god key only: not in TENANT_ROUTE)
+    if (path === "/tenants" && req.method === "POST") {
+      return this.handleAddTenant(req)
     }
 
     // GET /sites - list all sites
@@ -1273,6 +1279,32 @@ export class AgentServer {
       const message = err instanceof Error ? err.message : "Failed to get logs"
       return this.error(message, 500)
     }
+  }
+
+  // Add a tenant and serve it at once, like `siteio agent tenant add` but
+  // without the restart. DNS (*.<domain> → this server) is the caller's job.
+  private async handleAddTenant(req: Request): Promise<Response> {
+    let body: { domain?: unknown }
+    try {
+      body = (await req.json()) as { domain?: unknown }
+    } catch {
+      return this.error("Invalid JSON body")
+    }
+    if (typeof body?.domain !== "string") return this.error("'domain' is required")
+    const domain = body.domain.trim().toLowerCase()
+
+    const reason = this.tenants.checkNewTenant(domain, tenantServices(this.storage, this.appStorage))
+    if (reason) return this.error(reason)
+
+    const tenant: Tenant = { domain, apiKey: generateApiKey(), createdAt: new Date().toISOString() }
+    // Append to what's on disk, which may hold tenants added on-box since start.
+    const persisted = (loadAgentConfig(this.config.dataDir).tenants ?? []).filter((t) => t.domain !== domain)
+    updateAgentConfig(this.config.dataDir, { tenants: [...persisted, tenant] })
+    this.tenants.add(tenant)
+    this.traefik?.setApiHosts(this.tenants.apiHosts())
+
+    const apiUrl = `https://api.${domain}`
+    return this.json({ domain, apiUrl, apiKey: tenant.apiKey, token: encodeToken(apiUrl, tenant.apiKey) })
   }
 
   // Site handlers
