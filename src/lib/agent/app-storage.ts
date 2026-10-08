@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from "path"
 import type { App, AppInfo } from "../../types"
 import { ValidationError } from "../../utils/errors"
+import { assertValidNewName } from "./tenants"
 
 export class AppStorage {
   private appsDir: string
@@ -18,15 +19,7 @@ export class AppStorage {
   }
 
   private validateName(name: string): void {
-    if (!name) {
-      throw new ValidationError("App name cannot be empty")
-    }
-    if (!/^[a-z0-9-]+$/.test(name)) {
-      throw new ValidationError("App name must contain only lowercase letters, numbers, and hyphens")
-    }
-    if (name === "api") {
-      throw new ValidationError("'api' is a reserved name")
-    }
+    assertValidNewName(name, "App")
   }
 
   private getAppPath(name: string): string {
