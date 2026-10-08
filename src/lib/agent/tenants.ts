@@ -12,7 +12,7 @@ import { ValidationError } from "../../utils/errors.ts"
 export type Scope = Tenant | null
 
 const KEY_SEP = "--"
-const NAME_RE = /^[a-z0-9-]+$/
+const NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/
 const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/
 
 export function tenantSlug(domain: string): string {
@@ -44,6 +44,9 @@ export class TenantRegistry {
   // The key for `name` as addressed from `scope`.
   keyFor(name: string, scope: Scope): string {
     if (!scope) return name
+    if (!NAME_RE.test(name)) {
+      throw new ValidationError(`name must contain only lowercase letters, numbers, and hyphens`)
+    }
     if (name.includes(KEY_SEP)) throw new ValidationError(`'${KEY_SEP}' is not allowed in names`)
     return `${name}${KEY_SEP}${tenantSlug(scope.domain)}`
   }

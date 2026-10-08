@@ -21,6 +21,11 @@ describe("tenantSlug / assertValidNewName", () => {
   test("names the kind in the message", () => {
     expect(() => assertValidNewName("", "App")).toThrow("App name cannot be empty")
   })
+
+  test("rejects names starting or ending with hyphens", () => {
+    expect(() => assertValidNewName("blog-")).toThrow()
+    expect(() => assertValidNewName("-blog")).toThrow()
+  })
 })
 
 describe("TenantRegistry keys", () => {
@@ -31,6 +36,11 @@ describe("TenantRegistry keys", () => {
 
   test("a tenant can never form a key containing another slug", () => {
     expect(() => reg.keyFor("blog--other-org", A)).toThrow()
+  })
+
+  test("a tenant cannot form a key from an invalid name", () => {
+    expect(() => reg.keyFor("blog-", A)).toThrow()
+    expect(() => reg.keyFor("-blog", A)).toThrow()
   })
 
   test("ownerOf splits at the first --", () => {
@@ -83,6 +93,11 @@ describe("TenantRegistry hosts", () => {
     ]) {
       expect(reg.siteFromHost(host)).toBeNull()
     }
+  })
+
+  test("siteFromHost refuses hosts with invalid names (leading/trailing hyphens)", () => {
+    expect(reg.siteFromHost("blog-.friend.com")).toBeNull()
+    expect(reg.siteFromHost("-blog.friend.com")).toBeNull()
   })
 
   test("findByApiKey and apiHosts", () => {
