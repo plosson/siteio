@@ -75,7 +75,13 @@ describe("Unit: automatic update", () => {
 
   afterEach(() => {
     globalThis.fetch = realFetch
-    process.env = { ...savedEnv }
+    // Restore in place: replacing the process.env object detaches it from Bun,
+    // so later env writes (e.g. NODE_TLS_REJECT_UNAUTHORIZED in the
+    // integration suites) would silently stop taking effect.
+    for (const key of Object.keys(process.env)) {
+      if (!(key in savedEnv)) delete process.env[key]
+    }
+    Object.assign(process.env, savedEnv)
     try {
       chmodSync(join(dir, "bin"), 0o755)
     } catch {}
