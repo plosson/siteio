@@ -88,6 +88,25 @@ describe("CLI: agent config (LLM keys)", () => {
     }
   )
 
+  test.each(["dikkenek.example.com/api/deploy", "ftp://x.example.com", "javascript:alert(1)", ""])(
+    "rankingUrl rejects a non-http(s) value: %p",
+    async (bad) => {
+      const res = await runCli(["agent", "config", "set", "rankingUrl", bad])
+      expect(res.exitCode).toBe(1)
+      expect(res.stderr).toContain("rankingUrl must start with http:// or https://")
+      expect(existsSync(join(dataDir, "agent-config.json"))).toBe(false)
+    }
+  )
+
+  test("rankingUrl is stored next to pagerUrl without replacing it", async () => {
+    const pager = "https://pagerio.example.com/p/secret"
+    const ranking = "https://dikkenek.example.com/api/deploy"
+    expect((await runCli(["agent", "config", "set", "pagerUrl", pager])).exitCode).toBe(0)
+    expect((await runCli(["agent", "config", "set", "rankingUrl", ranking])).exitCode).toBe(0)
+    expect(JSON.parse((await runCli(["--json", "agent", "config", "get", "pagerUrl"])).stdout).pagerUrl).toBe(pager)
+    expect(JSON.parse((await runCli(["--json", "agent", "config", "get", "rankingUrl"])).stdout).rankingUrl).toBe(ranking)
+  })
+
   test("an unknown key is still rejected", async () => {
     const res = await runCli(["agent", "config", "set", "bogusKey", "x"])
     expect(res.exitCode).toBe(1)

@@ -26,6 +26,7 @@ export interface PersistedAgentConfig {
   llmOauthToken?: string
   llmApiKey?: string
   pagerUrl?: string // pagerio URL paged on deploys/restarts; PAGERIO_URL wins. The URL is the secret.
+  rankingUrl?: string // ranking dashboard URL told about successful deploys; RANKING_URL wins.
   tenants?: Tenant[] // managed by `siteio agent tenant add|remove`; holds tenant API keys
 }
 

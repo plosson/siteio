@@ -4,14 +4,16 @@ import { join } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
 import { AgentServer } from "../../lib/agent/server"
-import { Pager } from "../../lib/agent/pager"
+import { Pager, Ranking } from "../../lib/agent/hooks"
 import { FakeRuntime } from "../helpers/fake-runtime"
 import type { AgentConfig } from "../../types"
 
 const API_KEY = "pager-test-key"
 
-// A fake pagerio endpoint recording every page it receives.
+// A fake endpoint recording every pagerio page (any path) and ranking report
+// (/rank) it receives.
 let pages: Record<string, unknown>[]
+let ranks: Record<string, unknown>[]
 let pagerStatus: number
 let pagerServer: ReturnType<typeof Bun.serve>
 let dir: string
@@ -19,11 +21,13 @@ let runtime: FakeRuntime
 
 beforeEach(() => {
   pages = []
+  ranks = []
   pagerStatus = 202
   pagerServer = Bun.serve({
     port: 0,
     async fetch(req) {
-      pages.push((await req.json()) as Record<string, unknown>)
+      const into = new URL(req.url).pathname === "/rank" ? ranks : pages
+      into.push((await req.json()) as Record<string, unknown>)
       return new Response("{}", { status: pagerStatus })
     },
   })
@@ -36,7 +40,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-function makeServer(pagerUrl: string | undefined, port?: number): AgentServer {
+function makeServer(pagerUrl: string | undefined, port?: number, rankingUrl?: string): AgentServer {
   const config: AgentConfig = {
     apiKey: API_KEY,
     dataDir: join(dir, "data"),
@@ -46,6 +50,7 @@ function makeServer(pagerUrl: string | undefined, port?: number): AgentServer {
     httpsPort: 443,
     skipTraefik: true,
     pagerUrl,
+    rankingUrl,
     port,
   }
   return new AgentServer(config, runtime)
@@ -57,6 +62,10 @@ function randomPort(): number {
 
 function pagerUrl(): string {
   return `http://localhost:${pagerServer.port}/p/secret`
+}
+
+function rankingUrl(): string {
+  return `http://localhost:${pagerServer.port}/rank`
 }
 
 async function call(
@@ -345,5 +354,91 @@ describe("Pager.notify", () => {
     const logs: string[] = []
     await new Pager(pagerUrl(), (l) => logs.push(l)).notify({ title: "t", message: "m" })
     expect(logs[0]).toContain("429")
+  })
+})
+
+describe("ranking", () => {
+  const as = (user: string) => ({ "X-Siteio-User": encodeURIComponent(user) })
+
+  test("no RANKING_URL: a deploy by a named user reports nothing", async () => {
+    const server = makeServer(pagerUrl())
+    expect(await call(server, "POST", "/sites/blog", siteZip(), as("ada"))).toBe(200)
+    await settle()
+    expect(ranks).toHaveLength(0)
+    expect(pages).toHaveLength(1) // the pager is unaffected
+  })
+
+  test("is independent of the pager: works with no PAGERIO_URL", async () => {
+    const server = makeServer(undefined, undefined, rankingUrl())
+    expect(await call(server, "POST", "/sites/blog", siteZip(), as("ada"))).toBe(200)
+    await settle()
+    expect(pages).toHaveLength(0)
+    expect(ranks).toEqual([{ user: "ada", version: "1", url: "https://blog.pager.test" }])
+  })
+
+  test("a site deploy reports the decoded user, each new version, and the site URL", async () => {
+    const server = makeServer(pagerUrl(), undefined, rankingUrl())
+    expect(await call(server, "POST", "/sites/blog", siteZip(), as("Zoë 张"))).toBe(200)
+    expect(await call(server, "POST", "/sites/blog", siteZip(), as("Zoë 张"))).toBe(200)
+    await settle()
+    expect(ranks).toEqual([
+      { user: "Zoë 张", version: "1", url: "https://blog.pager.test" },
+      { user: "Zoë 张", version: "2", url: "https://blog.pager.test" },
+    ])
+    expect(pages).toHaveLength(2) // both hooks fire
+  })
+
+  test("an anonymous deploy is not reported (the endpoint requires a user)", async () => {
+    const server = makeServer(undefined, undefined, rankingUrl())
+    expect(await call(server, "POST", "/sites/blog", siteZip())).toBe(200)
+    await call(server, "POST", "/apps", { name: "web", image: "nginx", internalPort: 80 })
+    expect(await call(server, "POST", "/apps/web/deploy")).toBe(200)
+    await settle()
+    expect(ranks).toHaveLength(0)
+  })
+
+  test("an app deploy reports the image as its version; a restart or failure reports nothing", async () => {
+    const server = makeServer(undefined, undefined, rankingUrl())
+    await call(server, "POST", "/apps", { name: "web", image: "nginx:1.27", internalPort: 80 })
+    expect(await call(server, "POST", "/apps/web/deploy", undefined, as("ada"))).toBe(200)
+    runtime.containerExistsReturn = true
+    expect(await call(server, "POST", "/apps/web/restart", undefined, as("ada"))).toBe(200)
+    runtime.pull = async () => {
+      throw new Error("pull denied")
+    }
+    expect(await call(server, "POST", "/apps/web/deploy", undefined, as("ada"))).not.toBe(200)
+    await settle()
+    expect(ranks).toEqual([{ user: "ada", version: "nginx:1.27", url: "https://web.pager.test" }])
+  })
+
+  test("a failed site deploy reports nothing", async () => {
+    const server = makeServer(undefined, undefined, rankingUrl())
+    runtime.pull = async () => {
+      throw new Error("registry down")
+    }
+    expect(await call(server, "POST", "/sites/blog", siteZip(), as("ada"))).not.toBe(200)
+    await settle()
+    expect(ranks).toHaveLength(0)
+  })
+
+  test("a ranking error never fails the deploy", async () => {
+    pagerStatus = 500
+    const server = makeServer(undefined, undefined, rankingUrl())
+    expect(await call(server, "POST", "/sites/blog", siteZip(), as("ada"))).toBe(200)
+  })
+})
+
+describe("Ranking.report", () => {
+  test("never rejects, and logs the failure, when the dashboard is unreachable", async () => {
+    const url = rankingUrl()
+    pagerServer.stop(true)
+    const logs: string[] = []
+    await new Ranking(url, (l) => logs.push(l)).report({ user: "ada", version: "1", url: "https://x" })
+    expect(logs[0]).toContain("Ranking failed")
+  })
+
+  test("an empty user is treated as anonymous and not sent", async () => {
+    await new Ranking(rankingUrl()).report({ user: "", version: "1", url: "https://x" })
+    expect(ranks).toHaveLength(0)
   })
 })

@@ -18,6 +18,8 @@ const VALID_KEYS: (keyof PersistedAgentConfig)[] = [
   "llmProvider", "llmModel", "llmOauthToken", "llmApiKey",
   // pagerio URL paged on deploys/restarts (masked: the URL is the secret).
   "pagerUrl",
+  // Ranking dashboard URL told about successful deploys.
+  "rankingUrl",
 ]
 
 function validateKey(key: string): asserts key is keyof PersistedAgentConfig {
@@ -102,8 +104,8 @@ export async function setConfigCommand(
 ): Promise<void> {
   validateKey(key)
 
-  if (key === "pagerUrl" && !/^https?:\/\//.test(value)) {
-    console.error(formatError("pagerUrl must start with http:// or https://"))
+  if ((key === "pagerUrl" || key === "rankingUrl") && !/^https?:\/\//.test(value)) {
+    console.error(formatError(`${key} must start with http:// or https://`))
     process.exit(1)
   }
 

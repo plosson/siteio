@@ -141,13 +141,19 @@ export async function startAgentCommand(): Promise<void> {
 
   const chat = buildChatConfig(process.env, persistedConfig)
 
-  // Optional: page the operator on every app/site deploy or restart.
-  // Env var wins over persisted config.
-  const pagerUrl = process.env.PAGERIO_URL || persistedConfig.pagerUrl || undefined
-  if (pagerUrl && !/^https?:\/\//.test(pagerUrl)) {
-    console.error(formatError("PAGERIO_URL (or pagerUrl) must start with http:// or https://"))
-    process.exit(1)
+  // Optional deploy hooks. Env var wins over persisted config.
+  const hookUrl = (envVar: string, key: "pagerUrl" | "rankingUrl"): string | undefined => {
+    const url = process.env[envVar] || persistedConfig[key] || undefined
+    if (url && !/^https?:\/\//.test(url)) {
+      console.error(formatError(`${envVar} (or ${key}) must start with http:// or https://`))
+      process.exit(1)
+    }
+    return url
   }
+  // Pages the operator on every app/site deploy or restart.
+  const pagerUrl = hookUrl("PAGERIO_URL", "pagerUrl")
+  // Reports every successful app/site deploy to a ranking dashboard.
+  const rankingUrl = hookUrl("RANKING_URL", "rankingUrl")
 
   const tenants = persistedConfig.tenants ?? []
 
@@ -164,6 +170,7 @@ export async function startAgentCommand(): Promise<void> {
     autoDeployInterval,
     chat,
     pagerUrl,
+    rankingUrl,
     tenants,
   }
 
@@ -183,6 +190,7 @@ export async function startAgentCommand(): Promise<void> {
     `  Chat:       ${chat ? `enabled (${chat.provider}${chat.model ? "/" + chat.model : ""}, ${chat.sandbox ? "sandboxed" : "host"})` : "disabled (no LLM credential)"}`
   )
   console.log(`  Pager:      ${pagerUrl ? "enabled" : "disabled (set PAGERIO_URL or pagerUrl)"}`)
+  console.log(`  Ranking:    ${rankingUrl ? "enabled" : "disabled (set RANKING_URL or rankingUrl)"}`)
   console.log(`  Tenants:    ${tenants.map((t) => t.domain).join(", ") || "none"}`)
   console.log("")
 

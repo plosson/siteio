@@ -16,7 +16,7 @@ import { OAuthStore } from "./oauth-store.ts"
 import { OAuthProvider } from "./oauth-provider.ts"
 import { McpHandler } from "./mcp.ts"
 import { DockerManager } from "./docker.ts"
-import { Pager } from "./pager.ts"
+import { Pager, Ranking } from "./hooks.ts"
 import type { Runtime } from "./runtime.ts"
 import { GitManager } from "./git.ts"
 import { DockerfileStorage } from "./dockerfile-storage.ts"
@@ -179,6 +179,8 @@ export class AgentServer {
   private autoDeployer: AutoDeployer
   // Pages the operator on deploys/restarts; null unless PAGERIO_URL is set.
   private pager: Pager | null
+  // Reports successful deploys to a ranking dashboard; null unless RANKING_URL is set.
+  private ranking: Ranking | null
 
   constructor(
     config: AgentConfig,
@@ -198,6 +200,7 @@ export class AgentServer {
     this.dockerfiles = new DockerfileStorage(config.dataDir)
     this.compose = new ComposeStorage(config.dataDir)
     this.pager = config.pagerUrl ? new Pager(config.pagerUrl) : null
+    this.ranking = config.rankingUrl ? new Ranking(config.rankingUrl) : null
     this.oauthProvider = new OAuthProvider({
       grants: this.grants,
       oauth: this.oauth,
@@ -1946,6 +1949,7 @@ export class AgentServer {
       message: [`v${updated.version}`, deployedBy && `by ${deployedBy}`, message].filter(Boolean).join(" · "),
       url: info.url,
     })
+    this.ranking?.report({ user: deployedBy, version: String(updated.version), url: info.url })
     return info
   }
 
@@ -2697,13 +2701,17 @@ export class AgentServer {
   }
 
   private pageApp(app: App, event: "deployed" | "restarted", by?: string): void {
+    const url = this.appStorage.url(app, this.tenants)
     this.pager?.notify({
       title: `App '${app.name}' ${event}`,
       message: [event === "deployed" && app.commitHash && `commit ${app.commitHash.slice(0, 7)}`, by && `by ${by}`, `on ${this.config.domain}`]
         .filter(Boolean)
         .join(" · "),
-      url: this.appStorage.url(app, this.tenants),
+      url,
     })
+    if (event === "deployed") {
+      this.ranking?.report({ user: by, version: app.commitHash?.slice(0, 7) ?? app.image, url })
+    }
   }
 
   isDeploying(name: string): boolean {
