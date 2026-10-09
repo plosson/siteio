@@ -33,7 +33,7 @@ import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 import { assertValidSiteEnvKeys, publicEnv, sameEnv, type EnvUpdate } from "./env.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
-import { TenantRegistry, assertValidNewName, isValidDomain, tenantServices, type Scope } from "./tenants.ts"
+import { TenantRegistry, assertValidNewName, normalizeDomains, tenantServices, type Scope } from "./tenants.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
 // gets the same window (clamped to the code). The per-grant spend cap is a
@@ -635,6 +635,42 @@ export class AgentServer {
     return { ...scrubApp(app), name: this.tenants.displayName(app.name, scope) }
   }
 
+  // Why the site or app `key` can't take `domains` as its custom domains, or
+  // null. One rule set for sites and apps: platform hostnames and other
+  // scopes' apexes are reserved, and a hostname another site or app already
+  // routes is taken (its holder is named only when the caller can see it).
+  // The operator's apps are the one exception to the reservation: they may
+  // take any `*.<primary>` hostname, as they always could.
+  private customDomainsViolation(kind: "site" | "app", key: string, domains: string[], scope: Scope): string | null {
+    const owner = this.tenants.ownerOf(key)
+    if (kind === "site" || owner) {
+      for (const domain of domains) {
+        const conflict = this.tenants.customDomainConflict(domain, owner)
+        if (conflict) return conflict
+      }
+    }
+    const holders = [
+      ...this.storage.list().map((site) => ({
+        kind: "site",
+        key: site.name,
+        hosts: [this.tenants.host(site.name), ...this.storage.customDomains(site, this.tenants)],
+      })),
+      ...this.appStorage.list().map((app) => ({
+        kind: "app",
+        key: app.name,
+        hosts: this.appStorage.routedDomains(app, this.tenants),
+      })),
+    ]
+    for (const holder of holders) {
+      if (holder.kind === kind && holder.key === key) continue
+      const overlap = domains.filter((d) => holder.hosts.includes(d))
+      if (overlap.length === 0) continue
+      const seen = this.tenants.nameIn(holder.key, scope)
+      return `Domain(s) already in use${seen ? ` by ${holder.kind} '${seen}'` : ""}: ${overlap.join(", ")}`
+    }
+    return null
+  }
+
   private async handleListApps(scope: Scope): Promise<Response> {
     const apps = this.appStorage.list().filter((app) => this.tenants.inScope(app.name, scope))
 
@@ -692,6 +728,10 @@ export class AgentServer {
       // a tenant's bare name; a primary name is checked here.
       const name = this.tenants.keyFor(body.name, scope)
       if (!scope) assertValidNewName(name, "App")
+
+      const domains = body.domains === undefined ? [] : normalizeDomains(body.domains)
+      const domainViolation = this.customDomainsViolation("app", name, domains, scope)
+      if (domainViolation) return this.error(domainViolation)
 
       const hasCompose = !!body.composeContent || !!body.composePath
       const hasGit = !!body.git
@@ -764,7 +804,7 @@ export class AgentServer {
         // Uploaded files are checked now; a git repo is only cloned at deploy
         const warnings =
           composeField?.source === "inline"
-            ? await this.checkUploadedCompose({ name, domains: body.domains || [], compose: composeField })
+            ? await this.checkUploadedCompose({ name, domains: domains, compose: composeField })
             : undefined
 
         const app = this.appStorage.create({
@@ -784,7 +824,7 @@ export class AgentServer {
           dockerfile: body.dockerfileContent ? { source: "inline" } : undefined,
           compose: composeField,
           internalPort: body.internalPort || 80,
-          domains: body.domains || [],
+          domains: domains,
           env: { ...body.env, ...body.secrets },
           ...(body.secrets && Object.keys(body.secrets).length > 0 && { secretKeys: Object.keys(body.secrets) }),
           volumes: body.volumes || [],
@@ -826,6 +866,12 @@ export class AgentServer {
         composeContent?: string
         envFileContent?: string
         primaryService?: string
+      }
+
+      if (body.domains !== undefined) {
+        body.domains = normalizeDomains(body.domains)
+        const domainViolation = this.customDomainsViolation("app", name, body.domains, scope)
+        if (domainViolation) return this.error(domainViolation)
       }
 
       // Compose sources: same fields as create, replaced in place so a stack
@@ -2363,38 +2409,9 @@ export class AgentServer {
         return this.error("'domains' array is required")
       }
 
-      const domains = body.domains.map((d) => d.toLowerCase())
-
-      for (const domain of domains) {
-        if (!isValidDomain(domain)) {
-          return this.error(`Invalid domain format: ${domain}`)
-        }
-      }
-
-      // No platform hostname of any base domain, and no other scope's apex.
-      const owner = this.tenants.ownerOf(name)
-      for (const domain of domains) {
-        const conflict = this.tenants.customDomainConflict(domain, owner)
-        if (conflict) return this.error(conflict)
-      }
-
-      // Custom domains are unique across the whole server. Name the other site
-      // only when the caller can see it.
-      for (const other of this.storage.list()) {
-        if (other.name === name) continue
-        const overlap = domains.filter((d) => this.storage.customDomains(other, this.tenants).includes(d))
-        if (overlap.length > 0) {
-          const seen = this.tenants.nameIn(other.name, scope)
-          return this.error(`Domain(s) already in use${seen ? ` by '${seen}'` : ""}: ${overlap.join(", ")}`)
-        }
-      }
-
-      for (const app of this.appStorage.list()) {
-        const overlap = domains.filter((d) => app.domains.includes(d))
-        if (overlap.length > 0) {
-          return this.error(`Domain(s) already in use${scope ? "" : ` by app '${app.name}'`}: ${overlap.join(", ")}`)
-        }
-      }
+      const domains = normalizeDomains(body.domains)
+      const violation = this.customDomainsViolation("site", name, domains, scope)
+      if (violation) return this.error(violation)
 
       const updated = this.storage.update(name, { domains })!
 
@@ -2404,6 +2421,7 @@ export class AgentServer {
       return this.json(this.storage.toInfo(this.storage.get(name)!, this.tenants, scope))
     } catch (err) {
       if (err instanceof SyntaxError) return this.error("Invalid request body")
+      if (err instanceof ValidationError) return this.error(err.message)
       const message = err instanceof Error ? err.message : "Failed to update domains"
       return this.error(message, 500)
     }

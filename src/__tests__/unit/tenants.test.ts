@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { TenantRegistry, tenantSlug, assertValidNewName } from "../../lib/agent/tenants.ts"
+import { TenantRegistry, tenantSlug, assertValidNewName, normalizeDomains } from "../../lib/agent/tenants.ts"
 import type { Tenant } from "../../types.ts"
 
 const A: Tenant = { domain: "friend.com", apiKey: "key-a", createdAt: "2026-10-08T00:00:00.000Z" }
@@ -189,5 +189,18 @@ describe("TenantRegistry.add", () => {
     expect(r.ownerOf("blog--third-net")).toBe(C)
     expect(r.checkNewTenant("third.net")).not.toBeNull()
     expect(r.checkNewTenant("third-net.com")).toBeNull()
+  })
+})
+
+describe("normalizeDomains", () => {
+  test("lower-cases well-formed domains", () => {
+    expect(normalizeDomains(["Hub.Acme.IO", "acme.io"])).toEqual(["hub.acme.io", "acme.io"])
+    expect(normalizeDomains([])).toEqual([])
+  })
+
+  test("refuses anything that is not an array of domain names", () => {
+    for (const raw of ["hub.acme.io", null, undefined, {}, [42], [null], ["not a domain"], ["-x.io"], ["*.acme.io"], ["acme"], ["a/b.io"]]) {
+      expect(() => normalizeDomains(raw)).toThrow()
+    }
   })
 })

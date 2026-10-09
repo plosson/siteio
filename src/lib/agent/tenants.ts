@@ -31,6 +31,17 @@ export function isValidDomain(domain: string): boolean {
   return DOMAIN_RE.test(domain)
 }
 
+// The custom domains of a request, lower-cased. Shared by sites and apps.
+export function normalizeDomains(raw: unknown): string[] {
+  if (!Array.isArray(raw) || raw.some((d) => typeof d !== "string")) {
+    throw new ValidationError("'domains' must be an array of domain names")
+  }
+  const domains = (raw as string[]).map((d) => d.toLowerCase())
+  const bad = domains.find((d) => !isValidDomain(d))
+  if (bad !== undefined) throw new ValidationError(`Invalid domain format: ${bad}`)
+  return domains
+}
+
 export function tenantSlug(domain: string): string {
   return domain.replace(/\./g, "-")
 }

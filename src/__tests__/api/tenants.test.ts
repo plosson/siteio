@@ -525,6 +525,91 @@ describe("API: tenants", () => {
       expect(list.find((a) => a.name === "vault--vaults-net")!.url).toBe("https://vault.vaults.net")
     })
   })
+
+  describe("custom domains of sites and apps", () => {
+    const json = (key: string) => as(key, { "Content-Type": "application/json" })
+    const createApp = (body: Record<string, unknown>, key = "god-key", host = "localhost") =>
+      req("/apps", {
+        method: "POST",
+        headers: json(key),
+        body: JSON.stringify({ image: "nginx:alpine", internalPort: 80, ...body }),
+      }, host)
+    const patchApp = (name: string, body: Record<string, unknown>, key = "god-key", host = "localhost") =>
+      req(`/apps/${name}`, { method: "PATCH", headers: json(key), body: JSON.stringify(body) }, host)
+    const setSiteDomains = (name: string, domains: unknown, key = "god-key", host = "localhost") =>
+      req(`/sites/${name}/domains`, { method: "PATCH", headers: json(key), body: JSON.stringify({ domains }) }, host)
+    const dataOf = async <T>(res: Response) => ((await res.json()) as ApiResponse<T>).data!
+    const errorOf = async (res: Response) => ((await res.json()) as ApiResponse<null>).error
+
+    test("an operator app may still take any hostname of the primary domain", async () => {
+      expect((await createApp({ name: "hub", domains: ["status.example.com"] })).status).toBe(200)
+    })
+
+    test("an operator app can't take a hostname another site or app already serves", async () => {
+      await deploy("shop", "god-key", "localhost")
+      await createApp({ name: "plain" })
+      await createApp({ name: "hub", domains: ["hub.acme.io"] })
+      for (const domain of ["shop.example.com", "plain.example.com", "hub.acme.io"]) {
+        const res = await createApp({ name: "intruder", domains: [domain] })
+        expect(res.status).toBe(400)
+        expect(await errorOf(res)).toContain("already in use")
+      }
+      expect((await patchApp("plain", { domains: ["hub.acme.io"] })).status).toBe(400)
+    })
+
+    test("an app keeps its own domains when it updates them", async () => {
+      await createApp({ name: "hub", domains: ["hub.acme.io"] })
+      const res = await patchApp("hub", { domains: ["hub.acme.io", "www.hub.acme.io"] })
+      expect(res.status).toBe(200)
+      expect((await dataOf<App>(res)).domains).toEqual(["hub.acme.io", "www.hub.acme.io"])
+    })
+
+    test("app domains are lower-cased and must be well formed", async () => {
+      const res = await createApp({ name: "hub", domains: ["Hub.Acme.IO"] })
+      expect(res.status).toBe(200)
+      expect((await dataOf<App>(res)).domains).toEqual(["hub.acme.io"])
+      for (const domains of [["not a domain"], ["-x.io"], ["*.acme.io"], [42], "hub2.acme.io"]) {
+        expect((await createApp({ name: "hub2", domains })).status).toBe(400)
+        expect((await patchApp("hub", { domains })).status).toBe(400)
+      }
+    })
+
+    test("a site can't take a domain an app uses, and a bad site domain is a 400, not a 500", async () => {
+      await createApp({ name: "hub", domains: ["hub.acme.io"] })
+      await deploy("blog", "god-key", "localhost")
+      expect((await setSiteDomains("blog", ["hub.acme.io"])).status).toBe(400)
+      expect((await setSiteDomains("blog", [42])).status).toBe(400)
+    })
+
+    test("a tenant app can't take a reserved or used hostname", async () => {
+      await createApp({ name: "hub", domains: ["hub.acme.io"] })
+      for (const domain of ["hub.example.com", "example.com", "api.example.com", "friend.com", "blog.friend.com", "x.vaults.net", "api.vaults.net", "hub.acme.io"]) {
+        const res = await createApp({ name: "vault", domains: [domain] }, "key-c", "api.vaults.net")
+        expect(res.status).toBe(400)
+      }
+      expect(readdirSync(join(dataDir, "apps"))).toEqual(["hub.json"])
+    })
+
+    test("a tenant can't move its app onto a taken hostname later", async () => {
+      await createApp({ name: "vault" }, "key-c", "api.vaults.net")
+      const res = await patchApp("vault", { domains: ["hub.example.com"] }, "key-c", "api.vaults.net")
+      expect(res.status).toBe(400)
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.domains).toEqual([])
+    })
+
+    test("a tenant app may use its own apex and unrelated domains", async () => {
+      const res = await createApp({ name: "vault", domains: ["vaults.net", "my-vault.io"] }, "key-c", "api.vaults.net")
+      expect(res.status).toBe(200)
+    })
+
+    test("a clash never reveals another scope's app name", async () => {
+      await createApp({ name: "secret-hub", domains: ["hub.acme.io"] })
+      const res = await createApp({ name: "vault", domains: ["hub.acme.io"] }, "key-c", "api.vaults.net")
+      expect(res.status).toBe(400)
+      expect(await errorOf(res)).not.toContain("secret-hub")
+    })
+  })
 })
 
 describe("API: primary sites whose name contains --", () => {
