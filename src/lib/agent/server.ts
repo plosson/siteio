@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "fs"
+import { existsSync, mkdirSync, realpathSync } from "fs"
 import { dirname, isAbsolute, join, resolve, sep } from "path"
 import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
@@ -1248,6 +1248,13 @@ export class AgentServer {
         }
         if (!existsSync(dockerfilePath)) {
           throw new DeployError(`Dockerfile not found at '${app.git.dockerfile}'`, 400)
+        }
+        // The repo is the app's: a committed symlink can still point out of
+        // it, and Docker follows it.
+        const realRepo = realpathSync(repoPath)
+        const realInRepo = (path: string) => realpathSync(path) === realRepo || realpathSync(path).startsWith(realRepo + sep)
+        if (!realInRepo(contextPath) || !realInRepo(dockerfilePath)) {
+          throw new DeployError("Build context and Dockerfile can't be outside the repository", 400)
         }
 
         imageToRun = this.docker.imageTag(name)
