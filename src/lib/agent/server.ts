@@ -51,6 +51,9 @@ const EDIT_SESSION_COOKIE = "siteio_edit"
 const TENANT_ROUTE =
   /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|env|rename|grants|grants\/grt_[a-z0-9]+))?)$/
 
+// The app routes a tenant allowed to run apps (Tenant.apps) may reach.
+const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|restart|logs|status|thumbnail))?)?$/
+
 // Read one cookie value from a request's Cookie header (no external dep).
 function readCookie(req: Request, name: string): string | null {
   const header = req.headers.get("cookie")
@@ -414,11 +417,14 @@ export class AgentServer {
     // works on keys (see tenants.ts). The god key is the primary scope.
     const scope: Scope = auth.kind === "tenant" ? auth.tenant : null
     if (scope) {
-      if (path === "/apps" || path.startsWith("/apps/")) return this.error("Apps are disabled on this agent", 403)
-      if (path.includes("--") || !TENANT_ROUTE.test(path)) return this.error("Not found", 404)
+      const isApps = path === "/apps" || path.startsWith("/apps/")
+      if (isApps && !scope.apps) return this.error("Apps are disabled on this agent", 403)
+      if (path.includes("--") || !(isApps ? TENANT_APP_ROUTE : TENANT_ROUTE).test(path)) return this.error("Not found", 404)
       // A name that is no valid label can't exist in a tenant: 404, never a throw.
-      const named = path.match(/^\/sites\/([a-z0-9-]+)/)
-      if (named && !this.tenants.resolve(named[1]!, scope)) return this.error("Site not found", 404)
+      const named = path.match(/^\/(sites|apps)\/([a-z0-9-]+)/)
+      if (named && !this.tenants.resolve(named[2]!, scope)) {
+        return this.error(named[1] === "apps" ? "App not found" : "Site not found", 404)
+      }
     }
     const k = (name: string) => this.tenants.keyFor(name, scope)
 
@@ -556,25 +562,25 @@ export class AgentServer {
 
     // GET /apps - list all apps
     if (path === "/apps" && req.method === "GET") {
-      return await this.handleListApps()
+      return await this.handleListApps(scope)
     }
 
     // POST /apps - create app
     if (path === "/apps" && req.method === "POST") {
-      return this.handleCreateApp(req)
+      return this.handleCreateApp(req, scope)
     }
 
     // App routes with name parameter
     const appMatch = path.match(/^\/apps\/([a-z0-9-]+)$/)
     if (appMatch) {
-      const appName = appMatch[1]!
+      const appName = k(appMatch[1]!)
       // GET /apps/:name - get app details
       if (req.method === "GET") {
-        return this.handleGetApp(appName)
+        return this.handleGetApp(appName, scope)
       }
       // PATCH /apps/:name - update app
       if (req.method === "PATCH") {
-        return this.handleUpdateApp(appName, req)
+        return this.handleUpdateApp(appName, req, scope)
       }
       // DELETE /apps/:name - delete app
       if (req.method === "DELETE") {
@@ -585,37 +591,37 @@ export class AgentServer {
     // POST /apps/:name/deploy - deploy app
     const appDeployMatch = path.match(/^\/apps\/([a-z0-9-]+)\/deploy$/)
     if (appDeployMatch && req.method === "POST") {
-      return this.handleDeployApp(appDeployMatch[1]!, url, req)
+      return this.handleDeployApp(k(appDeployMatch[1]!), url, req, scope)
     }
 
     // POST /apps/:name/stop - stop app
     const appStopMatch = path.match(/^\/apps\/([a-z0-9-]+)\/stop$/)
     if (appStopMatch && req.method === "POST") {
-      return this.handleStopApp(appStopMatch[1]!)
+      return this.handleStopApp(k(appStopMatch[1]!), scope)
     }
 
     // POST /apps/:name/restart - restart app
     const appRestartMatch = path.match(/^\/apps\/([a-z0-9-]+)\/restart$/)
     if (appRestartMatch && req.method === "POST") {
-      return this.handleRestartApp(appRestartMatch[1]!)
+      return this.handleRestartApp(k(appRestartMatch[1]!), scope)
     }
 
     // GET /apps/:name/logs - get app logs
     const appLogsMatch = path.match(/^\/apps\/([a-z0-9-]+)\/logs$/)
     if (appLogsMatch && req.method === "GET") {
-      return this.handleGetAppLogs(appLogsMatch[1]!, url)
+      return this.handleGetAppLogs(k(appLogsMatch[1]!), url)
     }
 
     // GET /apps/:name/status - live container state per service
     const appStatusMatch = path.match(/^\/apps\/([a-z0-9-]+)\/status$/)
     if (appStatusMatch && req.method === "GET") {
-      return this.handleGetAppStatus(appStatusMatch[1]!)
+      return this.handleGetAppStatus(k(appStatusMatch[1]!))
     }
 
     // /apps/:name/thumbnail - GET the card preview image, POST to regenerate it
     const appThumbMatch = path.match(/^\/apps\/([a-z0-9-]+)\/thumbnail$/)
     if (appThumbMatch) {
-      const thumbName = appThumbMatch[1]!
+      const thumbName = k(appThumbMatch[1]!)
       if (req.method === "GET") return this.handleGetThumbnail(thumbName)
       if (req.method === "POST") return this.handleRefreshAppThumbnail(thumbName)
     }
@@ -624,29 +630,34 @@ export class AgentServer {
   }
 
   // App handlers
-  private async handleListApps(): Promise<Response> {
-    const apps = this.appStorage.list()
+  // An app as `scope` sees it: secrets scrubbed, a tenant's key as its bare name.
+  private appView(app: App, scope: Scope): App {
+    return { ...scrubApp(app), name: this.tenants.displayName(app.name, scope) }
+  }
+
+  private async handleListApps(scope: Scope): Promise<Response> {
+    const apps = this.appStorage.list().filter((app) => this.tenants.inScope(app.name, scope))
 
     // Get TLS status from Traefik if available
     const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
 
     const appInfos: AppInfo[] = apps.map((app) => scrubApp({
-      ...this.appStorage.toInfo(app, this.tenants),
+      ...this.appStorage.toInfo(app, this.tenants, scope),
       tls: tlsStatusMap.get(`siteio-${app.name}`) || "pending",
       hasThumbnail: this.thumbnails?.has(app.name) ?? false,
     }))
     return this.json(appInfos)
   }
 
-  private handleGetApp(name: string): Response {
+  private handleGetApp(name: string, scope: Scope): Response {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
     }
-    return this.json(scrubApp(app))
+    return this.json(this.appView(app, scope))
   }
 
-  private async handleCreateApp(req: Request): Promise<Response> {
+  private async handleCreateApp(req: Request, scope: Scope): Promise<Response> {
     try {
       const body = (await req.json()) as {
         name: string
@@ -677,7 +688,10 @@ export class AgentServer {
         return this.error("App name is required")
       }
 
-      assertValidNewName(body.name, "App")
+      // The key the app is stored, built, run and routed under. keyFor checks
+      // a tenant's bare name; a primary name is checked here.
+      const name = this.tenants.keyFor(body.name, scope)
+      if (!scope) assertValidNewName(name, "App")
 
       const hasCompose = !!body.composeContent || !!body.composePath
       const hasGit = !!body.git
@@ -727,18 +741,18 @@ export class AgentServer {
       // Determine image tag for locally-built or compose-tagged apps.
       const image =
         hasGit || hasInlineDockerfile || hasCompose
-          ? this.docker.imageTag(body.name)
+          ? this.docker.imageTag(name)
           : body.image!
 
       // Persist inline Dockerfile / compose file up-front; roll back on create failure.
       if (body.dockerfileContent) {
-        this.dockerfiles.write(body.name, body.dockerfileContent)
+        this.dockerfiles.write(name, body.dockerfileContent)
       }
       if (body.composeContent) {
-        this.compose.writeBaseInline(body.name, body.composeContent)
+        this.compose.writeBaseInline(name, body.composeContent)
       }
       if (body.envFileContent) {
-        this.compose.writeBaseEnv(body.name, body.envFileContent)
+        this.compose.writeBaseEnv(name, body.envFileContent)
       }
 
       try {
@@ -750,11 +764,11 @@ export class AgentServer {
         // Uploaded files are checked now; a git repo is only cloned at deploy
         const warnings =
           composeField?.source === "inline"
-            ? await this.checkUploadedCompose({ name: body.name, domains: body.domains || [], compose: composeField })
+            ? await this.checkUploadedCompose({ name, domains: body.domains || [], compose: composeField })
             : undefined
 
         const app = this.appStorage.create({
-          name: body.name,
+          name,
           type: "container",
           image,
           git: body.git
@@ -778,10 +792,10 @@ export class AgentServer {
           status: "pending",
         })
 
-        return this.json({ ...scrubApp(app), ...(warnings && { warnings }) })
+        return this.json({ ...this.appView(app, scope), ...(warnings && { warnings }) })
       } catch (err) {
-        if (body.dockerfileContent) this.dockerfiles.remove(body.name)
-        if (body.composeContent) this.compose.remove(body.name)
+        if (body.dockerfileContent) this.dockerfiles.remove(name)
+        if (body.composeContent) this.compose.remove(name)
         throw err
       }
     } catch (err) {
@@ -790,7 +804,7 @@ export class AgentServer {
     }
   }
 
-  private async handleUpdateApp(name: string, req: Request): Promise<Response> {
+  private async handleUpdateApp(name: string, req: Request, scope: Scope): Promise<Response> {
     try {
       const app = this.appStorage.get(name)
       if (!app) {
@@ -887,7 +901,7 @@ export class AgentServer {
         return this.error("Failed to update app", 500)
       }
 
-      return this.json({ ...scrubApp(updated), ...(warnings && { warnings }) })
+      return this.json({ ...this.appView(updated, scope), ...(warnings && { warnings }) })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update app"
       return this.error(message, 400)
@@ -956,7 +970,7 @@ export class AgentServer {
     return this.json(null)
   }
 
-  private async handleDeployApp(name: string, url: URL, req: Request): Promise<Response> {
+  private async handleDeployApp(name: string, url: URL, req: Request, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -984,10 +998,10 @@ export class AgentServer {
     try {
       if (app.compose) {
         const { updated, warnings } = await this.deployComposeApp(app)
-        return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.tenants), warnings })
+        return this.json({ ...this.appView(updated, scope), url: this.appStorage.url(updated, this.tenants), warnings })
       }
       const updated = await this.deployContainerApp(name, { noCache, dockerfileContent: newDockerfileContent })
-      return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.tenants) })
+      return this.json({ ...this.appView(updated, scope), url: this.appStorage.url(updated, this.tenants) })
     } catch (err) {
       const status = err instanceof DeployError ? err.status : 500
       return this.error(err instanceof Error ? err.message : "Failed to deploy app", status)
@@ -1182,7 +1196,7 @@ export class AgentServer {
     }
   }
 
-  private async handleStopApp(name: string): Promise<Response> {
+  private async handleStopApp(name: string, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -1198,14 +1212,14 @@ export class AgentServer {
         await this.docker.stop(name)
       }
       const updated = this.appStorage.update(name, { status: "stopped" })
-      return this.json(updated && scrubApp(updated))
+      return this.json(updated && this.appView(updated, scope))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to stop app"
       return this.error(message, 500)
     }
   }
 
-  private async handleRestartApp(name: string): Promise<Response> {
+  private async handleRestartApp(name: string, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -1219,13 +1233,13 @@ export class AgentServer {
         await this.docker.composeRestart(`siteio-${name}`, files, this.writeComposeEnvFile(app))
         const updated = this.appStorage.update(name, { status: "running" })
         this.pageApp(app, "restarted")
-        return this.json(updated && scrubApp(updated))
+        return this.json(updated && this.appView(updated, scope))
       }
       if (this.docker.containerExists(name)) {
         await this.docker.restart(name)
         const updated = this.appStorage.update(name, { status: "running" })
         this.pageApp(app, "restarted")
-        return this.json(updated && scrubApp(updated))
+        return this.json(updated && this.appView(updated, scope))
       }
       return this.error("Container does not exist. Deploy the app first.", 400)
     } catch (err) {
