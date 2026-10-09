@@ -12,12 +12,14 @@ import type { AgentConfig, ApiResponse, SiteInfo, Tenant } from "../../types.ts"
 
 const A: Tenant = { domain: "friend.com", apiKey: "key-a", createdAt: "2026-10-08T00:00:00.000Z" }
 const B: Tenant = { domain: "other.org", apiKey: "key-b", createdAt: "2026-10-08T00:00:00.000Z" }
+const C: Tenant = { domain: "vaults.net", apiKey: "key-c", createdAt: "2026-10-09T00:00:00.000Z", apps: true }
 
-function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
+function makeServer(dataDir: string, runtime: FakeRuntime, extra: Partial<AgentConfig> = {}): AgentServer {
   const config: AgentConfig = {
     apiKey: "god-key", dataDir, domain: "example.com",
     maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
-    tenants: [A, B],
+    tenants: [A, B, C],
+    ...extra,
   }
   return new AgentServer(config, runtime)
 }
@@ -31,7 +33,8 @@ describe("API: tenants", () => {
   let server: AgentServer
 
   // `host` picks the scope: localhost / api.example.com = primary,
-  // api.friend.com = tenant A, api.other.org = tenant B.
+  // api.friend.com = tenant A, api.other.org = tenant B,
+  // api.vaults.net = tenant C (apps allowed).
   const req = (path: string, init: RequestInit = {}, host = "localhost") =>
     server.handleRequestForTest(new Request(`http://x${path}`, init), host)
   const as = (key: string, extra: Record<string, string> = {}) => ({ "X-API-Key": key, ...extra })
@@ -294,6 +297,20 @@ describe("API: tenants", () => {
       expect(info.email).toBeUndefined()
     })
 
+    test("/agent reports apps only to a tenant allowed to run them", async () => {
+      const info = async (key: string, host: string) =>
+        ((await (await req("/agent", { headers: as(key) }, host)).json()) as ApiResponse<Record<string, unknown>>).data!
+      expect((await info("key-c", "api.vaults.net")).appsEnabled).toBe(true)
+      expect((await info("key-c", "api.vaults.net")).appCount).toBe(0)
+      expect((await info("key-a", "api.friend.com")).appsEnabled).toBe(false)
+    })
+
+    test("an agent with apps disabled reports them off to every tenant", async () => {
+      server = makeServer(dataDir, runtime, { appsEnabled: false })
+      const res = await req("/agent", { headers: as("key-c") }, "api.vaults.net")
+      expect(((await res.json()) as ApiResponse<Record<string, unknown>>).data!.appsEnabled).toBe(false)
+    })
+
     test("a tenant can't download or read logs of another tenant's site", async () => {
       await deploy("blog", "key-b", "api.other.org")
       for (const sub of ["download", "logs"]) {
@@ -310,6 +327,25 @@ describe("API: tenants", () => {
         body: typeof body === "string" ? body : JSON.stringify(body),
       }, host)
     const errorOf = async (res: Response) => ((await res.json()) as ApiResponse<null>).error
+
+    test("a tenant is sites-only unless added with apps: true", async () => {
+      const plain = await add({ domain: "third.net" })
+      expect(plain.status).toBe(200)
+      expect(((await plain.json()) as ApiResponse<{ apps: boolean }>).data!.apps).toBe(false)
+      const withApps = await add({ domain: "fourth.net", apps: true })
+      expect(withApps.status).toBe(200)
+      expect(((await withApps.json()) as ApiResponse<{ apps: boolean }>).data!.apps).toBe(true)
+      const stored = loadAgentConfig(dataDir).tenants!
+      expect(stored.find((t) => t.domain === "third.net")!.apps).toBeUndefined()
+      expect(stored.find((t) => t.domain === "fourth.net")!.apps).toBe(true)
+    })
+
+    test("refuses an apps flag that is not a boolean", async () => {
+      for (const apps of ["yes", "true", 1, null, {}]) {
+        expect((await add({ domain: "third.net", apps })).status).toBe(400)
+      }
+      expect(loadAgentConfig(dataDir).tenants).toBeUndefined()
+    })
 
     test("only the god key on the primary api host may add a tenant", async () => {
       expect((await add({ domain: "third.net" }, "key-a", "api.friend.com")).status).toBe(404)

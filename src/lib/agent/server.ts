@@ -1303,19 +1303,25 @@ export class AgentServer {
   // Add a tenant and serve it at once, like `siteio agent tenant add` but
   // without the restart. DNS (*.<domain> → this server) is the caller's job.
   private async handleAddTenant(req: Request): Promise<Response> {
-    let body: { domain?: unknown }
+    let body: { domain?: unknown; apps?: unknown }
     try {
-      body = (await req.json()) as { domain?: unknown }
+      body = (await req.json()) as { domain?: unknown; apps?: unknown }
     } catch {
       return this.error("Invalid JSON body")
     }
     if (typeof body?.domain !== "string") return this.error("'domain' is required")
+    if (body.apps !== undefined && typeof body.apps !== "boolean") return this.error("'apps' must be true or false")
     const domain = body.domain.trim().toLowerCase()
 
     const reason = this.tenants.checkNewTenant(domain, tenantServices(this.storage, this.appStorage))
     if (reason) return this.error(reason)
 
-    const tenant: Tenant = { domain, apiKey: generateApiKey(), createdAt: new Date().toISOString() }
+    const tenant: Tenant = {
+      domain,
+      apiKey: generateApiKey(),
+      createdAt: new Date().toISOString(),
+      ...(body.apps === true && { apps: true }),
+    }
     // Append to what's on disk, which may hold tenants added on-box since start.
     const persisted = (loadAgentConfig(this.config.dataDir).tenants ?? []).filter((t) => t.domain !== domain)
     updateAgentConfig(this.config.dataDir, { tenants: [...persisted, tenant] })
@@ -1323,7 +1329,7 @@ export class AgentServer {
     this.traefik?.setApiHosts(this.tenants.apiHosts())
 
     const apiUrl = `https://api.${domain}`
-    return this.json({ domain, apiUrl, apiKey: tenant.apiKey, token: encodeToken(apiUrl, tenant.apiKey) })
+    return this.json({ domain, apiUrl, apiKey: tenant.apiKey, token: encodeToken(apiUrl, tenant.apiKey), apps: tenant.apps === true })
   }
 
   // Site handlers
@@ -1331,14 +1337,16 @@ export class AgentServer {
   // Sanitized, read-only view of the agent's runtime settings for the admin UI.
   // Secrets (apiKey, ACME/DNS env, Cloudflare token) are deliberately omitted.
   private handleGetAgentInfo(scope: Scope): Response {
-    // A tenant sees a sites-only agent of its own; host settings stay private.
+    // A tenant sees an agent of its own: its sites, and its apps when it may
+    // run them. Host settings stay private.
     if (scope) {
+      const apps = scope.apps === true && this.config.appsEnabled !== false
       return this.json({
         domain: scope.domain,
         version: getVersion(),
-        appsEnabled: false,
+        appsEnabled: apps,
         siteCount: this.storage.list().filter((s) => this.tenants.inScope(s.name, scope)).length,
-        appCount: 0,
+        appCount: apps ? this.appStorage.list().filter((a) => this.tenants.inScope(a.name, scope)).length : 0,
         chat: { configured: false },
       })
     }
