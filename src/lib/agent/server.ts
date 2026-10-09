@@ -701,14 +701,14 @@ export class AgentServer {
   // scopes' apexes are reserved, and a hostname another site or app already
   // routes is taken (its holder is named only when the caller can see it).
   // The operator's apps are the one exception to the reservation: they may
-  // take any `*.<primary>` hostname, as they always could.
+  // take any `*.<primary>` hostname but the API's, as they always could.
   private customDomainsViolation(kind: "site" | "app", key: string, domains: string[], scope: Scope): string | null {
     const owner = this.tenants.ownerOf(key)
-    if (kind === "site" || owner) {
-      for (const domain of domains) {
-        const conflict = this.tenants.customDomainConflict(domain, owner)
-        if (conflict) return conflict
-      }
+    const primary = this.tenants.primaryDomain
+    for (const domain of domains) {
+      if (kind === "app" && !owner && domain.endsWith(`.${primary}`) && domain !== `api.${primary}`) continue
+      const conflict = this.tenants.customDomainConflict(domain, owner)
+      if (conflict) return conflict
     }
     const holders = [
       ...this.storage.list().map((site) => ({

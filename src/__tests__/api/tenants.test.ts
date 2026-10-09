@@ -744,6 +744,16 @@ describe("API: tenants", () => {
       expect((await createApp({ name: "hub", domains: ["status.example.com"] })).status).toBe(200)
     })
 
+    test("an operator app can't take a tenant's hostnames or the primary api host", async () => {
+      await createApp({ name: "plain" })
+      for (const domain of ["x.vaults.net", "vaults.net", "api.vaults.net", "API.friend.com", "api.example.com"]) {
+        expect((await createApp({ name: "hub", domains: [domain] })).status).toBe(400)
+        expect((await patchApp("plain", { domains: [domain] })).status).toBe(400)
+      }
+      expect(readdirSync(join(dataDir, "apps"))).toEqual(["plain.json"])
+      expect((await createApp({ name: "hub", domains: ["status.example.com", "example.com", "hub.acme.io"] })).status).toBe(200)
+    })
+
     test("an operator app can't take a hostname another site or app already serves", async () => {
       await deploy("shop", "god-key", "localhost")
       await createApp({ name: "plain" })
