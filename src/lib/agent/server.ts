@@ -677,6 +677,8 @@ export class AgentServer {
         return this.error("App name is required")
       }
 
+      assertValidNewName(body.name, "App")
+
       const hasCompose = !!body.composeContent || !!body.composePath
       const hasGit = !!body.git
       const hasImage = !!body.image

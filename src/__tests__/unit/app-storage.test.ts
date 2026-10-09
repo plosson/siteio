@@ -208,4 +208,18 @@ describe("Unit: AppStorage", () => {
       expect(storage.url(app, "base.test")).toBe(storage.toInfo(app, "base.test").url)
     })
   })
+
+  describe("stored names", () => {
+    test("storage accepts a tenant key; new-name rules live in the server", () => {
+      const app = storage.create(createTestApp("vault--vaults-net"))
+      expect(app.name).toBe("vault--vaults-net")
+      expect(storage.get("vault--vaults-net")).not.toBeNull()
+    })
+
+    test("storage still refuses names that are no valid label or path-safe", () => {
+      for (const name of ["", "Vault", "a/b", "../x", "a b", "api"]) {
+        expect(() => storage.create(createTestApp(name))).toThrow()
+      }
+    })
+  })
 })
