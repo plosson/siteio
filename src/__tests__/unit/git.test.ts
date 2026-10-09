@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
-import { GitManager, cloneErrorMessage, lsRemoteErrorMessage } from "../../lib/agent/git"
+import { GitManager, cloneArgs, cloneErrorMessage, lsRemoteErrorMessage } from "../../lib/agent/git"
 import { makeRepo } from "../helpers/git-repo"
 
 describe("cloneErrorMessage", () => {
@@ -33,6 +33,13 @@ describe("cloneErrorMessage", () => {
 
   test("unrecognized errors fall through to a generic message", () => {
     expect(cloneErrorMessage("fatal: unable to access: timeout", opts)).toContain("Failed to clone repository")
+  })
+})
+
+describe("cloneArgs", () => {
+  test("a URL is never read as an option", () => {
+    const args = cloneArgs("-uhttps://x", "main", "/data/repos/app")
+    expect(args).toEqual(["clone", "--depth", "1", "--branch", "main", "--", "-uhttps://x", "/data/repos/app"])
   })
 })
 

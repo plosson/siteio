@@ -574,6 +574,23 @@ describe("API: tenants", () => {
       expect((await createApp(git({ context: "app", dockerfile: "app/Dockerfile.prod" }))).status).toBe(200)
     })
 
+    test("a tenant git repository must be an https URL", async () => {
+      for (const repoUrl of ["file:///data", "/data/repos/hub", "git@github.com:x/y.git", "-uhttps://x", "ssh://git@github.com/x/y.git", "http://example.com/r.git", 42]) {
+        const res = await createApp({ name: "vault", image: undefined, git: { repoUrl } })
+        expect(res.status).toBe(400)
+      }
+      expect(appsOnDisk()).toEqual([])
+      expect((await createApp({ name: "vault", image: undefined, git: { repoUrl: "https://example.com/r.git" } })).status).toBe(200)
+      const res = await req("/apps/vault", { method: "PATCH", headers: json("key-c"), body: JSON.stringify({ git: { repoUrl: "file:///data" } }) }, "api.vaults.net")
+      expect(res.status).toBe(400)
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.git!.repoUrl).toBe("https://example.com/r.git")
+    })
+
+    test("the operator keeps any git repository URL", async () => {
+      expect((await createApp({ name: "hub", image: undefined, git: { repoUrl: "file:///srv/hub.git" } }, "god-key", "localhost")).status).toBe(200)
+    })
+
     test("a tenant can't point its git context outside the repository later", async () => {
       await createApp({ name: "vault", image: undefined, git: { repoUrl: "https://example.com/r.git", context: "app" } })
       for (const git of <Record<string, string>[]>[{ context: "../.." }, { dockerfile: "../../x" }]) {

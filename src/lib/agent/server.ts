@@ -653,6 +653,11 @@ export class AgentServer {
   ): string | null {
     if (!scope) return null
     if (fields.compose) return "Compose apps are not available to a tenant"
+    // Any other scheme or a bare path clones from the agent's own disk or
+    // network (file://, ssh with the agent's keys)
+    if (fields.git?.repoUrl !== undefined && (typeof fields.git.repoUrl !== "string" || !fields.git.repoUrl.startsWith("https://"))) {
+      return "git.repoUrl must be an https:// URL"
+    }
     for (const field of ["context", "dockerfile"] as const) {
       const path = fields.git?.[field]
       if (path === undefined) continue
