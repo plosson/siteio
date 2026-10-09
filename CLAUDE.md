@@ -30,7 +30,7 @@
 A self-hosted deployment platform for **websites** and **Docker containers** with automatic HTTPS via Traefik.
 
 ### Features
-- **Sites**: Deploy folders as websites (`siteio sites deploy ./folder`). Every site runs in its own PocketBase container: static frontend plus optional backend (auth, database, file storage, realtime) at `/api`
+- **Sites**: Deploy folders as websites (`siteio sites deploy ./folder`). Every site runs in its own PocketBase container: static frontend plus optional backend (auth, database, file storage, realtime) at `/api`; env vars and secrets for its hooks via `siteio sites set|unset`
 - **Local dev**: `siteio sites dev` runs a site + backend locally without Docker
 - **Container apps**: Deploy Docker images (`siteio apps create myapp -i nginx -p 80`)
 - **Git deployments**: Build from Git repos (`siteio apps create myapp --git <url> -p 3000`)
