@@ -65,7 +65,8 @@ You edit the files here; the \`siteio\` CLI runs and deploys them.
 - \`index.html\` (and any other files at the folder root) = the website, served as-is.
 - \`.siteio/pb_migrations/*.js\` = your database schema, **as code**. Applied
   automatically on \`dev\` and \`deploy\`. See \`1700000000_init.js\` for the pattern.
-- \`.siteio/pb_hooks/*.js\` = optional backend JS hooks.
+- \`.siteio/pb_hooks/*.js\` = optional backend JS hooks; read secrets with
+  \`$os.getenv("KEY")\`, set them with \`siteio sites set <site> --secret KEY=…\` (never in code).
 - \`.siteio/pb_data/\` = local database (git-ignored, never deployed; production
   data lives on the server).
 

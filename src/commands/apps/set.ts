@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "fs"
 import ora from "ora"
 import chalk from "chalk"
 import { SiteioClient } from "../../lib/client.ts"
@@ -7,6 +6,7 @@ import { formatSuccess, printComposeWarnings } from "../../utils/output.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { resolveAppName } from "../../utils/site-config.ts"
 import { readFlagFile } from "../../utils/files.ts"
+import { collectEnvUpdate } from "../../utils/env-args.ts"
 import { parseAutoDeployFlag } from "../../lib/agent/auto-deploy.ts"
 import type { App, AutoDeployMode, VolumeMount, RestartPolicy } from "../../types.ts"
 
@@ -27,73 +27,6 @@ export interface SetAppOptions {
   envFile?: string
   service?: string
   json?: boolean
-}
-
-function parseEnvFile(filePath: string): Record<string, string> {
-  const content = readFileSync(filePath, "utf-8")
-  const env: Record<string, string> = {}
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith("#")) continue
-    const idx = trimmed.indexOf("=")
-    if (idx === -1) continue
-    const key = trimmed.slice(0, idx).trim()
-    let value = trimmed.slice(idx + 1).trim()
-    // Strip surrounding quotes
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
-    if (key) env[key] = value
-  }
-  return env
-}
-
-/** Split `KEY=rest` for a flag, rejecting a missing `=` or an empty key. */
-function splitKeyValue(arg: string, flag: string, valueHint: string): [string, string] {
-  const idx = arg.indexOf("=")
-  if (idx <= 0) {
-    throw new ValidationError(`Invalid ${flag} format: ${arg}. Use KEY=${valueHint}`)
-  }
-  return [arg.slice(0, idx), arg.slice(idx + 1)]
-}
-
-/** `-e KEY=value` / `--secret KEY=value`, or a bare path to an env file. */
-function parseEnvVars(envArgs: string[], flag: string): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const arg of envArgs) {
-    if (!arg.includes("=")) {
-      // No '=' found — a bare argument is a path to an env file to bulk-load.
-      if (!existsSync(arg)) {
-        throw new ValidationError(`Invalid ${flag} format: ${arg}. Use KEY=value or the path to an env file`)
-      }
-      Object.assign(env, parseEnvFile(arg))
-      continue
-    }
-    const [key, value] = splitKeyValue(arg, flag, "value")
-    env[key] = value
-  }
-  return env
-}
-
-/** Drop the single trailing newline a file or a heredoc usually ends with. */
-function trimTrailingNewline(value: string): string {
-  return value.replace(/\r?\n$/, "")
-}
-
-/**
- * `--secret-file KEY=/path` — the value is the file's contents, so it never
- * appears in shell history or the process list.
- */
-function parseSecretFiles(args: string[]): Record<string, string> {
-  const secrets: Record<string, string> = {}
-  for (const arg of args) {
-    const [key, path] = splitKeyValue(arg, "--secret-file", "/path/to/file")
-    if (!existsSync(path)) {
-      throw new ValidationError(`Secret file not found: ${path}`)
-    }
-    secrets[key] = trimTrailingNewline(readFileSync(path, "utf-8"))
-  }
-  return secrets
 }
 
 function parseVolumes(volumeArgs: string[]): VolumeMount[] {
@@ -182,32 +115,7 @@ export async function setAppCommand(
       primaryService?: string
     } = {}
 
-    if (options.env && options.env.length > 0) {
-      updates.env = parseEnvVars(options.env, "--env")
-    }
-
-    const secrets: Record<string, string> = {
-      ...parseEnvVars(options.secret ?? [], "--secret"),
-      ...parseSecretFiles(options.secretFile ?? []),
-    }
-    if (options.secretStdin) {
-      if (process.stdin.isTTY) {
-        console.error(chalk.dim(`Reading ${options.secretStdin} from stdin (end with Ctrl-D)`))
-      }
-      const value = trimTrailingNewline(await Bun.stdin.text())
-      if (!value) {
-        throw new ValidationError(`No value read from stdin for secret ${options.secretStdin}`)
-      }
-      secrets[options.secretStdin] = value
-    }
-
-    const clash = Object.keys(secrets).find((key) => updates.env?.[key] !== undefined)
-    if (clash) {
-      throw new ValidationError(`'${clash}' given as both --env and --secret. Pick one`)
-    }
-    if (Object.keys(secrets).length > 0) {
-      updates.secrets = secrets
-    }
+    Object.assign(updates, await collectEnvUpdate(options))
 
     if (options.volume && options.volume.length > 0) {
       updates.volumes = parseVolumes(options.volume)

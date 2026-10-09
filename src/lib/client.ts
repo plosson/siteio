@@ -157,6 +157,20 @@ export class SiteioClient {
     return response.data
   }
 
+  async updateSiteEnv(
+    name: string,
+    update: { env?: Record<string, string>; secrets?: Record<string, string>; unsetEnv?: string[] }
+  ): Promise<SiteInfo> {
+    const response = await this.request<ApiResponse<SiteInfo>>(
+      "PATCH",
+      `/sites/${name}/env`,
+      JSON.stringify(update),
+      { "Content-Type": "application/json" }
+    )
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
   async renameSite(name: string, newName: string): Promise<SiteInfo> {
     const response = await this.request<ApiResponse<SiteInfo>>(
       "PATCH",

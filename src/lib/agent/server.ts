@@ -31,6 +31,7 @@ import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
+import { assertValidSiteEnvKeys, publicEnv, sameEnv, type EnvUpdate } from "./env.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
 import { TenantRegistry, assertValidNewName, isValidDomain, tenantServices, type Scope } from "./tenants.ts"
 
@@ -48,7 +49,7 @@ const EDIT_SESSION_COOKIE = "siteio_edit"
 // The API surface a tenant key may reach: site management only. Apps, chat,
 // edit links and anything new stay operator-only unless listed here.
 const TENANT_ROUTE =
-  /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|rename|grants|grants\/grt_[a-z0-9]+))?)$/
+  /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|env|rename|grants|grants\/grt_[a-z0-9]+))?)$/
 
 // Read one cookie value from a request's Cookie header (no external dep).
 function readCookie(req: Request, name: string): string | null {
@@ -60,6 +61,19 @@ function readCookie(req: Request, name: string): string | null {
     if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim())
   }
   return null
+}
+
+// Strictly shape an untrusted env update: string maps and a string array only.
+// Anything else (including a client-sent `secretKeys`) is refused.
+function parseEnvUpdate(raw: unknown): EnvUpdate | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+  const { env, secrets, unsetEnv, ...rest } = raw as Record<string, unknown>
+  if (Object.keys(rest).length > 0) return null
+  const isMap = (v: unknown) =>
+    v === undefined || (!!v && typeof v === "object" && !Array.isArray(v) && Object.values(v).every((x) => typeof x === "string"))
+  const isList = (v: unknown) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x === "string"))
+  if (!isMap(env) || !isMap(secrets) || !isList(unsetEnv)) return null
+  return { env: env as EnvUpdate["env"], secrets: secrets as EnvUpdate["secrets"], unsetEnv: unsetEnv as string[] | undefined }
 }
 
 // Coerce an untrusted picker `target` from the request body into a bounded,
@@ -103,8 +117,7 @@ function scrubApp(app: App | AppInfo): App | AppInfo {
   const scrubbed: App | AppInfo = { ...app }
 
   if ("env" in scrubbed && scrubbed.secretKeys?.length) {
-    const secret = new Set(scrubbed.secretKeys)
-    scrubbed.env = Object.fromEntries(Object.entries(scrubbed.env).filter(([key]) => !secret.has(key)))
+    scrubbed.env = publicEnv(scrubbed)
   }
 
   if (scrubbed.git) {
@@ -429,7 +442,7 @@ export class AgentServer {
     if (siteMatch) {
       const siteName = k(siteMatch[1]!)
       if (req.method === "POST") return this.handleDeploySite(siteName, req, scope)
-      if (req.method === "GET") return this.handleGetSite(siteName, scope)
+      if (req.method === "GET") return this.handleGetSite(siteName, scope, true)
       if (req.method === "DELETE") return this.handleDeleteSite(siteName)
     }
 
@@ -497,6 +510,12 @@ export class AgentServer {
     const siteDomainsMatch = path.match(/^\/sites\/([a-z0-9-]+)\/domains$/)
     if (siteDomainsMatch && req.method === "PATCH") {
       return this.handleUpdateSiteDomains(k(siteDomainsMatch[1]!), req, scope)
+    }
+
+    // PATCH /sites/:name/env - set, mark secret or unset env vars
+    const siteEnvMatch = path.match(/^\/sites\/([a-z0-9-]+)\/env$/)
+    if (siteEnvMatch && req.method === "PATCH") {
+      return this.handleUpdateSiteEnv(k(siteEnvMatch[1]!), req, scope)
     }
 
     // PATCH /sites/:name/rename - rename a site
@@ -1351,11 +1370,12 @@ export class AgentServer {
     })))
   }
 
-  private async handleGetSite(name: string, scope: Scope): Promise<Response> {
+  // `owner` adds the site's env (secret values stripped); share codes get none.
+  private async handleGetSite(name: string, scope: Scope, owner = false): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
     return this.json({
-      ...this.storage.toInfo(site, this.tenants, scope),
+      ...(owner ? this.siteDetail(site, scope) : this.storage.toInfo(site, this.tenants, scope)),
       hasThumbnail: this.thumbnails?.has(name) ?? false,
       chatEnabled: !!this.chatController && !scope,
     })
@@ -1653,19 +1673,10 @@ export class AgentServer {
 
     if (!site) {
       try {
-        assertValidNewName(this.tenants.displayName(name, scope))
+        site = this.createSiteRecord(name, scope)
       } catch (err) {
         return this.error((err as Error).message, 400)
       }
-      site = this.storage.create({
-        name,
-        domains: [],
-        pocketbaseVersion: POCKETBASE_VERSION,
-        status: "pending",
-        size: 0,
-        superuserEmail: `admin@${this.tenants.host(name)}`,
-        superuserPassword: crypto.randomUUID().replace(/-/g, ""),
-      })
     }
 
     try {
@@ -1676,6 +1687,35 @@ export class AgentServer {
       const message = err instanceof Error ? err.message : "Failed to deploy site"
       return this.error(message, 500)
     }
+  }
+
+  // Recreate a site's container from its stored record after a metadata change.
+  // A site that was never deployed (no container) just keeps the change. A
+  // failed start leaves no container, so the site is marked failed.
+  private async restartSiteContainer(site: Site): Promise<void> {
+    if (!this.docker.isAvailable() || !this.docker.containerExists(site.name)) return
+    try {
+      const containerId = await this.startSiteContainer(site)
+      this.storage.update(site.name, { containerId, status: "running" })
+    } catch (err) {
+      this.storage.update(site.name, { status: "failed" })
+      throw err
+    }
+  }
+
+  // A new site's metadata (generates superuser creds), before any code or
+  // container exists. Throws on an invalid name.
+  private createSiteRecord(name: string, scope: Scope): Site {
+    assertValidNewName(this.tenants.displayName(name, scope))
+    return this.storage.create({
+      name,
+      domains: [],
+      pocketbaseVersion: POCKETBASE_VERSION,
+      status: "pending",
+      size: 0,
+      superuserEmail: `admin@${this.tenants.host(name)}`,
+      superuserPassword: crypto.randomUUID().replace(/-/g, ""),
+    })
   }
 
   // Deploy core, shared by the zip-upload route and the MCP share endpoint:
@@ -2133,7 +2173,9 @@ export class AgentServer {
 
     const labels = this.buildSiteRoutingLabels(site)
 
+    // User env first: the agent's own superuser vars always win.
     const env: Record<string, string> = {
+      ...site.env,
       POCKET_SUPERUSER_EMAIL: site.superuserEmail!,
       POCKET_SUPERUSER_PASSWORD: site.superuserPassword!,
     }
@@ -2332,18 +2374,57 @@ export class AgentServer {
 
       const updated = this.storage.update(name, { domains })!
 
-      // Recreate the container so Traefik picks up the new host rules. A site
-      // that was never deployed (no container) just keeps the metadata change.
-      if (this.docker.isAvailable() && this.docker.containerExists(name)) {
-        const containerId = await this.startSiteContainer(updated)
-        this.storage.update(name, { containerId })
-      }
+      // Recreate the container so Traefik picks up the new host rules.
+      await this.restartSiteContainer(updated)
 
       return this.json(this.storage.toInfo(this.storage.get(name)!, this.tenants, scope))
     } catch (err) {
       if (err instanceof SyntaxError) return this.error("Invalid request body")
       const message = err instanceof Error ? err.message : "Failed to update domains"
       return this.error(message, 500)
+    }
+  }
+
+  // Env vars for the site's PocketBase container (`$os.getenv` in pb_hooks).
+  // Applied at once: a site with a container is recreated with the new env. A
+  // site not deployed yet is created, so its first deploy starts with the env.
+  private async handleUpdateSiteEnv(name: string, req: Request, scope: Scope): Promise<Response> {
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return this.error("Invalid request body")
+    }
+    const update = parseEnvUpdate(body)
+    if (!update) return this.error("Body must be { env?, secrets?: { KEY: string }, unsetEnv?: string[] }")
+
+    let before: Site
+    let updated: Site
+    try {
+      assertValidSiteEnvKeys(update)
+      before = this.storage.get(name) ?? this.createSiteRecord(name, scope)
+      updated = this.storage.updateEnv(name, update)!
+    } catch (err) {
+      return this.error(err instanceof Error ? err.message : "Invalid env update")
+    }
+
+    // Nothing changed (e.g. the same value set again): keep the site running.
+    if (!sameEnv(before, updated)) {
+      try {
+        await this.restartSiteContainer(updated)
+      } catch (err) {
+        return this.error(err instanceof Error ? err.message : "Failed to restart site", 500)
+      }
+    }
+    return this.json(this.siteDetail(this.storage.get(name)!, scope))
+  }
+
+  // SiteInfo plus what only the site's owner sees: env without secret values.
+  private siteDetail(site: Site, scope: Scope): SiteInfo {
+    return {
+      ...this.storage.toInfo(site, this.tenants, scope),
+      env: publicEnv(site),
+      ...(site.secretKeys?.length ? { secretKeys: site.secretKeys } : {}),
     }
   }
 

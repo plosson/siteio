@@ -100,6 +100,21 @@ Define collections in \`.siteio/pb_migrations/*.js\` and use the PocketBase JS
 SDK in the browser (\`new PocketBase(window.location.origin)\`). The scaffolded
 CLAUDE.md explains the patterns.
 
+Secrets and config for hooks (API keys, tokens) never go in \`pb_hooks\` or the
+database: the site's code is downloadable and visible to share links and the chat
+editor. Set them on the site and read them with \`$os.getenv("KEY")\`:
+
+\`\`\`sh
+siteio sites set mysite --secret STRIPE_SECRET_KEY=…   # or --secret-file KEY=path, --secret-stdin KEY
+siteio sites set mysite -e PUBLIC_MODE=live             # plain value, shown by sites info
+siteio sites unset mysite -e STRIPE_SECRET_KEY
+\`\`\`
+
+The site restarts to apply; on a site not deployed yet, the first deploy uses them.
+\`POCKET_*\` names are reserved. Anyone who can change \`pb_hooks\` (an
+\`--allow-backend\` share) can read these values. Locally,
+\`siteio sites dev\` passes your shell env: \`STRIPE_SECRET_KEY=… siteio sites dev\`.
+
 ## PocketBase version & docs
 
 This siteio build uses **PocketBase ${POCKETBASE_VERSION}** and the browser **JS SDK
@@ -167,7 +182,7 @@ Let someone else edit and redeploy a site without giving them your credentials:
 \`\`\`sh
 siteio sites share mysite                    # grant access (stays valid until revoked)
 siteio sites share mysite --label "Sam"      # attribute their deploys in history
-siteio sites share mysite --allow-backend    # also allow backend edits (affects live data)
+siteio sites share mysite --allow-backend    # also allow backend edits (affects live data, can read secrets)
 siteio sites share list mysite               # see active grants
 siteio sites share revoke <id> -n mysite     # revoke access
 \`\`\`
@@ -190,6 +205,7 @@ Access stays valid until you revoke it; the token/code is shown once.
 - **Version history & rollback**: \`siteio sites history\` / \`siteio sites rollback\` (code only — data is never rolled back)
 - **Backend logs**: \`siteio sites logs\`
 - **Rename**: \`siteio sites rename <new-name>\`
+- **Env vars & secrets for hooks**: \`siteio sites set -e KEY=value | --secret KEY=value\` / \`siteio sites unset -e KEY\`
 `
 
 export const APPS_SKILL = `# siteio apps — Docker containers

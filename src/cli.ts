@@ -91,6 +91,8 @@ program
 // Sites commands. Every site ships with a PocketBase backend (auth, database,
 // file storage) — using it is optional; a plain folder of HTML deploys as-is.
 function registerSiteCommands(sites: Command): void {
+  const collect = (val: string, prev: string[] = []) => [...prev, val]
+
   sites
     .command("skill")
     .description("Print the agent guide for sites (deploy, PocketBase backend, docs, sharing)")
@@ -143,6 +145,27 @@ function registerSiteCommands(sites: Command): void {
     .action(async (name) => {
       const { sitesInfoCommand } = await import("./commands/sites/info.ts")
       await sitesInfoCommand(name, { json: program.opts().json })
+    })
+
+  sites
+    .command("set [name]")
+    .description("Set env vars or secrets for a site's backend (read in pb_hooks with $os.getenv); restarts it")
+    .option("-e, --env <KEY=value>", "Set environment variables, or a path to an env file (repeatable)", collect, [])
+    .option("--secret <KEY=value>", "Set secret environment variables — never displayed again (repeatable)", collect, [])
+    .option("--secret-file <KEY=path>", "Set a secret from a file's contents, keeping it out of shell history (repeatable)", collect, [])
+    .option("--secret-stdin <KEY>", "Set a secret read from stdin")
+    .action(async (name, options) => {
+      const { sitesSetCommand } = await import("./commands/sites/env.ts")
+      await sitesSetCommand(name, { ...options, json: program.opts().json })
+    })
+
+  sites
+    .command("unset [name]")
+    .description("Remove env vars or secrets from a site; restarts it")
+    .option("-e, --env <KEY>", "Variable to remove (repeatable)", collect, [])
+    .action(async (name, options) => {
+      const { sitesUnsetCommand } = await import("./commands/sites/env.ts")
+      await sitesUnsetCommand(name, { ...options, json: program.opts().json })
     })
 
   sites
@@ -228,7 +251,7 @@ function registerSiteCommands(sites: Command): void {
   siteShare
     .argument("[name]", "Site to share (defaults to .siteio/config.json)")
     .option("--label <label>", "Attribution label shown in the site's deploy history")
-    .option("--allow-backend", "Let the invitee also change backend code (pb_migrations, pb_hooks) — can affect live data")
+    .option("--allow-backend", "Let the invitee also change backend code (pb_migrations, pb_hooks) — can affect live data and read the site's secrets")
     .action(async (name, options) => {
       const { sitesShareCommand } = await import("./commands/sites/share.ts")
       await sitesShareCommand(name, { ...options, json: program.opts().json })

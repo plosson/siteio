@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from "path"
 import type { App, AppInfo } from "../../types"
 import { ValidationError } from "../../utils/errors"
+import { applyEnvUpdate } from "./env"
 import { assertValidNewName } from "./tenants"
 
 export class AppStorage {
@@ -68,38 +69,17 @@ export class AppStorage {
 
     const { unsetEnv, secrets, secretKeys: _derived, ...appUpdates } = updates
 
-    // Merge env vars additively instead of replacing
-    const mergedEnv = { ...(app.env || {}), ...(appUpdates.env || {}), ...(secrets || {}) }
-    const secretKeys = new Set([...(app.secretKeys || []), ...Object.keys(secrets || {})])
-
-    // Refuse to un-secret a key with a plain `-e`. The value can't be read back
-    // to check what it was, so that is far more likely a mistake than intent.
-    for (const key of Object.keys(appUpdates.env || {})) {
-      if (secretKeys.has(key) && !secrets?.[key]) {
-        throw new ValidationError(
-          `'${key}' is a secret. Set it with --secret ${key}=<value>, or remove it first with 'apps unset -e ${key}'`
-        )
-      }
-    }
-
-    // Remove unset keys
-    if (unsetEnv) {
-      for (const key of unsetEnv) {
-        delete mergedEnv[key]
-        secretKeys.delete(key)
-      }
-    }
+    const envState = applyEnvUpdate(app, { env: appUpdates.env, secrets, unsetEnv }, "apps")
 
     const updated: App = {
       ...app,
       ...appUpdates,
-      env: mergedEnv,
-      ...(secretKeys.size > 0 ? { secretKeys: [...secretKeys] } : {}),
+      ...envState,
       name: app.name, // Prevent name changes
       createdAt: app.createdAt, // Preserve creation date
       updatedAt: new Date().toISOString(),
     }
-    if (secretKeys.size === 0) {
+    if (!envState.secretKeys) {
       delete updated.secretKeys
     }
 

@@ -3,6 +3,7 @@ import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
 import { resolveSiteName } from "../../utils/site-config.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
+import { printSiteEnv } from "./env.ts"
 
 export async function sitesInfoCommand(name: string | undefined, options: { json?: boolean } = {}): Promise<void> {
   try {
@@ -18,6 +19,8 @@ export async function sitesInfoCommand(name: string | undefined, options: { json
       console.error(`  Admin:   ${chalk.cyan(info.adminUrl)}`)
       console.error(`  Status:  ${info.status}`)
       console.error(`  Version: ${info.version ?? "-"} (PocketBase ${info.pocketbaseVersion})`)
+      console.error(`  Env:`)
+      printSiteEnv(info)
     }
     process.exit(0)
   } catch (err) { handleError(err) }

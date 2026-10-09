@@ -6,6 +6,7 @@ import { zipSync } from "fflate"
 import { SiteStorage } from "../../lib/agent/storage.ts"
 import { TenantRegistry } from "../../lib/agent/tenants.ts"
 import type { Site } from "../../types.ts"
+import type { EnvUpdate } from "../../lib/agent/env.ts"
 
 describe("Unit: SiteStorage", () => {
   let dir: string
@@ -210,6 +211,51 @@ describe("Unit: SiteStorage", () => {
       expect(readFileSync(join(moved, "data.db"), "utf-8")).toBe("v1")
       storage.delete("journal")
       expect(existsSync(moved)).toBe(false)
+    })
+  })
+
+  describe("SiteStorage.updateEnv", () => {
+    beforeEach(() => storage.create(base("blog")))
+
+    test("stores env and secrets on the 0600 meta record", () => {
+      const site = storage.updateEnv("blog", { env: { A: "1" }, secrets: { S: "x" } })!
+      expect(site.env).toEqual({ A: "1", S: "x" })
+      expect(site.secretKeys).toEqual(["S"])
+      expect(storage.get("blog")!.env).toEqual({ A: "1", S: "x" })
+    })
+
+    test("returns null for an unknown site and creates nothing", () => {
+      expect(storage.updateEnv("ghost", { env: { A: "1" } })).toBeNull()
+      expect(storage.exists("ghost")).toBe(false)
+    })
+
+    test("refuses invalid and reserved keys, storing nothing", () => {
+      const updates: EnvUpdate[] = [
+        { env: { "": "x" } }, { env: { "1A": "x" } }, { env: { "A-B": "x" } }, { env: { "A B": "x" } },
+        { env: { "A=B": "x" } }, { secrets: { POCKET_SUPERUSER_PASSWORD: "x" } }, { env: { POCKET_ANYTHING: "x" } },
+        { unsetEnv: ["POCKET_SUPERUSER_EMAIL"] },
+      ]
+      for (const update of updates) {
+        expect(() => storage.updateEnv("blog", update)).toThrow()
+      }
+      expect(storage.get("blog")!.env).toBeUndefined()
+    })
+
+    test("unsetting the last secret removes secretKeys from the record", () => {
+      storage.updateEnv("blog", { secrets: { S: "x" } })
+      const site = storage.updateEnv("blog", { unsetEnv: ["S"] })!
+      expect(site.env).toEqual({})
+      expect("secretKeys" in site).toBe(false)
+      expect("secretKeys" in storage.get("blog")!).toBe(false)
+    })
+
+    test("other updates and rename keep env", () => {
+      storage.updateEnv("blog", { secrets: { S: "x" } })
+      storage.update("blog", { domains: ["blog.example.org"] })
+      expect(storage.get("blog")!.secretKeys).toEqual(["S"])
+      storage.rename("blog", "journal")
+      expect(storage.get("journal")!.env).toEqual({ S: "x" })
+      expect(storage.get("journal")!.secretKeys).toEqual(["S"])
     })
   })
 })
