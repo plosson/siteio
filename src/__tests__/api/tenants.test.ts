@@ -587,6 +587,38 @@ describe("API: tenants", () => {
       expect(app.git!.repoUrl).toBe("https://example.com/r.git")
     })
 
+    test("a tenant env or secret can't steer the agent's docker process", async () => {
+      const denied = [
+        "PATH", "Path", "HOME", "NO_PROXY", "http_proxy", "HTTPS_PROXY", "ALL_PROXY",
+        "LD_PRELOAD", "ld_library_path", "DYLD_INSERT_LIBRARIES", "DOCKER_HOST", "docker_config",
+        "BUILDKIT_HOST", "SSL_CERT_FILE", "GIT_SSH_COMMAND", "A-B", "1X", "", "X Y", "X=Y",
+      ]
+      for (const key of denied) {
+        for (const field of ["env", "secrets"]) {
+          const res = await createApp({ name: "vault", [field]: { [key]: "x" } })
+          expect(res.status).toBe(400)
+          expect(((await res.json()) as ApiResponse<null>).error).toContain(`'${key}'`)
+        }
+      }
+      expect(appsOnDisk()).toEqual([])
+      expect((await createApp({ name: "vault", env: { NODE_ENV: "production" }, secrets: { VAULT_TOKEN: "t" } })).status).toBe(200)
+    })
+
+    test("a tenant can't add a denied env key later", async () => {
+      await createApp({ name: "vault", env: { NODE_ENV: "production" } })
+      for (const body of [{ env: { DOCKER_HOST: "tcp://evil:2375" } }, { secrets: { LD_PRELOAD: "/x.so" } }]) {
+        const res = await req("/apps/vault", { method: "PATCH", headers: json("key-c"), body: JSON.stringify(body) }, "api.vaults.net")
+        expect(res.status).toBe(400)
+      }
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.env).toEqual({ NODE_ENV: "production" })
+    })
+
+    test("the operator may still set DOCKER_HOST", async () => {
+      const res = await createApp({ name: "hub", env: { DOCKER_HOST: "unix:///run/docker.sock" } }, "god-key", "localhost")
+      expect(res.status).toBe(200)
+    })
+
     test("the operator keeps any git repository URL", async () => {
       expect((await createApp({ name: "hub", image: undefined, git: { repoUrl: "file:///srv/hub.git" } }, "god-key", "localhost")).status).toBe(200)
     })

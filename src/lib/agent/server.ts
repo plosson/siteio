@@ -58,6 +58,12 @@ const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|restart|logs|statu
 // volumes/<key>/<name>: never a host path, never a way out of that folder.
 const VOLUME_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 
+// An app's env also reaches the host `docker` process that runs it (values
+// stay out of argv), so a tenant can't set what steers that process.
+const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+const TENANT_DENIED_ENV = ["PATH", "HOME", "NO_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"]
+const TENANT_DENIED_ENV_PREFIXES = ["LD_", "DYLD_", "DOCKER_", "BUILDKIT_", "SSL_", "GIT_"]
+
 // Read one cookie value from a request's Cookie header (no external dep).
 function readCookie(req: Request, name: string): string | null {
   const header = req.headers.get("cookie")
@@ -649,6 +655,8 @@ export class AgentServer {
       compose?: boolean
       volumes?: { name: string }[]
       git?: { repoUrl?: string; context?: string; dockerfile?: string }
+      env?: Record<string, string>
+      secrets?: Record<string, string>
     }
   ): string | null {
     if (!scope) return null
@@ -657,6 +665,14 @@ export class AgentServer {
     // network (file://, ssh with the agent's keys)
     if (fields.git?.repoUrl !== undefined && (typeof fields.git.repoUrl !== "string" || !fields.git.repoUrl.startsWith("https://"))) {
       return "git.repoUrl must be an https:// URL"
+    }
+    for (const field of ["env", "secrets"] as const) {
+      for (const key of Object.keys(fields[field] ?? {})) {
+        const upper = key.toUpperCase()
+        if (!ENV_KEY_RE.test(key) || TENANT_DENIED_ENV.includes(upper) || TENANT_DENIED_ENV_PREFIXES.some((p) => upper.startsWith(p))) {
+          return `${field === "env" ? "Env" : "Secret"} key '${key}' is not allowed for a tenant app`
+        }
+      }
     }
     for (const field of ["context", "dockerfile"] as const) {
       const path = fields.git?.[field]
@@ -776,7 +792,13 @@ export class AgentServer {
       const hasImage = !!body.image
       const hasInlineDockerfile = !!body.dockerfileContent
 
-      const violation = this.tenantAppViolation(scope, { compose: hasCompose, volumes: body.volumes, git: body.git })
+      const violation = this.tenantAppViolation(scope, {
+        compose: hasCompose,
+        volumes: body.volumes,
+        git: body.git,
+        env: body.env,
+        secrets: body.secrets,
+      })
       if (violation) return this.error(violation)
 
       // Mutual exclusivity: image / inline-dockerfile / compose / git.
@@ -915,7 +937,7 @@ export class AgentServer {
         if (domainViolation) return this.error(domainViolation)
       }
 
-      const violation = this.tenantAppViolation(scope, { volumes: body.volumes, git: body.git })
+      const violation = this.tenantAppViolation(scope, { volumes: body.volumes, git: body.git, env: body.env, secrets: body.secrets })
       if (violation) return this.error(violation)
 
       // Compose sources: same fields as create, replaced in place so a stack
