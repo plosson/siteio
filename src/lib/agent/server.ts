@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "fs"
-import { dirname, join } from "path"
+import { dirname, isAbsolute, join, resolve, sep } from "path"
 import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
 import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, AppServiceStatus, AppStatus, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated, Tenant } from "../../types.ts"
@@ -641,10 +641,25 @@ export class AgentServer {
 
   // Why a tenant may not put `fields` in its app, or null. A compose stack can
   // mount the host and pick its networks; a volume path reaches the host's
-  // files. The operator (null scope) is not restricted.
-  private tenantAppViolation(scope: Scope, fields: { compose?: boolean; volumes?: { name: string }[] }): string | null {
+  // files; a build context or Dockerfile outside the clone reads the agent's
+  // data. The operator (null scope) is not restricted.
+  private tenantAppViolation(
+    scope: Scope,
+    fields: {
+      compose?: boolean
+      volumes?: { name: string }[]
+      git?: { repoUrl?: string; context?: string; dockerfile?: string }
+    }
+  ): string | null {
     if (!scope) return null
     if (fields.compose) return "Compose apps are not available to a tenant"
+    for (const field of ["context", "dockerfile"] as const) {
+      const path = fields.git?.[field]
+      if (path === undefined) continue
+      if (typeof path !== "string" || isAbsolute(path) || path.split("/").includes("..")) {
+        return `git.${field} must be a relative path inside the repository`
+      }
+    }
     for (const volume of fields.volumes ?? []) {
       if (!VOLUME_NAME_RE.test(volume.name)) {
         return `Volume '${volume.name}' must be a plain name (letters, digits, '.', '_', '-'), not a path`
@@ -756,7 +771,7 @@ export class AgentServer {
       const hasImage = !!body.image
       const hasInlineDockerfile = !!body.dockerfileContent
 
-      const violation = this.tenantAppViolation(scope, { compose: hasCompose, volumes: body.volumes })
+      const violation = this.tenantAppViolation(scope, { compose: hasCompose, volumes: body.volumes, git: body.git })
       if (violation) return this.error(violation)
 
       // Mutual exclusivity: image / inline-dockerfile / compose / git.
@@ -895,7 +910,7 @@ export class AgentServer {
         if (domainViolation) return this.error(domainViolation)
       }
 
-      const violation = this.tenantAppViolation(scope, { volumes: body.volumes })
+      const violation = this.tenantAppViolation(scope, { volumes: body.volumes, git: body.git })
       if (violation) return this.error(violation)
 
       // Compose sources: same fields as create, replaced in place so a stack
@@ -1184,12 +1199,17 @@ export class AgentServer {
         await this.git.clone(name, app.git.repoUrl, opts.ref ?? app.git.branch, app.git.token)
         const repoPath = this.git.repoPath(name)
 
-        // Context and Dockerfile paths are relative to the repo root, like docker -f
+        // Context and Dockerfile paths are relative to the repo root, like
+        // docker -f, and never leave it: the build would read the agent's data.
         const contextPath = app.git.context ? join(repoPath, app.git.context) : repoPath
+        const dockerfilePath = join(repoPath, app.git.dockerfile)
+        const inRepo = (path: string) => resolve(path) === resolve(repoPath) || resolve(path).startsWith(resolve(repoPath) + sep)
+        if (!inRepo(contextPath) || !inRepo(dockerfilePath)) {
+          throw new DeployError("Build context and Dockerfile can't be outside the repository", 400)
+        }
         if (app.git.context && !existsSync(contextPath)) {
           throw new DeployError(`Context directory not found at '${app.git.context}'`, 400)
         }
-        const dockerfilePath = join(repoPath, app.git.dockerfile)
         if (!existsSync(dockerfilePath)) {
           throw new DeployError(`Dockerfile not found at '${app.git.dockerfile}'`, 400)
         }

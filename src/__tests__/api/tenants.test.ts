@@ -561,6 +561,30 @@ describe("API: tenants", () => {
       expect(res.status).toBe(200)
     })
 
+    test("a tenant git context or Dockerfile must stay inside the repository", async () => {
+      const git = (extra: Record<string, string>) => ({ name: "vault", image: undefined, git: { repoUrl: "https://example.com/r.git", ...extra } })
+      for (const extra of <Record<string, string>[]>[
+        { context: "../.." }, { context: "/etc" }, { context: "a/../../x" }, { context: ".." },
+        { dockerfile: "../../Dockerfile" }, { dockerfile: "/etc/passwd" },
+      ]) {
+        const res = await createApp(git(extra))
+        expect(res.status).toBe(400)
+      }
+      expect(appsOnDisk()).toEqual([])
+      expect((await createApp(git({ context: "app", dockerfile: "app/Dockerfile.prod" }))).status).toBe(200)
+    })
+
+    test("a tenant can't point its git context outside the repository later", async () => {
+      await createApp({ name: "vault", image: undefined, git: { repoUrl: "https://example.com/r.git", context: "app" } })
+      for (const git of <Record<string, string>[]>[{ context: "../.." }, { dockerfile: "../../x" }]) {
+        const res = await req("/apps/vault", { method: "PATCH", headers: json("key-c"), body: JSON.stringify({ git }) }, "api.vaults.net")
+        expect(res.status).toBe(400)
+      }
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.git!.context).toBe("app")
+      expect(app.git!.dockerfile).toBe("Dockerfile")
+    })
+
     test("a tenant image can't bring its own traefik labels", async () => {
       await createApp({ name: "vault" })
       runtime.containerExistsReturn = true

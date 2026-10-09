@@ -92,6 +92,19 @@ describe("build before swap", () => {
     expect(methods()).not.toContain("remove")
   })
 
+  test("a context or Dockerfile outside the repository is refused, whoever set it", async () => {
+    // apps/web.json exists in the data dir, two levels above repos/web
+    for (const git of [{ context: "../.." }, { context: "src/../../.." }, { dockerfile: "../../apps/web.json" }]) {
+      await createGitApp({ git: { repoUrl: repo.url, branch: "main", ...git } })
+      const res = await call<App>("POST", "/apps/web/deploy")
+      expect(res.status).toBe(400)
+      expect(res.body.error).toContain("outside the repository")
+      await call("DELETE", "/apps/web")
+    }
+    expect(methods()).not.toContain("build")
+    expect(methods()).not.toContain("run")
+  })
+
   test("a missing branch is reported and the old container keeps running", async () => {
     await createGitApp({ git: { repoUrl: repo.url, branch: "does-not-exist" } })
     const res = await call<App>("POST", "/apps/web/deploy")
