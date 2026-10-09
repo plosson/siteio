@@ -46,8 +46,9 @@ const EDIT_MAX_TURNS = 60
 // the framed site content (served at /) and its /api backend never receive it.
 const EDIT_SESSION_COOKIE = "siteio_edit"
 
-// The API surface a tenant key may reach: site management only. Apps, chat,
-// edit links and anything new stay operator-only unless listed here.
+// The site API surface a tenant key may reach. A tenant reaches apps through
+// TENANT_APP_ROUTE when Tenant.apps is set; chat, edit links and anything new
+// stay operator-only unless listed here.
 const TENANT_ROUTE =
   /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|env|rename|grants|grants\/grt_[a-z0-9]+))?)$/
 
@@ -438,7 +439,7 @@ export class AgentServer {
     }
     const k = (name: string) => this.tenants.keyFor(name, scope)
 
-    // GET /agent - sanitized agent settings (god key only)
+    // GET /agent - sanitized agent settings (a tenant gets a view of its own scope)
     if (path === "/agent" && req.method === "GET") {
       return this.handleGetAgentInfo(scope)
     }
