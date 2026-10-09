@@ -31,6 +31,7 @@ import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
+import { publicEnv } from "./env.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
 import { TenantRegistry, assertValidNewName, isValidDomain, tenantServices, type Scope } from "./tenants.ts"
 
@@ -103,8 +104,7 @@ function scrubApp(app: App | AppInfo): App | AppInfo {
   const scrubbed: App | AppInfo = { ...app }
 
   if ("env" in scrubbed && scrubbed.secretKeys?.length) {
-    const secret = new Set(scrubbed.secretKeys)
-    scrubbed.env = Object.fromEntries(Object.entries(scrubbed.env).filter(([key]) => !secret.has(key)))
+    scrubbed.env = publicEnv(scrubbed)
   }
 
   if (scrubbed.git) {
