@@ -6,6 +6,7 @@ import { installAgentCommand } from "../agent/install.ts"
 import { loginCommand } from "../login.ts"
 import { sshExec } from "../../utils/ssh.ts"
 import type { ProvisionState } from "./state.ts"
+import { apiHeaders } from "../../lib/client.ts"
 
 export const provisionRuntime = {
   ssh: sshExec,
@@ -137,7 +138,7 @@ export async function provisionServer(
   await runtime.task(`Waiting for HTTPS certificate on ${apiUrl}`, "Agent reachable over HTTPS", async () => {
     for (let attempt = 0; attempt < 30; attempt++) {
       try {
-        const response = await fetch(`${apiUrl}/health`, { headers: { "X-API-Key": config.apiKey }, signal: AbortSignal.timeout(5000) })
+        const response = await fetch(`${apiUrl}/health`, { headers: apiHeaders(config.apiKey), signal: AbortSignal.timeout(5000) })
         if (response.ok) return
       } catch { /* DNS/TLS may still be propagating */ }
       await runtime.sleep(5000)

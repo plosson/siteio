@@ -1,4 +1,4 @@
-import { loadConfig } from "../config/loader.ts"
+import { getCliUser, loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
 import type {
   ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, WithComposeWarnings, ShareGrantInfo, ShareGrantCreated, EditLinkCreated, AutoDeployMode,
@@ -15,6 +15,12 @@ async function toApiError(response: Response): Promise<ApiError> {
     if (text) return new ApiError(text, response.status)
   }
   return new ApiError(`API error: ${response.status}`, response.status)
+}
+
+// Headers every CLI call to the agent carries: the key, and who is calling.
+// The user is percent-encoded: a header value can't hold a name like "张".
+export function apiHeaders(apiKey: string): Record<string, string> {
+  return { "X-API-Key": apiKey, "X-Siteio-User": encodeURIComponent(getCliUser()) }
 }
 
 export interface ClientOptions {
@@ -49,7 +55,7 @@ export class SiteioClient {
     const response = await fetch(url, {
       method,
       headers: {
-        "X-API-Key": this.apiKey,
+        ...apiHeaders(this.apiKey),
         ...headers,
       },
       body,
@@ -64,7 +70,7 @@ export class SiteioClient {
   private async requestBytes(path: string): Promise<Uint8Array> {
     const response = await fetch(`${this.apiUrl}${path}`, {
       method: "GET",
-      headers: { "X-API-Key": this.apiKey },
+      headers: apiHeaders(this.apiKey),
     })
 
     if (!response.ok) throw await toApiError(response)
@@ -77,13 +83,12 @@ export class SiteioClient {
   async deploySite(
     name: string,
     zipData: Uint8Array,
-    opts?: { deployedBy?: string; expectedVersion?: number }
+    opts?: { expectedVersion?: number }
   ): Promise<SiteInfo> {
     const headers: Record<string, string> = {
       "Content-Type": "application/zip",
       "Content-Length": String(zipData.length),
     }
-    if (opts?.deployedBy) headers["X-Deployed-By"] = opts.deployedBy
     if (opts?.expectedVersion !== undefined) {
       headers["X-Expected-Version"] = String(opts.expectedVersion)
     }

@@ -1,6 +1,7 @@
 import chalk from "chalk"
 import { loadConfig, listServers, getCurrentServer } from "../config/loader.ts"
 import { formatSuccess, formatError } from "../utils/output.ts"
+import { apiHeaders } from "../lib/client.ts"
 
 export async function statusCommand(): Promise<void> {
   const config = loadConfig()
@@ -22,7 +23,7 @@ export async function statusCommand(): Promise<void> {
   let serverOk = false
   try {
     const response = await fetch(`${config.apiUrl}/health`, {
-      headers: { "X-API-Key": config.apiKey },
+      headers: apiHeaders(config.apiKey),
     })
     serverOk = response.ok
   } catch {

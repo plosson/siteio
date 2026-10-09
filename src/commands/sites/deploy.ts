@@ -5,7 +5,7 @@ import ora from "ora"
 import chalk from "chalk"
 import { zipSync } from "fflate"
 import { SiteioClient } from "../../lib/client.ts"
-import { getCurrentServer, getUsername } from "../../config/loader.ts"
+import { getCurrentServer } from "../../config/loader.ts"
 import { loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts"
 import { formatSuccess, formatBytes } from "../../utils/output.ts"
 import { handleError, ApiError, ValidationError } from "../../utils/errors.ts"
@@ -213,10 +213,7 @@ export async function sitesDeployCommand(folder: string | undefined, options: Si
       conflict = { client, name, folder: folderPath ?? ".", expectedVersion }
     }
 
-    const info = await client.deploySite(name, zipData, {
-      deployedBy: getUsername() || undefined,
-      expectedVersion,
-    })
+    const info = await client.deploySite(name, zipData, { expectedVersion })
     spinner.succeed("Deployed")
 
     // Save version to local config for future concurrency checks
