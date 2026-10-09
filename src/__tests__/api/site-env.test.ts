@@ -149,6 +149,22 @@ describe("Site env", () => {
       }
     })
 
+    test("an update that changes nothing doesn't restart the site", async () => {
+      await deploy("blog")
+      await setEnv("blog", { env: { A: "1" }, secrets: { S: SECRET } })
+      runtime.containerExistsReturn = true
+      const runs = runtime.callsOf("run").length
+      for (const b of [{}, { env: { A: "1" } }, { secrets: { S: SECRET } }, { unsetEnv: ["NOPE"] }]) {
+        expect((await setEnv("blog", b)).status).toBe(200)
+      }
+      expect(runtime.callsOf("run").length).toBe(runs)
+
+      await setEnv("blog", { secrets: { S: "rotated" } })
+      expect(runtime.callsOf("run").length).toBe(runs + 1)
+      await setEnv("blog", { secrets: { A: "1" } }) // same value, now secret: still a change
+      expect(runtime.callsOf("run").length).toBe(runs + 2)
+    })
+
     test("a failed restart marks the site failed; the next good one marks it running", async () => {
       await deploy("blog")
       runtime.containerExistsReturn = true

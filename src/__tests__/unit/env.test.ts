@@ -1,6 +1,6 @@
 // src/__tests__/unit/env.test.ts
 import { describe, test, expect } from "bun:test"
-import { applyEnvUpdate, publicEnv } from "../../lib/agent/env.ts"
+import { applyEnvUpdate, publicEnv, sameEnv } from "../../lib/agent/env.ts"
 
 describe("applyEnvUpdate", () => {
   test("merges additively and marks only secrets", () => {
@@ -50,5 +50,16 @@ describe("publicEnv", () => {
   test("drops every secret value", () => {
     expect(publicEnv({ env: { A: "1", S: "x" }, secretKeys: ["S"] })).toEqual({ A: "1" })
     expect(publicEnv({})).toEqual({})
+  })
+})
+
+describe("sameEnv", () => {
+  test("ignores key order, but not values, keys or secret marking", () => {
+    expect(sameEnv({ env: { A: "1", B: "2" } }, { env: { B: "2", A: "1" } })).toBe(true)
+    expect(sameEnv({}, { env: {} })).toBe(true)
+    expect(sameEnv({ env: { A: "1" }, secretKeys: ["A"] }, { env: { A: "1" }, secretKeys: ["A"] })).toBe(true)
+    expect(sameEnv({ env: { A: "1" } }, { env: { A: "2" } })).toBe(false)
+    expect(sameEnv({ env: { A: "1" } }, { env: { A: "1", B: "" } })).toBe(false)
+    expect(sameEnv({ env: { A: "1" } }, { env: { A: "1" }, secretKeys: ["A"] })).toBe(false)
   })
 })

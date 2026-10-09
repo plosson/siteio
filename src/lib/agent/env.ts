@@ -36,6 +36,20 @@ export function publicEnv(state: Partial<EnvState>): Record<string, string> {
   return Object.fromEntries(Object.entries(state.env ?? {}).filter(([key]) => !secret.has(key)))
 }
 
+// Whether two env states give a container the same env and mark the same secrets.
+export function sameEnv(a: Partial<EnvState>, b: Partial<EnvState>): boolean {
+  const ea = a.env ?? {}
+  const eb = b.env ?? {}
+  const sa = new Set(a.secretKeys ?? [])
+  const sb = new Set(b.secretKeys ?? [])
+  return (
+    Object.keys(ea).length === Object.keys(eb).length &&
+    Object.keys(ea).every((key) => Object.hasOwn(eb, key) && ea[key] === eb[key]) &&
+    sa.size === sb.size &&
+    [...sa].every((key) => sb.has(key))
+  )
+}
+
 const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 // The agent's own container vars (POCKET_SUPERUSER_*) live under this prefix.
 const RESERVED_PREFIX = "POCKET_"

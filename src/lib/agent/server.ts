@@ -31,7 +31,7 @@ import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
-import { assertValidSiteEnvKeys, publicEnv, type EnvUpdate } from "./env.ts"
+import { assertValidSiteEnvKeys, publicEnv, sameEnv, type EnvUpdate } from "./env.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
 import { TenantRegistry, assertValidNewName, isValidDomain, tenantServices, type Scope } from "./tenants.ts"
 
@@ -2398,19 +2398,23 @@ export class AgentServer {
     const update = parseEnvUpdate(body)
     if (!update) return this.error("Body must be { env?, secrets?: { KEY: string }, unsetEnv?: string[] }")
 
+    let before: Site
     let updated: Site
     try {
       assertValidSiteEnvKeys(update)
-      if (!this.storage.exists(name)) this.createSiteRecord(name, scope)
+      before = this.storage.get(name) ?? this.createSiteRecord(name, scope)
       updated = this.storage.updateEnv(name, update)!
     } catch (err) {
       return this.error(err instanceof Error ? err.message : "Invalid env update")
     }
 
-    try {
-      await this.restartSiteContainer(updated)
-    } catch (err) {
-      return this.error(err instanceof Error ? err.message : "Failed to restart site", 500)
+    // Nothing changed (e.g. the same value set again): keep the site running.
+    if (!sameEnv(before, updated)) {
+      try {
+        await this.restartSiteContainer(updated)
+      } catch (err) {
+        return this.error(err instanceof Error ? err.message : "Failed to restart site", 500)
+      }
     }
     return this.json(this.siteDetail(this.storage.get(name)!, scope))
   }
