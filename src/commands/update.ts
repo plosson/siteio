@@ -117,7 +117,7 @@ async function fetchLatestRelease(): Promise<GitHubRelease> {
       throw new Error(
         `GitHub API rate limit exceeded${minutes ? ` (resets in ~${minutes} min)` : ""}. ` +
           "Set GITHUB_TOKEN (or GH_TOKEN) to raise the limit, or install manually with: " +
-          "curl -LsSf https://siteio.houlahop.com/install | sh"
+          "curl -LsSf https://houlahop.com/siteio/install | sh"
       )
     }
     throw new Error(`Failed to fetch release info: ${response.statusText}`)
@@ -390,9 +390,9 @@ export async function updateCommand(options: UpdateOptions = {}): Promise<void> 
       console.error("")
       if (os.platform() === "win32") {
         console.error("  Windows binaries are not shipped yet. Use macOS/Linux or WSL:")
-        console.error("  curl -LsSf https://siteio.houlahop.com/install | sh")
+        console.error("  curl -LsSf https://houlahop.com/siteio/install | sh")
       } else {
-        console.error("  curl -LsSf https://siteio.houlahop.com/install | sh")
+        console.error("  curl -LsSf https://houlahop.com/siteio/install | sh")
       }
       console.error("")
       throw error

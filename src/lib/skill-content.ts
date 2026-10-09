@@ -44,7 +44,7 @@ siteio apps --help         # App commands (Docker)
 ## Installation
 
 \`\`\`sh
-curl -LsSf https://siteio.houlahop.com/install | sh
+curl -LsSf https://houlahop.com/siteio/install | sh
 siteio update              # Ensure latest version
 \`\`\`
 

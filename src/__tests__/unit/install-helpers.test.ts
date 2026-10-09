@@ -48,3 +48,22 @@ describe("Install flow: cloudflare template URL", () => {
     expect(parsed.searchParams.get("name")).toBe("my custom name")
   })
 })
+
+describe("Install URLs", () => {
+  test("the agent installer downloads from houlahop.com", async () => {
+    const { INSTALL_SCRIPT_URL } = await import("../../commands/agent/install.ts")
+    expect(INSTALL_SCRIPT_URL).toBe("https://houlahop.com/siteio/install")
+    expect(INSTALL_SCRIPT_URL).not.toContain("siteio.houlahop.com")
+  })
+
+  test("no source file still points at the retired siteio.houlahop.com", async () => {
+    const { Glob } = await import("bun")
+    const root = new URL("../../", import.meta.url).pathname
+    const offenders: string[] = []
+    for await (const file of new Glob("**/*.ts").scan({ cwd: root })) {
+      if (file.startsWith("__tests__/")) continue
+      if ((await Bun.file(root + file).text()).includes("siteio.houlahop.com")) offenders.push(file)
+    }
+    expect(offenders).toEqual([])
+  })
+})

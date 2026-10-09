@@ -6,7 +6,7 @@ A self-hosted deployment platform for static websites and Docker containers with
 
 ```bash
 # macOS / Linux (official installer)
-curl -LsSf https://siteio.houlahop.com/install | sh
+curl -LsSf https://houlahop.com/siteio/install | sh
 
 # Or from this repo with Bun
 bun install
