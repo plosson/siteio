@@ -2133,7 +2133,9 @@ export class AgentServer {
 
     const labels = this.buildSiteRoutingLabels(site)
 
+    // User env first: the agent's own superuser vars always win.
     const env: Record<string, string> = {
+      ...site.env,
       POCKET_SUPERUSER_EMAIL: site.superuserEmail!,
       POCKET_SUPERUSER_PASSWORD: site.superuserPassword!,
     }
