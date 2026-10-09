@@ -1689,6 +1689,20 @@ export class AgentServer {
     }
   }
 
+  // Recreate a site's container from its stored record after a metadata change.
+  // A site that was never deployed (no container) just keeps the change. A
+  // failed start leaves no container, so the site is marked failed.
+  private async restartSiteContainer(site: Site): Promise<void> {
+    if (!this.docker.isAvailable() || !this.docker.containerExists(site.name)) return
+    try {
+      const containerId = await this.startSiteContainer(site)
+      this.storage.update(site.name, { containerId, status: "running" })
+    } catch (err) {
+      this.storage.update(site.name, { status: "failed" })
+      throw err
+    }
+  }
+
   // A new site's metadata (generates superuser creds), before any code or
   // container exists. Throws on an invalid name.
   private createSiteRecord(name: string, scope: Scope): Site {
@@ -2360,12 +2374,8 @@ export class AgentServer {
 
       const updated = this.storage.update(name, { domains })!
 
-      // Recreate the container so Traefik picks up the new host rules. A site
-      // that was never deployed (no container) just keeps the metadata change.
-      if (this.docker.isAvailable() && this.docker.containerExists(name)) {
-        const containerId = await this.startSiteContainer(updated)
-        this.storage.update(name, { containerId })
-      }
+      // Recreate the container so Traefik picks up the new host rules.
+      await this.restartSiteContainer(updated)
 
       return this.json(this.storage.toInfo(this.storage.get(name)!, this.tenants, scope))
     } catch (err) {
@@ -2397,13 +2407,10 @@ export class AgentServer {
       return this.error(err instanceof Error ? err.message : "Invalid env update")
     }
 
-    if (this.docker.isAvailable() && this.docker.containerExists(name)) {
-      try {
-        const containerId = await this.startSiteContainer(updated)
-        this.storage.update(name, { containerId })
-      } catch (err) {
-        return this.error(err instanceof Error ? err.message : "Failed to restart site", 500)
-      }
+    try {
+      await this.restartSiteContainer(updated)
+    } catch (err) {
+      return this.error(err instanceof Error ? err.message : "Failed to restart site", 500)
     }
     return this.json(this.siteDetail(this.storage.get(name)!, scope))
   }

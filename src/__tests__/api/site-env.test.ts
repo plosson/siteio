@@ -149,6 +149,30 @@ describe("Site env", () => {
       }
     })
 
+    test("a failed restart marks the site failed; the next good one marks it running", async () => {
+      await deploy("blog")
+      runtime.containerExistsReturn = true
+      runtime.runError = new Error("docker run failed")
+      expect((await setEnv("blog", { env: { A: "1" } })).status).toBe(500)
+      expect(new SiteStorage(dataDir).get("blog")!.status).toBe("failed")
+
+      runtime.runError = null
+      expect((await setEnv("blog", { env: { A: "2" } })).status).toBe(200)
+      expect(new SiteStorage(dataDir).get("blog")!.status).toBe("running")
+    })
+
+    test("a failed restart after a domain change marks the site failed", async () => {
+      await deploy("blog")
+      runtime.containerExistsReturn = true
+      runtime.runError = new Error("docker run failed")
+      const res = await req("/sites/blog/domains", {
+        method: "PATCH", headers: as("god-key", { "Content-Type": "application/json" }),
+        body: JSON.stringify({ domains: ["www.blog.org"] }),
+      })
+      expect(res.status).toBe(500)
+      expect(new SiteStorage(dataDir).get("blog")!.status).toBe("failed")
+    })
+
     test("a secret value never appears in any site response", async () => {
       await deploy("blog")
       await setEnv("blog", { secrets: { S: SECRET } })
