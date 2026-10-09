@@ -699,29 +699,44 @@ describe("API: tenants", () => {
         { "traefik.enable": "true" },
         { "Traefik.HTTP.Routers.x.rule": "Host(`api.example.com`)" },
       ]) {
-        runtime.imageLabelsReturn = labels
+        runtime.imageInspectReturn = { ...runtime.imageInspectReturn, labels }
         const res = await req("/apps/vault/deploy", { method: "POST", headers: as("key-c") }, "api.vaults.net")
         expect(res.status).toBe(400)
         expect(((await res.json()) as ApiResponse<null>).error).toBe("Image labels starting with 'traefik.' are not allowed for tenant apps")
       }
-      expect(runtime.callsOf("imageLabels").map((c) => c.args[0])).toEqual(Array(3).fill("nginx:alpine"))
+      expect(runtime.callsOf("imageInspect").map((c) => c.args[0])).toEqual(Array(3).fill("nginx:alpine"))
       expect(runtime.callsOf("remove")).toHaveLength(0)
       expect(runtime.callsOf("run")).toHaveLength(0)
     })
 
     test("a tenant image with harmless labels deploys", async () => {
       await createApp({ name: "vault" })
-      runtime.imageLabelsReturn = { "org.opencontainers.image.title": "vault" }
+      runtime.imageInspectReturn = { ...runtime.imageInspectReturn, labels: { "org.opencontainers.image.title": "vault" } }
       const res = await req("/apps/vault/deploy", { method: "POST", headers: as("key-c") }, "api.vaults.net")
       expect(res.status).toBe(200)
       expect(runtime.callsOf("run")).toHaveLength(1)
     })
 
+    test("a tenant app runs the image it inspected, by id, not by tag", async () => {
+      // Another deploy could retag nginx:alpine between the check and the run.
+      await createApp({ name: "vault" })
+      runtime.imageInspectReturn = { id: "sha256:" + "ab".repeat(32), labels: {} }
+      const res = await req("/apps/vault/deploy", { method: "POST", headers: as("key-c") }, "api.vaults.net")
+      expect(res.status).toBe(200)
+      expect(runtime.callsOf("imageInspect").map((c) => c.args[0])).toEqual(["nginx:alpine"])
+      const runs = runtime.callsOf("run")
+      expect(runs).toHaveLength(1)
+      expect((runs[0]!.args[0] as { image: string }).image).toBe("sha256:" + "ab".repeat(32))
+    })
+
     test("the operator's images keep their traefik labels", async () => {
       await createApp({ name: "hub" }, "god-key", "localhost")
-      runtime.imageLabelsReturn = { "traefik.http.routers.x.rule": "Host(`hub.example.com`)" }
+      runtime.imageInspectReturn = { ...runtime.imageInspectReturn, labels: { "traefik.http.routers.x.rule": "Host(`hub.example.com`)" } }
       const res = await req("/apps/hub/deploy", { method: "POST", headers: as("god-key") })
       expect(res.status).toBe(200)
+      const runs = runtime.callsOf("run")
+      expect(runs).toHaveLength(1)
+      expect((runs[0]!.args[0] as { image: string }).image).toBe("nginx:alpine")
     })
   })
 

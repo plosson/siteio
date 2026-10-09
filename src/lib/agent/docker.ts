@@ -424,14 +424,19 @@ export class DockerManager implements Runtime {
   }
 
   /**
-   * The labels baked into an image ({} when it has none)
+   * The ID of the image a tag names now, and the labels baked into it ({}
+   * when it has none)
    */
-  async imageLabels(tag: string): Promise<Record<string, string>> {
-    const result = await dockerAsync(["image", "inspect", "--format", "{{json .Config.Labels}}", tag])
+  async imageInspect(tag: string): Promise<{ id: string; labels: Record<string, string> }> {
+    const result = await dockerAsync(["image", "inspect", "--format", "{{json .}}", tag])
     if (result.exitCode !== 0) {
       throw new SiteioError(`Failed to inspect image ${tag}: ${result.stderr}`)
     }
-    return (JSON.parse(result.stdout) as Record<string, string> | null) ?? {}
+    const data = JSON.parse(result.stdout) as { Id?: unknown; Config?: { Labels?: Record<string, string> | null } }
+    if (typeof data.Id !== "string" || !/^sha256:[0-9a-f]{64}$/.test(data.Id)) {
+      throw new SiteioError(`Failed to inspect image ${tag}: no image ID`)
+    }
+    return { id: data.Id, labels: data.Config?.Labels ?? {} }
   }
 
   /**
