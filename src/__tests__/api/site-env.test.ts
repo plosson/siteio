@@ -85,4 +85,120 @@ describe("Site env", () => {
       expect(new SiteStorage(dataDir).get("journal")!.secretKeys).toEqual(["S"])
     })
   })
+
+  describe("PATCH /sites/:name/env", () => {
+    type Out = { success: boolean; data?: { env?: Record<string, string>; secretKeys?: string[] }; error?: string }
+    const body = async (res: Response) => (await res.json()) as Out
+
+    test("stores env and secrets, returns keys but never secret values", async () => {
+      await deploy("blog")
+      const res = await setEnv("blog", { env: { A: "1" }, secrets: { S: SECRET } })
+      expect(res.status).toBe(200)
+      const text = await res.text()
+      expect(text).not.toContain(SECRET)
+      const out = JSON.parse(text) as Out
+      expect(out.data!.env).toEqual({ A: "1" })
+      expect(out.data!.secretKeys).toEqual(["S"])
+    })
+
+    test("a running site is recreated with the new env at once", async () => {
+      await deploy("blog")
+      runtime.containerExistsReturn = true
+      const runs = runtime.callsOf("run").length
+      await setEnv("blog", { secrets: { S: SECRET } })
+      expect(runtime.callsOf("run").length).toBe(runs + 1)
+      expect(lastRunEnv().S).toBe(SECRET)
+    })
+
+    test("a site with no container only stores it; the first deploy uses it", async () => {
+      await deploy("blog")
+      runtime.containerExistsReturn = false
+      const runs = runtime.callsOf("run").length
+      expect((await setEnv("blog", { env: { A: "1" } })).status).toBe(200)
+      expect(runtime.callsOf("run").length).toBe(runs)
+      await deploy("blog")
+      expect(lastRunEnv().A).toBe("1")
+    })
+
+    test("a secret value never appears in any site response", async () => {
+      await deploy("blog")
+      await setEnv("blog", { secrets: { S: SECRET } })
+      const responses = [
+        await req("/sites/blog", { headers: as("god-key") }),
+        await req("/sites", { headers: as("god-key") }),
+        await deploy("blog"),
+        await req("/sites/blog/history", { headers: as("god-key") }),
+        await setEnv("blog", { env: { S: "plain-attempt" } }), // refused
+      ]
+      for (const res of responses) expect(await res.text()).not.toContain(SECRET)
+    })
+
+    test("GET /sites lists no env at all", async () => {
+      await deploy("blog")
+      await setEnv("blog", { env: { A: "1" } })
+      const list = await (await req("/sites", { headers: as("god-key") })).text()
+      expect(list).not.toContain("secretKeys")
+      expect(list).not.toContain('"env"')
+    })
+
+    test("refuses malformed bodies and stores nothing", async () => {
+      await deploy("blog")
+      for (const b of [
+        "not json", "null", "[]", { env: "A=1" }, { env: { A: 1 } }, { env: { A: null } }, { secrets: ["S"] },
+        { unsetEnv: "S" }, { unsetEnv: [1] }, { secretKeys: ["A"] },
+      ]) {
+        const res = await setEnv("blog", b)
+        expect(res.status).toBe(400)
+      }
+      expect(new SiteStorage(dataDir).get("blog")!.env).toBeUndefined()
+    })
+
+    test("refuses invalid and reserved keys", async () => {
+      await deploy("blog")
+      for (const b of [{ env: { "A-B": "1" } }, { secrets: { POCKET_SUPERUSER_PASSWORD: "x" } }, { unsetEnv: ["POCKET_X"] }]) {
+        expect((await setEnv("blog", b)).status).toBe(400)
+      }
+    })
+
+    test("refuses to un-secret a key", async () => {
+      await deploy("blog")
+      await setEnv("blog", { secrets: { S: SECRET } })
+      const res = await setEnv("blog", { env: { S: "x" } })
+      expect(res.status).toBe(400)
+      expect((await body(res)).error).toContain("'sites unset -e S'")
+    })
+
+    test("unknown site is 404", async () => {
+      expect((await setEnv("ghost", { env: { A: "1" } })).status).toBe(404)
+    })
+
+    test("GET /sites/:name shows public env and secret keys", async () => {
+      await deploy("blog")
+      await setEnv("blog", { env: { A: "1" }, secrets: { S: SECRET } })
+      const out = await body(await req("/sites/blog", { headers: as("god-key") }))
+      expect(out.data!.env).toEqual({ A: "1" })
+      expect(out.data!.secretKeys).toEqual(["S"])
+    })
+
+    test("a tenant manages its own site's env, never another scope's", async () => {
+      await deploy("blog", "key-t", "api.friend.com")
+      await deploy("shop")
+      expect((await setEnv("blog", { secrets: { S: SECRET } }, "key-t", "api.friend.com")).status).toBe(200)
+      expect((await setEnv("shop", { env: { A: "1" } }, "key-t", "api.friend.com")).status).toBe(404)
+      expect((await setEnv("blog--friend-com", { env: { A: "1" } }, "key-t", "api.friend.com")).status).toBe(404)
+      expect(new SiteStorage(dataDir).get("shop")!.env).toBeUndefined()
+    })
+
+    test("a share code can't read or set env", async () => {
+      await deploy("blog")
+      await setEnv("blog", { secrets: { S: SECRET } })
+      const minted = await req("/sites/blog/grants", {
+        method: "POST", headers: as("god-key", { "Content-Type": "application/json" }), body: JSON.stringify({}),
+      })
+      const { code } = ((await minted.json()) as { data: { code: string } }).data
+      expect((await setEnv("blog", { env: { A: "1" } }, code)).status).toBe(403)
+      const asGrant = await req("/sites/blog", { headers: as(code) })
+      expect(await asGrant.text()).not.toContain('"secretKeys"')
+    })
+  })
 })
