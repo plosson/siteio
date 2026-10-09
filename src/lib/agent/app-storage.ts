@@ -3,6 +3,7 @@ import { join } from "path"
 import type { App, AppInfo } from "../../types"
 import { ValidationError } from "../../utils/errors"
 import { applyEnvUpdate } from "./env"
+import type { Scope, TenantRegistry } from "./tenants.ts"
 
 export class AppStorage {
   private appsDir: string
@@ -117,21 +118,22 @@ export class AppStorage {
     })
   }
 
-  /** Hostnames Traefik routes to the app: its custom domains, else `<app>.<domain>`. */
-  routedDomains(app: Pick<App, "name" | "domains">, domain: string): string[] {
-    return app.domains.length > 0 ? app.domains : [`${app.name}.${domain}`]
+  /** Hostnames Traefik routes to the app: its custom domains, else its platform hostname. */
+  routedDomains(app: Pick<App, "name" | "domains">, hosts: TenantRegistry): string[] {
+    return app.domains.length > 0 ? app.domains : [hosts.host(app.name)]
   }
 
   /** Public URL the app is served at: its first routed domain. */
-  url(app: Pick<App, "name" | "domains">, domain: string): string {
-    return `https://${this.routedDomains(app, domain)[0]}`
+  url(app: Pick<App, "name" | "domains">, hosts: TenantRegistry): string {
+    return `https://${this.routedDomains(app, hosts)[0]}`
   }
 
-  toInfo(app: App, domain: string): AppInfo {
+  // `scope` is who is looking: a tenant sees its apps under bare names.
+  toInfo(app: App, hosts: TenantRegistry, scope: Scope = null): AppInfo {
     return {
-      name: app.name,
+      name: hosts.displayName(app.name, scope),
       type: app.type,
-      url: this.url(app, domain),
+      url: this.url(app, hosts),
       image: app.image,
       git: app.git,
       dockerfile: app.dockerfile,

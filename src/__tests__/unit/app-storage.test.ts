@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { AppStorage } from "../../lib/agent/app-storage"
+import { TenantRegistry } from "../../lib/agent/tenants"
 import type { App, AppType, ContainerStatus, RestartPolicy } from "../../types"
 
 describe("Unit: AppStorage", () => {
@@ -194,18 +195,33 @@ describe("Unit: AppStorage", () => {
   })
 
   describe("routed domains and URL", () => {
+    const vaults = { domain: "vaults.net", apiKey: "k", createdAt: "2026-10-09T00:00:00.000Z", apps: true }
+    const hosts = new TenantRegistry("base.test", [vaults])
+
     test("an app without custom domains is routed on <app>.<domain>", () => {
       const app = storage.create(createTestApp("plain", { domains: [] }))
-      expect(storage.routedDomains(app, "base.test")).toEqual(["plain.base.test"])
-      expect(storage.toInfo(app, "base.test").url).toBe("https://plain.base.test")
+      expect(storage.routedDomains(app, hosts)).toEqual(["plain.base.test"])
+      expect(storage.toInfo(app, hosts).url).toBe("https://plain.base.test")
     })
 
     test("custom domains replace the subdomain, so the URL uses the first of them", () => {
       // The subdomain is not routed once custom domains exist: never report it
       const app = storage.create(createTestApp("custom", { domains: ["a.acme.test", "b.acme.test"] }))
-      expect(storage.routedDomains(app, "base.test")).toEqual(["a.acme.test", "b.acme.test"])
-      expect(storage.toInfo(app, "base.test").url).toBe("https://a.acme.test")
-      expect(storage.url(app, "base.test")).toBe(storage.toInfo(app, "base.test").url)
+      expect(storage.routedDomains(app, hosts)).toEqual(["a.acme.test", "b.acme.test"])
+      expect(storage.toInfo(app, hosts).url).toBe("https://a.acme.test")
+      expect(storage.url(app, hosts)).toBe(storage.toInfo(app, hosts).url)
+    })
+
+    test("a tenant app is routed on <name>.<tenant domain>, never under the primary domain", () => {
+      const app = storage.create(createTestApp("vault--vaults-net", { domains: [] }))
+      expect(storage.routedDomains(app, hosts)).toEqual(["vault.vaults.net"])
+      expect(storage.toInfo(app, hosts, vaults).name).toBe("vault")
+      expect(storage.toInfo(app, hosts).name).toBe("vault--vaults-net")
+    })
+
+    test("a primary key that only looks like a tenant key stays on the primary domain", () => {
+      const app = storage.create(createTestApp("old--unknown-org", { domains: [] }))
+      expect(storage.routedDomains(app, hosts)).toEqual(["old--unknown-org.base.test"])
     })
   })
 

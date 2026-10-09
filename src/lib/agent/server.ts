@@ -631,7 +631,7 @@ export class AgentServer {
     const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
 
     const appInfos: AppInfo[] = apps.map((app) => scrubApp({
-      ...this.appStorage.toInfo(app, this.config.domain),
+      ...this.appStorage.toInfo(app, this.tenants),
       tls: tlsStatusMap.get(`siteio-${app.name}`) || "pending",
       hasThumbnail: this.thumbnails?.has(app.name) ?? false,
     }))
@@ -984,10 +984,10 @@ export class AgentServer {
     try {
       if (app.compose) {
         const { updated, warnings } = await this.deployComposeApp(app)
-        return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.config.domain), warnings })
+        return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.tenants), warnings })
       }
       const updated = await this.deployContainerApp(name, { noCache, dockerfileContent: newDockerfileContent })
-      return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.config.domain) })
+      return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.tenants) })
     } catch (err) {
       const status = err instanceof DeployError ? err.status : 500
       return this.error(err instanceof Error ? err.message : "Failed to deploy app", status)
@@ -1035,7 +1035,7 @@ export class AgentServer {
 
       // Write the override (regenerate every deploy so env/domain updates apply)
       const overrideYaml = buildOverride(app, {
-        domains: this.appStorage.routedDomains(app, this.config.domain),
+        domains: this.appStorage.routedDomains(app, this.tenants),
         baseNetworks: Object.keys(primary.networks ?? {}),
         dataDir: this.config.dataDir,
       })
@@ -1143,7 +1143,7 @@ export class AgentServer {
         await this.docker.remove(name)
       }
 
-      const labels = this.docker.buildTraefikLabels(name, this.appStorage.routedDomains(app, this.config.domain), app.internalPort)
+      const labels = this.docker.buildTraefikLabels(name, this.appStorage.routedDomains(app, this.tenants), app.internalPort)
       const containerId = await this.docker.run({
         name: app.name,
         image: imageToRun,
@@ -2547,7 +2547,7 @@ export class AgentServer {
     this.pager?.notify({
       title: `App '${app.name}' deploy failed`,
       message: error,
-      url: this.appStorage.url(app, this.config.domain),
+      url: this.appStorage.url(app, this.tenants),
     })
   }
 
@@ -2557,7 +2557,7 @@ export class AgentServer {
       message: [event === "deployed" && app.commitHash && `commit ${app.commitHash.slice(0, 7)}`, `on ${this.config.domain}`]
         .filter(Boolean)
         .join(" · "),
-      url: this.appStorage.url(app, this.config.domain),
+      url: this.appStorage.url(app, this.tenants),
     })
   }
 
@@ -2687,7 +2687,7 @@ export class AgentServer {
    * Rebuilt on each call so domain changes apply.
    */
   private writeComposeEnvFile(app: Pick<App, "name" | "domains" | "compose">): string {
-    const [domain] = this.appStorage.routedDomains(app, this.config.domain)
+    const [domain] = this.appStorage.routedDomains(app, this.tenants)
     const userEnv = this.compose.envFileExists(app.name)
       ? this.compose.baseEnvPath(app.name)
       : app.compose?.source === "git"
