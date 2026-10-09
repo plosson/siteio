@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs"
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
@@ -8,16 +8,18 @@ import { AgentServer } from "../../lib/agent/server.ts"
 import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import { encodeToken } from "../../utils/token.ts"
-import type { AgentConfig, ApiResponse, SiteInfo, Tenant } from "../../types.ts"
+import type { AgentConfig, ApiResponse, App, AppInfo, SiteInfo, Tenant } from "../../types.ts"
 
 const A: Tenant = { domain: "friend.com", apiKey: "key-a", createdAt: "2026-10-08T00:00:00.000Z" }
 const B: Tenant = { domain: "other.org", apiKey: "key-b", createdAt: "2026-10-08T00:00:00.000Z" }
+const C: Tenant = { domain: "vaults.net", apiKey: "key-c", createdAt: "2026-10-09T00:00:00.000Z", apps: true }
 
-function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
+function makeServer(dataDir: string, runtime: FakeRuntime, extra: Partial<AgentConfig> = {}): AgentServer {
   const config: AgentConfig = {
     apiKey: "god-key", dataDir, domain: "example.com",
     maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
-    tenants: [A, B],
+    tenants: [A, B, C],
+    ...extra,
   }
   return new AgentServer(config, runtime)
 }
@@ -31,7 +33,8 @@ describe("API: tenants", () => {
   let server: AgentServer
 
   // `host` picks the scope: localhost / api.example.com = primary,
-  // api.friend.com = tenant A, api.other.org = tenant B.
+  // api.friend.com = tenant A, api.other.org = tenant B,
+  // api.vaults.net = tenant C (apps allowed).
   const req = (path: string, init: RequestInit = {}, host = "localhost") =>
     server.handleRequestForTest(new Request(`http://x${path}`, init), host)
   const as = (key: string, extra: Record<string, string> = {}) => ({ "X-API-Key": key, ...extra })
@@ -294,6 +297,20 @@ describe("API: tenants", () => {
       expect(info.email).toBeUndefined()
     })
 
+    test("/agent reports apps only to a tenant allowed to run them", async () => {
+      const info = async (key: string, host: string) =>
+        ((await (await req("/agent", { headers: as(key) }, host)).json()) as ApiResponse<Record<string, unknown>>).data!
+      expect((await info("key-c", "api.vaults.net")).appsEnabled).toBe(true)
+      expect((await info("key-c", "api.vaults.net")).appCount).toBe(0)
+      expect((await info("key-a", "api.friend.com")).appsEnabled).toBe(false)
+    })
+
+    test("an agent with apps disabled reports them off to every tenant", async () => {
+      server = makeServer(dataDir, runtime, { appsEnabled: false })
+      const res = await req("/agent", { headers: as("key-c") }, "api.vaults.net")
+      expect(((await res.json()) as ApiResponse<Record<string, unknown>>).data!.appsEnabled).toBe(false)
+    })
+
     test("a tenant can't download or read logs of another tenant's site", async () => {
       await deploy("blog", "key-b", "api.other.org")
       for (const sub of ["download", "logs"]) {
@@ -310,6 +327,25 @@ describe("API: tenants", () => {
         body: typeof body === "string" ? body : JSON.stringify(body),
       }, host)
     const errorOf = async (res: Response) => ((await res.json()) as ApiResponse<null>).error
+
+    test("a tenant is sites-only unless added with apps: true", async () => {
+      const plain = await add({ domain: "third.net" })
+      expect(plain.status).toBe(200)
+      expect(((await plain.json()) as ApiResponse<{ apps: boolean }>).data!.apps).toBe(false)
+      const withApps = await add({ domain: "fourth.net", apps: true })
+      expect(withApps.status).toBe(200)
+      expect(((await withApps.json()) as ApiResponse<{ apps: boolean }>).data!.apps).toBe(true)
+      const stored = loadAgentConfig(dataDir).tenants!
+      expect(stored.find((t) => t.domain === "third.net")!.apps).toBeUndefined()
+      expect(stored.find((t) => t.domain === "fourth.net")!.apps).toBe(true)
+    })
+
+    test("refuses an apps flag that is not a boolean", async () => {
+      for (const apps of ["yes", "true", 1, null, {}]) {
+        expect((await add({ domain: "third.net", apps })).status).toBe(400)
+      }
+      expect(loadAgentConfig(dataDir).tenants).toBeUndefined()
+    })
 
     test("only the god key on the primary api host may add a tenant", async () => {
       expect((await add({ domain: "third.net" }, "key-a", "api.friend.com")).status).toBe(404)
@@ -388,6 +424,414 @@ describe("API: tenants", () => {
       updateAgentConfig(dataDir, { tenants: [onBox] })
       await add({ domain: "third.net" })
       expect(loadAgentConfig(dataDir).tenants!.map((t) => t.domain)).toEqual(["pending.io", "third.net"])
+    })
+  })
+
+  describe("tenant apps", () => {
+    const json = (key: string) => as(key, { "Content-Type": "application/json" })
+    const createApp = (body: Record<string, unknown>, key = "key-c", host = "api.vaults.net") =>
+      req("/apps", {
+        method: "POST",
+        headers: json(key),
+        body: JSON.stringify({ image: "nginx:alpine", internalPort: 80, ...body }),
+      }, host)
+    const dataOf = async <T>(res: Response) => ((await res.json()) as ApiResponse<T>).data!
+    const appsOnDisk = () => (existsSync(join(dataDir, "apps")) ? readdirSync(join(dataDir, "apps")) : [])
+
+    test("a tenant with apps creates an app under a bare name on its own domain", async () => {
+      const res = await createApp({ name: "vault" })
+      expect(res.status).toBe(200)
+      expect((await dataOf<App>(res)).name).toBe("vault")
+      expect(appsOnDisk()).toEqual(["vault--vaults-net.json"])
+      const list = await dataOf<AppInfo[]>(await req("/apps", { headers: as("key-c") }, "api.vaults.net"))
+      expect(list.map((a) => [a.name, a.url])).toEqual([["vault", "https://vault.vaults.net"]])
+    })
+
+    test("deploy runs the container under the key, routed on the tenant host", async () => {
+      await createApp({ name: "vault", volumes: [{ name: "data", mountPath: "/data" }] })
+      const res = await req("/apps/vault/deploy", { method: "POST", headers: as("key-c") }, "api.vaults.net")
+      expect(res.status).toBe(200)
+      const app = await dataOf<App & { url: string }>(res)
+      expect(app.name).toBe("vault")
+      expect(app.url).toBe("https://vault.vaults.net")
+      const run = runtime.callsOf("run").at(-1)!.args[0] as { name: string; volumes: { name: string }[] }
+      expect(run.name).toBe("vault--vaults-net")
+      expect(run.volumes.map((v) => v.name)).toEqual(["data"])
+      expect(runtime.callsOf("buildTraefikLabels").at(-1)!.args.slice(0, 2)).toEqual(["vault--vaults-net", ["vault.vaults.net"]])
+    })
+
+    test("the same app name coexists in the primary scope and in a tenant", async () => {
+      expect((await createApp({ name: "vault" }, "god-key", "localhost")).status).toBe(200)
+      expect((await createApp({ name: "vault" })).status).toBe(200)
+      const god = await dataOf<AppInfo[]>(await req("/apps", { headers: as("god-key") }))
+      expect(god.map((a) => a.name).sort()).toEqual(["vault", "vault--vaults-net"])
+      const tenant = await dataOf<AppInfo[]>(await req("/apps", { headers: as("key-c") }, "api.vaults.net"))
+      expect(tenant.map((a) => a.name)).toEqual(["vault"])
+    })
+
+    test("a tenant can't reach an app outside its scope, by name or by forged key", async () => {
+      await createApp({ name: "hub" }, "god-key", "localhost")
+      await createApp({ name: "vault" }, "god-key", "localhost")
+      const calls: [string, string][] = [
+        ["GET", ""], ["PATCH", ""], ["DELETE", ""], ["POST", "/deploy"], ["POST", "/stop"],
+        ["POST", "/restart"], ["GET", "/logs"], ["GET", "/status"], ["GET", "/thumbnail"],
+      ]
+      for (const target of ["hub", "hub--example-com", "vault--friend-com"]) {
+        for (const [method, sub] of calls) {
+          const res = await req(`/apps/${target}${sub}`, {
+            method,
+            headers: json("key-c"),
+            ...(method === "PATCH" && { body: JSON.stringify({ image: "evil:latest" }) }),
+          }, "api.vaults.net")
+          expect(res.status).toBe(404)
+        }
+      }
+      const hub = await dataOf<App>(await req("/apps/hub", { headers: as("god-key") }))
+      expect(hub.image).toBe("nginx:alpine")
+      expect(runtime.callsOf("run")).toHaveLength(0)
+    })
+
+    test("a tenant without apps is refused and nothing is written", async () => {
+      const res = await createApp({ name: "vault" }, "key-a", "api.friend.com")
+      expect(res.status).toBe(403)
+      expect(appsOnDisk()).toEqual([])
+    })
+
+    test("an agent with apps disabled refuses even a tenant allowed to run them", async () => {
+      server = makeServer(dataDir, runtime, { appsEnabled: false })
+      expect((await createApp({ name: "vault" })).status).toBe(403)
+      expect(appsOnDisk()).toEqual([])
+    })
+
+    test("a tenant key is refused on the primary api host", async () => {
+      expect((await createApp({ name: "vault" }, "key-c", "localhost")).status).toBe(401)
+      expect((await createApp({ name: "vault" }, "key-c", "api.friend.com")).status).toBe(401)
+      expect(appsOnDisk()).toEqual([])
+    })
+
+    test("a tenant app name may not contain -- and 'api' is reserved", async () => {
+      for (const name of ["a--b", "api", "Vault", "-vault"]) {
+        expect((await createApp({ name })).status).toBe(400)
+      }
+      expect(appsOnDisk()).toEqual([])
+    })
+
+    test("the operator manages a tenant app by its key", async () => {
+      await createApp({ name: "vault" })
+      const res = await req("/apps/vault--vaults-net", { headers: as("god-key") })
+      expect(res.status).toBe(200)
+      expect((await dataOf<App>(res)).name).toBe("vault--vaults-net")
+      const list = await dataOf<AppInfo[]>(await req("/apps", { headers: as("god-key") }))
+      expect(list.find((a) => a.name === "vault--vaults-net")!.url).toBe("https://vault.vaults.net")
+    })
+
+    test("a tenant may not create a compose app, inline or from git", async () => {
+      const inline = await createApp({ name: "stack", image: undefined, composeContent: "services:\n  web:\n    image: nginx\n", primaryService: "web" })
+      expect(inline.status).toBe(400)
+      expect(((await inline.json()) as ApiResponse<null>).error).toBe("Compose apps are not available to a tenant")
+      const git = await createApp({ name: "stack", image: undefined, git: { repoUrl: "https://example.com/r.git" }, composePath: "compose.yml", primaryService: "web" })
+      expect(git.status).toBe(400)
+      expect(((await git.json()) as ApiResponse<null>).error).toBe("Compose apps are not available to a tenant")
+      expect(appsOnDisk()).toEqual([])
+    })
+
+    test("a tenant volume must be a plain name, never a host path", async () => {
+      for (const name of ["/", "/var/run/docker.sock", "/data/agent-config.json", "../../agent-config.json", "a/b", ".ssh", ".."]) {
+        const res = await createApp({ name: "vault", volumes: [{ name, mountPath: "/data" }] })
+        expect(res.status).toBe(400)
+      }
+      expect(appsOnDisk()).toEqual([])
+      expect((await createApp({ name: "vault", volumes: [{ name: "vault_data.v1", mountPath: "/data" }] })).status).toBe(200)
+    })
+
+    test("a tenant can't swap in a host-path volume later", async () => {
+      await createApp({ name: "vault", volumes: [{ name: "data", mountPath: "/data" }] })
+      const res = await req("/apps/vault", {
+        method: "PATCH",
+        headers: json("key-c"),
+        body: JSON.stringify({ volumes: [{ name: "/", mountPath: "/host" }] }),
+      }, "api.vaults.net")
+      expect(res.status).toBe(400)
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.volumes).toEqual([{ name: "data", mountPath: "/data" }])
+    })
+
+    test("a tenant's volumes must be a list of name and mount path", async () => {
+      const bad = [["x"], [{ name: null, mountPath: "/d" }], [{ mountPath: "/d" }], [{ name: "data", mountPath: 7 }], [null], "data", { name: "data", mountPath: "/d" }]
+      for (const volumes of bad) {
+        expect((await createApp({ name: "vault", volumes })).status).toBe(400)
+      }
+      expect(appsOnDisk()).toEqual([])
+      await createApp({ name: "vault" })
+      for (const volumes of bad) {
+        const res = await req("/apps/vault", { method: "PATCH", headers: json("key-c"), body: JSON.stringify({ volumes }) }, "api.vaults.net")
+        expect(res.status).toBe(400)
+      }
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.volumes).toEqual([])
+    })
+
+    test("the operator keeps host-path volumes", async () => {
+      const res = await createApp({ name: "hub", volumes: [{ name: "/srv/hub", mountPath: "/data" }] }, "god-key", "localhost")
+      expect(res.status).toBe(200)
+    })
+
+    test("a tenant git context or Dockerfile must stay inside the repository", async () => {
+      const git = (extra: Record<string, string>) => ({ name: "vault", image: undefined, git: { repoUrl: "https://example.com/r.git", ...extra } })
+      for (const extra of <Record<string, string>[]>[
+        { context: "../.." }, { context: "/etc" }, { context: "a/../../x" }, { context: ".." },
+        { dockerfile: "../../Dockerfile" }, { dockerfile: "/etc/passwd" },
+      ]) {
+        const res = await createApp(git(extra))
+        expect(res.status).toBe(400)
+      }
+      expect(appsOnDisk()).toEqual([])
+      expect((await createApp(git({ context: "app", dockerfile: "app/Dockerfile.prod" }))).status).toBe(200)
+    })
+
+    test("a tenant git repository must be an https URL", async () => {
+      for (const repoUrl of ["file:///data", "/data/repos/hub", "git@github.com:x/y.git", "-uhttps://x", "ssh://git@github.com/x/y.git", "http://example.com/r.git", 42]) {
+        const res = await createApp({ name: "vault", image: undefined, git: { repoUrl } })
+        expect(res.status).toBe(400)
+      }
+      expect(appsOnDisk()).toEqual([])
+      expect((await createApp({ name: "vault", image: undefined, git: { repoUrl: "https://example.com/r.git" } })).status).toBe(200)
+      const res = await req("/apps/vault", { method: "PATCH", headers: json("key-c"), body: JSON.stringify({ git: { repoUrl: "file:///data" } }) }, "api.vaults.net")
+      expect(res.status).toBe(400)
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.git!.repoUrl).toBe("https://example.com/r.git")
+    })
+
+    test("a tenant env or secret can't steer the agent's docker process", async () => {
+      const denied = [
+        "PATH", "Path", "HOME", "NO_PROXY", "http_proxy", "HTTPS_PROXY", "ALL_PROXY",
+        "LD_PRELOAD", "ld_library_path", "DYLD_INSERT_LIBRARIES", "DOCKER_HOST", "docker_config",
+        "BUILDKIT_HOST", "SSL_CERT_FILE", "GIT_SSH_COMMAND", "A-B", "1X", "", "X Y", "X=Y",
+      ]
+      for (const key of denied) {
+        for (const field of ["env", "secrets"]) {
+          const res = await createApp({ name: "vault", [field]: { [key]: "x" } })
+          expect(res.status).toBe(400)
+          expect(((await res.json()) as ApiResponse<null>).error).toContain(`'${key}'`)
+        }
+      }
+      expect(appsOnDisk()).toEqual([])
+      expect((await createApp({ name: "vault", env: { NODE_ENV: "production" }, secrets: { VAULT_TOKEN: "t" } })).status).toBe(200)
+    })
+
+    test("a tenant can't add a denied env key later", async () => {
+      await createApp({ name: "vault", env: { NODE_ENV: "production" } })
+      for (const body of [{ env: { DOCKER_HOST: "tcp://evil:2375" } }, { secrets: { LD_PRELOAD: "/x.so" } }]) {
+        const res = await req("/apps/vault", { method: "PATCH", headers: json("key-c"), body: JSON.stringify(body) }, "api.vaults.net")
+        expect(res.status).toBe(400)
+      }
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.env).toEqual({ NODE_ENV: "production" })
+    })
+
+    test("the operator may still set DOCKER_HOST", async () => {
+      const res = await createApp({ name: "hub", env: { DOCKER_HOST: "unix:///run/docker.sock" } }, "god-key", "localhost")
+      expect(res.status).toBe(200)
+    })
+
+    test("the operator keeps any git repository URL", async () => {
+      expect((await createApp({ name: "hub", image: undefined, git: { repoUrl: "file:///srv/hub.git" } }, "god-key", "localhost")).status).toBe(200)
+    })
+
+    test("a tenant can't point its git context outside the repository later", async () => {
+      await createApp({ name: "vault", image: undefined, git: { repoUrl: "https://example.com/r.git", context: "app" } })
+      for (const git of <Record<string, string>[]>[{ context: "../.." }, { dockerfile: "../../x" }]) {
+        const res = await req("/apps/vault", { method: "PATCH", headers: json("key-c"), body: JSON.stringify({ git }) }, "api.vaults.net")
+        expect(res.status).toBe(400)
+      }
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.git!.context).toBe("app")
+      expect(app.git!.dockerfile).toBe("Dockerfile")
+    })
+
+    test("a tenant's app logs and status name the app by its bare name", async () => {
+      await createApp({ name: "vault" })
+      runtime.logsReturn = "started"
+      const logs = await req("/apps/vault/logs", { headers: as("key-c") }, "api.vaults.net")
+      expect(logs.status).toBe(200)
+      const logsBody = await logs.text()
+      expect(JSON.parse(logsBody).data.name).toBe("vault")
+      expect(logsBody).not.toContain("--")
+      const status = await req("/apps/vault/status", { headers: as("key-c") }, "api.vaults.net")
+      expect(status.status).toBe(200)
+      const statusBody = await status.text()
+      expect(JSON.parse(statusBody).data).toEqual({ name: "vault", services: [{ service: "vault", primary: true, state: "missing" }] })
+      expect(statusBody).not.toContain("--")
+    })
+
+    test("a duplicate tenant app is named as the tenant typed it", async () => {
+      await createApp({ name: "vault" })
+      const res = await createApp({ name: "vault" })
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as ApiResponse<null>).error).toBe("App 'vault' already exists")
+    })
+
+    test("a tenant uses its own app by its bare name from create to delete", async () => {
+      await createApp({ name: "vault" })
+      const named = async (res: Response) => {
+        expect(res.status).toBe(200)
+        expect((await dataOf<App>(res)).name).toBe("vault")
+      }
+      await named(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      await named(await req("/apps/vault", { method: "PATCH", headers: json("key-c"), body: JSON.stringify({ internalPort: 8080 }) }, "api.vaults.net"))
+      await named(await req("/apps/vault/deploy", { method: "POST", headers: as("key-c") }, "api.vaults.net"))
+      runtime.containerExistsReturn = true
+      await named(await req("/apps/vault/stop", { method: "POST", headers: as("key-c") }, "api.vaults.net"))
+      await named(await req("/apps/vault/restart", { method: "POST", headers: as("key-c") }, "api.vaults.net"))
+      expect((await req("/apps/vault/logs", { headers: as("key-c") }, "api.vaults.net")).status).toBe(200)
+      expect((await req("/apps/vault/status", { headers: as("key-c") }, "api.vaults.net")).status).toBe(200)
+      expect(appsOnDisk()).toEqual(["vault--vaults-net.json"])
+      expect((await req("/apps/vault", { method: "DELETE", headers: as("key-c") }, "api.vaults.net")).status).toBe(200)
+      expect(appsOnDisk()).toEqual([])
+      expect(runtime.callsOf("remove").map((c) => c.args[0])).toContain("vault--vaults-net")
+    })
+
+    test("a tenant image can't bring its own traefik labels", async () => {
+      await createApp({ name: "vault" })
+      runtime.containerExistsReturn = true
+      for (const labels of <Record<string, string>[]>[
+        { "traefik.http.routers.x.rule": "Host(`api.example.com`)" },
+        { "traefik.enable": "true" },
+        { "Traefik.HTTP.Routers.x.rule": "Host(`api.example.com`)" },
+      ]) {
+        runtime.imageInspectReturn = { ...runtime.imageInspectReturn, labels }
+        const res = await req("/apps/vault/deploy", { method: "POST", headers: as("key-c") }, "api.vaults.net")
+        expect(res.status).toBe(400)
+        expect(((await res.json()) as ApiResponse<null>).error).toBe("Image labels starting with 'traefik.' are not allowed for tenant apps")
+      }
+      expect(runtime.callsOf("imageInspect").map((c) => c.args[0])).toEqual(Array(3).fill("nginx:alpine"))
+      expect(runtime.callsOf("remove")).toHaveLength(0)
+      expect(runtime.callsOf("run")).toHaveLength(0)
+    })
+
+    test("a tenant image with harmless labels deploys", async () => {
+      await createApp({ name: "vault" })
+      runtime.imageInspectReturn = { ...runtime.imageInspectReturn, labels: { "org.opencontainers.image.title": "vault" } }
+      const res = await req("/apps/vault/deploy", { method: "POST", headers: as("key-c") }, "api.vaults.net")
+      expect(res.status).toBe(200)
+      expect(runtime.callsOf("run")).toHaveLength(1)
+    })
+
+    test("a tenant app runs the image it inspected, by id, not by tag", async () => {
+      // Another deploy could retag nginx:alpine between the check and the run.
+      await createApp({ name: "vault" })
+      runtime.imageInspectReturn = { id: "sha256:" + "ab".repeat(32), labels: {} }
+      const res = await req("/apps/vault/deploy", { method: "POST", headers: as("key-c") }, "api.vaults.net")
+      expect(res.status).toBe(200)
+      expect(runtime.callsOf("imageInspect").map((c) => c.args[0])).toEqual(["nginx:alpine"])
+      const runs = runtime.callsOf("run")
+      expect(runs).toHaveLength(1)
+      expect((runs[0]!.args[0] as { image: string }).image).toBe("sha256:" + "ab".repeat(32))
+    })
+
+    test("the operator's images keep their traefik labels", async () => {
+      await createApp({ name: "hub" }, "god-key", "localhost")
+      runtime.imageInspectReturn = { ...runtime.imageInspectReturn, labels: { "traefik.http.routers.x.rule": "Host(`hub.example.com`)" } }
+      const res = await req("/apps/hub/deploy", { method: "POST", headers: as("god-key") })
+      expect(res.status).toBe(200)
+      const runs = runtime.callsOf("run")
+      expect(runs).toHaveLength(1)
+      expect((runs[0]!.args[0] as { image: string }).image).toBe("nginx:alpine")
+    })
+  })
+
+  describe("custom domains of sites and apps", () => {
+    const json = (key: string) => as(key, { "Content-Type": "application/json" })
+    const createApp = (body: Record<string, unknown>, key = "god-key", host = "localhost") =>
+      req("/apps", {
+        method: "POST",
+        headers: json(key),
+        body: JSON.stringify({ image: "nginx:alpine", internalPort: 80, ...body }),
+      }, host)
+    const patchApp = (name: string, body: Record<string, unknown>, key = "god-key", host = "localhost") =>
+      req(`/apps/${name}`, { method: "PATCH", headers: json(key), body: JSON.stringify(body) }, host)
+    const setSiteDomains = (name: string, domains: unknown, key = "god-key", host = "localhost") =>
+      req(`/sites/${name}/domains`, { method: "PATCH", headers: json(key), body: JSON.stringify({ domains }) }, host)
+    const dataOf = async <T>(res: Response) => ((await res.json()) as ApiResponse<T>).data!
+    const errorOf = async (res: Response) => ((await res.json()) as ApiResponse<null>).error
+
+    test("an operator app may still take any hostname of the primary domain", async () => {
+      expect((await createApp({ name: "hub", domains: ["status.example.com"] })).status).toBe(200)
+    })
+
+    test("an operator app can't take a tenant's hostnames or the primary api host", async () => {
+      await createApp({ name: "plain" })
+      for (const domain of ["x.vaults.net", "vaults.net", "api.vaults.net", "API.friend.com", "api.example.com"]) {
+        expect((await createApp({ name: "hub", domains: [domain] })).status).toBe(400)
+        expect((await patchApp("plain", { domains: [domain] })).status).toBe(400)
+      }
+      expect(readdirSync(join(dataDir, "apps"))).toEqual(["plain.json"])
+      expect((await createApp({ name: "hub", domains: ["status.example.com", "example.com", "hub.acme.io"] })).status).toBe(200)
+    })
+
+    test("an operator app can't take a hostname another site or app already serves", async () => {
+      await deploy("shop", "god-key", "localhost")
+      await createApp({ name: "plain" })
+      await createApp({ name: "hub", domains: ["hub.acme.io"] })
+      for (const domain of ["shop.example.com", "plain.example.com", "hub.acme.io"]) {
+        const res = await createApp({ name: "intruder", domains: [domain] })
+        expect(res.status).toBe(400)
+        expect(await errorOf(res)).toContain("already in use")
+      }
+      expect((await patchApp("plain", { domains: ["hub.acme.io"] })).status).toBe(400)
+    })
+
+    test("an app keeps its own domains when it updates them", async () => {
+      await createApp({ name: "hub", domains: ["hub.acme.io"] })
+      const res = await patchApp("hub", { domains: ["hub.acme.io", "www.hub.acme.io"] })
+      expect(res.status).toBe(200)
+      expect((await dataOf<App>(res)).domains).toEqual(["hub.acme.io", "www.hub.acme.io"])
+    })
+
+    test("app domains are lower-cased and must be well formed", async () => {
+      const res = await createApp({ name: "hub", domains: ["Hub.Acme.IO"] })
+      expect(res.status).toBe(200)
+      expect((await dataOf<App>(res)).domains).toEqual(["hub.acme.io"])
+      for (const domains of [["not a domain"], ["-x.io"], ["*.acme.io"], [42], "hub2.acme.io"]) {
+        expect((await createApp({ name: "hub2", domains })).status).toBe(400)
+        expect((await patchApp("hub", { domains })).status).toBe(400)
+      }
+    })
+
+    test("a site can't take a domain an app uses, and a bad site domain is a 400, not a 500", async () => {
+      await createApp({ name: "hub", domains: ["hub.acme.io"] })
+      await deploy("blog", "god-key", "localhost")
+      expect((await setSiteDomains("blog", ["hub.acme.io"])).status).toBe(400)
+      expect((await setSiteDomains("blog", [42])).status).toBe(400)
+    })
+
+    test("a tenant app can't take a reserved or used hostname", async () => {
+      await createApp({ name: "hub", domains: ["hub.acme.io"] })
+      for (const domain of ["hub.example.com", "example.com", "api.example.com", "friend.com", "blog.friend.com", "x.vaults.net", "api.vaults.net", "hub.acme.io"]) {
+        const res = await createApp({ name: "vault", domains: [domain] }, "key-c", "api.vaults.net")
+        expect(res.status).toBe(400)
+      }
+      expect(readdirSync(join(dataDir, "apps"))).toEqual(["hub.json"])
+    })
+
+    test("a tenant can't move its app onto a taken hostname later", async () => {
+      await createApp({ name: "vault" }, "key-c", "api.vaults.net")
+      const res = await patchApp("vault", { domains: ["hub.example.com"] }, "key-c", "api.vaults.net")
+      expect(res.status).toBe(400)
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.domains).toEqual([])
+    })
+
+    test("a tenant app may use its own apex and unrelated domains", async () => {
+      const res = await createApp({ name: "vault", domains: ["vaults.net", "my-vault.io"] }, "key-c", "api.vaults.net")
+      expect(res.status).toBe(200)
+    })
+
+    test("a clash never reveals another scope's app name", async () => {
+      await createApp({ name: "secret-hub", domains: ["hub.acme.io"] })
+      const res = await createApp({ name: "vault", domains: ["hub.acme.io"] }, "key-c", "api.vaults.net")
+      expect(res.status).toBe(400)
+      expect(await errorOf(res)).not.toContain("secret-hub")
     })
   })
 })

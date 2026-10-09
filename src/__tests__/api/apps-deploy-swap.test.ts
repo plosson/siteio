@@ -92,6 +92,53 @@ describe("build before swap", () => {
     expect(methods()).not.toContain("remove")
   })
 
+  test("a context or Dockerfile outside the repository is refused, whoever set it", async () => {
+    // apps/web.json exists in the data dir, two levels above repos/web
+    for (const git of [{ context: "../.." }, { context: "src/../../.." }, { dockerfile: "../../apps/web.json" }]) {
+      await createGitApp({ git: { repoUrl: repo.url, branch: "main", ...git } })
+      const res = await call<App>("POST", "/apps/web/deploy")
+      expect(res.status).toBe(400)
+      expect(res.body.error).toContain("outside the repository")
+      await call("DELETE", "/apps/web")
+    }
+    expect(methods()).not.toContain("build")
+    expect(methods()).not.toContain("run")
+  })
+
+  test("a context that is a symlink out of the repository is refused", async () => {
+    // ctx resolves to the data dir, where the agent keeps its config
+    repo.symlink("ctx", "../..")
+    repo.push()
+    await createGitApp({ git: { repoUrl: repo.url, branch: "main", context: "ctx" } })
+    const res = await call<App>("POST", "/apps/web/deploy")
+    expect(res.status).toBe(400)
+    expect(res.body.error).toContain("outside the repository")
+    expect(methods()).not.toContain("build")
+    expect(methods()).not.toContain("run")
+  })
+
+  test("a Dockerfile that is a symlink out of the repository is refused", async () => {
+    repo.symlink("Dockerfile.evil", "../../apps/web.json")
+    repo.push()
+    await createGitApp({ git: { repoUrl: repo.url, branch: "main", dockerfile: "Dockerfile.evil" } })
+    const res = await call<App>("POST", "/apps/web/deploy")
+    expect(res.status).toBe(400)
+    expect(res.body.error).toContain("outside the repository")
+    expect(methods()).not.toContain("build")
+    expect(methods()).not.toContain("run")
+  })
+
+  test("symlinks that stay inside the repository still deploy", async () => {
+    repo.symlink("ctx", ".")
+    repo.symlink("Dockerfile.link", "Dockerfile")
+    repo.push()
+    await createGitApp({ git: { repoUrl: repo.url, branch: "main", context: "ctx", dockerfile: "Dockerfile.link" } })
+    const res = await call<App>("POST", "/apps/web/deploy")
+    expect(res.status).toBe(200)
+    expect(methods()).toContain("build")
+    expect(methods()).toContain("run")
+  })
+
   test("a missing branch is reported and the old container keeps running", async () => {
     await createGitApp({ git: { repoUrl: repo.url, branch: "does-not-exist" } })
     const res = await call<App>("POST", "/apps/web/deploy")

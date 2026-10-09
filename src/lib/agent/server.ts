@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync } from "fs"
-import { dirname, join } from "path"
+import { existsSync, mkdirSync, realpathSync } from "fs"
+import { dirname, isAbsolute, join, resolve, sep } from "path"
 import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
 import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, AppServiceStatus, AppStatus, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated, Tenant } from "../../types.ts"
@@ -33,7 +33,7 @@ import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 import { assertValidSiteEnvKeys, publicEnv, sameEnv, type EnvUpdate } from "./env.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
-import { TenantRegistry, assertValidNewName, isValidDomain, tenantServices, type Scope } from "./tenants.ts"
+import { TenantRegistry, assertValidNewName, normalizeDomains, tenantServices, type Scope } from "./tenants.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
 // gets the same window (clamped to the code). The per-grant spend cap is a
@@ -46,10 +46,24 @@ const EDIT_MAX_TURNS = 60
 // the framed site content (served at /) and its /api backend never receive it.
 const EDIT_SESSION_COOKIE = "siteio_edit"
 
-// The API surface a tenant key may reach: site management only. Apps, chat,
-// edit links and anything new stay operator-only unless listed here.
+// The site API surface a tenant key may reach. A tenant reaches apps through
+// TENANT_APP_ROUTE when Tenant.apps is set; chat, edit links and anything new
+// stay operator-only unless listed here.
 const TENANT_ROUTE =
   /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|env|rename|grants|grants\/grt_[a-z0-9]+))?)$/
+
+// The app routes a tenant allowed to run apps (Tenant.apps) may reach.
+const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|restart|logs|status|thumbnail))?)?$/
+
+// A tenant's volume is a plain name, which DockerManager keeps under
+// volumes/<key>/<name>: never a host path, never a way out of that folder.
+const VOLUME_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+
+// An app's env also reaches the host `docker` process that runs it (values
+// stay out of argv), so a tenant can't set what steers that process.
+const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+const TENANT_DENIED_ENV = ["PATH", "HOME", "NO_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"]
+const TENANT_DENIED_ENV_PREFIXES = ["LD_", "DYLD_", "DOCKER_", "BUILDKIT_", "SSL_", "GIT_"]
 
 // Read one cookie value from a request's Cookie header (no external dep).
 function readCookie(req: Request, name: string): string | null {
@@ -414,15 +428,18 @@ export class AgentServer {
     // works on keys (see tenants.ts). The god key is the primary scope.
     const scope: Scope = auth.kind === "tenant" ? auth.tenant : null
     if (scope) {
-      if (path === "/apps" || path.startsWith("/apps/")) return this.error("Apps are disabled on this agent", 403)
-      if (path.includes("--") || !TENANT_ROUTE.test(path)) return this.error("Not found", 404)
+      const isApps = path === "/apps" || path.startsWith("/apps/")
+      if (isApps && !scope.apps) return this.error("Apps are disabled on this agent", 403)
+      if (path.includes("--") || !(isApps ? TENANT_APP_ROUTE : TENANT_ROUTE).test(path)) return this.error("Not found", 404)
       // A name that is no valid label can't exist in a tenant: 404, never a throw.
-      const named = path.match(/^\/sites\/([a-z0-9-]+)/)
-      if (named && !this.tenants.resolve(named[1]!, scope)) return this.error("Site not found", 404)
+      const named = path.match(/^\/(sites|apps)\/([a-z0-9-]+)/)
+      if (named && !this.tenants.resolve(named[2]!, scope)) {
+        return this.error(named[1] === "apps" ? "App not found" : "Site not found", 404)
+      }
     }
     const k = (name: string) => this.tenants.keyFor(name, scope)
 
-    // GET /agent - sanitized agent settings (god key only)
+    // GET /agent - sanitized agent settings (a tenant gets a view of its own scope)
     if (path === "/agent" && req.method === "GET") {
       return this.handleGetAgentInfo(scope)
     }
@@ -556,25 +573,25 @@ export class AgentServer {
 
     // GET /apps - list all apps
     if (path === "/apps" && req.method === "GET") {
-      return await this.handleListApps()
+      return await this.handleListApps(scope)
     }
 
     // POST /apps - create app
     if (path === "/apps" && req.method === "POST") {
-      return this.handleCreateApp(req)
+      return this.handleCreateApp(req, scope)
     }
 
     // App routes with name parameter
     const appMatch = path.match(/^\/apps\/([a-z0-9-]+)$/)
     if (appMatch) {
-      const appName = appMatch[1]!
+      const appName = k(appMatch[1]!)
       // GET /apps/:name - get app details
       if (req.method === "GET") {
-        return this.handleGetApp(appName)
+        return this.handleGetApp(appName, scope)
       }
       // PATCH /apps/:name - update app
       if (req.method === "PATCH") {
-        return this.handleUpdateApp(appName, req)
+        return this.handleUpdateApp(appName, req, scope)
       }
       // DELETE /apps/:name - delete app
       if (req.method === "DELETE") {
@@ -585,37 +602,37 @@ export class AgentServer {
     // POST /apps/:name/deploy - deploy app
     const appDeployMatch = path.match(/^\/apps\/([a-z0-9-]+)\/deploy$/)
     if (appDeployMatch && req.method === "POST") {
-      return this.handleDeployApp(appDeployMatch[1]!, url, req)
+      return this.handleDeployApp(k(appDeployMatch[1]!), url, req, scope)
     }
 
     // POST /apps/:name/stop - stop app
     const appStopMatch = path.match(/^\/apps\/([a-z0-9-]+)\/stop$/)
     if (appStopMatch && req.method === "POST") {
-      return this.handleStopApp(appStopMatch[1]!)
+      return this.handleStopApp(k(appStopMatch[1]!), scope)
     }
 
     // POST /apps/:name/restart - restart app
     const appRestartMatch = path.match(/^\/apps\/([a-z0-9-]+)\/restart$/)
     if (appRestartMatch && req.method === "POST") {
-      return this.handleRestartApp(appRestartMatch[1]!)
+      return this.handleRestartApp(k(appRestartMatch[1]!), scope)
     }
 
     // GET /apps/:name/logs - get app logs
     const appLogsMatch = path.match(/^\/apps\/([a-z0-9-]+)\/logs$/)
     if (appLogsMatch && req.method === "GET") {
-      return this.handleGetAppLogs(appLogsMatch[1]!, url)
+      return this.handleGetAppLogs(k(appLogsMatch[1]!), url, scope)
     }
 
     // GET /apps/:name/status - live container state per service
     const appStatusMatch = path.match(/^\/apps\/([a-z0-9-]+)\/status$/)
     if (appStatusMatch && req.method === "GET") {
-      return this.handleGetAppStatus(appStatusMatch[1]!)
+      return this.handleGetAppStatus(k(appStatusMatch[1]!), scope)
     }
 
     // /apps/:name/thumbnail - GET the card preview image, POST to regenerate it
     const appThumbMatch = path.match(/^\/apps\/([a-z0-9-]+)\/thumbnail$/)
     if (appThumbMatch) {
-      const thumbName = appThumbMatch[1]!
+      const thumbName = k(appThumbMatch[1]!)
       if (req.method === "GET") return this.handleGetThumbnail(thumbName)
       if (req.method === "POST") return this.handleRefreshAppThumbnail(thumbName)
     }
@@ -624,29 +641,121 @@ export class AgentServer {
   }
 
   // App handlers
-  private async handleListApps(): Promise<Response> {
-    const apps = this.appStorage.list()
+  // An app as `scope` sees it: secrets scrubbed, a tenant's key as its bare name.
+  private appView(app: App, scope: Scope): App {
+    return { ...scrubApp(app), name: this.tenants.displayName(app.name, scope) }
+  }
+
+  // Why a tenant may not put `fields` in its app, or null. A compose stack can
+  // mount the host and pick its networks; a volume path reaches the host's
+  // files; a build context or Dockerfile outside the clone reads the agent's
+  // data. The operator (null scope) is not restricted.
+  private tenantAppViolation(
+    scope: Scope,
+    fields: {
+      compose?: boolean
+      volumes?: { name: string }[]
+      git?: { repoUrl?: string; context?: string; dockerfile?: string }
+      env?: Record<string, string>
+      secrets?: Record<string, string>
+    }
+  ): string | null {
+    if (!scope) return null
+    if (fields.compose) return "Compose apps are not available to a tenant"
+    // Any other scheme or a bare path clones from the agent's own disk or
+    // network (file://, ssh with the agent's keys)
+    if (fields.git?.repoUrl !== undefined && (typeof fields.git.repoUrl !== "string" || !fields.git.repoUrl.startsWith("https://"))) {
+      return "git.repoUrl must be an https:// URL"
+    }
+    for (const field of ["env", "secrets"] as const) {
+      for (const key of Object.keys(fields[field] ?? {})) {
+        const upper = key.toUpperCase()
+        if (!ENV_KEY_RE.test(key) || TENANT_DENIED_ENV.includes(upper) || TENANT_DENIED_ENV_PREFIXES.some((p) => upper.startsWith(p))) {
+          return `${field === "env" ? "Env" : "Secret"} key '${key}' is not allowed for a tenant app`
+        }
+      }
+    }
+    for (const field of ["context", "dockerfile"] as const) {
+      const path = fields.git?.[field]
+      if (path === undefined) continue
+      if (typeof path !== "string" || isAbsolute(path) || path.split("/").includes("..")) {
+        return `git.${field} must be a relative path inside the repository`
+      }
+    }
+    const volumes: unknown = fields.volumes ?? []
+    const isMount = (v: unknown) =>
+      typeof v === "object" && v !== null && typeof (v as { name?: unknown }).name === "string" &&
+      typeof (v as { mountPath?: unknown }).mountPath === "string"
+    if (!Array.isArray(volumes) || !volumes.every(isMount)) {
+      return "'volumes' must be a list of { name, mountPath }"
+    }
+    for (const volume of volumes as { name: string }[]) {
+      if (!VOLUME_NAME_RE.test(volume.name)) {
+        return `Volume '${volume.name}' must be a plain name (letters, digits, '.', '_', '-'), not a path`
+      }
+    }
+    return null
+  }
+
+  // Why the site or app `key` can't take `domains` as its custom domains, or
+  // null. One rule set for sites and apps: platform hostnames and other
+  // scopes' apexes are reserved, and a hostname another site or app already
+  // routes is taken (its holder is named only when the caller can see it).
+  // The operator's apps are the one exception to the reservation: they may
+  // take any `*.<primary>` hostname but the API's, as they always could.
+  private customDomainsViolation(kind: "site" | "app", key: string, domains: string[], scope: Scope): string | null {
+    const owner = this.tenants.ownerOf(key)
+    const primary = this.tenants.primaryDomain
+    for (const domain of domains) {
+      if (kind === "app" && !owner && domain.endsWith(`.${primary}`) && domain !== `api.${primary}`) continue
+      const conflict = this.tenants.customDomainConflict(domain, owner)
+      if (conflict) return conflict
+    }
+    const holders = [
+      ...this.storage.list().map((site) => ({
+        kind: "site",
+        key: site.name,
+        hosts: [this.tenants.host(site.name), ...this.storage.customDomains(site, this.tenants)],
+      })),
+      ...this.appStorage.list().map((app) => ({
+        kind: "app",
+        key: app.name,
+        hosts: this.appStorage.routedDomains(app, this.tenants),
+      })),
+    ]
+    for (const holder of holders) {
+      if (holder.kind === kind && holder.key === key) continue
+      const overlap = domains.filter((d) => holder.hosts.includes(d))
+      if (overlap.length === 0) continue
+      const seen = this.tenants.nameIn(holder.key, scope)
+      return `Domain(s) already in use${seen ? ` by ${holder.kind} '${seen}'` : ""}: ${overlap.join(", ")}`
+    }
+    return null
+  }
+
+  private async handleListApps(scope: Scope): Promise<Response> {
+    const apps = this.appStorage.list().filter((app) => this.tenants.inScope(app.name, scope))
 
     // Get TLS status from Traefik if available
     const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
 
     const appInfos: AppInfo[] = apps.map((app) => scrubApp({
-      ...this.appStorage.toInfo(app, this.config.domain),
+      ...this.appStorage.toInfo(app, this.tenants, scope),
       tls: tlsStatusMap.get(`siteio-${app.name}`) || "pending",
       hasThumbnail: this.thumbnails?.has(app.name) ?? false,
     }))
     return this.json(appInfos)
   }
 
-  private handleGetApp(name: string): Response {
+  private handleGetApp(name: string, scope: Scope): Response {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
     }
-    return this.json(scrubApp(app))
+    return this.json(this.appView(app, scope))
   }
 
-  private async handleCreateApp(req: Request): Promise<Response> {
+  private async handleCreateApp(req: Request, scope: Scope): Promise<Response> {
     try {
       const body = (await req.json()) as {
         name: string
@@ -677,10 +786,29 @@ export class AgentServer {
         return this.error("App name is required")
       }
 
+      // The key the app is stored, built, run and routed under. keyFor checks
+      // a tenant's bare name; a primary name is checked here.
+      const name = this.tenants.keyFor(body.name, scope)
+      if (!scope) assertValidNewName(name, "App")
+      if (this.appStorage.exists(name)) return this.error(`App '${body.name}' already exists`)
+
+      const domains = body.domains === undefined ? [] : normalizeDomains(body.domains)
+      const domainViolation = this.customDomainsViolation("app", name, domains, scope)
+      if (domainViolation) return this.error(domainViolation)
+
       const hasCompose = !!body.composeContent || !!body.composePath
       const hasGit = !!body.git
       const hasImage = !!body.image
       const hasInlineDockerfile = !!body.dockerfileContent
+
+      const violation = this.tenantAppViolation(scope, {
+        compose: hasCompose,
+        volumes: body.volumes,
+        git: body.git,
+        env: body.env,
+        secrets: body.secrets,
+      })
+      if (violation) return this.error(violation)
 
       // Mutual exclusivity: image / inline-dockerfile / compose / git.
       // git may coexist with composePath OR GitSource.dockerfile, not both.
@@ -725,18 +853,18 @@ export class AgentServer {
       // Determine image tag for locally-built or compose-tagged apps.
       const image =
         hasGit || hasInlineDockerfile || hasCompose
-          ? this.docker.imageTag(body.name)
+          ? this.docker.imageTag(name)
           : body.image!
 
       // Persist inline Dockerfile / compose file up-front; roll back on create failure.
       if (body.dockerfileContent) {
-        this.dockerfiles.write(body.name, body.dockerfileContent)
+        this.dockerfiles.write(name, body.dockerfileContent)
       }
       if (body.composeContent) {
-        this.compose.writeBaseInline(body.name, body.composeContent)
+        this.compose.writeBaseInline(name, body.composeContent)
       }
       if (body.envFileContent) {
-        this.compose.writeBaseEnv(body.name, body.envFileContent)
+        this.compose.writeBaseEnv(name, body.envFileContent)
       }
 
       try {
@@ -748,11 +876,11 @@ export class AgentServer {
         // Uploaded files are checked now; a git repo is only cloned at deploy
         const warnings =
           composeField?.source === "inline"
-            ? await this.checkUploadedCompose({ name: body.name, domains: body.domains || [], compose: composeField })
+            ? await this.checkUploadedCompose({ name, domains: domains, compose: composeField })
             : undefined
 
         const app = this.appStorage.create({
-          name: body.name,
+          name,
           type: "container",
           image,
           git: body.git
@@ -768,7 +896,7 @@ export class AgentServer {
           dockerfile: body.dockerfileContent ? { source: "inline" } : undefined,
           compose: composeField,
           internalPort: body.internalPort || 80,
-          domains: body.domains || [],
+          domains: domains,
           env: { ...body.env, ...body.secrets },
           ...(body.secrets && Object.keys(body.secrets).length > 0 && { secretKeys: Object.keys(body.secrets) }),
           volumes: body.volumes || [],
@@ -776,10 +904,10 @@ export class AgentServer {
           status: "pending",
         })
 
-        return this.json({ ...scrubApp(app), ...(warnings && { warnings }) })
+        return this.json({ ...this.appView(app, scope), ...(warnings && { warnings }) })
       } catch (err) {
-        if (body.dockerfileContent) this.dockerfiles.remove(body.name)
-        if (body.composeContent) this.compose.remove(body.name)
+        if (body.dockerfileContent) this.dockerfiles.remove(name)
+        if (body.composeContent) this.compose.remove(name)
         throw err
       }
     } catch (err) {
@@ -788,7 +916,7 @@ export class AgentServer {
     }
   }
 
-  private async handleUpdateApp(name: string, req: Request): Promise<Response> {
+  private async handleUpdateApp(name: string, req: Request, scope: Scope): Promise<Response> {
     try {
       const app = this.appStorage.get(name)
       if (!app) {
@@ -811,6 +939,15 @@ export class AgentServer {
         envFileContent?: string
         primaryService?: string
       }
+
+      if (body.domains !== undefined) {
+        body.domains = normalizeDomains(body.domains)
+        const domainViolation = this.customDomainsViolation("app", name, body.domains, scope)
+        if (domainViolation) return this.error(domainViolation)
+      }
+
+      const violation = this.tenantAppViolation(scope, { volumes: body.volumes, git: body.git, env: body.env, secrets: body.secrets })
+      if (violation) return this.error(violation)
 
       // Compose sources: same fields as create, replaced in place so a stack
       // can change without removing the app (and its volumes).
@@ -885,7 +1022,7 @@ export class AgentServer {
         return this.error("Failed to update app", 500)
       }
 
-      return this.json({ ...scrubApp(updated), ...(warnings && { warnings }) })
+      return this.json({ ...this.appView(updated, scope), ...(warnings && { warnings }) })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to update app"
       return this.error(message, 400)
@@ -954,7 +1091,7 @@ export class AgentServer {
     return this.json(null)
   }
 
-  private async handleDeployApp(name: string, url: URL, req: Request): Promise<Response> {
+  private async handleDeployApp(name: string, url: URL, req: Request, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -982,10 +1119,10 @@ export class AgentServer {
     try {
       if (app.compose) {
         const { updated, warnings } = await this.deployComposeApp(app)
-        return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.config.domain), warnings })
+        return this.json({ ...this.appView(updated, scope), url: this.appStorage.url(updated, this.tenants), warnings })
       }
       const updated = await this.deployContainerApp(name, { noCache, dockerfileContent: newDockerfileContent })
-      return this.json({ ...scrubApp(updated), url: this.appStorage.url(updated, this.config.domain) })
+      return this.json({ ...this.appView(updated, scope), url: this.appStorage.url(updated, this.tenants) })
     } catch (err) {
       const status = err instanceof DeployError ? err.status : 500
       return this.error(err instanceof Error ? err.message : "Failed to deploy app", status)
@@ -1033,7 +1170,7 @@ export class AgentServer {
 
       // Write the override (regenerate every deploy so env/domain updates apply)
       const overrideYaml = buildOverride(app, {
-        domains: this.appStorage.routedDomains(app, this.config.domain),
+        domains: this.appStorage.routedDomains(app, this.tenants),
         baseNetworks: Object.keys(primary.networks ?? {}),
         dataDir: this.config.dataDir,
       })
@@ -1098,14 +1235,26 @@ export class AgentServer {
         await this.git.clone(name, app.git.repoUrl, opts.ref ?? app.git.branch, app.git.token)
         const repoPath = this.git.repoPath(name)
 
-        // Context and Dockerfile paths are relative to the repo root, like docker -f
+        // Context and Dockerfile paths are relative to the repo root, like
+        // docker -f, and never leave it: the build would read the agent's data.
         const contextPath = app.git.context ? join(repoPath, app.git.context) : repoPath
+        const dockerfilePath = join(repoPath, app.git.dockerfile)
+        const inRepo = (path: string) => resolve(path) === resolve(repoPath) || resolve(path).startsWith(resolve(repoPath) + sep)
+        if (!inRepo(contextPath) || !inRepo(dockerfilePath)) {
+          throw new DeployError("Build context and Dockerfile can't be outside the repository", 400)
+        }
         if (app.git.context && !existsSync(contextPath)) {
           throw new DeployError(`Context directory not found at '${app.git.context}'`, 400)
         }
-        const dockerfilePath = join(repoPath, app.git.dockerfile)
         if (!existsSync(dockerfilePath)) {
           throw new DeployError(`Dockerfile not found at '${app.git.dockerfile}'`, 400)
+        }
+        // The repo is the app's: a committed symlink can still point out of
+        // it, and Docker follows it.
+        const realRepo = realpathSync(repoPath)
+        const realInRepo = (path: string) => realpathSync(path) === realRepo || realpathSync(path).startsWith(realRepo + sep)
+        if (!realInRepo(contextPath) || !realInRepo(dockerfilePath)) {
+          throw new DeployError("Build context and Dockerfile can't be outside the repository", 400)
         }
 
         imageToRun = this.docker.imageTag(name)
@@ -1133,6 +1282,18 @@ export class AgentServer {
         imageToRun = app.image
       }
 
+      // Traefik reads the labels baked into an image too: a tenant's image
+      // could route any hostname, the operator's API included, to itself.
+      // The container starts from the inspected image's ID: another deploy
+      // could retag the image in between.
+      if (this.tenants.ownerOf(name)) {
+        const { id, labels } = await this.docker.imageInspect(imageToRun)
+        if (Object.keys(labels).some((key) => key.toLowerCase().startsWith("traefik."))) {
+          throw new DeployError("Image labels starting with 'traefik.' are not allowed for tenant apps", 400)
+        }
+        imageToRun = id
+      }
+
       // The new image is ready: only now replace the running container, if
       // the app still exists.
       if (!this.appStorage.get(name)) throw new DeployError("App not found", 404)
@@ -1141,7 +1302,7 @@ export class AgentServer {
         await this.docker.remove(name)
       }
 
-      const labels = this.docker.buildTraefikLabels(name, this.appStorage.routedDomains(app, this.config.domain), app.internalPort)
+      const labels = this.docker.buildTraefikLabels(name, this.appStorage.routedDomains(app, this.tenants), app.internalPort)
       const containerId = await this.docker.run({
         name: app.name,
         image: imageToRun,
@@ -1180,7 +1341,7 @@ export class AgentServer {
     }
   }
 
-  private async handleStopApp(name: string): Promise<Response> {
+  private async handleStopApp(name: string, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -1196,14 +1357,14 @@ export class AgentServer {
         await this.docker.stop(name)
       }
       const updated = this.appStorage.update(name, { status: "stopped" })
-      return this.json(updated && scrubApp(updated))
+      return this.json(updated && this.appView(updated, scope))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to stop app"
       return this.error(message, 500)
     }
   }
 
-  private async handleRestartApp(name: string): Promise<Response> {
+  private async handleRestartApp(name: string, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -1217,13 +1378,13 @@ export class AgentServer {
         await this.docker.composeRestart(`siteio-${name}`, files, this.writeComposeEnvFile(app))
         const updated = this.appStorage.update(name, { status: "running" })
         this.pageApp(app, "restarted")
-        return this.json(updated && scrubApp(updated))
+        return this.json(updated && this.appView(updated, scope))
       }
       if (this.docker.containerExists(name)) {
         await this.docker.restart(name)
         const updated = this.appStorage.update(name, { status: "running" })
         this.pageApp(app, "restarted")
-        return this.json(updated && scrubApp(updated))
+        return this.json(updated && this.appView(updated, scope))
       }
       return this.error("Container does not exist. Deploy the app first.", 400)
     } catch (err) {
@@ -1232,7 +1393,7 @@ export class AgentServer {
     }
   }
 
-  private async handleGetAppStatus(name: string): Promise<Response> {
+  private async handleGetAppStatus(name: string, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -1250,14 +1411,15 @@ export class AgentServer {
         }
       } else {
         const inspect = await this.docker.inspect(name)
+        const service = this.tenants.displayName(name, scope)
         services = [
           inspect
-            ? { service: name, primary: true, state: inspect.state.status, exitCode: inspect.state.exitCode }
-            : { service: name, primary: true, state: "missing" },
+            ? { service, primary: true, state: inspect.state.status, exitCode: inspect.state.exitCode }
+            : { service, primary: true, state: "missing" },
         ]
       }
 
-      const response: AppStatus = { name, services }
+      const response: AppStatus = { name: this.tenants.displayName(name, scope), services }
       return this.json(response)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to get app status"
@@ -1265,7 +1427,7 @@ export class AgentServer {
     }
   }
 
-  private async handleGetAppLogs(name: string, url: URL): Promise<Response> {
+  private async handleGetAppLogs(name: string, url: URL, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -1292,7 +1454,7 @@ export class AgentServer {
         logs = await this.docker.logs(name, tail)
       }
 
-      const response: ContainerLogs = { name, logs, lines: tail }
+      const response: ContainerLogs = { name: this.tenants.displayName(name, scope), logs, lines: tail }
       return this.json(response)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to get logs"
@@ -1303,19 +1465,25 @@ export class AgentServer {
   // Add a tenant and serve it at once, like `siteio agent tenant add` but
   // without the restart. DNS (*.<domain> → this server) is the caller's job.
   private async handleAddTenant(req: Request): Promise<Response> {
-    let body: { domain?: unknown }
+    let body: { domain?: unknown; apps?: unknown }
     try {
-      body = (await req.json()) as { domain?: unknown }
+      body = (await req.json()) as { domain?: unknown; apps?: unknown }
     } catch {
       return this.error("Invalid JSON body")
     }
     if (typeof body?.domain !== "string") return this.error("'domain' is required")
+    if (body.apps !== undefined && typeof body.apps !== "boolean") return this.error("'apps' must be true or false")
     const domain = body.domain.trim().toLowerCase()
 
     const reason = this.tenants.checkNewTenant(domain, tenantServices(this.storage, this.appStorage))
     if (reason) return this.error(reason)
 
-    const tenant: Tenant = { domain, apiKey: generateApiKey(), createdAt: new Date().toISOString() }
+    const tenant: Tenant = {
+      domain,
+      apiKey: generateApiKey(),
+      createdAt: new Date().toISOString(),
+      ...(body.apps === true && { apps: true }),
+    }
     // Append to what's on disk, which may hold tenants added on-box since start.
     const persisted = (loadAgentConfig(this.config.dataDir).tenants ?? []).filter((t) => t.domain !== domain)
     updateAgentConfig(this.config.dataDir, { tenants: [...persisted, tenant] })
@@ -1323,7 +1491,7 @@ export class AgentServer {
     this.traefik?.setApiHosts(this.tenants.apiHosts())
 
     const apiUrl = `https://api.${domain}`
-    return this.json({ domain, apiUrl, apiKey: tenant.apiKey, token: encodeToken(apiUrl, tenant.apiKey) })
+    return this.json({ domain, apiUrl, apiKey: tenant.apiKey, token: encodeToken(apiUrl, tenant.apiKey), apps: tenant.apps === true })
   }
 
   // Site handlers
@@ -1331,14 +1499,16 @@ export class AgentServer {
   // Sanitized, read-only view of the agent's runtime settings for the admin UI.
   // Secrets (apiKey, ACME/DNS env, Cloudflare token) are deliberately omitted.
   private handleGetAgentInfo(scope: Scope): Response {
-    // A tenant sees a sites-only agent of its own; host settings stay private.
+    // A tenant sees an agent of its own: its sites, and its apps when it may
+    // run them. Host settings stay private.
     if (scope) {
+      const apps = scope.apps === true && this.config.appsEnabled !== false
       return this.json({
         domain: scope.domain,
         version: getVersion(),
-        appsEnabled: false,
+        appsEnabled: apps,
         siteCount: this.storage.list().filter((s) => this.tenants.inScope(s.name, scope)).length,
-        appCount: 0,
+        appCount: apps ? this.appStorage.list().filter((a) => this.tenants.inScope(a.name, scope)).length : 0,
         chat: { configured: false },
       })
     }
@@ -2339,38 +2509,9 @@ export class AgentServer {
         return this.error("'domains' array is required")
       }
 
-      const domains = body.domains.map((d) => d.toLowerCase())
-
-      for (const domain of domains) {
-        if (!isValidDomain(domain)) {
-          return this.error(`Invalid domain format: ${domain}`)
-        }
-      }
-
-      // No platform hostname of any base domain, and no other scope's apex.
-      const owner = this.tenants.ownerOf(name)
-      for (const domain of domains) {
-        const conflict = this.tenants.customDomainConflict(domain, owner)
-        if (conflict) return this.error(conflict)
-      }
-
-      // Custom domains are unique across the whole server. Name the other site
-      // only when the caller can see it.
-      for (const other of this.storage.list()) {
-        if (other.name === name) continue
-        const overlap = domains.filter((d) => this.storage.customDomains(other, this.tenants).includes(d))
-        if (overlap.length > 0) {
-          const seen = this.tenants.nameIn(other.name, scope)
-          return this.error(`Domain(s) already in use${seen ? ` by '${seen}'` : ""}: ${overlap.join(", ")}`)
-        }
-      }
-
-      for (const app of this.appStorage.list()) {
-        const overlap = domains.filter((d) => app.domains.includes(d))
-        if (overlap.length > 0) {
-          return this.error(`Domain(s) already in use${scope ? "" : ` by app '${app.name}'`}: ${overlap.join(", ")}`)
-        }
-      }
+      const domains = normalizeDomains(body.domains)
+      const violation = this.customDomainsViolation("site", name, domains, scope)
+      if (violation) return this.error(violation)
 
       const updated = this.storage.update(name, { domains })!
 
@@ -2380,6 +2521,7 @@ export class AgentServer {
       return this.json(this.storage.toInfo(this.storage.get(name)!, this.tenants, scope))
     } catch (err) {
       if (err instanceof SyntaxError) return this.error("Invalid request body")
+      if (err instanceof ValidationError) return this.error(err.message)
       const message = err instanceof Error ? err.message : "Failed to update domains"
       return this.error(message, 500)
     }
@@ -2537,7 +2679,7 @@ export class AgentServer {
     this.pager?.notify({
       title: `App '${app.name}' deploy failed`,
       message: error,
-      url: this.appStorage.url(app, this.config.domain),
+      url: this.appStorage.url(app, this.tenants),
     })
   }
 
@@ -2547,7 +2689,7 @@ export class AgentServer {
       message: [event === "deployed" && app.commitHash && `commit ${app.commitHash.slice(0, 7)}`, `on ${this.config.domain}`]
         .filter(Boolean)
         .join(" · "),
-      url: this.appStorage.url(app, this.config.domain),
+      url: this.appStorage.url(app, this.tenants),
     })
   }
 
@@ -2677,7 +2819,7 @@ export class AgentServer {
    * Rebuilt on each call so domain changes apply.
    */
   private writeComposeEnvFile(app: Pick<App, "name" | "domains" | "compose">): string {
-    const [domain] = this.appStorage.routedDomains(app, this.config.domain)
+    const [domain] = this.appStorage.routedDomains(app, this.tenants)
     const userEnv = this.compose.envFileExists(app.name)
       ? this.compose.baseEnvPath(app.name)
       : app.compose?.source === "git"

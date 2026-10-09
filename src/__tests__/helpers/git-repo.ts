@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "fs"
+import { mkdirSync, symlinkSync, writeFileSync } from "fs"
 import { join } from "path"
 
 const GIT_ENV = {
@@ -22,6 +22,7 @@ export interface TestRepo {
   work: string
   bare: string
   commit(message: string): string // returns the new HEAD SHA
+  symlink(path: string, target: string): void // commits a symlink at path pointing to target
   tag(name: string, annotated?: boolean): void
   push(): void // pushes main and all tags to the bare remote
 }
@@ -46,6 +47,11 @@ export function makeRepo(root: string): TestRepo {
       git(work, "add", ".")
       git(work, "commit", "-q", "-m", message)
       return git(work, "rev-parse", "HEAD")
+    },
+    symlink(path, target) {
+      symlinkSync(target, join(work, path))
+      git(work, "add", ".")
+      git(work, "commit", "-q", "-m", `link ${path}`)
     },
     tag(name, annotated = false) {
       if (annotated) git(work, "tag", "-a", name, "-m", name)

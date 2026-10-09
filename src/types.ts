@@ -208,6 +208,7 @@ export interface Tenant {
   domain: string
   apiKey: string
   createdAt: string
+  apps?: boolean // may run Docker apps under its domain (absent: sites only)
 }
 
 // Agent configuration (from env vars)
@@ -226,7 +227,7 @@ export interface AgentConfig {
   autoDeployInterval?: number // seconds between auto-deploy checks of each app (default 300)
   chat?: ChatConfig // AI site-chat editor settings; absent/unconfigured hides the feature
   pagerUrl?: string // pagerio URL paged on every app/site deploy or restart (PAGERIO_URL)
-  tenants?: Tenant[] // extra base domains, each with its own API key (sites only)
+  tenants?: Tenant[] // extra base domains, each with its own API key (sites, and apps when Tenant.apps)
 }
 
 // AI site-chat editor configuration (see docs/plans/2026-08-20-site-chat-ai-editor.md).

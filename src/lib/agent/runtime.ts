@@ -49,6 +49,7 @@ export interface Runtime {
     port: number
   ): Record<string, string>
   imageExists(tag: string): boolean
+  imageInspect(tag: string): Promise<{ id: string; labels: Record<string, string> }>
 
   // ---- Compose ops ----
   composeConfig(project: string, files: string[], envFile?: string): Promise<ComposeSpec>

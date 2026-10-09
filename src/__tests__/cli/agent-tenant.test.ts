@@ -72,6 +72,27 @@ describe("CLI: agent tenant", () => {
     expect((await runCli(["agent", "tenant", "remove", "friend.com"])).exitCode).toBe(1)
   })
 
+  test("add --apps lets the tenant run apps; a plain add does not", async () => {
+    const plain = await runCli(["--json", "agent", "tenant", "add", "friend.com"])
+    expect(JSON.parse(plain.stdout).apps).toBe(false)
+    const res = await runCli(["--json", "agent", "tenant", "add", "vaults.net", "--apps"])
+    expect(res.exitCode).toBe(0)
+    expect(JSON.parse(res.stdout).apps).toBe(true)
+    const tenants = config().tenants as { domain: string; apps?: boolean }[]
+    expect(tenants.find((t) => t.domain === "vaults.net")!.apps).toBe(true)
+    expect(tenants.find((t) => t.domain === "friend.com")!.apps).toBeUndefined()
+  })
+
+  test("remove refuses while the tenant still has apps", async () => {
+    await runCli(["agent", "tenant", "add", "vaults.net", "--apps"])
+    mkdirSync(join(dataDir, "apps"), { recursive: true })
+    writeFileSync(join(dataDir, "apps", "vault--vaults-net.json"), JSON.stringify({ name: "vault--vaults-net", domains: [] }))
+    const res = await runCli(["agent", "tenant", "remove", "vaults.net"])
+    expect(res.exitCode).toBe(1)
+    expect(res.stderr).toContain("vault--vaults-net")
+    expect(config().tenants).toHaveLength(1)
+  })
+
   test("list and config list never print tenant keys", async () => {
     const added = JSON.parse((await runCli(["--json", "agent", "tenant", "add", "friend.com"])).stdout)
     const list = await runCli(["agent", "tenant", "list"])

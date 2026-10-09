@@ -105,6 +105,12 @@ async function runGit(
   return { exitCode, stdout, stderr }
 }
 
+// `git clone` argv for a shallow clone of `ref`. The `--` keeps a URL that
+// starts with '-' from being read as an option.
+export function cloneArgs(url: string, ref: string, targetDir: string): string[] {
+  return ["clone", "--depth", "1", "--branch", ref, "--", url, targetDir]
+}
+
 function seconds(ms: number): number {
   return Math.round(ms / 1000)
 }
@@ -159,7 +165,7 @@ export class GitManager {
 
     const { env, cleanup } = this.gitEnv(token)
     try {
-      const result = await runGit(["clone", "--depth", "1", "--branch", ref, url, targetDir], {
+      const result = await runGit(cloneArgs(url, ref, targetDir), {
         env,
         timeoutMs,
         timeoutMessage: `Timed out cloning repository after ${seconds(timeoutMs)}s`,
@@ -180,7 +186,7 @@ export class GitManager {
   async lsRemote(url: string, patterns: string[], token?: string, timeoutMs = 30_000): Promise<RemoteRef[]> {
     const { env, cleanup } = this.gitEnv(token)
     try {
-      const result = await runGit(["-c", "protocol.version=2", "ls-remote", url, ...patterns], {
+      const result = await runGit(["-c", "protocol.version=2", "ls-remote", "--", url, ...patterns], {
         env,
         timeoutMs,
         timeoutMessage: `Timed out listing remote refs after ${seconds(timeoutMs)}s`,

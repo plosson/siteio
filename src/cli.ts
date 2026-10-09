@@ -635,14 +635,15 @@ agentConfig
 
 const agentTenant = agent
   .command("tenant")
-  .description("Manage tenants: extra base domains, each with its own API key (sites only)")
+  .description("Manage tenants: extra base domains, each with its own API key (sites, and apps with --apps)")
 
 agentTenant
   .command("add <domain>")
   .description("Add a tenant domain and print its login command")
-  .action(async (domain) => {
+  .option("--apps", "Also let the tenant run Docker apps under its domain")
+  .action(async (domain, cmdOptions) => {
     const { addTenantCommand } = await import("./commands/agent/tenant.ts")
-    await addTenantCommand(domain, { json: program.opts().json })
+    await addTenantCommand(domain, { json: program.opts().json, apps: cmdOptions.apps === true })
   })
 
 agentTenant
@@ -657,7 +658,7 @@ agentTenant
 agentTenant
   .command("remove <domain>")
   .alias("rm")
-  .description("Remove a tenant domain (refused while it still has sites)")
+  .description("Remove a tenant domain (refused while it still has sites or apps)")
   .action(async (domain) => {
     const { removeTenantCommand } = await import("./commands/agent/tenant.ts")
     await removeTenantCommand(domain, { json: program.opts().json })

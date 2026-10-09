@@ -31,6 +31,7 @@ export class FakeRuntime implements Runtime {
   imageExistsReturn = false
   isRunningReturn = true
   containerExistsReturn = false
+  imageInspectReturn: { id: string; labels: Record<string, string> } = { id: "sha256:fake-image-id", labels: {} }
 
   // Compose fixtures
   composeConfigReturn: ComposeSpec = { services: { web: {} } }
@@ -139,6 +140,11 @@ export class FakeRuntime implements Runtime {
   imageExists(tag: string): boolean {
     this.record("imageExists", [tag])
     return this.imageExistsReturn
+  }
+
+  async imageInspect(tag: string): Promise<{ id: string; labels: Record<string, string> }> {
+    this.record("imageInspect", [tag])
+    return this.imageInspectReturn
   }
 
   async composeConfig(project: string, files: string[], envFile?: string): Promise<ComposeSpec> {
