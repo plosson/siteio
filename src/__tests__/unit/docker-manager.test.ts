@@ -66,21 +66,31 @@ describe("Unit: DockerManager", () => {
       expect(args[args.length - 1]).toBe("nginx:alpine")
     })
 
-    test("should include environment variables", () => {
-      const args = docker.buildRunArgs({
+    test("passes env vars by name only, so values stay out of argv and ps", () => {
+      const config = {
         name: "myapp",
         image: "nginx:alpine",
         internalPort: 80,
-        env: { NODE_ENV: "production", API_KEY: "secret" },
+        env: { NODE_ENV: "production", API_KEY: "sk_live_argv_probe", EMPTY: "", PATH: "/app/bin" },
         volumes: [],
-        restartPolicy: "unless-stopped",
+        restartPolicy: "unless-stopped" as const,
         network: "siteio-network",
         labels: {},
-      })
+      }
+      const args = docker.buildRunArgs(config)
 
-      expect(args).toContain("-e")
-      expect(args).toContain("NODE_ENV=production")
-      expect(args).toContain("API_KEY=secret")
+      for (const key of Object.keys(config.env)) {
+        expect(args[args.indexOf(key) - 1]).toBe("-e")
+      }
+      expect(args.join(" ")).not.toContain("sk_live_argv_probe")
+      expect(args.join(" ")).not.toContain("production")
+
+      // The values travel in the docker process env; the container's win over the agent's.
+      const env = docker.runProcessEnv(config)
+      expect(env.API_KEY).toBe("sk_live_argv_probe")
+      expect(env.EMPTY).toBe("")
+      expect(env.PATH).toBe("/app/bin")
+      expect(env.HOME).toBe(process.env.HOME)
     })
 
     test("should include volume mounts", () => {

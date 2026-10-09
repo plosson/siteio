@@ -73,9 +73,10 @@ export class DockerManager implements Runtime {
       config.restartPolicy,
     ]
 
-    // Add environment variables
-    for (const [key, value] of Object.entries(config.env)) {
-      args.push("-e", `${key}=${value}`)
+    // Env vars by name only: the values come from the docker process env
+    // (runProcessEnv), keeping secrets out of argv and `ps`.
+    for (const key of Object.keys(config.env)) {
+      args.push("-e", key)
     }
 
     // Add volume mounts
@@ -100,6 +101,14 @@ export class DockerManager implements Runtime {
     }
 
     return args
+  }
+
+  /**
+   * The env `docker run` itself runs with: the agent's, plus the container's
+   * values for the names buildRunArgs lists.
+   */
+  runProcessEnv(config: ContainerRunConfig): Record<string, string | undefined> {
+    return { ...process.env, ...config.env }
   }
 
   /**
@@ -218,7 +227,9 @@ export class DockerManager implements Runtime {
     const args = this.buildRunArgs(config)
 
     const result = spawnSync({
-      cmd: ["docker", ...args],
+      // Resolved with the agent's PATH: the container's env may set its own PATH.
+      cmd: [Bun.which("docker") ?? "docker", ...args],
+      env: this.runProcessEnv(config),
       stdout: "pipe",
       stderr: "pipe",
     })
