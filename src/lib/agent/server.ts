@@ -1219,6 +1219,15 @@ export class AgentServer {
         imageToRun = app.image
       }
 
+      // Traefik reads the labels baked into an image too: a tenant's image
+      // could route any hostname, the operator's API included, to itself.
+      if (this.tenants.ownerOf(name)) {
+        const labels = await this.docker.imageLabels(imageToRun)
+        if (Object.keys(labels).some((key) => key.toLowerCase().startsWith("traefik."))) {
+          throw new DeployError("Image labels starting with 'traefik.' are not allowed for tenant apps", 400)
+        }
+      }
+
       // The new image is ready: only now replace the running container, if
       // the app still exists.
       if (!this.appStorage.get(name)) throw new DeployError("App not found", 404)

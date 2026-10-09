@@ -31,6 +31,7 @@ export class FakeRuntime implements Runtime {
   imageExistsReturn = false
   isRunningReturn = true
   containerExistsReturn = false
+  imageLabelsReturn: Record<string, string> = {}
 
   // Compose fixtures
   composeConfigReturn: ComposeSpec = { services: { web: {} } }
@@ -139,6 +140,11 @@ export class FakeRuntime implements Runtime {
   imageExists(tag: string): boolean {
     this.record("imageExists", [tag])
     return this.imageExistsReturn
+  }
+
+  async imageLabels(tag: string): Promise<Record<string, string>> {
+    this.record("imageLabels", [tag])
+    return this.imageLabelsReturn
   }
 
   async composeConfig(project: string, files: string[], envFile?: string): Promise<ComposeSpec> {

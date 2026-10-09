@@ -560,6 +560,39 @@ describe("API: tenants", () => {
       const res = await createApp({ name: "hub", volumes: [{ name: "/srv/hub", mountPath: "/data" }] }, "god-key", "localhost")
       expect(res.status).toBe(200)
     })
+
+    test("a tenant image can't bring its own traefik labels", async () => {
+      await createApp({ name: "vault" })
+      runtime.containerExistsReturn = true
+      for (const labels of <Record<string, string>[]>[
+        { "traefik.http.routers.x.rule": "Host(`api.example.com`)" },
+        { "traefik.enable": "true" },
+        { "Traefik.HTTP.Routers.x.rule": "Host(`api.example.com`)" },
+      ]) {
+        runtime.imageLabelsReturn = labels
+        const res = await req("/apps/vault/deploy", { method: "POST", headers: as("key-c") }, "api.vaults.net")
+        expect(res.status).toBe(400)
+        expect(((await res.json()) as ApiResponse<null>).error).toBe("Image labels starting with 'traefik.' are not allowed for tenant apps")
+      }
+      expect(runtime.callsOf("imageLabels").map((c) => c.args[0])).toEqual(Array(3).fill("nginx:alpine"))
+      expect(runtime.callsOf("remove")).toHaveLength(0)
+      expect(runtime.callsOf("run")).toHaveLength(0)
+    })
+
+    test("a tenant image with harmless labels deploys", async () => {
+      await createApp({ name: "vault" })
+      runtime.imageLabelsReturn = { "org.opencontainers.image.title": "vault" }
+      const res = await req("/apps/vault/deploy", { method: "POST", headers: as("key-c") }, "api.vaults.net")
+      expect(res.status).toBe(200)
+      expect(runtime.callsOf("run")).toHaveLength(1)
+    })
+
+    test("the operator's images keep their traefik labels", async () => {
+      await createApp({ name: "hub" }, "god-key", "localhost")
+      runtime.imageLabelsReturn = { "traefik.http.routers.x.rule": "Host(`hub.example.com`)" }
+      const res = await req("/apps/hub/deploy", { method: "POST", headers: as("god-key") })
+      expect(res.status).toBe(200)
+    })
   })
 
   describe("custom domains of sites and apps", () => {

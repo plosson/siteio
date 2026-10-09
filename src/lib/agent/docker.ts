@@ -424,6 +424,17 @@ export class DockerManager implements Runtime {
   }
 
   /**
+   * The labels baked into an image ({} when it has none)
+   */
+  async imageLabels(tag: string): Promise<Record<string, string>> {
+    const result = await dockerAsync(["image", "inspect", "--format", "{{json .Config.Labels}}", tag])
+    if (result.exitCode !== 0) {
+      throw new SiteioError(`Failed to inspect image ${tag}: ${result.stderr}`)
+    }
+    return (JSON.parse(result.stdout) as Record<string, string> | null) ?? {}
+  }
+
+  /**
    * Remove a locally built image
    */
   async removeImage(tag: string): Promise<void> {
