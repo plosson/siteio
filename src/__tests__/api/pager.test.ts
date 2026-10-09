@@ -59,7 +59,13 @@ function pagerUrl(): string {
   return `http://localhost:${pagerServer.port}/p/secret`
 }
 
-async function call(server: AgentServer, method: string, path: string, body?: object | Uint8Array): Promise<number> {
+async function call(
+  server: AgentServer,
+  method: string,
+  path: string,
+  body?: object | Uint8Array,
+  headers: Record<string, string> = {}
+): Promise<number> {
   const isZip = body instanceof Uint8Array
   const res = await server.handleRequestForTest(
     new Request(`http://localhost${path}`, {
@@ -67,6 +73,7 @@ async function call(server: AgentServer, method: string, path: string, body?: ob
       headers: {
         "X-API-Key": API_KEY,
         ...(body && { "Content-Type": isZip ? "application/zip" : "application/json" }),
+        ...headers,
       },
       body: body ? (isZip ? body : JSON.stringify(body)) : undefined,
     })
@@ -244,6 +251,83 @@ describe("pager", () => {
     pagerServer.stop(true)
     const server = makeServer(deadUrl)
     expect(await call(server, "POST", "/sites/blog", siteZip())).toBe(200)
+  })
+})
+
+describe("who made the change (X-Siteio-User)", () => {
+  const as = (user: string) => ({ "X-Siteio-User": encodeURIComponent(user) })
+
+  // Who the live version is attributed to. History only holds archived
+  // versions, so a follow-up deploy archives the live one first.
+  async function liveDeployedBy(server: AgentServer): Promise<string | undefined> {
+    expect(await call(server, "POST", "/sites/blog", siteZip(), as("archiver"))).toBe(200)
+    const res = await server.handleRequestForTest(
+      new Request("http://localhost/sites/blog/history", { headers: { "X-API-Key": API_KEY } })
+    )
+    const history = ((await res.json()) as { data: { version: number; deployedBy?: string }[] }).data
+    return history.reduce((a, b) => (b.version > a.version ? b : a)).deployedBy
+  }
+
+  test("app deploy, failed deploy and restart pages all name the decoded caller", async () => {
+    const server = makeServer(pagerUrl())
+    await call(server, "POST", "/apps", { name: "web", image: "nginx", internalPort: 80 })
+    expect(await call(server, "POST", "/apps/web/deploy", undefined, as("Zoë 张"))).toBe(200)
+    runtime.containerExistsReturn = true
+    expect(await call(server, "POST", "/apps/web/restart", undefined, as("bob@laptop"))).toBe(200)
+    runtime.pull = async () => {
+      throw new Error("pull denied")
+    }
+    expect(await call(server, "POST", "/apps/web/deploy", undefined, as("eve"))).toBe(500)
+    await settle()
+    expect(pages.map((p) => p.message)).toEqual([
+      "by Zoë 张 · on pager.test",
+      "by bob@laptop · on pager.test",
+      "pull denied · by eve",
+    ])
+  })
+
+  test("a compose deploy names the caller too", async () => {
+    const server = makeServer(pagerUrl())
+    const compose = "services:\n  web:\n    image: nginx\n"
+    await call(server, "POST", "/apps", { name: "stack", composeContent: compose, primaryService: "web", internalPort: 80 })
+    runtime.composeConfigReturn = { services: { web: {} } }
+    expect(await call(server, "POST", "/apps/stack/deploy", undefined, as("ada"))).toBe(200)
+    await settle()
+    expect(pages[0]!.message).toContain("by ada")
+  })
+
+  test("no header: pages carry no 'by' rather than 'by undefined'", async () => {
+    const server = makeServer(pagerUrl())
+    await call(server, "POST", "/apps", { name: "web", image: "nginx", internalPort: 80 })
+    expect(await call(server, "POST", "/apps/web/deploy")).toBe(200)
+    await settle()
+    expect(pages[0]!.message).toBe("on pager.test")
+  })
+
+  test("a malformed percent-encoding is kept raw, never a 500", async () => {
+    const server = makeServer(pagerUrl())
+    expect(await call(server, "POST", "/sites/blog", siteZip(), { "X-Siteio-User": "100%zz" })).toBe(200)
+    expect(await liveDeployedBy(server)).toBe("100%zz")
+  })
+
+  test("an older CLI's X-Deployed-By is still recorded", async () => {
+    const server = makeServer(pagerUrl())
+    expect(await call(server, "POST", "/sites/blog", siteZip(), { "X-Deployed-By": "old-cli" })).toBe(200)
+    expect(await liveDeployedBy(server)).toBe("old-cli")
+  })
+
+  test("X-Siteio-User wins over X-Deployed-By when both are sent", async () => {
+    const server = makeServer(pagerUrl())
+    expect(await call(server, "POST", "/sites/blog", siteZip(), { "X-Deployed-By": "old-cli", ...as("new-cli") })).toBe(200)
+    expect(await liveDeployedBy(server)).toBe("new-cli")
+  })
+
+  test("a rollback records who rolled back, not who deployed the restored version", async () => {
+    const server = makeServer(pagerUrl())
+    expect(await call(server, "POST", "/sites/blog", siteZip(), as("ada"))).toBe(200)
+    expect(await call(server, "POST", "/sites/blog", siteZip(), as("ada"))).toBe(200)
+    expect(await call(server, "POST", "/sites/blog/rollback", { version: 1 }, as("bob"))).toBe(200)
+    expect(await liveDeployedBy(server)).toBe("bob")
   })
 })
 

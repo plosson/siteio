@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, renameSync } from "fs"
-import { homedir } from "os"
+import { homedir, hostname, userInfo } from "os"
 import { join } from "path"
 import type { ClientConfig, ServerConfig } from "../types.ts"
 
@@ -210,6 +210,18 @@ export function isConfigured(): boolean {
 export function getUsername(): string | undefined {
   const config = loadRawConfig()
   return config.username
+}
+
+// Who the CLI acts as, sent with every API call. Not authenticated: the
+// configured username, else the local account as user@host.
+export function getCliUser(): string {
+  const configured = getUsername()?.trim()
+  if (configured) return configured
+  let user = "unknown"
+  try {
+    user = userInfo().username
+  } catch { /* no passwd entry, e.g. some containers */ }
+  return `${user}@${hostname()}`
 }
 
 export function setUsername(username: string): void {

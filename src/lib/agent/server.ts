@@ -268,6 +268,18 @@ export class AgentServer {
 
   // `reason` is an optional machine-readable code (e.g. the editor shell maps it
   // to a client-friendly terminal state instead of the admin login flow).
+  // Who a request says it comes from: X-Siteio-User (percent-encoded), or the
+  // X-Deployed-By older CLIs sent on site deploys. Self-declared, never checked.
+  private requestUser(req: Request): string | undefined {
+    const raw = req.headers.get("X-Siteio-User")
+    if (!raw) return req.headers.get("X-Deployed-By") || undefined
+    try {
+      return decodeURIComponent(raw)
+    } catch {
+      return raw
+    }
+  }
+
   private error(message: string, status = 400, reason?: string): Response {
     return Response.json({ success: false, error: message, ...(reason ? { reason } : {}) } as ApiResponse<null>, {
       status,
@@ -614,7 +626,7 @@ export class AgentServer {
     // POST /apps/:name/restart - restart app
     const appRestartMatch = path.match(/^\/apps\/([a-z0-9-]+)\/restart$/)
     if (appRestartMatch && req.method === "POST") {
-      return this.handleRestartApp(k(appRestartMatch[1]!), scope)
+      return this.handleRestartApp(k(appRestartMatch[1]!), req, scope)
     }
 
     // GET /apps/:name/logs - get app logs
@@ -1116,12 +1128,13 @@ export class AgentServer {
       return this.error("Cannot override Dockerfile: app was not created with -f", 400)
     }
 
+    const deployedBy = this.requestUser(req)
     try {
       if (app.compose) {
-        const { updated, warnings } = await this.deployComposeApp(app)
+        const { updated, warnings } = await this.deployComposeApp(app, deployedBy)
         return this.json({ ...this.appView(updated, scope), url: this.appStorage.url(updated, this.tenants), warnings })
       }
-      const updated = await this.deployContainerApp(name, { noCache, dockerfileContent: newDockerfileContent })
+      const updated = await this.deployContainerApp(name, { noCache, dockerfileContent: newDockerfileContent, deployedBy })
       return this.json({ ...this.appView(updated, scope), url: this.appStorage.url(updated, this.tenants) })
     } catch (err) {
       const status = err instanceof DeployError ? err.status : 500
@@ -1133,7 +1146,7 @@ export class AgentServer {
    * Deploy a compose app: (re)write the siteio override and bring the project
    * up. Throws DeployError.
    */
-  private async deployComposeApp(app: App): Promise<{ updated: App; warnings: string[] }> {
+  private async deployComposeApp(app: App, deployedBy?: string): Promise<{ updated: App; warnings: string[] }> {
     const { name, compose } = app
     if (!compose) throw new DeployError("Not a compose app", 400)
     if (!this.docker.isAvailable()) throw new DeployError("Docker is not available", 500)
@@ -1195,12 +1208,12 @@ export class AgentServer {
         ...(commitHash && { commitHash }),
       })
       if (!updated) throw new DeployError("App not found", 404)
-      this.pageApp(updated, "deployed")
+      this.pageApp(updated, "deployed", deployedBy)
       return { updated, warnings }
     } catch (err) {
       this.appStorage.update(name, { status: "failed" })
       const message = err instanceof Error ? err.message : "Failed to deploy app"
-      this.pageAppFailure(app, message)
+      this.pageAppFailure(app, message, deployedBy)
       if (err instanceof DeployError) throw err
       throw new DeployError(message, 500)
     }
@@ -1214,7 +1227,7 @@ export class AgentServer {
    */
   async deployContainerApp(
     name: string,
-    opts: { ref?: string; noCache?: boolean; dockerfileContent?: string } = {}
+    opts: { ref?: string; noCache?: boolean; dockerfileContent?: string; deployedBy?: string } = {}
   ): Promise<App> {
     const app = this.appStorage.get(name)
     if (!app) throw new DeployError("App not found", 404)
@@ -1323,7 +1336,7 @@ export class AgentServer {
         ...(lastBuildAt && { lastBuildAt }),
       })
       if (!updated) throw new DeployError("App not found", 404)
-      this.pageApp(updated, "deployed")
+      this.pageApp(updated, "deployed", opts.deployedBy)
 
       // Refresh the card preview in the background — deploy stays fast.
       this.captureAppThumbnail(updated)
@@ -1333,7 +1346,7 @@ export class AgentServer {
       // stands; with none, nothing is running.
       if (swapped || !this.docker.containerExists(name)) this.appStorage.update(name, { status: "failed" })
       const message = err instanceof Error ? err.message : "Failed to deploy app"
-      this.pageAppFailure(app, message)
+      this.pageAppFailure(app, message, opts.deployedBy)
       if (err instanceof DeployError) throw err
       throw new DeployError(message, 500)
     } finally {
@@ -1364,7 +1377,7 @@ export class AgentServer {
     }
   }
 
-  private async handleRestartApp(name: string, scope: Scope): Promise<Response> {
+  private async handleRestartApp(name: string, req: Request, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -1377,13 +1390,13 @@ export class AgentServer {
         const files = this.composeFiles(app)
         await this.docker.composeRestart(`siteio-${name}`, files, this.writeComposeEnvFile(app))
         const updated = this.appStorage.update(name, { status: "running" })
-        this.pageApp(app, "restarted")
+        this.pageApp(app, "restarted", this.requestUser(req))
         return this.json(updated && this.appView(updated, scope))
       }
       if (this.docker.containerExists(name)) {
         await this.docker.restart(name)
         const updated = this.appStorage.update(name, { status: "running" })
-        this.pageApp(app, "restarted")
+        this.pageApp(app, "restarted", this.requestUser(req))
         return this.json(updated && this.appView(updated, scope))
       }
       return this.error("Container does not exist. Deploy the app first.", 400)
@@ -1833,7 +1846,7 @@ export class AgentServer {
     // orphaned "pending" site with extracted code but no container.
     if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
 
-    const deployedBy = req.headers.get("X-Deployed-By") || undefined
+    const deployedBy = this.requestUser(req)
 
     // Create metadata on first deploy (generates superuser creds).
     let site = this.storage.get(name)
@@ -2446,7 +2459,7 @@ export class AgentServer {
       if (!body.version || typeof body.version !== "number") {
         return this.error("Version number is required")
       }
-      return await this.runRollback(name, body.version, undefined, scope)
+      return await this.runRollback(name, body.version, this.requestUser(req), scope)
     } catch (err) {
       if (err instanceof SyntaxError) return this.error("Invalid request body")
       const message = err instanceof Error ? err.message : "Failed to rollback"
@@ -2675,18 +2688,18 @@ export class AgentServer {
     }
   }
 
-  private pageAppFailure(app: App, error: string): void {
+  private pageAppFailure(app: App, error: string, by?: string): void {
     this.pager?.notify({
       title: `App '${app.name}' deploy failed`,
-      message: error,
+      message: [error, by && `by ${by}`].filter(Boolean).join(" · "),
       url: this.appStorage.url(app, this.tenants),
     })
   }
 
-  private pageApp(app: App, event: "deployed" | "restarted"): void {
+  private pageApp(app: App, event: "deployed" | "restarted", by?: string): void {
     this.pager?.notify({
       title: `App '${app.name}' ${event}`,
-      message: [event === "deployed" && app.commitHash && `commit ${app.commitHash.slice(0, 7)}`, `on ${this.config.domain}`]
+      message: [event === "deployed" && app.commitHash && `commit ${app.commitHash.slice(0, 7)}`, by && `by ${by}`, `on ${this.config.domain}`]
         .filter(Boolean)
         .join(" · "),
       url: this.appStorage.url(app, this.tenants),

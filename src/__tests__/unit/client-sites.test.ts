@@ -10,19 +10,20 @@ describe("Unit: SiteioClient site methods", () => {
   })
   afterEach(() => { globalThis.fetch = realFetch })
 
-  test("deploySite POSTs the zip and returns info", async () => {
+  test("deploySite POSTs the zip and names the caller", async () => {
     let captured: { url: string; method?: string; headers: Record<string, string> } | null = null
     globalThis.fetch = (async (url: string, init: RequestInit) => {
       captured = { url, method: init.method, headers: init.headers as Record<string, string> }
       return new Response(JSON.stringify({ success: true, data: { name: "blog", url: "https://blog.example.com" } }), { status: 200 })
     }) as typeof fetch
 
-    const info = await client.deploySite("blog", new Uint8Array([1, 2, 3]), { deployedBy: "ada" })
+    const info = await client.deploySite("blog", new Uint8Array([1, 2, 3]))
     expect(info.name).toBe("blog")
     expect(captured!.url).toBe("http://agent/sites/blog")
     expect(captured!.method).toBe("POST")
     expect(captured!.headers["Content-Type"]).toBe("application/zip")
-    expect(captured!.headers["X-Deployed-By"]).toBe("ada")
+    expect(captured!.headers["X-Siteio-User"]).toBeTruthy()
+    expect(captured!.headers["X-Deployed-By"]).toBeUndefined()
   })
 
   test("getSiteAdmin returns credentials", async () => {

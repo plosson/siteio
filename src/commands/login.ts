@@ -5,12 +5,14 @@ import {
   switchServer,
   listServers,
   extractDomain,
+  getCliUser,
   getUsername,
   setUsername,
 } from "../config/loader.ts"
 import { formatSuccess, formatError } from "../utils/output.ts"
 import { decodeToken } from "../utils/token.ts"
 import type { LoginOptions } from "../types.ts"
+import { apiHeaders } from "../lib/client.ts"
 
 export async function loginCommand(options: LoginOptions, behavior: { exit?: boolean } = {}): Promise<void> {
   p.intro(chalk.bgCyan(" siteio login "))
@@ -151,7 +153,7 @@ export async function loginCommand(options: LoginOptions, behavior: { exit?: boo
 
   try {
     const response = await fetch(`${apiUrl}/health`, {
-      headers: { "X-API-Key": apiKey },
+      headers: apiHeaders(apiKey),
     })
 
     if (!response.ok) {
@@ -183,7 +185,7 @@ export async function loginCommand(options: LoginOptions, behavior: { exit?: boo
   } else if (!existingUsername && !nonInteractiveAuth) {
     const username = await p.text({
       message: "Your name (for deploy attribution):",
-      placeholder: "e.g., alice (press Enter to skip)",
+      placeholder: `e.g., alice (press Enter to use ${getCliUser()})`,
     })
 
     if (!p.isCancel(username) && username && username.trim()) {
