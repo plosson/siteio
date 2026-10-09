@@ -649,6 +649,48 @@ describe("API: tenants", () => {
       expect(app.git!.dockerfile).toBe("Dockerfile")
     })
 
+    test("a tenant's app logs and status name the app by its bare name", async () => {
+      await createApp({ name: "vault" })
+      runtime.logsReturn = "started"
+      const logs = await req("/apps/vault/logs", { headers: as("key-c") }, "api.vaults.net")
+      expect(logs.status).toBe(200)
+      const logsBody = await logs.text()
+      expect(JSON.parse(logsBody).data.name).toBe("vault")
+      expect(logsBody).not.toContain("--")
+      const status = await req("/apps/vault/status", { headers: as("key-c") }, "api.vaults.net")
+      expect(status.status).toBe(200)
+      const statusBody = await status.text()
+      expect(JSON.parse(statusBody).data).toEqual({ name: "vault", services: [{ service: "vault", primary: true, state: "missing" }] })
+      expect(statusBody).not.toContain("--")
+    })
+
+    test("a duplicate tenant app is named as the tenant typed it", async () => {
+      await createApp({ name: "vault" })
+      const res = await createApp({ name: "vault" })
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as ApiResponse<null>).error).toBe("App 'vault' already exists")
+    })
+
+    test("a tenant uses its own app by its bare name from create to delete", async () => {
+      await createApp({ name: "vault" })
+      const named = async (res: Response) => {
+        expect(res.status).toBe(200)
+        expect((await dataOf<App>(res)).name).toBe("vault")
+      }
+      await named(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      await named(await req("/apps/vault", { method: "PATCH", headers: json("key-c"), body: JSON.stringify({ internalPort: 8080 }) }, "api.vaults.net"))
+      await named(await req("/apps/vault/deploy", { method: "POST", headers: as("key-c") }, "api.vaults.net"))
+      runtime.containerExistsReturn = true
+      await named(await req("/apps/vault/stop", { method: "POST", headers: as("key-c") }, "api.vaults.net"))
+      await named(await req("/apps/vault/restart", { method: "POST", headers: as("key-c") }, "api.vaults.net"))
+      expect((await req("/apps/vault/logs", { headers: as("key-c") }, "api.vaults.net")).status).toBe(200)
+      expect((await req("/apps/vault/status", { headers: as("key-c") }, "api.vaults.net")).status).toBe(200)
+      expect(appsOnDisk()).toEqual(["vault--vaults-net.json"])
+      expect((await req("/apps/vault", { method: "DELETE", headers: as("key-c") }, "api.vaults.net")).status).toBe(200)
+      expect(appsOnDisk()).toEqual([])
+      expect(runtime.callsOf("remove").map((c) => c.args[0])).toContain("vault--vaults-net")
+    })
+
     test("a tenant image can't bring its own traefik labels", async () => {
       await createApp({ name: "vault" })
       runtime.containerExistsReturn = true

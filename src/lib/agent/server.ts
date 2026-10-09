@@ -619,13 +619,13 @@ export class AgentServer {
     // GET /apps/:name/logs - get app logs
     const appLogsMatch = path.match(/^\/apps\/([a-z0-9-]+)\/logs$/)
     if (appLogsMatch && req.method === "GET") {
-      return this.handleGetAppLogs(k(appLogsMatch[1]!), url)
+      return this.handleGetAppLogs(k(appLogsMatch[1]!), url, scope)
     }
 
     // GET /apps/:name/status - live container state per service
     const appStatusMatch = path.match(/^\/apps\/([a-z0-9-]+)\/status$/)
     if (appStatusMatch && req.method === "GET") {
-      return this.handleGetAppStatus(k(appStatusMatch[1]!))
+      return this.handleGetAppStatus(k(appStatusMatch[1]!), scope)
     }
 
     // /apps/:name/thumbnail - GET the card preview image, POST to regenerate it
@@ -789,6 +789,7 @@ export class AgentServer {
       // a tenant's bare name; a primary name is checked here.
       const name = this.tenants.keyFor(body.name, scope)
       if (!scope) assertValidNewName(name, "App")
+      if (this.appStorage.exists(name)) return this.error(`App '${body.name}' already exists`)
 
       const domains = body.domains === undefined ? [] : normalizeDomains(body.domains)
       const domainViolation = this.customDomainsViolation("app", name, domains, scope)
@@ -1381,7 +1382,7 @@ export class AgentServer {
     }
   }
 
-  private async handleGetAppStatus(name: string): Promise<Response> {
+  private async handleGetAppStatus(name: string, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -1399,14 +1400,15 @@ export class AgentServer {
         }
       } else {
         const inspect = await this.docker.inspect(name)
+        const service = this.tenants.displayName(name, scope)
         services = [
           inspect
-            ? { service: name, primary: true, state: inspect.state.status, exitCode: inspect.state.exitCode }
-            : { service: name, primary: true, state: "missing" },
+            ? { service, primary: true, state: inspect.state.status, exitCode: inspect.state.exitCode }
+            : { service, primary: true, state: "missing" },
         ]
       }
 
-      const response: AppStatus = { name, services }
+      const response: AppStatus = { name: this.tenants.displayName(name, scope), services }
       return this.json(response)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to get app status"
@@ -1414,7 +1416,7 @@ export class AgentServer {
     }
   }
 
-  private async handleGetAppLogs(name: string, url: URL): Promise<Response> {
+  private async handleGetAppLogs(name: string, url: URL, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -1441,7 +1443,7 @@ export class AgentServer {
         logs = await this.docker.logs(name, tail)
       }
 
-      const response: ContainerLogs = { name, logs, lines: tail }
+      const response: ContainerLogs = { name: this.tenants.displayName(name, scope), logs, lines: tail }
       return this.json(response)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to get logs"
