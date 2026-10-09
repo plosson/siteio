@@ -35,3 +35,17 @@ export function publicEnv(state: Partial<EnvState>): Record<string, string> {
   const secret = new Set(state.secretKeys ?? [])
   return Object.fromEntries(Object.entries(state.env ?? {}).filter(([key]) => !secret.has(key)))
 }
+
+const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+// The agent's own container vars (POCKET_SUPERUSER_*) live under this prefix.
+const RESERVED_PREFIX = "POCKET_"
+
+// Site env keys become `docker run -e KEY=…` and `$os.getenv("KEY")`: plain
+// identifiers only, and never the agent's own vars.
+export function assertValidSiteEnvKeys(update: EnvUpdate): void {
+  const keys = [...Object.keys(update.env ?? {}), ...Object.keys(update.secrets ?? {}), ...(update.unsetEnv ?? [])]
+  for (const key of keys) {
+    if (!ENV_KEY_RE.test(key)) throw new ValidationError(`Invalid env var name: '${key}'`)
+    if (key.startsWith(RESERVED_PREFIX)) throw new ValidationError(`'${key}' is reserved: ${RESERVED_PREFIX}* vars belong to siteio`)
+  }
+}

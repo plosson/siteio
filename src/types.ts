@@ -288,6 +288,10 @@ export interface Site {
   // Auto-generated on first deploy; surfaced via `siteio sites admin`.
   superuserEmail?: string
   superuserPassword?: string
+  // User env for the site's PocketBase container (read in pb_hooks with
+  // $os.getenv). Values of keys in `secretKeys` are never returned by the API.
+  env?: Record<string, string>
+  secretKeys?: string[]
 }
 
 // Result of POST /sites/:name/upgrade. `upgraded` is false when the site was
@@ -320,6 +324,9 @@ export interface SiteInfo {
   // Whether the AI chat editor is available for this agent (drives tab visibility
   // on the site detail page). Full status/history comes from GET /sites/:name/chat.
   chatEnabled?: boolean
+  // Only on GET /sites/:name and PATCH /sites/:name/env; secret values stripped.
+  env?: Record<string, string>
+  secretKeys?: string[]
 }
 
 // Site version info for history

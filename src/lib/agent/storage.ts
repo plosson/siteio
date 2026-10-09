@@ -6,6 +6,7 @@ import { unzipSync, zipSync } from "fflate"
 import type { Site, SiteInfo, SiteVersion } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
 import type { Scope, TenantRegistry } from "./tenants.ts"
+import { applyEnvUpdate, assertValidSiteEnvKeys, type EnvUpdate } from "./env.ts"
 import { readTree } from "../../utils/files.ts"
 
 const MAX_HISTORY_VERSIONS = 10
@@ -69,6 +70,20 @@ export class SiteStorage {
       name: site.name, createdAt: site.createdAt, updatedAt: new Date().toISOString(),
     }
     writeFileSync(this.metaPath(name), JSON.stringify(updated, null, 2), { mode: 0o600 })
+    return updated
+  }
+
+  // Set, mark secret or unset env vars. Validation runs before anything is written.
+  updateEnv(name: string, update: EnvUpdate): Site | null {
+    const site = this.get(name)
+    if (!site) return null
+    assertValidSiteEnvKeys(update)
+    const { env, secretKeys } = applyEnvUpdate(site, update, "sites")
+    const updated = this.update(name, { env, secretKeys })!
+    if (!secretKeys) {
+      delete updated.secretKeys
+      writeFileSync(this.metaPath(name), JSON.stringify(updated, null, 2), { mode: 0o600 })
+    }
     return updated
   }
 
