@@ -556,6 +556,21 @@ describe("API: tenants", () => {
       expect(app.volumes).toEqual([{ name: "data", mountPath: "/data" }])
     })
 
+    test("a tenant's volumes must be a list of name and mount path", async () => {
+      const bad = [["x"], [{ name: null, mountPath: "/d" }], [{ mountPath: "/d" }], [{ name: "data", mountPath: 7 }], [null], "data", { name: "data", mountPath: "/d" }]
+      for (const volumes of bad) {
+        expect((await createApp({ name: "vault", volumes })).status).toBe(400)
+      }
+      expect(appsOnDisk()).toEqual([])
+      await createApp({ name: "vault" })
+      for (const volumes of bad) {
+        const res = await req("/apps/vault", { method: "PATCH", headers: json("key-c"), body: JSON.stringify({ volumes }) }, "api.vaults.net")
+        expect(res.status).toBe(400)
+      }
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.volumes).toEqual([])
+    })
+
     test("the operator keeps host-path volumes", async () => {
       const res = await createApp({ name: "hub", volumes: [{ name: "/srv/hub", mountPath: "/data" }] }, "god-key", "localhost")
       expect(res.status).toBe(200)

@@ -681,7 +681,14 @@ export class AgentServer {
         return `git.${field} must be a relative path inside the repository`
       }
     }
-    for (const volume of fields.volumes ?? []) {
+    const volumes: unknown = fields.volumes ?? []
+    const isMount = (v: unknown) =>
+      typeof v === "object" && v !== null && typeof (v as { name?: unknown }).name === "string" &&
+      typeof (v as { mountPath?: unknown }).mountPath === "string"
+    if (!Array.isArray(volumes) || !volumes.every(isMount)) {
+      return "'volumes' must be a list of { name, mountPath }"
+    }
+    for (const volume of volumes as { name: string }[]) {
       if (!VOLUME_NAME_RE.test(volume.name)) {
         return `Volume '${volume.name}' must be a plain name (letters, digits, '.', '_', '-'), not a path`
       }
