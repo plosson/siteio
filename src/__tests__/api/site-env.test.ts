@@ -9,6 +9,7 @@ import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, Tenant } from "../../types.ts"
 
 const T: Tenant = { domain: "friend.com", apiKey: "key-t", createdAt: "2026-10-08T00:00:00.000Z" }
+const U: Tenant = { domain: "other.org", apiKey: "key-u", createdAt: "2026-10-08T00:00:00.000Z" }
 const SECRET = "sk_live_probe_value_123"
 
 describe("Site env", () => {
@@ -35,7 +36,7 @@ describe("Site env", () => {
     runtime = new FakeRuntime()
     const config: AgentConfig = {
       apiKey: "god-key", dataDir, domain: "example.com",
-      maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true, tenants: [T],
+      maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true, tenants: [T, U],
     }
     server = new AgentServer(config, runtime)
   })
@@ -58,6 +59,16 @@ describe("Site env", () => {
       storage.update("blog", { env: { POCKET_SUPERUSER_PASSWORD: "hijack" } }) // bypasses validation on purpose
       await deploy("blog")
       expect(lastRunEnv().POCKET_SUPERUSER_PASSWORD).toBe(storage.get("blog")!.superuserPassword)
+    })
+
+    test("an upgrade keeps the env", async () => {
+      await deploy("blog")
+      const storage = new SiteStorage(dataDir)
+      storage.update("blog", { pocketbaseVersion: "0.1.0" })
+      storage.updateEnv("blog", { secrets: { S: SECRET } })
+      runtime.logsReturn = "Server started at http://0.0.0.0:8090"
+      expect((await req("/sites/blog/upgrade", { method: "POST", headers: as("god-key") })).status).toBe(200)
+      expect(lastRunEnv().S).toBe(SECRET)
     })
 
     test("rename, rollback and a domain change keep the env", async () => {
@@ -120,6 +131,24 @@ describe("Site env", () => {
       expect(lastRunEnv().A).toBe("1")
     })
 
+    test("env set before the first deploy is kept, and that deploy uses it", async () => {
+      expect((await setEnv("fresh", { secrets: { S: SECRET } })).status).toBe(200)
+      expect(runtime.callsOf("run").length).toBe(0)
+      expect((await deploy("fresh")).status).toBe(200)
+      expect(lastRunEnv().S).toBe(SECRET)
+      expect(lastRunEnv().POCKET_SUPERUSER_EMAIL).toBe("admin@fresh.example.com")
+    })
+
+    test("a refused update on a site that doesn't exist yet creates nothing", async () => {
+      for (const [name, b] of [
+        ["fresh", { env: { "A-B": "1" } }], ["fresh", { secrets: { POCKET_X: "1" } }], ["fresh", "not json"],
+        ["api", { env: { A: "1" } }], ["a--b", { env: { A: "1" } }],
+      ] as const) {
+        expect((await setEnv(name, b)).status).toBe(400)
+        expect(new SiteStorage(dataDir).exists(name)).toBe(false)
+      }
+    })
+
     test("a secret value never appears in any site response", async () => {
       await deploy("blog")
       await setEnv("blog", { secrets: { S: SECRET } })
@@ -168,10 +197,6 @@ describe("Site env", () => {
       expect((await body(res)).error).toContain("'sites unset -e S'")
     })
 
-    test("unknown site is 404", async () => {
-      expect((await setEnv("ghost", { env: { A: "1" } })).status).toBe(404)
-    })
-
     test("GET /sites/:name shows public env and secret keys", async () => {
       await deploy("blog")
       await setEnv("blog", { env: { A: "1" }, secrets: { S: SECRET } })
@@ -184,9 +209,17 @@ describe("Site env", () => {
       await deploy("blog", "key-t", "api.friend.com")
       await deploy("shop")
       expect((await setEnv("blog", { secrets: { S: SECRET } }, "key-t", "api.friend.com")).status).toBe(200)
-      expect((await setEnv("shop", { env: { A: "1" } }, "key-t", "api.friend.com")).status).toBe(404)
+      await deploy("blog", "key-u", "api.other.org")
+      // A tenant naming the operator's site gets a site of its own, never the operator's.
+      expect((await setEnv("shop", { env: { A: "1" } }, "key-t", "api.friend.com")).status).toBe(200)
+      expect(new SiteStorage(dataDir).get("shop--friend-com")!.env).toEqual({ A: "1" })
       expect((await setEnv("blog--friend-com", { env: { A: "1" } }, "key-t", "api.friend.com")).status).toBe(404)
-      expect(new SiteStorage(dataDir).get("shop")!.env).toBeUndefined()
+      expect((await setEnv("blog--other-org", { env: { A: "1" } }, "key-t", "api.friend.com")).status).toBe(404)
+      expect((await setEnv("blog", { env: { A: "1" } }, "key-t", "api.other.org")).status).toBe(401)
+      const storage = new SiteStorage(dataDir)
+      expect(storage.get("shop")!.env).toBeUndefined()
+      expect(storage.get("blog--other-org")!.env).toBeUndefined()
+      expect(storage.get("blog--friend-com")!.env).toEqual({ S: SECRET })
     })
 
     test("a share code can't read or set env", async () => {
@@ -197,8 +230,10 @@ describe("Site env", () => {
       })
       const { code } = ((await minted.json()) as { data: { code: string } }).data
       expect((await setEnv("blog", { env: { A: "1" } }, code)).status).toBe(403)
-      const asGrant = await req("/sites/blog", { headers: as(code) })
-      expect(await asGrant.text()).not.toContain('"secretKeys"')
+      expect(new SiteStorage(dataDir).get("blog")!.env).toEqual({ S: SECRET })
+      const asGrant = await (await req("/sites/blog", { headers: as(code) })).text()
+      expect(asGrant).not.toContain('"secretKeys"')
+      expect(asGrant).not.toContain('"env"')
     })
   })
 })

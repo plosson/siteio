@@ -251,7 +251,7 @@ function registerSiteCommands(sites: Command): void {
   siteShare
     .argument("[name]", "Site to share (defaults to .siteio/config.json)")
     .option("--label <label>", "Attribution label shown in the site's deploy history")
-    .option("--allow-backend", "Let the invitee also change backend code (pb_migrations, pb_hooks) — can affect live data")
+    .option("--allow-backend", "Let the invitee also change backend code (pb_migrations, pb_hooks) — can affect live data and read the site's secrets")
     .action(async (name, options) => {
       const { sitesShareCommand } = await import("./commands/sites/share.ts")
       await sitesShareCommand(name, { ...options, json: program.opts().json })

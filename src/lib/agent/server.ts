@@ -31,7 +31,7 @@ import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
-import { publicEnv, type EnvUpdate } from "./env.ts"
+import { assertValidSiteEnvKeys, publicEnv, type EnvUpdate } from "./env.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
 import { TenantRegistry, assertValidNewName, isValidDomain, tenantServices, type Scope } from "./tenants.ts"
 
@@ -1673,19 +1673,10 @@ export class AgentServer {
 
     if (!site) {
       try {
-        assertValidNewName(this.tenants.displayName(name, scope))
+        site = this.createSiteRecord(name, scope)
       } catch (err) {
         return this.error((err as Error).message, 400)
       }
-      site = this.storage.create({
-        name,
-        domains: [],
-        pocketbaseVersion: POCKETBASE_VERSION,
-        status: "pending",
-        size: 0,
-        superuserEmail: `admin@${this.tenants.host(name)}`,
-        superuserPassword: crypto.randomUUID().replace(/-/g, ""),
-      })
     }
 
     try {
@@ -1696,6 +1687,21 @@ export class AgentServer {
       const message = err instanceof Error ? err.message : "Failed to deploy site"
       return this.error(message, 500)
     }
+  }
+
+  // A new site's metadata (generates superuser creds), before any code or
+  // container exists. Throws on an invalid name.
+  private createSiteRecord(name: string, scope: Scope): Site {
+    assertValidNewName(this.tenants.displayName(name, scope))
+    return this.storage.create({
+      name,
+      domains: [],
+      pocketbaseVersion: POCKETBASE_VERSION,
+      status: "pending",
+      size: 0,
+      superuserEmail: `admin@${this.tenants.host(name)}`,
+      superuserPassword: crypto.randomUUID().replace(/-/g, ""),
+    })
   }
 
   // Deploy core, shared by the zip-upload route and the MCP share endpoint:
@@ -2370,10 +2376,9 @@ export class AgentServer {
   }
 
   // Env vars for the site's PocketBase container (`$os.getenv` in pb_hooks).
-  // Applied at once: a site with a container is recreated with the new env.
+  // Applied at once: a site with a container is recreated with the new env. A
+  // site not deployed yet is created, so its first deploy starts with the env.
   private async handleUpdateSiteEnv(name: string, req: Request, scope: Scope): Promise<Response> {
-    if (!this.storage.get(name)) return this.error("Site not found", 404)
-
     let body: unknown
     try {
       body = await req.json()
@@ -2385,6 +2390,8 @@ export class AgentServer {
 
     let updated: Site
     try {
+      assertValidSiteEnvKeys(update)
+      if (!this.storage.exists(name)) this.createSiteRecord(name, scope)
       updated = this.storage.updateEnv(name, update)!
     } catch (err) {
       return this.error(err instanceof Error ? err.message : "Invalid env update")

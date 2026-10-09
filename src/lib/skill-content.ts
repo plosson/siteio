@@ -110,7 +110,9 @@ siteio sites set mysite -e PUBLIC_MODE=live             # plain value, shown by 
 siteio sites unset mysite -e STRIPE_SECRET_KEY
 \`\`\`
 
-The site restarts to apply. \`POCKET_*\` names are reserved. Locally,
+The site restarts to apply; on a site not deployed yet, the first deploy uses them.
+\`POCKET_*\` names are reserved. Anyone who can change \`pb_hooks\` (an
+\`--allow-backend\` share) can read these values. Locally,
 \`siteio sites dev\` passes your shell env: \`STRIPE_SECRET_KEY=… siteio sites dev\`.
 
 ## PocketBase version & docs
@@ -180,7 +182,7 @@ Let someone else edit and redeploy a site without giving them your credentials:
 \`\`\`sh
 siteio sites share mysite                    # grant access (stays valid until revoked)
 siteio sites share mysite --label "Sam"      # attribute their deploys in history
-siteio sites share mysite --allow-backend    # also allow backend edits (affects live data)
+siteio sites share mysite --allow-backend    # also allow backend edits (affects live data, can read secrets)
 siteio sites share list mysite               # see active grants
 siteio sites share revoke <id> -n mysite     # revoke access
 \`\`\`
