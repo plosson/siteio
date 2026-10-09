@@ -54,6 +54,10 @@ const TENANT_ROUTE =
 // The app routes a tenant allowed to run apps (Tenant.apps) may reach.
 const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|restart|logs|status|thumbnail))?)?$/
 
+// A tenant's volume is a plain name, which DockerManager keeps under
+// volumes/<key>/<name>: never a host path, never a way out of that folder.
+const VOLUME_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+
 // Read one cookie value from a request's Cookie header (no external dep).
 function readCookie(req: Request, name: string): string | null {
   const header = req.headers.get("cookie")
@@ -635,6 +639,20 @@ export class AgentServer {
     return { ...scrubApp(app), name: this.tenants.displayName(app.name, scope) }
   }
 
+  // Why a tenant may not put `fields` in its app, or null. A compose stack can
+  // mount the host and pick its networks; a volume path reaches the host's
+  // files. The operator (null scope) is not restricted.
+  private tenantAppViolation(scope: Scope, fields: { compose?: boolean; volumes?: { name: string }[] }): string | null {
+    if (!scope) return null
+    if (fields.compose) return "Compose apps are not available to a tenant"
+    for (const volume of fields.volumes ?? []) {
+      if (!VOLUME_NAME_RE.test(volume.name)) {
+        return `Volume '${volume.name}' must be a plain name (letters, digits, '.', '_', '-'), not a path`
+      }
+    }
+    return null
+  }
+
   // Why the site or app `key` can't take `domains` as its custom domains, or
   // null. One rule set for sites and apps: platform hostnames and other
   // scopes' apexes are reserved, and a hostname another site or app already
@@ -737,6 +755,9 @@ export class AgentServer {
       const hasGit = !!body.git
       const hasImage = !!body.image
       const hasInlineDockerfile = !!body.dockerfileContent
+
+      const violation = this.tenantAppViolation(scope, { compose: hasCompose, volumes: body.volumes })
+      if (violation) return this.error(violation)
 
       // Mutual exclusivity: image / inline-dockerfile / compose / git.
       // git may coexist with composePath OR GitSource.dockerfile, not both.
@@ -873,6 +894,9 @@ export class AgentServer {
         const domainViolation = this.customDomainsViolation("app", name, body.domains, scope)
         if (domainViolation) return this.error(domainViolation)
       }
+
+      const violation = this.tenantAppViolation(scope, { volumes: body.volumes })
+      if (violation) return this.error(violation)
 
       // Compose sources: same fields as create, replaced in place so a stack
       // can change without removing the app (and its volumes).

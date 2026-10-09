@@ -524,6 +524,42 @@ describe("API: tenants", () => {
       const list = await dataOf<AppInfo[]>(await req("/apps", { headers: as("god-key") }))
       expect(list.find((a) => a.name === "vault--vaults-net")!.url).toBe("https://vault.vaults.net")
     })
+
+    test("a tenant may not create a compose app, inline or from git", async () => {
+      const inline = await createApp({ name: "stack", image: undefined, composeContent: "services:\n  web:\n    image: nginx\n", primaryService: "web" })
+      expect(inline.status).toBe(400)
+      expect(((await inline.json()) as ApiResponse<null>).error).toBe("Compose apps are not available to a tenant")
+      const git = await createApp({ name: "stack", image: undefined, git: { repoUrl: "https://example.com/r.git" }, composePath: "compose.yml", primaryService: "web" })
+      expect(git.status).toBe(400)
+      expect(((await git.json()) as ApiResponse<null>).error).toBe("Compose apps are not available to a tenant")
+      expect(appsOnDisk()).toEqual([])
+    })
+
+    test("a tenant volume must be a plain name, never a host path", async () => {
+      for (const name of ["/", "/var/run/docker.sock", "/data/agent-config.json", "../../agent-config.json", "a/b", ".ssh", ".."]) {
+        const res = await createApp({ name: "vault", volumes: [{ name, mountPath: "/data" }] })
+        expect(res.status).toBe(400)
+      }
+      expect(appsOnDisk()).toEqual([])
+      expect((await createApp({ name: "vault", volumes: [{ name: "vault_data.v1", mountPath: "/data" }] })).status).toBe(200)
+    })
+
+    test("a tenant can't swap in a host-path volume later", async () => {
+      await createApp({ name: "vault", volumes: [{ name: "data", mountPath: "/data" }] })
+      const res = await req("/apps/vault", {
+        method: "PATCH",
+        headers: json("key-c"),
+        body: JSON.stringify({ volumes: [{ name: "/", mountPath: "/host" }] }),
+      }, "api.vaults.net")
+      expect(res.status).toBe(400)
+      const app = await dataOf<App>(await req("/apps/vault", { headers: as("key-c") }, "api.vaults.net"))
+      expect(app.volumes).toEqual([{ name: "data", mountPath: "/data" }])
+    })
+
+    test("the operator keeps host-path volumes", async () => {
+      const res = await createApp({ name: "hub", volumes: [{ name: "/srv/hub", mountPath: "/data" }] }, "god-key", "localhost")
+      expect(res.status).toBe(200)
+    })
   })
 
   describe("custom domains of sites and apps", () => {
