@@ -20,6 +20,8 @@ const VALID_KEYS: (keyof PersistedAgentConfig)[] = [
   "pagerUrl",
   // Ranking dashboard URL told about successful deploys.
   "rankingUrl",
+  // Traffic analytics endpoint sent pageviews + traffic (masked: the URL is the secret).
+  "analyticsUrl",
 ]
 
 function validateKey(key: string): asserts key is keyof PersistedAgentConfig {
@@ -104,7 +106,7 @@ export async function setConfigCommand(
 ): Promise<void> {
   validateKey(key)
 
-  if ((key === "pagerUrl" || key === "rankingUrl") && !/^https?:\/\//.test(value)) {
+  if ((key === "pagerUrl" || key === "rankingUrl" || key === "analyticsUrl") && !/^https?:\/\//.test(value)) {
     console.error(formatError(`${key} must start with http:// or https://`))
     process.exit(1)
   }

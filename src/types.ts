@@ -228,6 +228,7 @@ export interface AgentConfig {
   chat?: ChatConfig // AI site-chat editor settings; absent/unconfigured hides the feature
   pagerUrl?: string // pagerio URL paged on every app/site deploy or restart (PAGERIO_URL)
   rankingUrl?: string // ranking dashboard URL told about every successful app/site deploy (RANKING_URL)
+  analyticsUrl?: string // traffic analytics endpoint sent pageviews + traffic counters every minute (ANALYTICS_URL)
   tenants?: Tenant[] // extra base domains, each with its own API key (sites, and apps when Tenant.apps)
 }
 
