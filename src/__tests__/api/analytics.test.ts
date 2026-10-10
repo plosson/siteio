@@ -108,6 +108,26 @@ describe("analytics", () => {
     expect(b.traffic).toHaveLength(1) // the api-router line is ignored
   })
 
+  test("a real Traefik v3.7.13 access-log line becomes one pageview", async () => {
+    const server = makeServer(url())
+    await deploySite(server, "blog")
+    // Captured verbatim; only the router and host are rewritten to a deployed site.
+    const real = JSON.parse(
+      String.raw`{"ClientAddr":"192.168.215.1:38902","ClientHost":"192.168.215.1","ClientPort":"38902","DownstreamContentSize":11,"DownstreamStatus":200,"Duration":2004838,"OriginContentSize":11,"OriginDuration":1896502,"OriginStatus":200,"Overhead":108336,"RequestAddr":"localhost:18930","RequestContentSize":0,"RequestCount":1,"RequestHost":"localhost","RequestMethod":"GET","RequestPath":"/x?y=1","RequestPort":"18930","RequestProtocol":"HTTP/1.1","RequestScheme":"http","RetryAttempts":0,"RouterName":"r1@file","ServiceAddr":"host.docker.internal:18931","ServiceName":"s1@file","ServiceURL":"http://host.docker.internal:18931","StartLocal":"2026-10-10T09:44:06.996895028Z","StartUTC":"2026-10-10T09:44:06.996895028Z","downstream_Content-Type":"text/html","entryPointName":"web","level":"info","msg":"","origin_Content-Type":"text/html","request_Cf-Connecting-Ip":"198.51.100.7","request_Referer":"https://ref.example/","request_User-Agent":"Mozilla/5.0 test","time":"2026-10-10T09:44:06Z"}`
+    )
+    real.RouterName = "siteio-blog@docker"
+    real.RequestHost = "blog.analytics.test"
+    writeLog(real)
+    await server.analyticsTickForTest()
+    expect(batches).toHaveLength(1)
+    const pvs = batches[0]!.pageviews
+    expect(pvs).toHaveLength(1)
+    expect(pvs[0]!.userAgent).toBe("Mozilla/5.0 test")
+    expect(pvs[0]!.referrer).toBe("https://ref.example/")
+    expect(pvs[0]!.path).toBe("/x")
+    expect(pvs[0]!.ip).toBe("192.168.215.1") // not a Cloudflare IP: the CF header is ignored
+  })
+
   test("lines are sent once: a second tick with no new lines sends nothing", async () => {
     const server = makeServer(url())
     await deploySite(server, "blog")
