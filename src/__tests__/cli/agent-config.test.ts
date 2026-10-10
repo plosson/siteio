@@ -107,6 +107,24 @@ describe("CLI: agent config (LLM keys)", () => {
     expect(JSON.parse((await runCli(["--json", "agent", "config", "get", "rankingUrl"])).stdout).rankingUrl).toBe(ranking)
   })
 
+  test.each(["analytics.example.com/api/ingest", "ftp://x.example.com", "javascript:alert(1)", ""])(
+    "analyticsUrl rejects a non-http(s) value: %p",
+    async (bad) => {
+      const res = await runCli(["agent", "config", "set", "analyticsUrl", bad])
+      expect(res.exitCode).toBe(1)
+      expect(res.stderr).toContain("analyticsUrl must start with http:// or https://")
+      expect(existsSync(join(dataDir, "agent-config.json"))).toBe(false)
+    }
+  )
+
+  test("analyticsUrl is masked in config list: the URL is the secret", async () => {
+    const url = "https://analytics.example.com/api/ingest?key=topsecretvalue"
+    expect((await runCli(["agent", "config", "set", "analyticsUrl", url])).exitCode).toBe(0)
+    const list = await runCli(["--json", "agent", "config", "list"])
+    expect(list.stdout).not.toContain("topsecretvalue")
+    expect(JSON.parse((await runCli(["--json", "agent", "config", "get", "analyticsUrl"])).stdout).analyticsUrl).toBe(url)
+  })
+
   test("an unknown key is still rejected", async () => {
     const res = await runCli(["agent", "config", "set", "bogusKey", "x"])
     expect(res.exitCode).toBe(1)

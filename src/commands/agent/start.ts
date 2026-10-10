@@ -142,7 +142,7 @@ export async function startAgentCommand(): Promise<void> {
   const chat = buildChatConfig(process.env, persistedConfig)
 
   // Optional deploy hooks. Env var wins over persisted config.
-  const hookUrl = (envVar: string, key: "pagerUrl" | "rankingUrl"): string | undefined => {
+  const hookUrl = (envVar: string, key: "pagerUrl" | "rankingUrl" | "analyticsUrl"): string | undefined => {
     const url = process.env[envVar] || persistedConfig[key] || undefined
     if (url && !/^https?:\/\//.test(url)) {
       console.error(formatError(`${envVar} (or ${key}) must start with http:// or https://`))
@@ -154,6 +154,8 @@ export async function startAgentCommand(): Promise<void> {
   const pagerUrl = hookUrl("PAGERIO_URL", "pagerUrl")
   // Reports every successful app/site deploy to a ranking dashboard.
   const rankingUrl = hookUrl("RANKING_URL", "rankingUrl")
+  // Sends pageviews + traffic counters, read from Traefik's access log, every minute.
+  const analyticsUrl = hookUrl("ANALYTICS_URL", "analyticsUrl")
 
   const tenants = persistedConfig.tenants ?? []
 
@@ -171,6 +173,7 @@ export async function startAgentCommand(): Promise<void> {
     chat,
     pagerUrl,
     rankingUrl,
+    analyticsUrl,
     tenants,
   }
 
@@ -191,6 +194,7 @@ export async function startAgentCommand(): Promise<void> {
   )
   console.log(`  Pager:      ${pagerUrl ? "enabled" : "disabled (set PAGERIO_URL or pagerUrl)"}`)
   console.log(`  Ranking:    ${rankingUrl ? "enabled" : "disabled (set RANKING_URL or rankingUrl)"}`)
+  console.log(`  Analytics:  ${analyticsUrl ? "enabled" : "disabled (set ANALYTICS_URL or analyticsUrl)"}`)
   console.log(`  Tenants:    ${tenants.map((t) => t.domain).join(", ") || "none"}`)
   console.log("")
 

@@ -27,6 +27,7 @@ export interface PersistedAgentConfig {
   llmApiKey?: string
   pagerUrl?: string // pagerio URL paged on deploys/restarts; PAGERIO_URL wins. The URL is the secret.
   rankingUrl?: string // ranking dashboard URL told about successful deploys; RANKING_URL wins.
+  analyticsUrl?: string // traffic analytics endpoint; ANALYTICS_URL wins. The URL is the secret.
   tenants?: Tenant[] // managed by `siteio agent tenant add|remove`; holds tenant API keys
 }
 
@@ -144,6 +145,6 @@ export function maskSensitiveValue(value: string): string {
  * Check if a key contains sensitive data
  */
 export function isSensitiveKey(key: string): boolean {
-  const sensitiveKeys = ["apiKey", "cloudflareToken", "acmeDnsEnv", "llmOauthToken", "llmApiKey", "pagerUrl", "tenants"]
+  const sensitiveKeys = ["apiKey", "cloudflareToken", "acmeDnsEnv", "llmOauthToken", "llmApiKey", "pagerUrl", "analyticsUrl", "tenants"]
   return sensitiveKeys.includes(key)
 }

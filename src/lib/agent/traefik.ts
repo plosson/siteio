@@ -5,6 +5,13 @@ import { connect as tlsConnect, type PeerCertificate } from "tls"
 import type { AcmeConfig } from "../../types.ts"
 
 const TRAEFIK_CONTAINER_NAME = "siteio-traefik"
+const LOGS_DIRNAME = "traefik-logs"
+
+// Host path of Traefik's access log (mounted at /logs). Kept out of
+// <dataDir>/traefik, which Traefik mounts read-only.
+export function accessLogPath(dataDir: string): string {
+  return join(dataDir, LOGS_DIRNAME, "access.log")
+}
 const TRAEFIK_IMAGE = "traefik:v3.7"
 
 // Router priorities. Traefik picks the highest-priority matching router, so
@@ -49,6 +56,7 @@ export interface TraefikConfig {
   fileServerPort: number
   apiHosts?: string[] // every `api.<base>` host (primary + tenants); defaults to api.<domain>
   acme?: AcmeConfig
+  accessLog?: boolean // write a JSON access log for traffic analytics (set iff ANALYTICS_URL)
 }
 
 export class TraefikManager {
@@ -57,6 +65,7 @@ export class TraefikManager {
   private dynamicConfigPath: string
   private staticConfigPath: string
   private certsDir: string
+  private logsDir: string
 
   constructor(config: TraefikConfig) {
     this.config = config
@@ -64,6 +73,7 @@ export class TraefikManager {
     this.dynamicConfigPath = join(this.configDir, "dynamic.yml")
     this.staticConfigPath = join(this.configDir, "traefik.yml")
     this.certsDir = join(config.dataDir, "certs")
+    this.logsDir = join(config.dataDir, LOGS_DIRNAME)
 
     // Ensure directories exist
     if (!existsSync(this.configDir)) {
@@ -71,6 +81,11 @@ export class TraefikManager {
     }
     if (!existsSync(this.certsDir)) {
       mkdirSync(this.certsDir, { recursive: true })
+    }
+
+    if (config.accessLog && !existsSync(this.logsDir)) {
+      // Raw request paths (query secrets included) sit here until rotated.
+      mkdirSync(this.logsDir, { recursive: true, mode: 0o700 })
     }
 
     // Ensure acme.json exists with correct permissions
@@ -83,7 +98,7 @@ export class TraefikManager {
   }
 
   generateStaticConfig(): string {
-    const { httpPort, httpsPort, email, acme } = this.config
+    const { httpPort, httpsPort, email, acme, accessLog } = this.config
     const challengeType = acme?.challenge || "http"
 
     let challengeConfig: string
@@ -104,6 +119,28 @@ export class TraefikManager {
         entryPoint: web`
         break
     }
+
+    // Read by the agent's analytics tailer (src/lib/agent/analytics). Only the
+    // headers it needs are kept, so credentials and cookies never hit disk.
+    const accessLogConfig = accessLog
+      ? `
+
+accessLog:
+  filePath: /logs/access.log
+  format: json
+  fields:
+    defaultMode: keep
+    names:
+      ClientUsername: drop
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent: keep
+        Referer: keep
+        Content-Type: keep
+        Cf-Connecting-Ip: keep
+        Sec-Fetch-Dest: keep`
+      : ""
 
     // Paths are relative to container mount points
     return `
@@ -139,7 +176,7 @@ certificatesResolvers:
 ${challengeConfig}
 
 log:
-  level: INFO
+  level: INFO${accessLogConfig}
 `.trim()
   }
 
@@ -360,6 +397,10 @@ log:
       `${this.certsDir}:/certs`,
     ]
 
+    if (this.config.accessLog) {
+      args.push("-v", `${this.logsDir}:/logs`)
+    }
+
     // Pass DNS provider env vars to Traefik container (needed for DNS-01 challenge)
     const dnsEnv = this.config.acme?.dnsEnv
     if (dnsEnv) {
@@ -528,6 +569,20 @@ log:
     }
 
     return statusMap
+  }
+
+  // Traefik closes and reopens its access log on USR1 (used after rotation).
+  // Throws when the signal cannot be delivered: the caller (the tailer) logs
+  // and retries, since a silent failure would let log lines be lost.
+  reopenAccessLog(): void {
+    const result = spawnSync({
+      cmd: ["docker", "kill", "--signal", "USR1", TRAEFIK_CONTAINER_NAME],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    if (result.exitCode !== 0) {
+      throw new Error(`Traefik access-log reopen failed: ${result.stderr.toString().trim()}`)
+    }
   }
 
   stop(): void {
