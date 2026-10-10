@@ -73,6 +73,12 @@ export class AccessLogTailer {
         if (this.reopenedMtime !== mtimeMs) this.tryReopen(mtimeMs)
         return { lines, more: false }
       }
+      // Traefik creates the live file when it reopens. Without it the signal
+      // never landed and Traefik still writes into this inode: keep it.
+      if (!existsSync(this.path)) {
+        this.tryReopen(mtimeMs)
+        return { lines, more: false }
+      }
       try {
         rmSync(this.rotated, { force: true })
         this.saveOffset(0)

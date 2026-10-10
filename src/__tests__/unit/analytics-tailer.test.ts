@@ -100,9 +100,11 @@ describe("AccessLogTailer", () => {
     expect(existsSync(`${path}.1`)).toBe(true) // not deleted: not quiet long enough yet
     // Traefik writes one late line into the old file before it reopens.
     appendFileSync(`${path}.1`, "late\n")
-    writeFileSync(path, "new\n")
+    // Traefik reopened: the live file exists. Kept under maxBytes so it does not rotate again
+    // (a second rotation with no further reopen would, correctly, keep the new `.1`).
+    writeFileSync(path, "n\n")
     now += 10_000
-    expect(drain(t)).toEqual(["late", "new"])
+    expect(drain(t)).toEqual(["late", "n"])
     expect(existsSync(`${path}.1`)).toBe(false)
   })
 
@@ -120,6 +122,7 @@ describe("AccessLogTailer", () => {
     drain(t)
     const rotated = `${path}.1`
     utimesSync(rotated, now / 1000, now / 1000)
+    writeFileSync(path, "") // Traefik created the live file when it reopened
     drain(t)
     expect(existsSync(rotated)).toBe(true)
     now += 6000
@@ -173,6 +176,46 @@ describe("AccessLogTailer", () => {
     utimesSync(`${path}.1`, now / 1000, now / 1000)
     expect(drain(t)).toEqual(["late"])
     expect(reopens).toBe(2)
+  })
+
+  test("reopen throws, then quiet: the rotated file is kept and reopen is retried", () => {
+    let calls = 0
+    writeFileSync(path, "a\n")
+    const t = new AccessLogTailer({
+      path,
+      maxBytes: 1,
+      settleMs: 0,
+      log: () => {},
+      reopen: () => {
+        calls++
+        throw new Error("signal failed")
+      },
+    })
+    expect(t.readChunk().lines).toEqual(["a"]) // rotates; Traefik never reopens
+    expect(calls).toBe(1)
+    for (let i = 0; i < 3; i++) {
+      expect(t.readChunk()).toEqual({ lines: [], more: false })
+      expect(existsSync(`${path}.1`)).toBe(true) // Traefik may still write here
+    }
+    expect(calls).toBe(4)
+  })
+
+  test("a signal that was sent but no live file appeared keeps the rotated file", () => {
+    writeFileSync(`${path}.1`, "a\n")
+    const t = make()
+    expect(drain(t)).toEqual(["a"])
+    expect(existsSync(`${path}.1`)).toBe(true)
+    expect(reopens).toBeGreaterThan(0)
+  })
+
+  test("once Traefik reopens (live file appears) the quiet rotated file is deleted", () => {
+    writeFileSync(`${path}.1`, "a\n")
+    const t = make()
+    drain(t)
+    expect(existsSync(`${path}.1`)).toBe(true)
+    writeFileSync(path, "new\n")
+    expect(drain(t)).toEqual(["new"])
+    expect(existsSync(`${path}.1`)).toBe(false)
   })
 
   test("skipping an oversized line in the rotated file does not eat the next file's first line", () => {
