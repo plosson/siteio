@@ -18,6 +18,8 @@ export interface AccessLogEntry {
   "downstream_Content-Type"?: string
   // Go canonicalizes header names, so CF-Connecting-IP is logged as Cf-Connecting-Ip.
   "request_Cf-Connecting-Ip"?: string
+  // Sent by browsers; "document" marks a top-level page navigation (also on a 304).
+  "request_Sec-Fetch-Dest"?: string
 }
 
 export type StatusClass = "2xx" | "3xx" | "4xx" | "5xx"
@@ -61,7 +63,7 @@ export function routerKeys(routerName: string | undefined): string[] {
 // Crawlers, link unfurlers, monitors, HTTP libraries, and headless browsers
 // (including our own thumbnail renderer). An empty user agent is a script.
 const BOT_RE =
-  /bot|crawl|spider|slurp|headless|curl|wget|python|go-http-client|java\/|okhttp|axios|node-fetch|libwww|httpclient|facebookexternalhit|preview|monitor|uptime|pingdom|lighthouse/i
+  /(?<!cu)bot|crawl|spider|slurp|headless|curl|wget|python|go-http-client|java\/|okhttp|axios|node-fetch|libwww|httpclient|facebookexternalhit|preview|monitor|uptime|pingdom|lighthouse|bun\/|undici|postman|whatsapp|meta-externalagent|google-inspectiontool/i
 
 export function isBot(userAgent: string | undefined): boolean {
   if (!userAgent || !userAgent.trim()) return true
@@ -77,8 +79,12 @@ function hasPrefix(path: string, prefix: string): boolean {
 
 export function isPageview(e: AccessLogEntry): boolean {
   if (e.RequestMethod !== "GET") return false
-  if (statusClass(e.DownstreamStatus) !== "2xx") return false
-  if (!(e["downstream_Content-Type"] ?? "").toLowerCase().startsWith("text/html")) return false
+  // Sites revalidate (no-cache), so a returning visitor's page load is a 304
+  // with no content type: count it when the browser says it is a navigation.
+  const html = (e["downstream_Content-Type"] ?? "").toLowerCase().startsWith("text/html")
+  const loaded = (statusClass(e.DownstreamStatus) === "2xx" && html) ||
+    (e.DownstreamStatus === 304 && e["request_Sec-Fetch-Dest"] === "document")
+  if (!loaded) return false
   if (isBot(e["request_User-Agent"])) return false
   const path = cleanPath(e.RequestPath)
   return !NON_PAGE_PREFIXES.some((p) => hasPrefix(path, p))
@@ -97,7 +103,31 @@ export function cleanPath(requestPath: string): string {
     .slice(q + 1)
     .split("&")
     .filter((pair) => KEPT_PARAMS.has(pair.split("=")[0]!))
+    .map(capValue)
   return kept.length ? `${path}?${kept.join("&")}` : path
+}
+
+// A kept value may still smuggle a secret behind a second `?`, `;` or `#`
+// (some servers treat `;` as a separator): cut there, and cap the length.
+const MAX_VALUE = 100
+
+function capValue(pair: string): string {
+  const eq = pair.indexOf("=")
+  if (eq === -1) return pair
+  const value = pair.slice(eq + 1).split(/[?;#]/)[0]!.slice(0, MAX_VALUE)
+  return `${pair.slice(0, eq + 1)}${value}`
+}
+
+// Browsers send the full previous URL as Referer, query included: keep the
+// origin and the cleaned path only. Non-web schemes (android-app://) are dropped.
+export function cleanReferrer(raw: string): string | undefined {
+  try {
+    const u = new URL(raw)
+    if (u.protocol !== "http:" && u.protocol !== "https:") return undefined
+    return u.origin + cleanPath(u.pathname + u.search)
+  } catch {
+    return undefined
+  }
 }
 
 export function statusClass(status: number): StatusClass | null {

@@ -1,6 +1,6 @@
 // Pure: turn a chunk of access-log entries into one AnalyticsBatch.
 import type { AnalyticsBatch, AnalyticsKind, AnalyticsPageview, AnalyticsTraffic } from "../../../types.ts"
-import { cleanPath, isBot, isPageview, routerKeys, statusClass, type AccessLogEntry } from "./classify.ts"
+import { cleanPath, cleanReferrer, isBot, isPageview, routerKeys, statusClass, type AccessLogEntry } from "./classify.ts"
 import { clientIp } from "./client-ip.ts"
 
 export interface Resolved {
@@ -71,6 +71,7 @@ export function buildBatch(agent: string, entries: AccessLogEntry[], resolve: Re
     t.durations.push(durationMs)
 
     if (isPageview(e)) {
+      const referrer = e["request_Referer"] ? cleanReferrer(e["request_Referer"]) : undefined
       pageviews.push({
         ts: new Date(time).toISOString(),
         kind: target.kind,
@@ -78,7 +79,7 @@ export function buildBatch(agent: string, entries: AccessLogEntry[], resolve: Re
         ...owner,
         host: e.RequestHost,
         path: cleanPath(e.RequestPath),
-        ...(e["request_Referer"] ? { referrer: e["request_Referer"] } : {}),
+        ...(referrer ? { referrer } : {}),
         ...(e["request_User-Agent"] ? { userAgent: e["request_User-Agent"] } : {}),
         ip: clientIp(e),
         status: e.DownstreamStatus,

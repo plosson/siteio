@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   cleanPath,
+  cleanReferrer,
   isBot,
   isPageview,
   parseEntry,
@@ -88,6 +89,12 @@ describe("isBot", () => {
     "UptimeRobot/2.0",
     "Mozilla/5.0 (compatible; AhrefsBot/7.0)",
     "GPTBot/1.0",
+    "bun/1.1.0",
+    "undici",
+    "PostmanRuntime/7.36",
+    "WhatsApp/2.23.20",
+    "meta-externalagent/1.1",
+    "Mozilla/5.0 (compatible; Google-InspectionTool/1.0)",
   ])("flags %p as a bot", (ua) => {
     expect(isBot(ua)).toBe(true)
   })
@@ -96,6 +103,9 @@ describe("isBot", () => {
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15",
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0",
+    "Mozilla/5.0 (Linux; Android 10; CUBOT_X30) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
   ])("lets a real browser through: %p", (ua) => {
     expect(isBot(ua)).toBe(false)
   })
@@ -113,12 +123,38 @@ describe("cleanPath", () => {
       "/?utm_source=hn&utm_medium=social&utm_campaign=launch&utm_term=t&utm_content=c"],
     ["/?UTM_SOURCE=hn", "/"],
     ["/a#frag?code=x", "/a"],
+    ["/?utm_source=a?code=SECRET", "/?utm_source=a"],
+    ["/?utm_source=a;code=SECRET", "/?utm_source=a"],
+    ["/?utm_source=a%23x", "/?utm_source=a%23x"],
+    ["/?utm_source=", "/?utm_source="],
+    ["/?utm_source=a?b&utm_medium=m;c", "/?utm_source=a&utm_medium=m"],
   ])("%p → %p", (input, expected) => {
     expect(cleanPath(input)).toBe(expected)
   })
 
+  test("a kept utm value is capped at 100 characters", () => {
+    expect(cleanPath(`/?utm_source=${"x".repeat(500)}`)).toBe(`/?utm_source=${"x".repeat(100)}`)
+  })
+
   test("never throws on a malformed percent-encoding", () => {
     expect(cleanPath("/%E0%A4%A?code=1")).toBe("/%E0%A4%A")
+  })
+})
+
+describe("cleanReferrer", () => {
+  test.each<[string, string | undefined]>([
+    ["https://app.example/cb?code=SECRET&state=x", "https://app.example/cb"],
+    ["https://u:p@x.example/a?utm_source=hn&t=1#f", "https://x.example/a?utm_source=hn"],
+    ["https://ref.example/", "https://ref.example/"],
+    ["http://ref.example:8080/p#frag", "http://ref.example:8080/p"],
+    ["not a url", undefined],
+    ["", undefined],
+    ["javascript:alert(1)", undefined],
+    ["android-app://com.google", undefined],
+    ["ftp://x.example/a", undefined],
+    ["https://x.example/a?utm_source=a?code=SECRET", "https://x.example/a?utm_source=a"],
+  ])("%p → %p", (input, expected) => {
+    expect(cleanReferrer(input)).toBe(expected)
   })
 })
 
@@ -130,7 +166,12 @@ describe("isPageview", () => {
   test.each<[string, Partial<AccessLogEntry>]>([
     ["HEAD", { RequestMethod: "HEAD" }],
     ["POST", { RequestMethod: "POST" }],
-    ["304", { DownstreamStatus: 304 }],
+    ["304 without Sec-Fetch-Dest", { DownstreamStatus: 304 }],
+    ["304 for an image", { DownstreamStatus: 304, "request_Sec-Fetch-Dest": "image" }],
+    ["304 document by a bot", { DownstreamStatus: 304, "request_Sec-Fetch-Dest": "document", "request_User-Agent": "Googlebot/2.1" }],
+    ["304 document on the editor", { DownstreamStatus: 304, "request_Sec-Fetch-Dest": "document", RequestPath: "/_siteio/edit" }],
+    ["304 document via POST", { DownstreamStatus: 304, "request_Sec-Fetch-Dest": "document", RequestMethod: "POST" }],
+    ["200 non-HTML document dest", { "downstream_Content-Type": "image/png", "request_Sec-Fetch-Dest": "document" }],
     ["404", { DownstreamStatus: 404 }],
     ["500", { DownstreamStatus: 500 }],
     ["JSON", { "downstream_Content-Type": "application/json" }],
@@ -147,6 +188,10 @@ describe("isPageview", () => {
 
   test("a path that merely starts with the letters 'api' is still a pageview", () => {
     expect(isPageview(entry({ RequestPath: "/apiary" }))).toBe(true)
+  })
+
+  test("a revalidated 304 of a document navigation is a pageview", () => {
+    expect(isPageview(entry({ DownstreamStatus: 304, "downstream_Content-Type": undefined, "request_Sec-Fetch-Dest": "document" }))).toBe(true)
   })
 
   test("content type is matched case-insensitively", () => {

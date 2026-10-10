@@ -31,6 +31,21 @@ describe("buildBatch", () => {
     expect(buildBatch("chuut.com", [], resolve)).toBeNull()
   })
 
+  test("a referrer carrying a secret never reaches the batch", () => {
+    const batch = buildBatch(
+      "chuut.com",
+      [
+        entry({ "request_Referer": "https://app.example/cb?token=SECRET&code=SECRET#SECRET" }),
+        entry({ "request_Referer": "https://u:SECRET@app.example/a" }),
+        entry({ "request_Referer": "javascript:SECRET" }),
+      ],
+      resolve
+    )!
+    expect(JSON.stringify(batch)).not.toContain("SECRET")
+    expect(batch.pageviews![0]!.referrer).toBe("https://app.example/cb")
+    expect(batch.pageviews![2]!).not.toHaveProperty("referrer")
+  })
+
   test("only unknown routers → null", () => {
     const entries = [
       entry({ RouterName: "api-router@file" }),
