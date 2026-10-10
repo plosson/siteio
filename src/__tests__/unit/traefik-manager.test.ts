@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
-import { TraefikManager } from "../../lib/agent/traefik.ts"
+import { TraefikManager, accessLogPath } from "../../lib/agent/traefik.ts"
 import { mkdirSync, rmSync, existsSync, readFileSync } from "fs"
 import { join } from "path"
 
@@ -104,5 +104,31 @@ describe("Unit: TraefikManager", () => {
     makeTraefik()
     expect(existsSync(join(TEST_DATA_DIR, "traefik"))).toBe(true)
     expect(existsSync(join(TEST_DATA_DIR, "certs", "acme.json"))).toBe(true)
+  })
+
+  it("writes no access log by default", () => {
+    expect(makeTraefik().generateStaticConfig()).not.toContain("accessLog")
+  })
+
+  it("writes a JSON access log keeping only the headers analytics needs", () => {
+    const yml = makeTraefik({ accessLog: true }).generateStaticConfig()
+    expect(yml).toContain("accessLog:")
+    expect(yml).toContain("filePath: /logs/access.log")
+    expect(yml).toContain("format: json")
+    expect(yml).toMatch(/headers:\s+defaultMode: drop/)
+    expect(yml).toContain("User-Agent: keep")
+    expect(yml).toContain("Referer: keep")
+    expect(yml).toContain("Content-Type: keep")
+    expect(yml).toContain("Cf-Connecting-Ip: keep")
+    // Credentials must never reach the log file.
+    expect(yml).not.toContain("Authorization: keep")
+    expect(yml).not.toContain("Cookie: keep")
+    expect(yml).toContain("ClientUsername: drop")
+  })
+
+  it("the access log lives outside the read-only config mount", () => {
+    expect(accessLogPath(TEST_DATA_DIR)).toBe(join(TEST_DATA_DIR, "traefik-logs", "access.log"))
+    makeTraefik({ accessLog: true })
+    expect(existsSync(join(TEST_DATA_DIR, "traefik-logs"))).toBe(true)
   })
 })
