@@ -84,7 +84,8 @@ export class TraefikManager {
     }
 
     if (config.accessLog && !existsSync(this.logsDir)) {
-      mkdirSync(this.logsDir, { recursive: true })
+      // Raw request paths (query secrets included) sit here until rotated.
+      mkdirSync(this.logsDir, { recursive: true, mode: 0o700 })
     }
 
     // Ensure acme.json exists with correct permissions
@@ -137,7 +138,8 @@ accessLog:
         User-Agent: keep
         Referer: keep
         Content-Type: keep
-        Cf-Connecting-Ip: keep`
+        Cf-Connecting-Ip: keep
+        Sec-Fetch-Dest: keep`
       : ""
 
     // Paths are relative to container mount points

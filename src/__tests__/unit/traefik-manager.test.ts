@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { TraefikManager, accessLogPath } from "../../lib/agent/traefik.ts"
-import { mkdirSync, rmSync, existsSync, readFileSync } from "fs"
+import { mkdirSync, rmSync, existsSync, readFileSync, statSync } from "fs"
 import { join } from "path"
 
 describe("Unit: TraefikManager", () => {
@@ -120,6 +120,7 @@ describe("Unit: TraefikManager", () => {
     expect(yml).toContain("Referer: keep")
     expect(yml).toContain("Content-Type: keep")
     expect(yml).toContain("Cf-Connecting-Ip: keep")
+    expect(yml).toContain("Sec-Fetch-Dest: keep")
     // Credentials must never reach the log file.
     expect(yml).not.toContain("Authorization: keep")
     expect(yml).not.toContain("Cookie: keep")
@@ -130,5 +131,10 @@ describe("Unit: TraefikManager", () => {
     expect(accessLogPath(TEST_DATA_DIR)).toBe(join(TEST_DATA_DIR, "traefik-logs", "access.log"))
     makeTraefik({ accessLog: true })
     expect(existsSync(join(TEST_DATA_DIR, "traefik-logs"))).toBe(true)
+  })
+
+  it("the logs dir is private: it holds raw request paths until rotated", () => {
+    makeTraefik({ accessLog: true })
+    expect(statSync(join(TEST_DATA_DIR, "traefik-logs")).mode & 0o777).toBe(0o700)
   })
 })
