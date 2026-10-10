@@ -4,7 +4,7 @@ import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
 import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, AppServiceStatus, AppStatus, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated, Tenant } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
-import { TraefikManager } from "./traefik.ts"
+import { TraefikManager, accessLogPath } from "./traefik.ts"
 import { ThumbnailManager } from "./thumbnails.ts"
 import { AppStorage } from "./app-storage.ts"
 import { GrantStore, isEditKind, type CreateGrantInput } from "./grant-store.ts"
@@ -16,7 +16,10 @@ import { OAuthStore } from "./oauth-store.ts"
 import { OAuthProvider } from "./oauth-provider.ts"
 import { McpHandler } from "./mcp.ts"
 import { DockerManager } from "./docker.ts"
-import { Pager, Ranking } from "./hooks.ts"
+import { Analytics, Pager, Ranking } from "./hooks.ts"
+import { AnalyticsPump } from "./analytics/pump.ts"
+import { AccessLogTailer } from "./analytics/tailer.ts"
+import type { Resolved } from "./analytics/batch.ts"
 import type { Runtime } from "./runtime.ts"
 import { GitManager } from "./git.ts"
 import { DockerfileStorage } from "./dockerfile-storage.ts"
@@ -181,6 +184,8 @@ export class AgentServer {
   private pager: Pager | null
   // Reports successful deploys to a ranking dashboard; null unless RANKING_URL is set.
   private ranking: Ranking | null
+  // Sends pageviews + traffic from Traefik's access log; null unless ANALYTICS_URL is set.
+  private analytics: AnalyticsPump | null = null
 
   constructor(
     config: AgentConfig,
@@ -241,8 +246,24 @@ export class AgentServer {
         fileServerPort: config.port || 3000,
         apiHosts: this.tenants.apiHosts(),
         acme: config.acme,
+        accessLog: !!config.analyticsUrl,
       })
       this.thumbnails = new ThumbnailManager(config.dataDir)
+    }
+
+    if (config.analyticsUrl) {
+      const hook = new Analytics(config.analyticsUrl)
+      this.analytics = new AnalyticsPump({
+        agent: config.domain,
+        tailer: new AccessLogTailer({
+          path: accessLogPath(config.dataDir),
+          reopen: () => this.traefik?.reopenAccessLog(),
+          log: (line) => console.log(`> ${line}`),
+        }),
+        resolve: (key) => this.resolveAnalyticsKey(key),
+        send: (batch) => hook.send(batch),
+        log: (line) => console.log(`> ${line}`),
+      })
     }
 
     this.autoDeployer = new AutoDeployer(
@@ -2692,6 +2713,15 @@ export class AgentServer {
     }
   }
 
+  // A Traefik router key → the site or app it serves, for analytics. Sites carry
+  // their last deployer as an owner hint; apps record none.
+  private resolveAnalyticsKey(key: string): Resolved | null {
+    const site = this.storage.get(key)
+    if (site) return { kind: "site", name: key, ...(site.deployedBy ? { owner: site.deployedBy } : {}) }
+    if (this.appStorage.exists(key)) return { kind: "app", name: key }
+    return null
+  }
+
   private pageAppFailure(app: App, error: string, by?: string): void {
     this.pager?.notify({
       title: `App '${app.name}' deploy failed`,
@@ -2716,6 +2746,10 @@ export class AgentServer {
 
   isDeploying(name: string): boolean {
     return this.deploying.has(name)
+  }
+
+  async analyticsTickForTest(): Promise<void> {
+    await this.analytics?.tick()
   }
 
   // `host` defaults to "localhost" so existing api-route tests pass the api gate;
@@ -2743,6 +2777,7 @@ export class AgentServer {
     this.chatController?.sweepWorkspaces()
     // Poll auto-deploy apps' remotes (apps-disabled hosts have no apps to poll)
     if (this.config.appsEnabled !== false) this.autoDeployer.start()
+    this.analytics?.start()
 
     const port = this.config.port || 3000
 
@@ -2875,6 +2910,7 @@ export class AgentServer {
 
   stop(): void {
     this.autoDeployer.stop()
+    this.analytics?.stop()
     this.traefik?.stop()
     this.thumbnails?.stop()
     if (this.server) {

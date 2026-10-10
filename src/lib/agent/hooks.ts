@@ -2,6 +2,9 @@
 // best-effort: a hook outage never fails or slows a deploy.
 //   - Pager (PAGERIO_URL): pages the operator on deploys/restarts. The URL is the secret.
 //   - Ranking (RANKING_URL): reports each successful deploy to a ranking dashboard.
+//   - Analytics (ANALYTICS_URL): receives a batch of pageviews + traffic counters every minute.
+import type { AnalyticsBatch } from "../../types.ts"
+
 const TIMEOUT_MS = 10_000
 
 type Log = (line: string) => void
@@ -55,5 +58,16 @@ export class Ranking {
   async report({ user, version, url }: RankedDeploy): Promise<void> {
     if (!user) return
     await postHook("Ranking", this.rankingUrl, { user, version, url }, this.log)
+  }
+}
+
+export class Analytics {
+  constructor(
+    private analyticsUrl: string,
+    private log: Log = defaultLog
+  ) {}
+
+  async send(batch: AnalyticsBatch): Promise<void> {
+    await postHook("Analytics", this.analyticsUrl, batch, this.log)
   }
 }
