@@ -493,3 +493,44 @@ export interface LoginOptions {
 export interface AgentStartOptions {
   port?: number
 }
+
+// --- Traffic analytics (ANALYTICS_URL) ---
+// Batch POSTed every minute; built from Traefik's access log in
+// src/lib/agent/analytics/. `name` is the storage key (tenant sites: `blog--friend-com`).
+
+export type AnalyticsKind = "site" | "app"
+
+export interface AnalyticsPageview {
+  ts: string // ISO request start
+  kind: AnalyticsKind
+  name: string
+  owner?: string // site's current deployedBy; apps have none
+  host: string
+  path: string // query stripped except utm_*
+  referrer?: string
+  userAgent?: string
+  ip: string
+  status: number
+  durationMs: number
+}
+
+export interface AnalyticsTraffic {
+  kind: AnalyticsKind
+  name: string
+  owner?: string
+  requests: number // every request in the batch, bots included
+  bytes: number
+  status: { "2xx": number; "3xx": number; "4xx": number; "5xx": number }
+  bots: number
+  p50Ms: number
+  p95Ms: number
+}
+
+export interface AnalyticsBatch {
+  version: 1
+  agent: string // agent domain
+  from: string // ISO, earliest request in the batch
+  to: string // ISO, latest request in the batch
+  pageviews: AnalyticsPageview[]
+  traffic: AnalyticsTraffic[]
+}
