@@ -11,6 +11,7 @@ export interface TailerOptions {
   chunkBytes?: number
   settleMs?: number
   now?: () => number
+  log?: (line: string) => void
 }
 
 const MAX_BYTES = 20 * 1024 * 1024
@@ -26,6 +27,9 @@ export class AccessLogTailer {
   private chunkBytes: number
   private settleMs: number
   private now: () => number
+  private log: (line: string) => void
+  // Rotated-file mtime when reopen() was last attempted; null = reopen failed / never attempted.
+  private reopenedMtime: number | null = null
   // Inside a line longer than one chunk: drop bytes up to its newline. In
   // memory only; after a restart the leftover tail is one unparseable line.
   private skipping = false
@@ -39,6 +43,7 @@ export class AccessLogTailer {
     this.chunkBytes = opts.chunkBytes ?? CHUNK_BYTES
     this.settleMs = opts.settleMs ?? SETTLE_MS
     this.now = opts.now ?? Date.now
+    this.log = opts.log ?? ((line) => console.log(line))
   }
 
   readChunk(): { lines: string[]; more: boolean } {
@@ -48,7 +53,10 @@ export class AccessLogTailer {
 
     const { size, mtimeMs } = statSync(file)
     let offset = this.loadOffset()
-    if (offset > size) offset = 0
+    if (offset > size) {
+      offset = 0
+      this.skipping = false
+    }
 
     const { lines, consumed } = this.read(file, offset, size)
     offset += consumed
@@ -59,18 +67,46 @@ export class AccessLogTailer {
       if (offset < size && consumed > 0) return { lines, more: true }
       // Fully read: drop it once Traefik has clearly moved on to the new file.
       // mtimeMs has sub-ms precision, now() whole ms: floor to avoid a spurious "future" mtime.
-      if (this.now() - Math.floor(mtimeMs) < this.settleMs) return { lines, more: false }
-      rmSync(this.rotated, { force: true })
-      this.saveOffset(0)
+      if (this.now() - Math.floor(mtimeMs) < this.settleMs) {
+        // Still written (or the reopen signal failed): Traefik may not have
+        // reopened yet. Signal again; harmless if it already did.
+        if (this.reopenedMtime !== mtimeMs) this.tryReopen(mtimeMs)
+        return { lines, more: false }
+      }
+      try {
+        rmSync(this.rotated, { force: true })
+        this.saveOffset(0)
+        this.skipping = false
+        this.reopenedMtime = null
+      } catch (err) {
+        this.log(`> access-log tailer: cannot remove ${this.rotated}: ${err}`)
+        return { lines, more: false }
+      }
       return { lines, more: existsSync(this.path) }
     }
 
     if (offset >= this.maxBytes) {
-      renameSync(this.path, this.rotated)
-      this.reopen()
+      try {
+        renameSync(this.path, this.rotated)
+        this.tryReopen(null)
+      } catch (err) {
+        this.log(`> access-log tailer: rotation failed: ${err}`)
+      }
       return { lines, more: true }
     }
     return { lines, more: consumed > 0 && offset < size }
+  }
+
+  // Never throws: a failed signal must not discard the lines already consumed.
+  // `mtime` null = look it up (just rotated); on failure it is retried next read.
+  private tryReopen(mtime: number | null): void {
+    this.reopenedMtime = null
+    try {
+      this.reopen()
+      this.reopenedMtime = mtime ?? statSync(this.rotated).mtimeMs
+    } catch (err) {
+      this.log(`> access-log tailer: reopen failed: ${err}`)
+    }
   }
 
   // Complete lines from `offset`, at most one chunk. A chunk with no newline

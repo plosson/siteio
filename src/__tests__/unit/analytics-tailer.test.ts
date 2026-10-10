@@ -138,4 +138,56 @@ describe("AccessLogTailer", () => {
     drain(make())
     expect(readFileSync(`${path}.offset`, "utf-8").trim()).toBe("2")
   })
+
+  test("a reopen that throws does not lose the chunk, and is retried on the next read", () => {
+    let calls = 0
+    const logs: string[] = []
+    writeFileSync(path, "a\nb\n")
+    const t = new AccessLogTailer({
+      path,
+      maxBytes: 3,
+      settleMs: 5000,
+      log: (l) => logs.push(l),
+      reopen: () => {
+        calls++
+        if (calls === 1) throw new Error("signal failed")
+      },
+    })
+    expect(t.readChunk().lines).toEqual(["a", "b"])
+    expect(calls).toBe(1)
+    expect(logs.length).toBe(1)
+    t.readChunk()
+    expect(calls).toBe(2)
+  })
+
+  test("reopen is retried while the fully-read rotated file is still being written", () => {
+    const now = Date.now()
+    writeFileSync(`${path}.1`, "a\n")
+    utimesSync(`${path}.1`, (now - 1000) / 1000, (now - 1000) / 1000)
+    const t = make({ settleMs: 5000, now: () => now })
+    drain(t)
+    expect(reopens).toBe(1)
+    drain(t) // unchanged: no further signal
+    expect(reopens).toBe(1)
+    appendFileSync(`${path}.1`, "late\n")
+    utimesSync(`${path}.1`, now / 1000, now / 1000)
+    expect(drain(t)).toEqual(["late"])
+    expect(reopens).toBe(2)
+  })
+
+  test("skipping an oversized line in the rotated file does not eat the next file's first line", () => {
+    writeFileSync(`${path}.1`, "x".repeat(200))
+    writeFileSync(path, "ok\nnext\n")
+    expect(drain(make({ chunkBytes: 64 }))).toEqual(["ok", "next"])
+  })
+
+  test("skipping an oversized line does not eat the first line after a truncation", () => {
+    writeFileSync(path, "x".repeat(200))
+    const t = make({ chunkBytes: 64 })
+    t.readChunk()
+    t.readChunk()
+    t.readChunk()
+    writeFileSync(path, "ok\n")
+    expect(drain(t)).toEqual(["ok"])
+  })
 })
