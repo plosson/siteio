@@ -24,7 +24,7 @@ export function tenantServices(sites: SiteStorage, apps: AppStorage): TenantServ
 }
 
 const KEY_SEP = "--"
-const NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/
+export const NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/
 const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/
 
 export function isValidDomain(domain: string): boolean {

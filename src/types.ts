@@ -211,6 +211,52 @@ export interface Tenant {
   apps?: boolean // may run Docker apps under its domain (absent: sites only)
 }
 
+// A person who can log in to the admin UI (and, in Part 2, `siteio login`).
+// Stored by UserStore, one file per user.
+export type UserRole = "admin" | "owner" | "member"
+
+export interface UserKey {
+  id: string // key_<8 hex>, safe to show and to revoke by
+  kind: "machine" | "session" // a CLI login, or an admin UI session
+  name: string // machine name, or "browser" for a session
+  hash: string // sha-256 of the secret; the secret is never stored
+  createdAt: string
+  expiresAt?: string // sessions only
+}
+
+export interface User {
+  username: string
+  role: UserRole
+  tenant?: string // tenant domain; absent = main domain
+  passwordHash: string // Bun.password (argon2id)
+  createdAt: string
+  keys: UserKey[]
+}
+
+// A user as the API shows it: no hashes, no keys.
+export interface UserInfo {
+  username: string
+  role: UserRole
+  tenant: string | null
+  createdAt: string
+}
+
+export interface UserKeyInfo {
+  id: string
+  kind: UserKey["kind"]
+  name: string
+  createdAt: string
+  expiresAt?: string
+}
+
+// GET /me. The god key and tenant keys have no username.
+export interface MeInfo {
+  username: string | null
+  role: UserRole
+  tenant: string | null
+  currentKeyId: string | null
+}
+
 // Agent configuration (from env vars)
 export interface AgentConfig {
   apiKey: string
