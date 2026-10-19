@@ -348,7 +348,7 @@ export class AgentServer {
     return null
   }
 
-  private async handleRequest(req: Request): Promise<Response> {
+  private async handleRequest(req: Request, peer = "127.0.0.1"): Promise<Response> {
     const url = new URL(req.url)
     let path = url.pathname
     const host = req.headers.get("host") || ""
@@ -2784,10 +2784,10 @@ export class AgentServer {
 
   // `host` defaults to "localhost" so existing api-route tests pass the api gate;
   // MCP/OAuth tests pass a real site host (e.g. "blog.example.com").
-  handleRequestForTest(req: Request, host = "localhost"): Promise<Response> {
+  handleRequestForTest(req: Request, host = "localhost", peer = "127.0.0.1"): Promise<Response> {
     const headers = new Headers(req.headers)
     headers.set("host", host)
-    return this.handleRequest(new Request(req.url, { method: req.method, headers, body: req.body }))
+    return this.handleRequest(new Request(req.url, { method: req.method, headers, body: req.body }), peer)
   }
 
   async start(): Promise<void> {
@@ -2847,7 +2847,7 @@ export class AgentServer {
         "/ui/ui.css": (req) => serveUiAsset(req, ADMIN_UI_CSS, "text/css; charset=utf-8", cssEtag),
         "/ui/chat-core.js": (req) => serveUiAsset(req, CHAT_CORE_JS, "application/javascript; charset=utf-8", chatCoreEtag),
       },
-      fetch: (req) => this.handleRequest(req),
+      fetch: (req, srv) => this.handleRequest(req, srv.requestIP(req)?.address ?? ""),
     })
     this.pager?.notify({
       title: "siteio agent started",
