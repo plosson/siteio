@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
 import { randomBytes } from "crypto"
-import type { User, UserInfo, UserKey, UserKeyInfo } from "../../types.ts"
+import type { User, UserInfo, UserKey, UserKeyInfo, UserRole } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
 import { generateUserKey, hashGrantToken } from "../../utils/grant-token.ts"
 import { NAME_RE } from "./tenants.ts"
@@ -17,6 +17,21 @@ export function generatePassword(): string {
 
 function normalize(username: unknown): string {
   return typeof username === "string" ? username.trim().toLowerCase() : ""
+}
+
+const ROLES: readonly UserRole[] = ["admin", "owner", "member"]
+
+// A parsed user file is trusted only when it has the shape UserStore writes
+// and it is the user its file name says.
+function isUser(value: unknown, username: string): value is User {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false
+  const u = value as Partial<User>
+  return (
+    u.username === username &&
+    ROLES.includes(u.role as UserRole) &&
+    typeof u.passwordHash === "string" &&
+    Array.isArray(u.keys)
+  )
 }
 
 function hashPassword(password: string): Promise<string> {
@@ -57,12 +72,14 @@ export class UserStore {
   }
 
   get(username: string): User | null {
-    const file = this.path(normalize(username))
+    const name = normalize(username)
+    const file = this.path(name)
     if (!file || !existsSync(file)) return null
     try {
-      return JSON.parse(readFileSync(file, "utf-8")) as User
+      const parsed: unknown = JSON.parse(readFileSync(file, "utf-8"))
+      return isUser(parsed, name) ? parsed : null // a hand-edited or truncated file is no one
     } catch {
-      return null // a hand-edited or truncated file is no one
+      return null
     }
   }
 
@@ -78,18 +95,22 @@ export class UserStore {
     return this.list().some((u) => u.role === "admin")
   }
 
+  // Every read-modify-write below hashes first and then reads, mutates and
+  // writes with no await in between, so a concurrent revoke or create is never
+  // overwritten by a stale copy.
   async create(input: { username: string; role: "owner" | "member"; tenant?: string; password: string }): Promise<User> {
     const username = normalize(input.username)
     if (!this.path(username)) throw new ValidationError("Username must contain only lowercase letters, numbers, and hyphens")
     if (username === "admin") throw new ValidationError("'admin' is reserved for the server's admin")
     if (input.role !== "owner" && input.role !== "member") throw new ValidationError("Role must be 'owner' or 'member'")
     if (input.role === "owner" && !input.tenant) throw new ValidationError("An owner belongs to a tenant: give its domain")
+    const passwordHash = await hashPassword(input.password)
     if (this.get(username)) throw new ValidationError(`User '${username}' already exists`)
     const user: User = {
       username,
       role: input.role,
       ...(input.tenant && { tenant: input.tenant }),
-      passwordHash: await hashPassword(input.password),
+      passwordHash,
       createdAt: new Date(this.now()).toISOString(),
       keys: [],
     }
@@ -99,10 +120,11 @@ export class UserStore {
 
   // Creates the admin on first use; otherwise resets its password and ends its sessions.
   async setAdminPassword(password: string): Promise<User> {
+    const passwordHash = await hashPassword(password)
     const existing = this.get("admin")
     if (existing && existing.role !== "admin") throw new ValidationError("A user named 'admin' exists and is not the admin")
     const user: User = existing ?? { username: "admin", role: "admin", passwordHash: "", createdAt: new Date(this.now()).toISOString(), keys: [] }
-    user.passwordHash = await hashPassword(password)
+    user.passwordHash = passwordHash
     user.keys = user.keys.filter((k) => k.kind === "machine")
     this.write(user)
     return user
@@ -111,9 +133,10 @@ export class UserStore {
   // Sets the password and ends the user's sessions, except `keepSessionId` (the
   // caller's own). Machine keys keep working.
   async setPassword(username: string, password: string, keepSessionId?: string): Promise<void> {
+    const passwordHash = await hashPassword(password)
     const user = this.get(username)
     if (!user) throw new ValidationError(`No user '${normalize(username)}'`)
-    user.passwordHash = await hashPassword(password)
+    user.passwordHash = passwordHash
     user.keys = user.keys.filter((k) => k.kind === "machine" || k.id === keepSessionId)
     this.write(user)
   }

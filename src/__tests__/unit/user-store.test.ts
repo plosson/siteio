@@ -150,6 +150,38 @@ describe("Unit: UserStore", () => {
     expect(JSON.stringify(store.keyInfo(key))).not.toContain(key.hash)
   })
 
+  test("a key revoked while a password change is hashing stays revoked, and a key added then survives", async () => {
+    await member()
+    const machine = store.addKey("alice", "machine", "m")
+    const pending = store.setPassword("alice", "new password!")
+    expect(store.revokeKey("alice", machine.key.id)).toBe(true)
+    const added = store.addKey("alice", "machine", "n")
+    await pending
+    expect(store.resolveKey(machine.secret)).toBeNull()
+    expect(store.resolveKey(added.secret)?.user.username).toBe("alice")
+  })
+
+  test("two concurrent creates of the same name: exactly one succeeds", async () => {
+    const results = await Promise.allSettled([member(), member()])
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1)
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(1)
+    expect(store.list().map((u) => u.username)).toEqual(["alice"])
+  })
+
+  test("a user file of the wrong shape is skipped, the others still work", async () => {
+    await member("alice")
+    await member("bob")
+    const { secret } = store.addKey("bob", "machine", "m")
+    writeFileSync(file("alice"), readFileSync(file("bob"), "utf-8")) // bob's valid content under alice's name
+    writeFileSync(file("empty"), "{}")
+    writeFileSync(file("list"), "[]")
+    writeFileSync(file("num"), "42")
+    expect(store.get("alice")).toBeNull()
+    expect(store.list().map((u) => u.username)).toEqual(["bob"])
+    expect(store.resolveKey(secret)?.user.username).toBe("bob")
+    expect(store.resolveKey("usr_nope")).toBeNull()
+  })
+
   test("generatePassword gives distinct 24-character passwords", () => {
     const a = generatePassword()
     expect(a).toHaveLength(24)
