@@ -1,14 +1,8 @@
-import { isCloudflareIp, parseIp } from "./analytics/client-ip.ts"
+import { inRanges, isCloudflareIp, parseIp, parseRanges } from "./analytics/client-ip.ts"
 
-// 10/8, 172.16/12, 192.168/16, 127/8
-const PRIVATE_V4: [bigint, number][] = [[0x0a000000n, 8], [0xac100000n, 12], [0xc0a80000n, 16], [0x7f000000n, 8]]
+const PRIVATE = parseRanges(["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "::1/128", "fc00::/7"])
 
-function isPrivate(ip: string): boolean {
-  const p = parseIp(ip)
-  if (!p) return false
-  if (p.version === 4) return PRIVATE_V4.some(([base, bits]) => p.value >> BigInt(32 - bits) === base >> BigInt(32 - bits))
-  return p.value === 1n || p.value >> 121n === 0x7en // ::1, fc00::/7
-}
+const isPrivate = (ip: string) => inRanges(ip, PRIVATE)
 
 // The client's IP, for rate limits. Traefik reaches the agent from the Docker
 // bridge, so a private or loopback peer is Traefik (or the box itself): the
