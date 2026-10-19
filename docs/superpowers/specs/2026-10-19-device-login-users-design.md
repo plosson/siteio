@@ -278,7 +278,7 @@ update the agent or use `-t`".
 | `siteio users keys`, `siteio users revoke-key <id>` | own keys only |
 | `siteio agent password` (on the box) | sets or resets the admin password |
 
-`add` and `reset-password` generate the password and print it once. Users
+`add` and `reset-password` generate the password and print it once, unless `--password` sets one (never echoed). Users
 change their own password in the UI.
 
 **Routes** (API host)

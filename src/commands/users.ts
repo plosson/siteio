@@ -67,6 +67,10 @@ export function usersRemoveCommand(username: string, options: Out): Promise<void
 
 export function usersResetPasswordCommand(username: string, options: Out & { password?: string }): Promise<void> {
   return run(options, () => new SiteioClient().resetUserPassword(username, options.password), (reset) => {
+    if (reset.password === undefined) {
+      console.error(formatSuccess(`Password set for '${reset.username}'`))
+      return
+    }
     console.error(formatSuccess(`New password for '${reset.username}'`))
     printPassword(reset.username, reset.password)
   })
