@@ -182,6 +182,26 @@ describe("Unit: UserStore", () => {
     expect(store.resolveKey("usr_nope")).toBeNull()
   })
 
+  test("a user file with a bad key entry or an impossible admin is skipped, the others still work", async () => {
+    await member("bob")
+    const { secret } = store.addKey("bob", "machine", "m")
+    const base = JSON.parse(readFileSync(file("bob"), "utf-8"))
+    const goodKey = { id: "key_00000000", hash: "h", kind: "machine", name: "n", createdAt: "2026-10-19T00:00:00.000Z" }
+    const put = (name: string, over: Record<string, unknown>) =>
+      writeFileSync(file(name), JSON.stringify({ ...base, username: name, keys: [], ...over }))
+    put("nullkey", { keys: [null] })
+    put("numkey", { keys: [1] })
+    put("emptykey", { keys: [{}] })
+    put("badkind", { keys: [{ ...goodKey, kind: "root" }] })
+    put("nohash", { keys: [{ ...goodKey, hash: 5 }] })
+    put("admin", { role: "admin", tenant: "x.com" })
+    put("fine", { keys: [goodKey] })
+    writeFileSync(file("bobby"), JSON.stringify({ ...base, username: "bobby", role: "admin" }))
+    expect(store.list().map((u) => u.username)).toEqual(["bob", "fine"])
+    expect(store.hasAdmin()).toBe(false)
+    expect(store.resolveKey(secret)?.user.username).toBe("bob")
+  })
+
   test("generatePassword gives distinct 24-character passwords", () => {
     const a = generatePassword()
     expect(a).toHaveLength(24)

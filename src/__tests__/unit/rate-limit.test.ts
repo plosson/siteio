@@ -28,4 +28,30 @@ describe("Unit: RateLimiter", () => {
     limiter.hit("fresh")
     expect(limiter.size()).toBe(1)
   })
+
+  test("tryHit counts one and refuses once the limit is exceeded", () => {
+    let now = 0
+    const limiter = new RateLimiter(3, 60_000, () => now)
+    expect([1, 2, 3, 4, 5].map(() => limiter.tryHit("a"))).toEqual([true, true, true, false, false])
+    expect(limiter.tryHit("b")).toBe(true)
+    now = 60_000
+    expect(limiter.tryHit("a")).toBe(true)
+  })
+
+  test("undo gives one back, never below zero, and ignores unknown or finished windows", () => {
+    let now = 0
+    const limiter = new RateLimiter(2, 60_000, () => now)
+    limiter.undo("nobody")
+    expect(limiter.tryHit("a")).toBe(true)
+    expect(limiter.tryHit("a")).toBe(true)
+    limiter.undo("a")
+    expect(limiter.tryHit("a")).toBe(true)
+    expect(limiter.tryHit("a")).toBe(false)
+    limiter.undo("a"); limiter.undo("a"); limiter.undo("a"); limiter.undo("a")
+    expect(limiter.blocked("a")).toBe(false)
+    expect(limiter.tryHit("a")).toBe(true)
+    now = 60_000
+    limiter.undo("a")
+    expect(limiter.tryHit("a")).toBe(true)
+  })
 })

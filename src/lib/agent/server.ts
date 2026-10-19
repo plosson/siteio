@@ -56,7 +56,8 @@ const EDIT_SESSION_COOKIE = "siteio_edit"
 
 // The site API surface a tenant key may reach. A tenant reaches apps through
 // TENANT_APP_ROUTE when Tenant.apps is set; chat, edit links and anything new
-// stay operator-only unless listed here.
+// stay operator-only unless listed here (or in MEMBER_EXTRA_ROUTE, for
+// main-domain members).
 const TENANT_ROUTE =
   /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|env|rename|grants|grants\/grt_[a-z0-9]+))?)$/
 
@@ -85,7 +86,13 @@ function readCookie(req: Request, name: string): string | null {
   for (const part of header.split(";")) {
     const eq = part.indexOf("=")
     if (eq < 0) continue
-    if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim())
+    if (part.slice(0, eq).trim() === name) {
+      try {
+        return decodeURIComponent(part.slice(eq + 1).trim())
+      } catch {
+        return null // a malformed value is no credential
+      }
+    }
   }
   return null
 }
@@ -306,8 +313,6 @@ export class AgentServer {
     return jsonResponse(data, status)
   }
 
-  // `reason` is an optional machine-readable code (e.g. the editor shell maps it
-  // to a client-friendly terminal state instead of the admin login flow).
   // Who a request comes from: the username of a user key (checked), else
   // X-Siteio-User (percent-encoded) or the X-Deployed-By older CLIs sent on
   // site deploys, which are self-declared and never checked.
@@ -323,6 +328,8 @@ export class AgentServer {
     }
   }
 
+  // `reason` is an optional machine-readable code (e.g. the editor shell maps it
+  // to a client-friendly terminal state instead of the admin login flow).
   private error(message: string, status = 400, reason?: string): Response {
     return errorResponse(message, status, reason)
   }
@@ -626,7 +633,8 @@ export class AgentServer {
     }
 
     // /sites/:name/edit-link - mint (POST) or revoke (DELETE) an in-site live
-    // editor link. God-only; the minted link is owner-only in Phase 1.
+    // editor link. Operator and main-domain members (MEMBER_EXTRA_ROUTE); the
+    // minted link is owner-only in Phase 1.
     const siteEditLinkMatch = path.match(/^\/sites\/([a-z0-9-]+)\/edit-link$/)
     if (siteEditLinkMatch) {
       const editName = k(siteEditLinkMatch[1]!)

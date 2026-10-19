@@ -13,7 +13,8 @@ type Reach = { all: true } | { tenant: string } | null
 // admin and tenant owners, managing users (/users). Works for every kind of
 // key: the god key acts as the admin, a tenant key as its tenant's owner.
 export class UserRoutes {
-  // Failed password checks (login, or a wrong current password), per client IP.
+  // Password checks (login, or a current password) per client IP, counted
+  // before the check and given back when it passes: 10 failures a minute.
   private failures = new RateLimiter(10, 60_000)
 
   constructor(
@@ -25,12 +26,13 @@ export class UserRoutes {
   async login(req: Request, scope: Scope, ip: string): Promise<Response> {
     if (this.failures.blocked(ip)) return errorResponse("Too many failed attempts, try again in a minute", 429)
     if (!this.users.hasAdmin()) return errorResponse("No users on this server yet", 409)
+    // Login CSRF: a cross-site form can post text/plain but can't add this header.
+    if (req.headers.get("X-Siteio-UI") !== "1") return errorResponse("Invalid username or password", 401)
+    if (!this.failures.tryHit(ip)) return errorResponse("Too many failed attempts, try again in a minute", 429)
     const body = await readJson(req)
     const user = await this.users.verifyPassword(body?.username, body?.password)
-    if (!user || !userFitsHost(user, scope)) {
-      this.failures.hit(ip)
-      return errorResponse("Invalid username or password", 401)
-    }
+    if (!user || !userFitsHost(user, scope)) return errorResponse("Invalid username or password", 401)
+    this.failures.undo(ip)
     const { key, secret } = this.users.addKey(user.username, "session", "browser")
     return jsonResponse(this.meOf({ kind: "user", user, key }), 200, { "Set-Cookie": sessionCookie(secret) })
   }
@@ -134,13 +136,11 @@ export class UserRoutes {
 
   private async changeOwnPassword(req: Request, auth: Auth, ip: string): Promise<Response> {
     if (auth.kind !== "user") return errorResponse("Only a user account has a password", 400)
-    if (this.failures.blocked(ip)) return errorResponse("Too many failed attempts, try again in a minute", 429)
     const body = await readJson(req)
     if (typeof body?.new !== "string") return errorResponse("'new' is required")
-    if (!(await this.users.verifyPassword(auth.user.username, body.current))) {
-      this.failures.hit(ip)
-      return errorResponse("Current password is wrong", 403)
-    }
+    if (!this.failures.tryHit(ip)) return errorResponse("Too many failed attempts, try again in a minute", 429)
+    if (!(await this.users.verifyPassword(auth.user.username, body.current))) return errorResponse("Current password is wrong", 403)
+    this.failures.undo(ip)
     try {
       await this.users.setPassword(auth.user.username, body.new, auth.key.kind === "session" ? auth.key.id : undefined)
     } catch (err) {

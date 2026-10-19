@@ -142,7 +142,7 @@ function siteioAdmin() {
       try {
         const res = await fetch("/auth/login", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Siteio-UI": "1" },
           body: JSON.stringify({ username, password: this.passwordInput }),
         })
         if (res.status === 409) { this.loginError = "No users on this server yet. Use the API key."; return }

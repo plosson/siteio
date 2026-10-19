@@ -15,6 +15,19 @@ export class RateLimiter {
     return !!w && w.endsAt > this.now() && w.count >= this.limit
   }
 
+  // Counts one event before the work it guards, so parallel requests can't all
+  // pass the check first. False when this one exceeds the limit.
+  tryHit(key: string): boolean {
+    this.hit(key)
+    return this.windows.get(key)!.count <= this.limit
+  }
+
+  // Gives back one event counted by tryHit (the work turned out fine).
+  undo(key: string): void {
+    const w = this.windows.get(key)
+    if (w && w.endsAt > this.now() && w.count > 0) w.count--
+  }
+
   hit(key: string): void {
     const now = this.now()
     const w = this.windows.get(key)

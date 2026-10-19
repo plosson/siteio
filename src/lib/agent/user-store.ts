@@ -23,14 +23,32 @@ const ROLES: readonly UserRole[] = ["admin", "owner", "member"]
 
 // A parsed user file is trusted only when it has the shape UserStore writes
 // and it is the user its file name says.
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function isKey(value: unknown): value is UserKey {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.hash === "string" &&
+    (value.kind === "machine" || value.kind === "session") &&
+    typeof value.name === "string" &&
+    typeof value.createdAt === "string"
+  )
+}
+
 function isUser(value: unknown, username: string): value is User {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false
+  if (!isRecord(value)) return false
   const u = value as Partial<User>
   return (
     u.username === username &&
     ROLES.includes(u.role as UserRole) &&
     typeof u.passwordHash === "string" &&
-    Array.isArray(u.keys)
+    Array.isArray(u.keys) &&
+    u.keys.every(isKey) &&
+    // The admin is the one user named admin, with no tenant.
+    (u.role !== "admin" || (username === "admin" && !u.tenant))
   )
 }
 
