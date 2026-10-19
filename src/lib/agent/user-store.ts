@@ -19,6 +19,9 @@ function normalize(username: unknown): string {
   return typeof username === "string" ? username.trim().toLowerCase() : ""
 }
 
+// A user key: `usr_` + 32 random bytes as base64url.
+const USER_KEY_RE = /^usr_[A-Za-z0-9_-]{43}$/
+
 const ROLES: readonly UserRole[] = ["admin", "owner", "member"]
 
 // A parsed user file is trusted only when it has the shape UserStore writes
@@ -110,7 +113,7 @@ export class UserStore {
   }
 
   hasAdmin(): boolean {
-    return this.list().some((u) => u.role === "admin")
+    return this.get("admin")?.role === "admin" // "admin" is reserved for the admin
   }
 
   // Every read-modify-write below hashes first and then reads, mutates and
@@ -186,7 +189,7 @@ export class UserStore {
   }
 
   resolveKey(secret: string): { user: User; key: UserKey } | null {
-    if (!secret.startsWith("usr_")) return null
+    if (!USER_KEY_RE.test(secret)) return null // before any file is read: unauthenticated callers reach this
     const hash = hashGrantToken(secret)
     for (const user of this.list()) {
       const key = user.keys.find((k) => k.hash === hash)
