@@ -12,8 +12,10 @@ test("favicon link is present", async ({ page }) => {
   expect(href).toMatch(/^data:image\/svg\+xml/)
 })
 
-test("login input is focused on load", async ({ page }) => {
+test("login input is focused on load, and again after switching to the API key", async ({ page }) => {
   await page.goto(`${srv.url}/ui`)
+  await expect(page.locator("#usernameInput")).toBeFocused()
+  await page.getByRole("button", { name: "Use API key" }).click()
   await expect(page.locator("#apiKeyInput")).toBeFocused()
 })
 

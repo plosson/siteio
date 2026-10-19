@@ -8,6 +8,7 @@ test.afterAll(() => srv.cleanup())
 
 test("invalid API key shows inline error", async ({ page }) => {
   await page.goto(`${srv.url}/ui`)
+  await page.getByRole("button", { name: "Use API key" }).click()
   await page.fill("#apiKeyInput", "wrong-key")
   await page.click('button[type="submit"]')
   await expect(page.locator("#login-error")).toContainText("Invalid API key")
@@ -17,6 +18,7 @@ test("invalid API key shows inline error", async ({ page }) => {
 
 test("valid API key signs in and shows dashboard", async ({ page }) => {
   await page.goto(`${srv.url}/ui`)
+  await page.getByRole("button", { name: "Use API key" }).click()
   await page.fill("#apiKeyInput", "right-key")
   await page.click('button[type="submit"]')
   await expect(page.locator("aside")).toBeVisible()

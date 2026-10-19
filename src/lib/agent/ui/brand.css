@@ -1,0 +1,88 @@
+/* brand.css: siteio's values, loaded after family.css. They are agentio's: the admin looks like a Mac app,
+   with the system's greys and blue, compact sizes with a mouse or trackpad, 44 px controls on a touch
+   screen. Every family role is set again here, in light and dark, so family.css stays the same file in every product. */
+:root {
+  --brand: #007AFF;
+  --brand-top: #3395FF;
+  --brand-deep: #0062CC;
+  --link-dark: #0A84FF;
+  --display-fg: #1D1D1F;
+  --display-label: #6E6E73;
+  --primary-fg: #FFFFFF;
+
+  --bg: #F5F5F7;
+  --fg: #1D1D1F;
+  --muted: #6E6E73;
+  --card: #FFFFFF;
+  --line: #E0E0E5;
+  --code-bg: #F2F2F5;
+  --badge-bg: #E8E8ED;
+  --strong-bg: #1D1D1F;
+  --strong-fg: #FFFFFF;
+  --display-bg: #FFFFFF;
+  --ok: #248A3D;
+  --bad: #D70015;
+  --warn-bg: #FFF1DB;
+  --old-dot: #C7C7CC;
+  --link: var(--brand);
+  --primary-bg: var(--brand);
+  --new-dot: var(--dot-ok);
+
+  --window: #FFFFFF;
+  --sidebar: #EBEBEE;
+  --hover: #0000000D;
+  --selected: #00000014;
+  --dot-ok: #34C759;
+  --dot-bad: #FF3B30;
+  --dot-warn: #FF9500;
+  --shadow: 0 0.5px 1.5px #0000002E;
+  /* Accent colours, the system's: --chart-0 tags apps, as agentio's Usage chart uses them. */
+  --chart-0: #AF52DE; --chart-1: #FF9500; --chart-2: #30B0C7;
+  --chart-3: #FF2D55; --chart-4: #5856D6; --chart-5: #00C7BE;
+
+  --size-title: 1.25rem; --size-section: 0.9375rem; --size-body: 0.8125rem;
+  --size-small: 0.71875rem; --size-mono: 0.75rem;
+  --radius: 10px; --radius-small: 6px; --tap: 24px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --display-fg: #F5F5F7;
+    --display-label: #98989D;
+
+    --bg: #232325;
+    --fg: #F5F5F7;
+    --muted: #98989D;
+    --card: #2C2C2E;
+    --line: #3A3A3C;
+    --code-bg: #1C1C1E;
+    --badge-bg: #3A3A3C;
+    --strong-bg: #F5F5F7;
+    --strong-fg: #1D1D1F;
+    --display-bg: #2C2C2E;
+    --ok: #30D158;
+    --bad: #FF453A;
+    --warn-bg: #3D2E12;
+    --old-dot: #48484A;
+    --link: var(--link-dark);
+    --primary-bg: var(--link-dark);
+    --new-dot: var(--dot-ok);
+
+    --window: #1E1E1E;
+    --sidebar: #29292B;
+    --hover: #FFFFFF0F;
+    --selected: #FFFFFF1A;
+    --dot-ok: #30D158;
+    --dot-bad: #FF453A;
+    --dot-warn: #FF9F0A;
+    --shadow: 0 0.5px 1.5px #00000099;
+    --chart-0: #BF5AF2; --chart-1: #FF9F0A; --chart-2: #40C8E0;
+    --chart-3: #FF375F; --chart-4: #5E5CE6; --chart-5: #63E6E2;
+  }
+}
+@media (pointer: coarse) {
+  :root {
+    --size-title: 1.5rem; --size-section: 1.125rem; --size-body: 1rem;
+    --size-small: 0.875rem; --size-mono: 0.9375rem;
+    --tap: 44px;
+  }
+}
