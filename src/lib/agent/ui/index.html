@@ -124,6 +124,24 @@
           </template>
         </nav>
         <div class="p-2 border-t border-gray-200">
+          <template x-if="me && me.username">
+            <a href="#/account" class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-50">
+              <span class="w-7 h-7 shrink-0 rounded-full bg-brand-blue text-white text-xs font-semibold flex items-center justify-center uppercase" x-text="me.username.charAt(0)"></span>
+              <span class="min-w-0">
+                <span class="block text-sm font-medium text-gray-900 truncate" x-text="me.username"></span>
+                <span class="block text-xs text-gray-500 truncate">
+                  <span class="px-1 py-0.5 rounded bg-gray-100 text-gray-700" x-text="me.role"></span>
+                  <span x-show="me.tenant" x-text="me.tenant"></span>
+                </span>
+              </span>
+            </a>
+          </template>
+          <template x-if="me && !me.username">
+            <div class="px-3 py-2">
+              <p class="text-sm text-gray-900" x-text="me.role === 'owner' ? 'Signed in with the tenant key' : 'Signed in with the server key'"></p>
+              <p class="text-xs text-gray-500 mt-0.5">Sign in as a user to manage your password</p>
+            </div>
+          </template>
           <button @click="logout()" class="w-full flex items-center gap-2 px-3 py-2 rounded text-sm text-gray-700 hover:bg-gray-50">
             <i class="hgi hgi-stroke hgi-logout-03"></i> Logout
           </button>
@@ -230,34 +248,74 @@
             </section>
           </template>
 
-          <!-- Account: own password and keys -->
+          <!-- Account: own password and devices -->
           <template x-if="route.view === 'account'">
             <section class="max-w-2xl space-y-6">
-              <h1 class="text-xl font-semibold">Account <span class="text-gray-500 font-normal" x-text="me && me.username ? '· ' + me.username : ''"></span></h1>
+              <div class="flex items-center gap-3">
+                <h1 class="text-xl font-semibold">Account</h1>
+                <template x-if="me && me.username">
+                  <div class="flex items-center gap-2 text-sm">
+                    <span class="font-medium" x-text="me.username"></span>
+                    <span class="px-1.5 py-0.5 rounded bg-gray-100 text-xs text-gray-700" x-text="me.role"></span>
+                  </div>
+                </template>
+              </div>
               <div class="bg-white rounded-lg border border-gray-200 p-4">
                 <h2 class="font-medium mb-3">Change password</h2>
                 <form @submit.prevent="changePassword()" class="space-y-3">
-                  <input type="password" x-model="pwCurrent" placeholder="Current password" autocomplete="current-password" required
-                         class="w-full px-3 py-2 border border-gray-200 rounded text-sm" />
-                  <input type="password" x-model="pwNew" placeholder="New password (8 characters or more)" autocomplete="new-password" minlength="8" required
-                         class="w-full px-3 py-2 border border-gray-200 rounded text-sm" />
-                  <button type="submit" class="px-3 py-1.5 text-sm bg-brand-blue text-white rounded">Change password</button>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1" for="pwCurrent">Current password</label>
+                    <input id="pwCurrent" type="password" x-model="pwCurrent" autocomplete="current-password" required
+                           class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1" for="pwNew">New password</label>
+                    <input id="pwNew" type="password" x-model="pwNew" autocomplete="new-password" minlength="8" required
+                           class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
+                    <p class="text-xs text-gray-500 mt-1">8 characters or more.</p>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1" for="pwConfirm">Confirm new password</label>
+                    <input id="pwConfirm" type="password" x-model="pwConfirm" autocomplete="new-password" minlength="8" required
+                           class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
+                  </div>
+                  <template x-if="pwError"><p class="text-sm text-red-600" x-text="pwError"></p></template>
+                  <button type="submit" :disabled="pwPending" class="px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 disabled:opacity-60 text-white rounded">Change password</button>
                 </form>
               </div>
               <div class="bg-white rounded-lg border border-gray-200 p-4">
-                <h2 class="font-medium mb-3">Your keys</h2>
+                <h2 class="font-medium mb-3">Signed-in devices</h2>
                 <template x-if="myKeys === null"><p class="text-sm text-gray-500">Loading…</p></template>
-                <template x-if="myKeys && myKeys.length === 0"><p class="text-sm text-gray-500">No keys.</p></template>
-                <template x-for="k in myKeys || []" :key="k.id">
-                  <div class="flex items-center justify-between py-2 border-t border-gray-100 text-sm">
-                    <div>
-                      <span class="font-medium" x-text="k.name"></span>
-                      <span class="text-gray-500" x-text="(k.kind === 'session' ? 'browser session' : 'CLI login') + ' · ' + k.createdAt.slice(0, 10)"></span>
-                      <span class="text-xs text-brand-blue" x-show="me && k.id === me.currentKeyId">(this one)</span>
-                    </div>
-                    <button @click="revokeMyKey(k.id)" x-show="!me || k.id !== me.currentKeyId"
-                            class="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50">Revoke</button>
-                  </div>
+                <template x-if="myKeys && myKeys.length === 0"><p class="text-sm text-gray-500">No signed-in devices.</p></template>
+                <template x-if="myKeys && myKeys.length > 0">
+                  <table class="w-full text-sm">
+                    <thead>
+                      <tr class="text-left text-xs text-gray-500">
+                        <th class="font-medium pb-2">Name</th>
+                        <th class="font-medium pb-2">Type</th>
+                        <th class="font-medium pb-2">Created</th>
+                        <th class="font-medium pb-2">Expires</th>
+                        <th class="pb-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="k in myKeys" :key="k.id">
+                        <tr class="border-t border-gray-100">
+                          <td class="py-2">
+                            <span class="font-medium" x-text="k.name"></span>
+                            <span class="ml-1 px-1.5 py-0.5 rounded bg-blue-50 text-xs text-brand-blue" x-show="me && k.id === me.currentKeyId">This browser</span>
+                          </td>
+                          <td class="py-2 text-gray-600" x-text="keyKindLabel(k)"></td>
+                          <td class="py-2 text-gray-600" x-text="shortDate(k.createdAt)"></td>
+                          <td class="py-2 text-gray-600" x-text="k.kind === 'session' ? shortDate(k.expiresAt) : ''"></td>
+                          <td class="py-2 text-right">
+                            <button @click="revokeMyKey(k.id)" x-show="!me || k.id !== me.currentKeyId"
+                                    class="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50">Revoke</button>
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
                 </template>
               </div>
             </section>
@@ -266,48 +324,150 @@
           <!-- Users (admin and tenant owners) -->
           <template x-if="route.view === 'users'">
             <section class="max-w-3xl space-y-6">
-              <h1 class="text-xl font-semibold">Users</h1>
-              <template x-if="shownPassword">
-                <div class="bg-yellow-50 border border-yellow-200 rounded p-4 text-sm">
-                  <p class="font-medium">Password for <span x-text="shownPassword.username"></span> — shown only once</p>
-                  <p class="font-mono mt-1 select-all" x-text="shownPassword.password"></p>
-                  <button @click="shownPassword = null" class="mt-2 text-xs text-gray-600 underline">I've copied it</button>
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <h1 class="text-xl font-semibold">Users</h1>
+                  <p class="text-sm text-gray-500 mt-1">People who can sign in to this server's admin UI and CLI.</p>
                 </div>
-              </template>
-              <div class="bg-white rounded-lg border border-gray-200 p-4">
-                <h2 class="font-medium mb-3">Add a user</h2>
-                <form @submit.prevent="addUser()" class="flex flex-wrap gap-2 items-end">
-                  <input x-model="newUser.username" placeholder="username" required autocapitalize="none"
-                         class="px-3 py-2 border border-gray-200 rounded text-sm" />
-                  <template x-if="me && me.role === 'admin'">
-                    <select x-model="newUser.role" class="px-3 py-2 border border-gray-200 rounded text-sm">
-                      <option value="member">member</option>
-                      <option value="owner">owner</option>
-                    </select>
-                  </template>
-                  <template x-if="me && me.role === 'admin'">
-                    <input x-model="newUser.tenant" placeholder="tenant domain (empty = main)"
-                           class="px-3 py-2 border border-gray-200 rounded text-sm" />
-                  </template>
-                  <button type="submit" class="px-3 py-2 text-sm bg-brand-blue text-white rounded">Add</button>
-                </form>
-              </div>
-              <div class="bg-white rounded-lg border border-gray-200 p-4">
-                <template x-if="users === null"><p class="text-sm text-gray-500">Loading…</p></template>
-                <template x-if="users && users.length === 0"><p class="text-sm text-gray-500">No users yet.</p></template>
-                <template x-for="u in users || []" :key="u.username">
-                  <div class="flex items-center justify-between py-2 border-t border-gray-100 text-sm">
-                    <div>
-                      <span class="font-medium" x-text="u.username"></span>
-                      <span class="text-gray-500" x-text="u.role + ' · ' + (u.tenant || 'main domain')"></span>
-                    </div>
-                    <div class="flex gap-2" x-show="u.role !== 'admin'">
-                      <button @click="resetUserPassword(u.username)" class="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50">Reset password</button>
-                      <button @click="deleteUser(u.username)" class="px-2 py-1 text-xs border border-red-200 text-red-700 rounded hover:bg-red-50">Remove</button>
-                    </div>
-                  </div>
+                <template x-if="!usersForbidden">
+                  <button @click="toggleAddUser()" class="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 text-white rounded shrink-0">
+                    <i class="hgi hgi-stroke hgi-add-01"></i> Add user
+                  </button>
                 </template>
               </div>
+
+              <template x-if="showAddUser && !usersForbidden">
+                <div class="bg-white rounded-lg border border-gray-200 p-4">
+                  <h2 class="font-medium mb-3">Add user</h2>
+                  <form @submit.prevent="addUser()" class="space-y-3">
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1" for="newUsername">Username</label>
+                      <input id="newUsername" x-model="newUser.username" required autocomplete="off" data-1p-ignore data-lpignore="true" autocapitalize="none"
+                             class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
+                      <p class="text-xs text-gray-500 mt-1">lowercase letters, numbers and hyphens</p>
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1" for="newRole">Role</label>
+                      <select id="newRole" x-model="newUser.role" @change="onNewUserRoleChange()" :disabled="!isAdmin()"
+                              class="w-full px-3 py-2 border border-gray-200 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500">
+                        <option value="member">member</option>
+                        <template x-if="isAdmin()"><option value="owner">owner</option></template>
+                        <template x-if="isAdmin()"><option value="admin">admin</option></template>
+                      </select>
+                    </div>
+                    <template x-if="isAdmin()">
+                      <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1" for="newScope">Scope</label>
+                        <select id="newScope" x-model="newUser.tenant" :disabled="newUser.role === 'admin'"
+                                class="w-full px-3 py-2 border border-gray-200 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500">
+                          <option value="" :disabled="newUser.role === 'owner'" x-text="'Main domain (' + (agentInfo ? agentInfo.domain : '…') + ')'"></option>
+                          <template x-for="t in (agentInfo && agentInfo.tenants) || []" :key="t">
+                            <option :value="t" x-text="t"></option>
+                          </template>
+                        </select>
+                      </div>
+                    </template>
+                    <fieldset>
+                      <legend class="block text-sm font-medium text-gray-700 mb-1">Password</legend>
+                      <label class="flex items-center gap-2 text-sm">
+                        <input type="radio" value="generate" x-model="newUser.passwordMode" /> Generate a password
+                      </label>
+                      <label class="flex items-center gap-2 text-sm mt-1">
+                        <input type="radio" value="set" x-model="newUser.passwordMode" /> Set a password
+                      </label>
+                      <template x-if="newUser.passwordMode === 'set'">
+                        <input type="password" x-model="newUser.password" autocomplete="new-password" minlength="8" aria-label="Password"
+                               class="mt-2 w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
+                      </template>
+                    </fieldset>
+                    <template x-if="addUserError"><p class="text-sm text-red-600" x-text="addUserError"></p></template>
+                    <div class="flex gap-2">
+                      <button type="submit" :disabled="addUserPending" class="px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 disabled:opacity-60 text-white rounded">Create user</button>
+                      <button type="button" @click="showAddUser = false" class="px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50">Cancel</button>
+                    </div>
+                  </form>
+                </div>
+              </template>
+
+              <div class="bg-white rounded-lg border border-gray-200 p-4">
+                <template x-if="users === null"><p class="text-sm text-gray-500">Loading…</p></template>
+                <template x-if="usersForbidden"><p class="text-sm text-gray-500">You don't have access to user management.</p></template>
+                <template x-if="users && users.length === 0 && !usersForbidden"><p class="text-sm text-gray-500">No users yet.</p></template>
+                <template x-if="users && users.length > 0">
+                  <table class="w-full text-sm">
+                    <thead>
+                      <tr class="text-left text-xs text-gray-500">
+                        <th class="font-medium pb-2">Username</th>
+                        <th class="font-medium pb-2">Role</th>
+                        <th class="font-medium pb-2">Scope</th>
+                        <th class="font-medium pb-2">Created</th>
+                        <th class="pb-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="u in users" :key="u.username">
+                        <tr class="border-t border-gray-100 align-top">
+                          <td class="py-2">
+                            <span class="font-medium" x-text="u.username"></span>
+                            <span class="text-gray-500" x-show="me && u.username === me.username">(you)</span>
+                          </td>
+                          <td class="py-2"><span class="px-1.5 py-0.5 rounded bg-gray-100 text-xs text-gray-700" x-text="u.role"></span></td>
+                          <td class="py-2 text-gray-600" x-text="u.tenant || 'Main domain'"></td>
+                          <td class="py-2 text-gray-600" x-text="shortDate(u.createdAt)"></td>
+                          <td class="py-2 text-right">
+                            <template x-if="me && u.username === me.username">
+                              <a href="#/account" class="text-xs text-brand-blue hover:underline">Change on Account page</a>
+                            </template>
+                            <template x-if="!me || u.username !== me.username">
+                              <div>
+                                <div class="flex gap-2 justify-end">
+                                  <button @click="openReset(u.username)" class="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50">Set password</button>
+                                  <button x-show="u.username !== 'admin'" @click="deleteUser(u.username)" class="px-2 py-1 text-xs border border-red-200 text-red-700 rounded hover:bg-red-50">Remove</button>
+                                </div>
+                                <template x-if="resetFor === u.username">
+                                  <form @submit.prevent="resetUserPassword(u.username)" class="mt-2 p-3 bg-gray-50 border border-gray-200 rounded text-left space-y-2">
+                                    <label class="flex items-center gap-2 text-sm">
+                                      <input type="radio" value="generate" x-model="reset.mode" /> Generate a password
+                                    </label>
+                                    <label class="flex items-center gap-2 text-sm">
+                                      <input type="radio" value="set" x-model="reset.mode" /> Set a password
+                                    </label>
+                                    <template x-if="reset.mode === 'set'">
+                                      <input type="password" x-model="reset.password" autocomplete="new-password" minlength="8" aria-label="New password"
+                                             class="w-full px-3 py-2 border border-gray-200 rounded text-sm bg-white" />
+                                    </template>
+                                    <template x-if="reset.error"><p class="text-sm text-red-600" x-text="reset.error"></p></template>
+                                    <div class="flex gap-2">
+                                      <button type="submit" :disabled="reset.pending" class="px-3 py-1.5 text-xs bg-brand-blue text-white rounded disabled:opacity-60">Set password</button>
+                                      <button type="button" @click="resetFor = null" class="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-white">Cancel</button>
+                                    </div>
+                                  </form>
+                                </template>
+                              </div>
+                            </template>
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </template>
+              </div>
+
+              <template x-if="shownPassword">
+                <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+                  <div class="bg-white rounded-lg border border-gray-200 shadow-lg p-5 w-full max-w-md">
+                    <h2 class="font-medium">Password for <span x-text="shownPassword.username"></span></h2>
+                    <div class="mt-3 flex items-center gap-2">
+                      <code class="flex-1 font-mono text-sm bg-gray-50 border border-gray-200 rounded px-3 py-2 select-all break-all" x-text="shownPassword.password"></code>
+                      <button @click="copyPassword()" class="px-3 py-2 text-sm border border-gray-200 rounded hover:bg-gray-50">Copy</button>
+                    </div>
+                    <p class="text-sm text-gray-500 mt-3">Shown only once — share it securely. They can change it on their Account page.</p>
+                    <div class="mt-4 text-right">
+                      <button @click="shownPassword = null" class="px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 text-white rounded">Done</button>
+                    </div>
+                  </div>
+                </div>
+              </template>
             </section>
           </template>
 

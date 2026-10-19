@@ -15,10 +15,16 @@ function siteioAdmin() {
 
     // account + users
     myKeys: null,
-    pwCurrent: "", pwNew: "",
+    pwCurrent: "", pwNew: "", pwConfirm: "", pwError: "", pwPending: false,
     users: null,
-    newUser: { username: "", role: "member", tenant: "" },
+    usersForbidden: false, // GET /users answered 404 (member)
+    showAddUser: false,
+    newUser: { username: "", role: "member", tenant: "", passwordMode: "generate", password: "" },
+    addUserError: "",
+    addUserPending: false,
     shownPassword: null, // { username, password } shown once after add/reset
+    resetFor: null, // username whose inline "Set password" panel is open
+    reset: { mode: "generate", password: "", error: "", pending: false },
 
     // route
     route: { view: "services", param: null, subtab: null },
@@ -99,7 +105,10 @@ function siteioAdmin() {
       if (this.route.view === "services") this.loadServices()
       if (this.route.view === "settings") this.loadAgentInfo()
       if (this.route.view === "account") this.loadMyKeys()
-      if (this.route.view === "users") this.loadUsers()
+      if (this.route.view === "users") {
+        if (!this.agentInfo) this.loadAgentInfo()
+        this.loadUsers()
+      }
       if (this.route.view === "apps" && this.route.param) {
         // Only re-fetch the app detail when we arrive on a new app (not on sub-tab change)
         if (!this.selectedApp || (this.selectedApp !== "not-found" && this.selectedApp.name !== this.route.param)) {
@@ -147,7 +156,15 @@ function siteioAdmin() {
         })
         if (res.status === 409) { this.loginError = "No users on this server yet. Use the API key."; return }
         if (res.status === 429) { this.loginError = "Too many failed attempts. Try again in a minute."; return }
-        if (!res.ok) { this.loginError = "Invalid username or password."; return }
+        if (!res.ok) {
+          let hint = ""
+          if (res.status === 401) {
+            const body = await res.json().catch(() => ({}))
+            if (typeof body.error === "string" && body.error.includes("sign in at")) hint = body.error
+          }
+          this.loginError = hint || "Invalid username or password."
+          return
+        }
         this.me = (await res.json()).data
         this.passwordInput = ""
         this.authed = true
@@ -196,6 +213,7 @@ function siteioAdmin() {
       this.stopLogsPoll()
       this.stopChatPoll()
       this.apiKey = null
+      this.me = null
       this.authed = false
       this.loginError = "Session expired. Please sign in again."
     },
@@ -215,9 +233,8 @@ function siteioAdmin() {
     logout() {
       this.stopLogsPoll()
       this.stopChatPoll()
-      if (!sessionStorage.getItem("siteio_api_key")) {
-        fetch("/auth/logout", { method: "POST", headers: { "X-Siteio-UI": "1" } }).catch(() => {})
-      }
+      // Always drop the session cookie too, so a stale one can't resume later.
+      fetch("/auth/logout", { method: "POST", headers: { "X-Siteio-UI": "1" } }).catch(() => {})
       this.me = null
       sessionStorage.removeItem("siteio_api_key")
       this.apiKey = null
@@ -268,55 +285,131 @@ function siteioAdmin() {
     },
 
     async changePassword() {
-      const res = await this.apiFetch("/me/password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ current: this.pwCurrent, new: this.pwNew }),
-      }).catch(() => null)
-      if (res && res.ok) {
-        this.pwCurrent = ""; this.pwNew = ""
-        this.toast("success", "Password changed. Your other browser sessions were signed out.")
-        this.loadMyKeys()
-        return
+      this.pwError = ""
+      if (this.pwNew.length < 8) { this.pwError = "The new password must be at least 8 characters."; return }
+      if (this.pwNew !== this.pwConfirm) { this.pwError = "The new passwords do not match."; return }
+      this.pwPending = true
+      try {
+        const res = await this.apiFetch("/me/password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ current: this.pwCurrent, new: this.pwNew }),
+        }).catch(() => null)
+        if (res && res.ok) {
+          this.pwCurrent = ""; this.pwNew = ""; this.pwConfirm = ""
+          this.toast("success", "Password changed. Your other browser sessions were signed out.")
+          this.loadMyKeys()
+          return
+        }
+        const body = res ? await res.json().catch(() => ({})) : {}
+        this.pwError = body.error || "Could not change the password"
+      } finally {
+        this.pwPending = false
       }
-      const body = res ? await res.json().catch(() => ({})) : {}
-      this.toast("error", body.error || "Could not change the password")
     },
 
+    keyKindLabel(k) { return k.kind === "session" ? "Browser session" : "CLI login" },
+    shortDate(iso) { return iso ? String(iso).slice(0, 10) : "" },
+
     // --- Users (admin and tenant owners) ---
+    isAdmin() { return !!this.me && this.me.role === "admin" },
+
     async loadUsers() {
+      this.usersForbidden = false
       const res = await this.apiFetch("/users").catch(() => null)
+      if (res && res.status === 404) { this.usersForbidden = true; this.users = []; return }
       this.users = res && res.ok ? (await res.json()).data : []
     },
 
+    toggleAddUser() {
+      this.showAddUser = !this.showAddUser
+      if (this.showAddUser) this.resetNewUser()
+    },
+
+    resetNewUser() {
+      this.newUser = { username: "", role: "member", tenant: "", passwordMode: "generate", password: "" }
+      this.addUserError = ""
+    },
+
+    onNewUserRoleChange() {
+      if (this.newUser.role === "admin") this.newUser.tenant = ""
+    },
+
     async addUser() {
-      const body = { username: this.newUser.username.trim().toLowerCase(), role: this.newUser.role }
-      if (this.me && this.me.role === "admin" && this.newUser.tenant.trim()) body.tenant = this.newUser.tenant.trim()
-      const res = await this.apiFetch("/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }).catch(() => null)
-      const data = res ? await res.json().catch(() => ({})) : {}
-      if (!res || !res.ok) { this.toast("error", data.error || "Could not add the user"); return }
-      this.shownPassword = { username: data.data.user.username, password: data.data.password }
-      this.newUser = { username: "", role: "member", tenant: "" }
-      this.loadUsers()
+      this.addUserError = ""
+      const u = this.newUser
+      const username = u.username.trim().toLowerCase()
+      const role = this.isAdmin() ? u.role : "member"
+      if (!username) { this.addUserError = "Username is required."; return }
+      if (role === "owner" && !u.tenant) { this.addUserError = "An owner needs a tenant domain. Choose a scope other than the main domain."; return }
+      if (u.passwordMode === "set" && u.password.length < 8) { this.addUserError = "The password must be at least 8 characters."; return }
+      const body = { username, role }
+      if (this.isAdmin() && role !== "admin" && u.tenant) body.tenant = u.tenant
+      if (u.passwordMode === "set") body.password = u.password
+      this.addUserPending = true
+      try {
+        const res = await this.apiFetch("/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).catch(() => null)
+        const data = res ? await res.json().catch(() => ({})) : {}
+        if (!res || !res.ok) { this.addUserError = data.error || "Could not add the user"; this.toast("error", this.addUserError); return }
+        const out = data.data
+        if (out.generated && out.password) this.shownPassword = { username: out.user.username, password: out.password }
+        else this.toast("success", `User ${out.user.username} created`)
+        this.showAddUser = false
+        this.resetNewUser()
+        this.loadUsers()
+      } finally {
+        this.addUserPending = false
+      }
     },
 
     async deleteUser(username) {
       if (!confirm(`Remove user '${username}'? All of their keys stop working.`)) return
       const res = await this.apiFetch(`/users/${encodeURIComponent(username)}`, { method: "DELETE" }).catch(() => null)
       if (res && res.ok) this.toast("success", `User '${username}' removed`)
-      else this.toast("error", "Could not remove the user")
+      else {
+        const data = res ? await res.json().catch(() => ({})) : {}
+        this.toast("error", data.error || "Could not remove the user")
+      }
       this.loadUsers()
     },
 
+    openReset(username) {
+      this.resetFor = this.resetFor === username ? null : username
+      this.reset = { mode: "generate", password: "", error: "", pending: false }
+    },
+
     async resetUserPassword(username) {
-      const res = await this.apiFetch(`/users/${encodeURIComponent(username)}/password`, { method: "POST" }).catch(() => null)
-      const data = res ? await res.json().catch(() => ({})) : {}
-      if (!res || !res.ok) { this.toast("error", data.error || "Could not reset the password"); return }
-      this.shownPassword = { username: data.data.username, password: data.data.password }
+      this.reset.error = ""
+      if (this.reset.mode === "set" && this.reset.password.length < 8) { this.reset.error = "The password must be at least 8 characters."; return }
+      this.reset.pending = true
+      try {
+        const res = await this.apiFetch(`/users/${encodeURIComponent(username)}/password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(this.reset.mode === "set" ? { password: this.reset.password } : {}),
+        }).catch(() => null)
+        const data = res ? await res.json().catch(() => ({})) : {}
+        if (!res || !res.ok) { this.reset.error = data.error || "Could not set the password"; this.toast("error", this.reset.error); return }
+        this.resetFor = null
+        if (data.data.generated && data.data.password) this.shownPassword = { username: data.data.username, password: data.data.password }
+        else this.toast("success", "Password updated")
+      } finally {
+        this.reset.pending = false
+      }
+    },
+
+    async copyPassword() {
+      if (!this.shownPassword) return
+      try {
+        await navigator.clipboard.writeText(this.shownPassword.password)
+        this.toast("success", "Copied")
+      } catch {
+        this.toast("error", "Could not copy. Select the password and copy it manually.")
+      }
     },
 
     async apiFetch(path, options = {}) {
