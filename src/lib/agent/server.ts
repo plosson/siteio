@@ -1621,6 +1621,7 @@ export class AgentServer {
       siteCount: this.storage.list().length,
       appCount: this.appStorage.list().length,
       chat: this.chatStatus(),
+      tenants: this.tenants.tenants.map((t) => t.domain).sort(),
     })
   }
 

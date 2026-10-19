@@ -76,6 +76,23 @@ describe("API: password login and sessions", () => {
     }
   })
 
+  test("a correct password on the wrong host names the right one; a wrong password stays generic", async () => {
+    const err = async (res: Response) => ((await res.json()) as ApiResponse<null>).error
+    const tenantOnMain = await login("tom", "tom password")
+    expect(tenantOnMain.status).toBe(401)
+    expect(await err(tenantOnMain)).toBe("This account belongs to friend.com — sign in at https://api.friend.com/ui")
+    const mainOnTenant = await login("alice", "alice password", "api.friend.com")
+    expect(mainOnTenant.status).toBe(401)
+    expect(await err(mainOnTenant)).toBe("This account belongs to example.com — sign in at https://api.example.com/ui")
+    expect(await err(await login("tom", "wrong password"))).toBe("Invalid username or password")
+    expect(await err(await login("alice", "wrong password", "api.friend.com"))).toBe("Invalid username or password")
+  })
+
+  test("the wrong-host hint still counts toward the rate limit", async () => {
+    for (let i = 0; i < 10; i++) expect((await login("tom", "tom password", "localhost", "4.4.4.4")).status).toBe(401)
+    expect((await login("tom", "tom password", "api.friend.com", "4.4.4.4")).status).toBe(429)
+  })
+
   test("usernames are case- and space-insensitive at login", async () => {
     expect((await login(" Alice ", "alice password")).status).toBe(200)
   })

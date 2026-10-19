@@ -46,11 +46,19 @@ describe("Unit: UserStore", () => {
   })
 
   test("create refuses the admin role, the name admin, an owner without tenant and duplicates", async () => {
-    await expect(store.create({ username: "bob", role: "admin" as "member", password: "correct horse" })).rejects.toThrow()
+    await expect(store.create({ username: "bob", role: "admin", tenant: "x.com", password: "correct horse" })).rejects.toThrow()
     await expect(store.create({ username: "admin", role: "member", password: "correct horse" })).rejects.toThrow()
     await expect(store.create({ username: "bob", role: "owner", password: "correct horse" })).rejects.toThrow()
     await member()
     await expect(member()).rejects.toThrow("already exists")
+  })
+
+  test("create accepts a second admin, never the name admin", async () => {
+    const bob = await store.create({ username: "bob", role: "admin", password: "correct horse" })
+    expect(bob.role).toBe("admin")
+    expect(bob.tenant).toBeUndefined()
+    expect(store.hasAdmin()).toBe(false) // only the bootstrap admin counts
+    await expect(store.create({ username: "admin", role: "admin", password: "correct horse" })).rejects.toThrow()
   })
 
   test("passwords shorter than 8 or longer than 1024 characters are refused", async () => {
@@ -197,7 +205,8 @@ describe("Unit: UserStore", () => {
     put("admin", { role: "admin", tenant: "x.com" })
     put("fine", { keys: [goodKey] })
     writeFileSync(file("bobby"), JSON.stringify({ ...base, username: "bobby", role: "admin" }))
-    expect(store.list().map((u) => u.username)).toEqual(["bob", "fine"])
+    put("bobt", { role: "admin", tenant: "x.com" })
+    expect(store.list().map((u) => u.username)).toEqual(["bob", "bobby", "fine"])
     expect(store.hasAdmin()).toBe(false)
     expect(store.resolveKey(secret)?.user.username).toBe("bob")
   })

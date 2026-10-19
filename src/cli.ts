@@ -526,12 +526,13 @@ users
 
 users
   .command("add <username>")
-  .description("Add a user and print a generated password once")
-  .option("--role <role>", "owner (admin only) or member", "member")
+  .description("Add a user; prints a generated password once, or set one with --password")
+  .option("--role <role>", "admin, owner (admin only) or member", "member")
   .option("--tenant <domain>", "Tenant the user belongs to (default: main domain; implied for tenant owners)")
+  .option("--password <password>", "Set this password (8 to 1024 characters) instead of generating one")
   .action(async (username, options) => {
     const { usersAddCommand } = await import("./commands/users.ts")
-    await usersAddCommand(username, { json: program.opts().json, role: options.role, tenant: options.tenant })
+    await usersAddCommand(username, { json: program.opts().json, role: options.role, tenant: options.tenant, password: options.password })
   })
 
 users
@@ -545,10 +546,11 @@ users
 
 users
   .command("reset-password <username>")
-  .description("Give a user a new generated password (ends their browser sessions)")
-  .action(async (username) => {
+  .description("Give a user a new password, generated or set with --password (ends their browser sessions)")
+  .option("--password <password>", "Set this password (8 to 1024 characters) instead of generating one")
+  .action(async (username, options) => {
     const { usersResetPasswordCommand } = await import("./commands/users.ts")
-    await usersResetPasswordCommand(username, { json: program.opts().json })
+    await usersResetPasswordCommand(username, { json: program.opts().json, password: options.password })
   })
 
 users

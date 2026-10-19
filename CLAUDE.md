@@ -36,7 +36,7 @@ A self-hosted deployment platform for **websites** and **Docker containers** wit
 - **Git deployments**: Build from Git repos (`siteio apps create myapp --git <url> -p 3000`)
 - **Monorepo support**: Specify build context with `--context <path>`
 - **Custom domains, history/rollback, rename**: `siteio sites domain|history|rollback|rename`
-- **Users**: one admin per server (`siteio agent password` on the box, also set by `agent install`), tenant owners and members (`siteio users add|list|remove|reset-password`). Each user logs in to the admin UI with a password and has its own revocable keys (`siteio users keys|revoke-key`); the god key, tenant keys and share codes are unchanged
+- **Users**: a bootstrap admin per server (`siteio agent password` on the box, also set by `agent install`); admins can add other admins (`siteio users add <name> --role admin`), tenant owners and members (`siteio users add|list|remove|reset-password`); `--password` sets a chosen password instead of a generated one. Each user logs in to the admin UI with a password and has its own revocable keys (`siteio users keys|revoke-key`); the god key, tenant keys and share codes are unchanged
 - **Automatic HTTPS**: Traefik handles Let's Encrypt certificates
 - **Two modes**: CLI client talks to a remote agent server
 

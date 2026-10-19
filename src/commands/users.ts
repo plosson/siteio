@@ -7,8 +7,13 @@ interface Out {
   json?: boolean
 }
 
-function printPassword(username: string, password: string): void {
+// A generated password is printed once; a chosen one is never echoed.
+function printPassword(username: string, password?: string): void {
   console.error(`  Username: ${username}`)
+  if (password === undefined) {
+    console.error("  Password set")
+    return
+  }
   console.error(`  Password: ${chalk.bold(password)}`)
   console.error(chalk.yellow("  ! Shown only once. They can change it in the admin UI."))
 }
@@ -43,8 +48,8 @@ export function usersListCommand(options: Out): Promise<void> {
   })
 }
 
-export function usersAddCommand(username: string, options: Out & { role?: string; tenant?: string }): Promise<void> {
-  return run(options, () => new SiteioClient().createUser({ username, role: options.role, tenant: options.tenant }), (created) => {
+export function usersAddCommand(username: string, options: Out & { role?: string; tenant?: string; password?: string }): Promise<void> {
+  return run(options, () => new SiteioClient().createUser({ username, role: options.role, tenant: options.tenant, password: options.password }), (created) => {
     const scope = created.user.tenant ?? "the main domain"
     console.error(formatSuccess(`User '${created.user.username}' added (${created.user.role}, ${scope})`))
     printPassword(created.user.username, created.password)
@@ -60,8 +65,8 @@ export function usersRemoveCommand(username: string, options: Out): Promise<void
   )
 }
 
-export function usersResetPasswordCommand(username: string, options: Out): Promise<void> {
-  return run(options, () => new SiteioClient().resetUserPassword(username), (reset) => {
+export function usersResetPasswordCommand(username: string, options: Out & { password?: string }): Promise<void> {
+  return run(options, () => new SiteioClient().resetUserPassword(username, options.password), (reset) => {
     console.error(formatSuccess(`New password for '${reset.username}'`))
     printPassword(reset.username, reset.password)
   })
