@@ -101,4 +101,14 @@ describe("API: Admin UI routes", () => {
     const res = await fetch(`${baseUrl}/sites`, { headers: { "X-API-Key": apiKey } })
     expect(res.status).toBe(200)
   })
+
+  test("the UI logs in with a password and sends X-Siteio-UI on cookie requests", async () => {
+    const js = await (await fetch(`${baseUrl}/ui/ui.js`)).text()
+    expect(js).toContain("/auth/login")
+    expect(js).toContain(`"X-Siteio-UI": "1"`)
+    const html = await (await fetch(`${baseUrl}/ui`)).text()
+    expect(html).toContain("Use API key")
+    expect(html).toContain("route.view === 'users'")
+    expect(html).toContain("route.view === 'account'")
+  })
 })
