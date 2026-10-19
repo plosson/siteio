@@ -4,7 +4,10 @@ import { CLEAR_SESSION_COOKIE, sessionCookie, userFitsHost, type Auth } from "./
 import { errorResponse, jsonResponse, readJson } from "./http.ts"
 import { RateLimiter } from "./rate-limit.ts"
 import type { Scope, TenantRegistry } from "./tenants.ts"
-import type { UserStore } from "./user-store.ts"
+import { generatePassword, type UserStore } from "./user-store.ts"
+
+// Whom a caller may manage: every user, the members of one tenant, or no one.
+type Reach = { all: true } | { tenant: string } | null
 
 // Password login for the admin UI, the caller's own account (/me) and, for the
 // admin and tenant owners, managing users (/users). Works for every kind of
@@ -52,7 +55,73 @@ export class UserRoutes {
       if (auth.kind !== "user" || !this.users.revokeKey(auth.user.username, own[1]!)) return errorResponse("Key not found", 404)
       return jsonResponse({ revoked: true })
     }
+    if (path === "/users" || path.startsWith("/users/")) return this.manage(path, req, this.reachOf(auth))
     return null
+  }
+
+  private reachOf(auth: Auth): Reach {
+    if (auth.kind === "god") return { all: true }
+    if (auth.kind === "tenant") return { tenant: auth.tenant.domain }
+    if (auth.kind === "user" && auth.user.role === "admin") return { all: true }
+    if (auth.kind === "user" && auth.user.role === "owner" && auth.user.tenant) return { tenant: auth.user.tenant }
+    return null
+  }
+
+  private async manage(path: string, req: Request, reach: Reach): Promise<Response> {
+    if (!reach) return errorResponse("Not found", 404)
+    // An owner reaches its tenant's members; anyone else is "not found" to it.
+    const reaches = (u: User) => "all" in reach || (u.tenant === reach.tenant && u.role === "member")
+
+    if (path === "/users" && req.method === "GET") {
+      return jsonResponse(this.users.list().filter(reaches).map((u) => this.users.toInfo(u)))
+    }
+    if (path === "/users" && req.method === "POST") return this.createUser(req, reach)
+
+    const m = path.match(/^\/users\/([a-z0-9-]+)(\/password)?$/)
+    const target = m ? this.users.get(m[1]!) : null
+    if (!m || !target || !reaches(target)) return errorResponse("User not found", 404)
+
+    if (!m[2] && req.method === "DELETE") {
+      if (target.role === "admin") return errorResponse("The admin can't be deleted", 400)
+      this.users.delete(target.username)
+      return jsonResponse({ deleted: target.username })
+    }
+    if (m[2] && req.method === "POST") {
+      if (target.role === "admin") {
+        return errorResponse("Change the admin password from the admin account, or on the server with `siteio agent password`", 400)
+      }
+      const password = generatePassword()
+      await this.users.setPassword(target.username, password)
+      return jsonResponse({ username: target.username, password })
+    }
+    return errorResponse("Not found", 404)
+  }
+
+  private async createUser(req: Request, reach: NonNullable<Reach>): Promise<Response> {
+    const body = await readJson(req)
+    if (!body || typeof body.username !== "string") return errorResponse("'username' is required")
+    const role = body.role ?? "member"
+    if (role !== "owner" && role !== "member") return errorResponse("'role' must be 'owner' or 'member'")
+    const asked = typeof body.tenant === "string" && body.tenant ? body.tenant.trim().toLowerCase() : undefined
+
+    let tenant: string | undefined
+    if ("all" in reach) {
+      if (asked && !this.tenants.tenants.some((t) => t.domain === asked)) return errorResponse(`No tenant '${asked}'`)
+      tenant = asked
+    } else {
+      if (role !== "member") return errorResponse("Only the admin can add an owner", 403)
+      if (asked && asked !== reach.tenant) return errorResponse(`You can only add users to ${reach.tenant}`, 403)
+      tenant = reach.tenant
+    }
+
+    const password = generatePassword()
+    try {
+      const user = await this.users.create({ username: body.username, role, tenant, password })
+      return jsonResponse({ user: this.users.toInfo(user), password })
+    } catch (err) {
+      if (err instanceof ValidationError) return errorResponse(err.message, 400)
+      throw err
+    }
   }
 
   private meOf(auth: Auth): MeInfo {
