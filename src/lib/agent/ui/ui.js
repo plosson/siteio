@@ -2,12 +2,23 @@
 
 function siteioAdmin() {
   return {
-    // auth
+    // auth: an API key (from `siteio ui` or the API key form) or a session cookie
     apiKey: null,
     authed: false,
+    me: null, // GET /me
+    loginMode: "password", // password | key
+    usernameInput: "",
+    passwordInput: "",
     apiKeyInput: "",
     loginError: "",
     loginPending: false,
+
+    // account + users
+    myKeys: null,
+    pwCurrent: "", pwNew: "",
+    users: null,
+    newUser: { username: "", role: "member", tenant: "" },
+    shownPassword: null, // { username, password } shown once after add/reset
 
     // route
     route: { view: "services", param: null, subtab: null },
@@ -58,6 +69,9 @@ function siteioAdmin() {
         this.authed = true
       }
       this.parseHash()
+      // No key: a session cookie may still be there from an earlier login.
+      if (this.authed) this.loadMe()
+      else this.resumeSession()
       window.addEventListener("hashchange", () => this.parseHash())
       window.addEventListener("siteio:unauthenticated", () => this.onUnauthenticated())
     },
@@ -84,6 +98,8 @@ function siteioAdmin() {
       }
       if (this.route.view === "services") this.loadServices()
       if (this.route.view === "settings") this.loadAgentInfo()
+      if (this.route.view === "account") this.loadMyKeys()
+      if (this.route.view === "users") this.loadUsers()
       if (this.route.view === "apps" && this.route.param) {
         // Only re-fetch the app detail when we arrive on a new app (not on sub-tab change)
         if (!this.selectedApp || (this.selectedApp !== "not-found" && this.selectedApp.name !== this.route.param)) {
@@ -115,6 +131,35 @@ function siteioAdmin() {
     },
 
     async login() {
+      if (this.loginMode === "key") return this.loginWithKey()
+      this.loginError = ""
+      const username = this.usernameInput.trim().toLowerCase()
+      if (!username || !this.passwordInput) {
+        this.loginError = "Username and password are required."
+        return
+      }
+      this.loginPending = true
+      try {
+        const res = await fetch("/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Siteio-UI": "1" },
+          body: JSON.stringify({ username, password: this.passwordInput }),
+        })
+        if (res.status === 409) { this.loginError = "No users on this server yet. Use the API key."; return }
+        if (res.status === 429) { this.loginError = "Too many failed attempts. Try again in a minute."; return }
+        if (!res.ok) { this.loginError = "Invalid username or password."; return }
+        this.me = (await res.json()).data
+        this.passwordInput = ""
+        this.authed = true
+        this.onRouteEnter()
+      } catch {
+        this.loginError = "Could not reach server."
+      } finally {
+        this.loginPending = false
+      }
+    },
+
+    async loginWithKey() {
       this.loginError = ""
       const candidate = this.apiKeyInput.trim()
       if (!candidate) {
@@ -137,6 +182,7 @@ function siteioAdmin() {
         sessionStorage.setItem("siteio_api_key", candidate)
         this.apiKey = candidate
         this.authed = true
+        this.loadMe()
         this.apiKeyInput = ""
         this.onRouteEnter()
       } catch {
@@ -169,6 +215,10 @@ function siteioAdmin() {
     logout() {
       this.stopLogsPoll()
       this.stopChatPoll()
+      if (!sessionStorage.getItem("siteio_api_key")) {
+        fetch("/auth/logout", { method: "POST", headers: { "X-Siteio-UI": "1" } }).catch(() => {})
+      }
+      this.me = null
       sessionStorage.removeItem("siteio_api_key")
       this.apiKey = null
       this.authed = false
@@ -176,11 +226,103 @@ function siteioAdmin() {
       this.apiKeyInput = ""
     },
 
-    async apiFetch(path, options = {}) {
+    // Every API call: the API key when there is one, else the session cookie,
+    // which the agent only accepts together with X-Siteio-UI.
+    authHeaders() {
       const key = sessionStorage.getItem("siteio_api_key")
+      return key ? { "X-API-Key": key } : { "X-Siteio-UI": "1" }
+    },
+
+    async resumeSession() {
+      try {
+        const res = await fetch("/me", { headers: { "X-Siteio-UI": "1" } })
+        if (!res.ok) return
+        this.me = (await res.json()).data
+        this.authed = true
+        this.onRouteEnter()
+      } catch { /* stay on the login screen */ }
+    },
+
+    async loadMe() {
+      try {
+        const res = await this.apiFetch("/me")
+        if (res.ok) this.me = (await res.json()).data
+      } catch { /* 401 is handled by apiFetch */ }
+    },
+
+    canManageUsers() {
+      return !!this.me && (this.me.role === "admin" || this.me.role === "owner")
+    },
+
+    // --- Account (own password and keys) ---
+    async loadMyKeys() {
+      const res = await this.apiFetch("/me/keys").catch(() => null)
+      this.myKeys = res && res.ok ? (await res.json()).data : []
+    },
+
+    async revokeMyKey(id) {
+      const res = await this.apiFetch(`/me/keys/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => null)
+      if (res && res.ok) this.toast("success", "Key revoked")
+      else this.toast("error", "Could not revoke the key")
+      this.loadMyKeys()
+    },
+
+    async changePassword() {
+      const res = await this.apiFetch("/me/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current: this.pwCurrent, new: this.pwNew }),
+      }).catch(() => null)
+      if (res && res.ok) {
+        this.pwCurrent = ""; this.pwNew = ""
+        this.toast("success", "Password changed. Your other browser sessions were signed out.")
+        this.loadMyKeys()
+        return
+      }
+      const body = res ? await res.json().catch(() => ({})) : {}
+      this.toast("error", body.error || "Could not change the password")
+    },
+
+    // --- Users (admin and tenant owners) ---
+    async loadUsers() {
+      const res = await this.apiFetch("/users").catch(() => null)
+      this.users = res && res.ok ? (await res.json()).data : []
+    },
+
+    async addUser() {
+      const body = { username: this.newUser.username.trim().toLowerCase(), role: this.newUser.role }
+      if (this.me && this.me.role === "admin" && this.newUser.tenant.trim()) body.tenant = this.newUser.tenant.trim()
+      const res = await this.apiFetch("/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).catch(() => null)
+      const data = res ? await res.json().catch(() => ({})) : {}
+      if (!res || !res.ok) { this.toast("error", data.error || "Could not add the user"); return }
+      this.shownPassword = { username: data.data.user.username, password: data.data.password }
+      this.newUser = { username: "", role: "member", tenant: "" }
+      this.loadUsers()
+    },
+
+    async deleteUser(username) {
+      if (!confirm(`Remove user '${username}'? All of their keys stop working.`)) return
+      const res = await this.apiFetch(`/users/${encodeURIComponent(username)}`, { method: "DELETE" }).catch(() => null)
+      if (res && res.ok) this.toast("success", `User '${username}' removed`)
+      else this.toast("error", "Could not remove the user")
+      this.loadUsers()
+    },
+
+    async resetUserPassword(username) {
+      const res = await this.apiFetch(`/users/${encodeURIComponent(username)}/password`, { method: "POST" }).catch(() => null)
+      const data = res ? await res.json().catch(() => ({})) : {}
+      if (!res || !res.ok) { this.toast("error", data.error || "Could not reset the password"); return }
+      this.shownPassword = { username: data.data.username, password: data.data.password }
+    },
+
+    async apiFetch(path, options = {}) {
       const res = await fetch(path, {
         ...options,
-        headers: { ...(options.headers || {}), "X-API-Key": key },
+        headers: { ...(options.headers || {}), ...this.authHeaders() },
       })
       if (res.status === 401) {
         sessionStorage.removeItem("siteio_api_key")
@@ -521,11 +663,10 @@ function siteioAdmin() {
       this.chatLiveText = ""; this.chatLiveTools = []; this.chatLiveStatus = ""
       this._chatScrollBottom()
       try {
-        const key = sessionStorage.getItem("siteio_api_key")
         // Transport is shared with the in-site editor widget (chat-core.js).
         const result = await window.SiteioChat.streamTurn({
           url: `/sites/${encodeURIComponent(name)}/chat`,
-          headers: { "X-API-Key": key },
+          headers: this.authHeaders(),
           body: { message },
           onEvent: (e) => this._applyChatEvent(e, name),
         })

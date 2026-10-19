@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { TenantRegistry, tenantSlug, assertValidNewName, normalizeDomains } from "../../lib/agent/tenants.ts"
+import { TenantRegistry, tenantSlug, assertValidNewName, normalizeDomains, type Caller } from "../../lib/agent/tenants.ts"
 import type { Tenant } from "../../types.ts"
 
 const A: Tenant = { domain: "friend.com", apiKey: "key-a", createdAt: "2026-10-08T00:00:00.000Z" }
@@ -202,5 +202,29 @@ describe("normalizeDomains", () => {
     for (const raw of ["hub.acme.io", null, undefined, {}, [42], [null], ["not a domain"], ["-x.io"], ["*.acme.io"], ["acme"], ["a/b.io"]]) {
       expect(() => normalizeDomains(raw)).toThrow()
     }
+  })
+})
+
+describe("TenantRegistry.sees", () => {
+  const friend = { domain: "friend.com", apiKey: "k", createdAt: "2026-10-19T00:00:00.000Z" }
+  const registry = new TenantRegistry("example.com", [friend])
+  const admin: Caller = { scope: null, admin: true }
+  const mainMember: Caller = { scope: null, admin: false }
+  const tenant: Caller = { scope: friend, admin: false }
+
+  test("the admin sees every key", () => {
+    expect(registry.sees("blog", admin)).toBe(true)
+    expect(registry.sees("blog--friend-com", admin)).toBe(true)
+  })
+
+  test("a main-domain member sees only main-domain keys", () => {
+    expect(registry.sees("blog", mainMember)).toBe(true)
+    expect(registry.sees("blog--friend-com", mainMember)).toBe(false)
+  })
+
+  test("a tenant sees only its own keys", () => {
+    expect(registry.sees("blog--friend-com", tenant)).toBe(true)
+    expect(registry.sees("blog", tenant)).toBe(false)
+    expect(registry.sees("blog--other-org", tenant)).toBe(false)
   })
 })

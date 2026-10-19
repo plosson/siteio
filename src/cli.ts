@@ -510,6 +510,63 @@ apps
     await unsetAppCommand(name, { ...options, json: program.opts().json })
   })
 
+// Users: the people who log in to this server's admin UI
+const users = program
+  .command("users")
+  .description("Manage the people who can log in to this server (admin and tenant owners)")
+
+users
+  .command("list")
+  .alias("ls")
+  .description("List users you can manage")
+  .action(async () => {
+    const { usersListCommand } = await import("./commands/users.ts")
+    await usersListCommand({ json: program.opts().json })
+  })
+
+users
+  .command("add <username>")
+  .description("Add a user and print a generated password once")
+  .option("--role <role>", "owner (admin only) or member", "member")
+  .option("--tenant <domain>", "Tenant the user belongs to (default: main domain; implied for tenant owners)")
+  .action(async (username, options) => {
+    const { usersAddCommand } = await import("./commands/users.ts")
+    await usersAddCommand(username, { json: program.opts().json, role: options.role, tenant: options.tenant })
+  })
+
+users
+  .command("remove <username>")
+  .alias("rm")
+  .description("Remove a user and all of their keys")
+  .action(async (username) => {
+    const { usersRemoveCommand } = await import("./commands/users.ts")
+    await usersRemoveCommand(username, { json: program.opts().json })
+  })
+
+users
+  .command("reset-password <username>")
+  .description("Give a user a new generated password (ends their browser sessions)")
+  .action(async (username) => {
+    const { usersResetPasswordCommand } = await import("./commands/users.ts")
+    await usersResetPasswordCommand(username, { json: program.opts().json })
+  })
+
+users
+  .command("keys")
+  .description("List your own keys (CLI logins and browser sessions)")
+  .action(async () => {
+    const { usersKeysCommand } = await import("./commands/users.ts")
+    await usersKeysCommand({ json: program.opts().json })
+  })
+
+users
+  .command("revoke-key <id>")
+  .description("Revoke one of your own keys")
+  .action(async (id) => {
+    const { usersRevokeKeyCommand } = await import("./commands/users.ts")
+    await usersRevokeKeyCommand(id, { json: program.opts().json })
+  })
+
 // Cloud infrastructure managed from the client laptop.
 const server = program.command("server").description("Provision and destroy Hetzner servers")
 server.command("create [name]")
@@ -544,6 +601,7 @@ agent
   .option("--data-dir <path>", "Data directory (default: /data)")
   .option("--email <email>", "Email for Let's Encrypt")
   .option("--cloudflare-token <token>", "Cloudflare API token for automatic DNS setup")
+  .option("--admin-password <password>", "Admin UI password (generated if not given)")
   .option("-i, --identity <keyfile>", "SSH identity file for remote install")
   .action(async (target, options) => {
     const { installAgentCommand } = await import("./commands/agent/install.ts")
@@ -593,6 +651,15 @@ agent
   .action(async () => {
     const { statusAgentCommand } = await import("./commands/agent/status.ts")
     await statusAgentCommand()
+  })
+
+agent
+  .command("password")
+  .description("Set or reset the admin's password for the admin UI (generated unless --password is given)")
+  .option("--password <password>", "Use this password instead of generating one")
+  .action(async (options) => {
+    const { agentPasswordCommand } = await import("./commands/agent/password.ts")
+    await agentPasswordCommand({ json: program.opts().json, password: options.password })
   })
 
 // Agent config subcommands

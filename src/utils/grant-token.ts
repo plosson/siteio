@@ -8,13 +8,18 @@ import { randomBytes, createHash } from "crypto"
 const TOKEN_PREFIX = "grt_"
 const TOKEN_BYTES = 32
 
+function randomToken(prefix: string): string {
+  return `${prefix}${randomBytes(TOKEN_BYTES).toString("base64url")}`
+}
+
 export function generateGrantToken(): string {
-  const raw = randomBytes(TOKEN_BYTES)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "")
-  return `${TOKEN_PREFIX}${raw}`
+  return randomToken(TOKEN_PREFIX)
+}
+
+// User keys (a CLI login or an admin UI session): `usr_` + 32 random bytes,
+// stored as their sha-256 like grant tokens. See UserStore.
+export function generateUserKey(): string {
+  return randomToken("usr_")
 }
 
 export function hashGrantToken(token: string): string {

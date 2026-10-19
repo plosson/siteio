@@ -64,17 +64,31 @@ export function parseIp(ip: string): ParsedIp | null {
   return { version: 6, value: v6 }
 }
 
-const RANGES = CLOUDFLARE_RANGES.map((cidr) => {
-  const [base, bits] = cidr.split("/") as [string, string]
-  const parsed = parseIp(base)!
-  const shift = BigInt((parsed.version === 4 ? 32 : 128) - Number(bits))
-  return { version: parsed.version, shift, prefix: parsed.value >> shift }
-})
+export interface ParsedRange {
+  version: 4 | 6
+  shift: bigint
+  prefix: bigint
+}
 
-export function isCloudflareIp(ip: string): boolean {
+export function parseRanges(cidrs: string[]): ParsedRange[] {
+  return cidrs.map((cidr) => {
+    const [base, bits] = cidr.split("/") as [string, string]
+    const parsed = parseIp(base)!
+    const shift = BigInt((parsed.version === 4 ? 32 : 128) - Number(bits))
+    return { version: parsed.version, shift, prefix: parsed.value >> shift }
+  })
+}
+
+export function inRanges(ip: string, ranges: ParsedRange[]): boolean {
   const parsed = parseIp(ip)
   if (!parsed) return false
-  return RANGES.some((r) => r.version === parsed.version && parsed.value >> r.shift === r.prefix)
+  return ranges.some((r) => r.version === parsed.version && parsed.value >> r.shift === r.prefix)
+}
+
+const RANGES = parseRanges(CLOUDFLARE_RANGES)
+
+export function isCloudflareIp(ip: string): boolean {
+  return inRanges(ip, RANGES)
 }
 
 export function clientIp(e: AccessLogEntry): string {

@@ -22,8 +22,20 @@ interface InstallOptions {
   email?: string
   identity?: string
   cloudflareToken?: string
+  adminPassword?: string
   acmeChallenge?: AcmeChallengeType
   acmeDnsProvider?: string
+}
+
+// The password printed by `siteio --json agent password`, or null when the
+// output is not exactly that JSON (so install can carry on without it).
+export function parseAdminPassword(stdout: string): string | null {
+  try {
+    const parsed = JSON.parse(stdout) as { password?: unknown } | null
+    return typeof parsed?.password === "string" && parsed.password ? parsed.password : null
+  } catch {
+    return null
+  }
 }
 
 function findBinaryPath(): string {
@@ -326,6 +338,9 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
   if (cloudflareToken) {
     remoteCmd += ` --cloudflare-token ${shellQuote(cloudflareToken)}`
   }
+  if (options.adminPassword) {
+    remoteCmd += ` --admin-password ${shellQuote(options.adminPassword)}`
+  }
 
   // Run remote install
   console.log(chalk.cyan("Running agent install on remote server..."))
@@ -457,6 +472,21 @@ async function installLocal(options: InstallOptions): Promise<void> {
 
   spawnSync({ cmd: writeConfigCmd, stdout: "pipe", stderr: "pipe" })
   s.stop(chalk.green("Configuration saved"))
+
+  // The admin's password for the admin UI. Set through the CLI itself so it
+  // runs with the same rights as the config write (sudo when not root).
+  s.start("Setting the admin password")
+  const passwordCmd = [
+    ...(isRoot ? [] : ["sudo"]),
+    "env", `SITEIO_DATA_DIR=${dataDir}`,
+    binaryPath, "--json", "agent", "password",
+    ...(options.adminPassword ? ["--password", options.adminPassword] : []),
+  ]
+  const passwordResult = spawnSync({ cmd: passwordCmd, stdout: "pipe", stderr: "pipe" })
+  const adminPassword = passwordResult.exitCode === 0
+    ? parseAdminPassword(passwordResult.stdout.toString())
+    : null
+  s.stop(adminPassword ? chalk.green("Admin password set") : chalk.yellow("Could not set the admin password — run `siteio agent password` later"))
 
   // Generate and write service file
   s.start("Creating systemd service")
@@ -595,6 +625,7 @@ async function installLocal(options: InstallOptions): Promise<void> {
   console.log(`  URL:     ${apiUrl}`)
   console.log(`  API Key: ${apiKey}`)
   console.log(`  Token:   ${token}`)
+  if (adminPassword) console.log(`  Admin:   admin / ${adminPassword}  (admin UI: ${apiUrl}/ui)`)
   console.log("")
   console.log(chalk.cyan.bold("──────────────────────────────"))
   console.log("")

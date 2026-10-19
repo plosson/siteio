@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, realpathSync } from "fs"
 import { dirname, isAbsolute, join, resolve, sep } from "path"
 import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
-import type { AgentConfig, ApiResponse, SiteInfo, App, AppInfo, AppServiceStatus, AppStatus, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated, Tenant } from "../../types.ts"
+import type { AgentConfig, SiteInfo, App, AppInfo, AppServiceStatus, AppStatus, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated, Tenant } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager, accessLogPath } from "./traefik.ts"
 import { ThumbnailManager } from "./thumbnails.ts"
@@ -36,7 +36,12 @@ import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 import { assertValidSiteEnvKeys, publicEnv, sameEnv, type EnvUpdate } from "./env.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
-import { TenantRegistry, assertValidNewName, normalizeDomains, tenantServices, type Scope } from "./tenants.ts"
+import { UserStore } from "./user-store.ts"
+import { SESSION_COOKIE, userFitsHost, type Auth } from "./auth.ts"
+import { errorResponse, jsonResponse } from "./http.ts"
+import { UserRoutes } from "./user-routes.ts"
+import { requestIp } from "./request-ip.ts"
+import { TenantRegistry, assertValidNewName, normalizeDomains, tenantServices, type Scope, type Caller } from "./tenants.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
 // gets the same window (clamped to the code). The per-grant spend cap is a
@@ -51,12 +56,18 @@ const EDIT_SESSION_COOKIE = "siteio_edit"
 
 // The site API surface a tenant key may reach. A tenant reaches apps through
 // TENANT_APP_ROUTE when Tenant.apps is set; chat, edit links and anything new
-// stay operator-only unless listed here.
+// stay operator-only unless listed here (or in MEMBER_EXTRA_ROUTE, for
+// main-domain members).
 const TENANT_ROUTE =
   /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|env|rename|grants|grants\/grt_[a-z0-9]+))?)$/
 
 // The app routes a tenant allowed to run apps (Tenant.apps) may reach.
 const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|restart|logs|status|thumbnail))?)?$/
+
+// What a main-domain member reaches beyond the tenant allowlist: the AI
+// editor (chat and in-site edit links), which runs on the operator's LLM
+// credential and is not offered to tenants.
+const MEMBER_EXTRA_ROUTE = /^\/sites\/[a-z0-9-]+\/(chat|chat\/stop|edit-link)$/
 
 // A tenant's volume is a plain name, which DockerManager keeps under
 // volumes/<key>/<name>: never a host path, never a way out of that folder.
@@ -75,7 +86,13 @@ function readCookie(req: Request, name: string): string | null {
   for (const part of header.split(";")) {
     const eq = part.indexOf("=")
     if (eq < 0) continue
-    if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim())
+    if (part.slice(0, eq).trim() === name) {
+      try {
+        return decodeURIComponent(part.slice(eq + 1).trim())
+      } catch {
+        return null // a malformed value is no credential
+      }
+    }
   }
   return null
 }
@@ -163,6 +180,10 @@ export class AgentServer {
   private storage: SiteStorage
   private appStorage: AppStorage
   private grants: GrantStore
+  private users: UserStore
+  private userRoutes: UserRoutes
+  // Requests authenticated by a user key: their checked username (requestUser).
+  private verifiedUsers = new WeakMap<Request, string>()
   private tenants: TenantRegistry
   private staging: StagingStore
   private chats: ChatStore
@@ -197,6 +218,8 @@ export class AgentServer {
     this.storage = new SiteStorage(config.dataDir)
     this.appStorage = new AppStorage(config.dataDir)
     this.grants = new GrantStore(config.dataDir)
+    this.users = new UserStore(config.dataDir)
+    this.userRoutes = new UserRoutes(this.users, this.tenants)
     this.staging = new StagingStore(config.dataDir)
     this.chats = new ChatStore(config.dataDir)
     this.oauth = new OAuthStore(config.dataDir)
@@ -287,14 +310,15 @@ export class AgentServer {
   }
 
   private json<T>(data: T, status = 200): Response {
-    return Response.json({ success: true, data } as ApiResponse<T>, { status })
+    return jsonResponse(data, status)
   }
 
-  // `reason` is an optional machine-readable code (e.g. the editor shell maps it
-  // to a client-friendly terminal state instead of the admin login flow).
-  // Who a request says it comes from: X-Siteio-User (percent-encoded), or the
-  // X-Deployed-By older CLIs sent on site deploys. Self-declared, never checked.
+  // Who a request comes from: the username of a user key (checked), else
+  // X-Siteio-User (percent-encoded) or the X-Deployed-By older CLIs sent on
+  // site deploys, which are self-declared and never checked.
   private requestUser(req: Request): string | undefined {
+    const verified = this.verifiedUsers.get(req)
+    if (verified) return verified
     const raw = req.headers.get("X-Siteio-User")
     if (!raw) return req.headers.get("X-Deployed-By") || undefined
     try {
@@ -304,23 +328,36 @@ export class AgentServer {
     }
   }
 
+  // `reason` is an optional machine-readable code (e.g. the editor shell maps it
+  // to a client-friendly terminal state instead of the admin login flow).
   private error(message: string, status = 400, reason?: string): Response {
-    return Response.json({ success: false, error: message, ...(reason ? { reason } : {}) } as ApiResponse<null>, {
-      status,
-    })
+    return errorResponse(message, status, reason)
   }
 
   // Resolve who is calling. The god API key grants full access on the primary
   // API host; a tenant key grants that tenant's sites, only on its own API
   // host; a share-grant token (sent as X-API-Key by a scoped CLI login) grants
-  // a narrow, per-site scope enforced in handleScopedRequest. `scope` is the
-  // scope of the host the request arrived on.
-  private authenticate(
-    req: Request,
-    scope: Scope
-  ): { kind: "god" } | { kind: "tenant"; tenant: Tenant } | { kind: "grant"; grant: ShareGrant } | null {
+  // a narrow, per-site scope enforced in handleScopedRequest; a user key
+  // (usr_) grants what its user's role allows, only on the API host of the
+  // user's scope. `scope` is the scope of the host the request arrived on.
+  private authenticate(req: Request, scope: Scope): Auth | null {
     const key = req.headers.get("X-API-Key") || ""
-    if (!key) return null
+    if (!key) {
+      // The admin UI's session cookie, only with X-Siteio-UI: a page on one of
+      // this server's own sites is same-site with the API host, so SameSite
+      // alone would let it send the cookie. It can't add this header without
+      // a preflight, and the API host answers none (no CORS headers).
+      const secret = readCookie(req, SESSION_COOKIE)
+      if (!secret || req.headers.get("X-Siteio-UI") !== "1") return null
+      const hit = this.users.resolveKey(secret)
+      return hit && hit.key.kind === "session" && userFitsHost(hit.user, scope) ? { kind: "user", ...hit } : null
+    }
+    // A user's CLI key, only on the API host of the user's scope. Session
+    // secrets go in the cookie, never in this header.
+    if (key.startsWith("usr_")) {
+      const hit = this.users.resolveKey(key)
+      return hit && hit.key.kind === "machine" && userFitsHost(hit.user, scope) ? { kind: "user", ...hit } : null
+    }
     if (key === this.config.apiKey) return scope ? null : { kind: "god" }
     const tenant = this.tenants.findByApiKey(key)
     if (tenant) return tenant.domain === scope?.domain ? { kind: "tenant", tenant } : null
@@ -330,7 +367,7 @@ export class AgentServer {
     return null
   }
 
-  private async handleRequest(req: Request): Promise<Response> {
+  private async handleRequest(req: Request, peer = "127.0.0.1"): Promise<Response> {
     const url = new URL(req.url)
     let path = url.pathname
     const host = req.headers.get("host") || ""
@@ -442,6 +479,11 @@ export class AgentServer {
       return this.error("Not found", 404)
     }
 
+    // Password login for the admin UI (unauthenticated, rate-limited).
+    if (path === "/auth/login" && req.method === "POST") {
+      return this.userRoutes.login(req, apiScope, requestIp(req, peer))
+    }
+
     // All other routes require auth
     const auth = this.authenticate(req, apiScope)
     if (!auth) {
@@ -460,13 +502,26 @@ export class AgentServer {
       return this.handleScopedRequest(auth.grant, path, req, apiScope)
     }
 
-    // The caller's scope: names in paths are as it sees them, and storage
-    // works on keys (see tenants.ts). The god key is the primary scope.
-    const scope: Scope = auth.kind === "tenant" ? auth.tenant : null
-    if (scope) {
+    // The caller: its scope (names in paths are as it sees them, and storage
+    // works on keys, see tenants.ts) and whether it is the operator.
+    if (auth.kind === "user") this.verifiedUsers.set(req, auth.user.username)
+
+    // Own account and user management, for every kind of key (not the allowlist's business).
+    const userRoute = await this.userRoutes.handle(path, req, auth, () => requestIp(req, peer))
+    if (userRoute) return userRoute
+
+    const caller: Caller =
+      auth.kind === "tenant" ? { scope: auth.tenant, admin: false }
+      : auth.kind === "user" ? { scope: apiScope, admin: auth.user.role === "admin" }
+      : { scope: null, admin: true }
+    const scope = caller.scope
+    if (!caller.admin) {
       const isApps = path === "/apps" || path.startsWith("/apps/")
-      if (isApps && !scope.apps) return this.error("Apps are disabled on this agent", 403)
-      if (path.includes("--") || !(isApps ? TENANT_APP_ROUTE : TENANT_ROUTE).test(path)) return this.error("Not found", 404)
+      if (scope && isApps && !scope.apps) return this.error("Apps are disabled on this agent", 403)
+      const allowed = isApps
+        ? TENANT_APP_ROUTE.test(path)
+        : TENANT_ROUTE.test(path) || (!scope && MEMBER_EXTRA_ROUTE.test(path))
+      if (path.includes("--") || !allowed) return this.error("Not found", 404)
       // A name that is no valid label can't exist in a tenant: 404, never a throw.
       const named = path.match(/^\/(sites|apps)\/([a-z0-9-]+)/)
       if (named && !this.tenants.resolve(named[2]!, scope)) {
@@ -477,7 +532,7 @@ export class AgentServer {
 
     // GET /agent - sanitized agent settings (a tenant gets a view of its own scope)
     if (path === "/agent" && req.method === "GET") {
-      return this.handleGetAgentInfo(scope)
+      return this.handleGetAgentInfo(caller)
     }
 
     // POST /tenants - add a tenant domain (god key only: not in TENANT_ROUTE)
@@ -487,7 +542,7 @@ export class AgentServer {
 
     // GET /sites - list all sites
     if (path === "/sites" && req.method === "GET") {
-      return this.handleListSites(scope)
+      return this.handleListSites(caller)
     }
 
     // POST /sites/:name - deploy (create-or-update) a site
@@ -562,7 +617,7 @@ export class AgentServer {
     // PATCH /sites/:name/domains - replace custom domains
     const siteDomainsMatch = path.match(/^\/sites\/([a-z0-9-]+)\/domains$/)
     if (siteDomainsMatch && req.method === "PATCH") {
-      return this.handleUpdateSiteDomains(k(siteDomainsMatch[1]!), req, scope)
+      return this.handleUpdateSiteDomains(k(siteDomainsMatch[1]!), req, caller)
     }
 
     // PATCH /sites/:name/env - set, mark secret or unset env vars
@@ -578,7 +633,8 @@ export class AgentServer {
     }
 
     // /sites/:name/edit-link - mint (POST) or revoke (DELETE) an in-site live
-    // editor link. God-only; the minted link is owner-only in Phase 1.
+    // editor link. Operator and main-domain members (MEMBER_EXTRA_ROUTE); the
+    // minted link is owner-only in Phase 1.
     const siteEditLinkMatch = path.match(/^\/sites\/([a-z0-9-]+)\/edit-link$/)
     if (siteEditLinkMatch) {
       const editName = k(siteEditLinkMatch[1]!)
@@ -609,12 +665,12 @@ export class AgentServer {
 
     // GET /apps - list all apps
     if (path === "/apps" && req.method === "GET") {
-      return await this.handleListApps(scope)
+      return await this.handleListApps(caller)
     }
 
     // POST /apps - create app
     if (path === "/apps" && req.method === "POST") {
-      return this.handleCreateApp(req, scope)
+      return this.handleCreateApp(req, caller)
     }
 
     // App routes with name parameter
@@ -627,7 +683,7 @@ export class AgentServer {
       }
       // PATCH /apps/:name - update app
       if (req.method === "PATCH") {
-        return this.handleUpdateApp(appName, req, scope)
+        return this.handleUpdateApp(appName, req, caller)
       }
       // DELETE /apps/:name - delete app
       if (req.method === "DELETE") {
@@ -685,9 +741,9 @@ export class AgentServer {
   // Why a tenant may not put `fields` in its app, or null. A compose stack can
   // mount the host and pick its networks; a volume path reaches the host's
   // files; a build context or Dockerfile outside the clone reads the agent's
-  // data. The operator (null scope) is not restricted.
+  // data. The operator (god key or admin user) is not restricted.
   private tenantAppViolation(
-    scope: Scope,
+    caller: Caller,
     fields: {
       compose?: boolean
       volumes?: { name: string }[]
@@ -696,7 +752,7 @@ export class AgentServer {
       secrets?: Record<string, string>
     }
   ): string | null {
-    if (!scope) return null
+    if (caller.admin) return null
     if (fields.compose) return "Compose apps are not available to a tenant"
     // Any other scheme or a bare path clones from the agent's own disk or
     // network (file://, ssh with the agent's keys)
@@ -739,11 +795,11 @@ export class AgentServer {
   // routes is taken (its holder is named only when the caller can see it).
   // The operator's apps are the one exception to the reservation: they may
   // take any `*.<primary>` hostname but the API's, as they always could.
-  private customDomainsViolation(kind: "site" | "app", key: string, domains: string[], scope: Scope): string | null {
+  private customDomainsViolation(kind: "site" | "app", key: string, domains: string[], caller: Caller): string | null {
     const owner = this.tenants.ownerOf(key)
     const primary = this.tenants.primaryDomain
     for (const domain of domains) {
-      if (kind === "app" && !owner && domain.endsWith(`.${primary}`) && domain !== `api.${primary}`) continue
+      if (kind === "app" && caller.admin && !owner && domain.endsWith(`.${primary}`) && domain !== `api.${primary}`) continue
       const conflict = this.tenants.customDomainConflict(domain, owner)
       if (conflict) return conflict
     }
@@ -763,20 +819,20 @@ export class AgentServer {
       if (holder.kind === kind && holder.key === key) continue
       const overlap = domains.filter((d) => holder.hosts.includes(d))
       if (overlap.length === 0) continue
-      const seen = this.tenants.nameIn(holder.key, scope)
+      const seen = this.tenants.sees(holder.key, caller) ? this.tenants.nameIn(holder.key, caller.scope) : null
       return `Domain(s) already in use${seen ? ` by ${holder.kind} '${seen}'` : ""}: ${overlap.join(", ")}`
     }
     return null
   }
 
-  private async handleListApps(scope: Scope): Promise<Response> {
-    const apps = this.appStorage.list().filter((app) => this.tenants.inScope(app.name, scope))
+  private async handleListApps(caller: Caller): Promise<Response> {
+    const apps = this.appStorage.list().filter((app) => this.tenants.sees(app.name, caller))
 
     // Get TLS status from Traefik if available
     const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
 
     const appInfos: AppInfo[] = apps.map((app) => scrubApp({
-      ...this.appStorage.toInfo(app, this.tenants, scope),
+      ...this.appStorage.toInfo(app, this.tenants, caller.scope),
       tls: tlsStatusMap.get(`siteio-${app.name}`) || "pending",
       hasThumbnail: this.thumbnails?.has(app.name) ?? false,
     }))
@@ -791,7 +847,8 @@ export class AgentServer {
     return this.json(this.appView(app, scope))
   }
 
-  private async handleCreateApp(req: Request, scope: Scope): Promise<Response> {
+  private async handleCreateApp(req: Request, caller: Caller): Promise<Response> {
+    const scope = caller.scope
     try {
       const body = (await req.json()) as {
         name: string
@@ -829,7 +886,7 @@ export class AgentServer {
       if (this.appStorage.exists(name)) return this.error(`App '${body.name}' already exists`)
 
       const domains = body.domains === undefined ? [] : normalizeDomains(body.domains)
-      const domainViolation = this.customDomainsViolation("app", name, domains, scope)
+      const domainViolation = this.customDomainsViolation("app", name, domains, caller)
       if (domainViolation) return this.error(domainViolation)
 
       const hasCompose = !!body.composeContent || !!body.composePath
@@ -837,7 +894,7 @@ export class AgentServer {
       const hasImage = !!body.image
       const hasInlineDockerfile = !!body.dockerfileContent
 
-      const violation = this.tenantAppViolation(scope, {
+      const violation = this.tenantAppViolation(caller, {
         compose: hasCompose,
         volumes: body.volumes,
         git: body.git,
@@ -952,7 +1009,8 @@ export class AgentServer {
     }
   }
 
-  private async handleUpdateApp(name: string, req: Request, scope: Scope): Promise<Response> {
+  private async handleUpdateApp(name: string, req: Request, caller: Caller): Promise<Response> {
+    const scope = caller.scope
     try {
       const app = this.appStorage.get(name)
       if (!app) {
@@ -978,11 +1036,11 @@ export class AgentServer {
 
       if (body.domains !== undefined) {
         body.domains = normalizeDomains(body.domains)
-        const domainViolation = this.customDomainsViolation("app", name, body.domains, scope)
+        const domainViolation = this.customDomainsViolation("app", name, body.domains, caller)
         if (domainViolation) return this.error(domainViolation)
       }
 
-      const violation = this.tenantAppViolation(scope, { volumes: body.volumes, git: body.git, env: body.env, secrets: body.secrets })
+      const violation = this.tenantAppViolation(caller, { volumes: body.volumes, git: body.git, env: body.env, secrets: body.secrets })
       if (violation) return this.error(violation)
 
       // Compose sources: same fields as create, replaced in place so a stack
@@ -1535,18 +1593,19 @@ export class AgentServer {
 
   // Sanitized, read-only view of the agent's runtime settings for the admin UI.
   // Secrets (apiKey, ACME/DNS env, Cloudflare token) are deliberately omitted.
-  private handleGetAgentInfo(scope: Scope): Response {
-    // A tenant sees an agent of its own: its sites, and its apps when it may
-    // run them. Host settings stay private.
-    if (scope) {
-      const apps = scope.apps === true && this.config.appsEnabled !== false
+  private handleGetAgentInfo(caller: Caller): Response {
+    // A tenant or a main-domain member sees an agent of its own: its sites, and
+    // its apps when it may run them. Host settings stay with the operator.
+    if (!caller.admin) {
+      const scope = caller.scope
+      const apps = this.config.appsEnabled !== false && (scope ? scope.apps === true : true)
       return this.json({
-        domain: scope.domain,
+        domain: this.tenants.baseDomain(scope),
         version: getVersion(),
         appsEnabled: apps,
-        siteCount: this.storage.list().filter((s) => this.tenants.inScope(s.name, scope)).length,
-        appCount: apps ? this.appStorage.list().filter((a) => this.tenants.inScope(a.name, scope)).length : 0,
-        chat: { configured: false },
+        siteCount: this.storage.list().filter((s) => this.tenants.sees(s.name, caller)).length,
+        appCount: apps ? this.appStorage.list().filter((a) => this.tenants.sees(a.name, caller)).length : 0,
+        chat: scope ? { configured: false } : this.chatStatus(),
       })
     }
     const c = this.config
@@ -1565,13 +1624,13 @@ export class AgentServer {
     })
   }
 
-  private async handleListSites(scope: Scope): Promise<Response> {
-    const sites = this.storage.list().filter((s) => this.tenants.inScope(s.name, scope))
+  private async handleListSites(caller: Caller): Promise<Response> {
+    const sites = this.storage.list().filter((s) => this.tenants.sees(s.name, caller))
     // Site containers register Traefik routers named `siteio-<name>` via
     // docker labels — same convention as apps.
     const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
     return this.json(sites.map((p) => ({
-      ...this.storage.toInfo(p, this.tenants, scope),
+      ...this.storage.toInfo(p, this.tenants, caller.scope),
       tls: tlsStatusMap.get(`siteio-${p.name}`) || "pending",
       hasThumbnail: this.thumbnails?.has(p.name) ?? false,
     })))
@@ -2286,10 +2345,7 @@ export class AgentServer {
     // The shell derives the framed site URL from its own origin (the link always
     // opens on the platform subdomain), so we only return session metadata.
     const data = { expiresAt: session.expiresAt, versionAtStart: session.versionAtStart }
-    return new Response(JSON.stringify({ success: true, data } satisfies ApiResponse<typeof data>), {
-      status: 200,
-      headers: { "Content-Type": "application/json", "Set-Cookie": cookie },
-    })
+    return jsonResponse(data, 200, { "Set-Cookie": cookie })
   }
 
   // Revoke the (invisible) sessions derived from an edit code, without touching
@@ -2537,7 +2593,8 @@ export class AgentServer {
     return this.runRollback(grant.site, version, grant.label || "edit link")
   }
 
-  private async handleUpdateSiteDomains(name: string, req: Request, scope: Scope): Promise<Response> {
+  private async handleUpdateSiteDomains(name: string, req: Request, caller: Caller): Promise<Response> {
+    const scope = caller.scope
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
 
@@ -2548,7 +2605,7 @@ export class AgentServer {
       }
 
       const domains = normalizeDomains(body.domains)
-      const violation = this.customDomainsViolation("site", name, domains, scope)
+      const violation = this.customDomainsViolation("site", name, domains, caller)
       if (violation) return this.error(violation)
 
       const updated = this.storage.update(name, { domains })!
@@ -2754,10 +2811,10 @@ export class AgentServer {
 
   // `host` defaults to "localhost" so existing api-route tests pass the api gate;
   // MCP/OAuth tests pass a real site host (e.g. "blog.example.com").
-  handleRequestForTest(req: Request, host = "localhost"): Promise<Response> {
+  handleRequestForTest(req: Request, host = "localhost", peer = "127.0.0.1"): Promise<Response> {
     const headers = new Headers(req.headers)
     headers.set("host", host)
-    return this.handleRequest(new Request(req.url, { method: req.method, headers, body: req.body }))
+    return this.handleRequest(new Request(req.url, { method: req.method, headers, body: req.body }), peer)
   }
 
   async start(): Promise<void> {
@@ -2817,7 +2874,7 @@ export class AgentServer {
         "/ui/ui.css": (req) => serveUiAsset(req, ADMIN_UI_CSS, "text/css; charset=utf-8", cssEtag),
         "/ui/chat-core.js": (req) => serveUiAsset(req, CHAT_CORE_JS, "application/javascript; charset=utf-8", chatCoreEtag),
       },
-      fetch: (req) => this.handleRequest(req),
+      fetch: (req, srv) => this.handleRequest(req, srv.requestIP(req)?.address ?? ""),
     })
     this.pager?.notify({
       title: "siteio agent started",

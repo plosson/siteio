@@ -1,7 +1,7 @@
 import { getCliUser, loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
 import type {
-  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, WithComposeWarnings, ShareGrantInfo, ShareGrantCreated, EditLinkCreated, AutoDeployMode,
+  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, WithComposeWarnings, ShareGrantInfo, ShareGrantCreated, EditLinkCreated, AutoDeployMode, UserInfo, UserKeyInfo,
 } from "../types.ts"
 
 // Build an ApiError from a failed response, keeping the agent's message and
@@ -210,6 +210,41 @@ export class SiteioClient {
 
   async revokeGrant(site: string, id: string): Promise<void> {
     await this.request<ApiResponse<{ revoked: boolean }>>("DELETE", `/sites/${site}/grants/${id}`)
+  }
+
+  // Users (UserRoutes on the agent)
+  async listUsers(): Promise<UserInfo[]> {
+    const response = await this.request<ApiResponse<UserInfo[]>>("GET", "/users")
+    return response.data || []
+  }
+
+  async createUser(input: { username: string; role?: string; tenant?: string }): Promise<{ user: UserInfo; password: string }> {
+    const response = await this.request<ApiResponse<{ user: UserInfo; password: string }>>(
+      "POST", "/users", JSON.stringify(input), { "Content-Type": "application/json" }
+    )
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
+  async deleteUser(username: string): Promise<void> {
+    await this.request<ApiResponse<{ deleted: string }>>("DELETE", `/users/${encodeURIComponent(username)}`)
+  }
+
+  async resetUserPassword(username: string): Promise<{ username: string; password: string }> {
+    const response = await this.request<ApiResponse<{ username: string; password: string }>>(
+      "POST", `/users/${encodeURIComponent(username)}/password`
+    )
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
+  async listMyKeys(): Promise<UserKeyInfo[]> {
+    const response = await this.request<ApiResponse<UserKeyInfo[]>>("GET", "/me/keys")
+    return response.data || []
+  }
+
+  async revokeMyKey(id: string): Promise<void> {
+    await this.request<ApiResponse<{ revoked: boolean }>>("DELETE", `/me/keys/${encodeURIComponent(id)}`)
   }
 
   // In-site live editor links
