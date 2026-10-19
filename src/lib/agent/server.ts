@@ -37,7 +37,10 @@ import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 import { assertValidSiteEnvKeys, publicEnv, sameEnv, type EnvUpdate } from "./env.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
 import { UserStore } from "./user-store.ts"
-import { userFitsHost, type Auth } from "./auth.ts"
+import { SESSION_COOKIE, userFitsHost, type Auth } from "./auth.ts"
+import { errorResponse, jsonResponse } from "./http.ts"
+import { UserRoutes } from "./user-routes.ts"
+import { requestIp } from "./request-ip.ts"
 import { TenantRegistry, assertValidNewName, normalizeDomains, tenantServices, type Scope, type Caller } from "./tenants.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
@@ -171,6 +174,7 @@ export class AgentServer {
   private appStorage: AppStorage
   private grants: GrantStore
   private users: UserStore
+  private userRoutes: UserRoutes
   // Requests authenticated by a user key: their checked username (requestUser).
   private verifiedUsers = new WeakMap<Request, string>()
   private tenants: TenantRegistry
@@ -208,6 +212,7 @@ export class AgentServer {
     this.appStorage = new AppStorage(config.dataDir)
     this.grants = new GrantStore(config.dataDir)
     this.users = new UserStore(config.dataDir)
+    this.userRoutes = new UserRoutes(this.users, this.tenants)
     this.staging = new StagingStore(config.dataDir)
     this.chats = new ChatStore(config.dataDir)
     this.oauth = new OAuthStore(config.dataDir)
@@ -298,7 +303,7 @@ export class AgentServer {
   }
 
   private json<T>(data: T, status = 200): Response {
-    return Response.json({ success: true, data } as ApiResponse<T>, { status })
+    return jsonResponse(data, status)
   }
 
   // `reason` is an optional machine-readable code (e.g. the editor shell maps it
@@ -319,9 +324,7 @@ export class AgentServer {
   }
 
   private error(message: string, status = 400, reason?: string): Response {
-    return Response.json({ success: false, error: message, ...(reason ? { reason } : {}) } as ApiResponse<null>, {
-      status,
-    })
+    return errorResponse(message, status, reason)
   }
 
   // Resolve who is calling. The god API key grants full access on the primary
@@ -332,7 +335,16 @@ export class AgentServer {
   // user's scope. `scope` is the scope of the host the request arrived on.
   private authenticate(req: Request, scope: Scope): Auth | null {
     const key = req.headers.get("X-API-Key") || ""
-    if (!key) return null
+    if (!key) {
+      // The admin UI's session cookie, only with X-Siteio-UI: a page on one of
+      // this server's own sites is same-site with the API host, so SameSite
+      // alone would let it send the cookie. It can't add this header without
+      // a preflight, and the API host answers none (no CORS headers).
+      const secret = readCookie(req, SESSION_COOKIE)
+      if (!secret || req.headers.get("X-Siteio-UI") !== "1") return null
+      const hit = this.users.resolveKey(secret)
+      return hit && hit.key.kind === "session" && userFitsHost(hit.user, scope) ? { kind: "user", ...hit } : null
+    }
     // A user's CLI key, only on the API host of the user's scope. Session
     // secrets go in the cookie, never in this header.
     if (key.startsWith("usr_")) {
@@ -460,6 +472,11 @@ export class AgentServer {
       return this.error("Not found", 404)
     }
 
+    // Password login for the admin UI (unauthenticated, rate-limited).
+    if (path === "/auth/login" && req.method === "POST") {
+      return this.userRoutes.login(req, apiScope, requestIp(req, peer))
+    }
+
     // All other routes require auth
     const auth = this.authenticate(req, apiScope)
     if (!auth) {
@@ -481,6 +498,11 @@ export class AgentServer {
     // The caller: its scope (names in paths are as it sees them, and storage
     // works on keys, see tenants.ts) and whether it is the operator.
     if (auth.kind === "user") this.verifiedUsers.set(req, auth.user.username)
+
+    // Own account and user management, for every kind of key (not the allowlist's business).
+    const userRoute = await this.userRoutes.handle(path, req, auth, requestIp(req, peer))
+    if (userRoute) return userRoute
+
     const caller: Caller =
       auth.kind === "tenant" ? { scope: auth.tenant, admin: false }
       : auth.kind === "user" ? { scope: apiScope, admin: auth.user.role === "admin" }
