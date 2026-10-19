@@ -218,8 +218,8 @@ export class SiteioClient {
     return response.data || []
   }
 
-  async createUser(input: { username: string; role?: string; tenant?: string }): Promise<{ user: UserInfo; password: string }> {
-    const response = await this.request<ApiResponse<{ user: UserInfo; password: string }>>(
+  async createUser(input: { username: string; role?: string; tenant?: string; password?: string }): Promise<{ user: UserInfo; password?: string; generated: boolean }> {
+    const response = await this.request<ApiResponse<{ user: UserInfo; password?: string; generated: boolean }>>(
       "POST", "/users", JSON.stringify(input), { "Content-Type": "application/json" }
     )
     if (!response.data) throw new ApiError("Invalid response from server")
@@ -230,9 +230,10 @@ export class SiteioClient {
     await this.request<ApiResponse<{ deleted: string }>>("DELETE", `/users/${encodeURIComponent(username)}`)
   }
 
-  async resetUserPassword(username: string): Promise<{ username: string; password: string }> {
-    const response = await this.request<ApiResponse<{ username: string; password: string }>>(
-      "POST", `/users/${encodeURIComponent(username)}/password`
+  async resetUserPassword(username: string, password?: string): Promise<{ username: string; password?: string; generated: boolean }> {
+    const response = await this.request<ApiResponse<{ username: string; password?: string; generated: boolean }>>(
+      "POST", `/users/${encodeURIComponent(username)}/password`,
+      JSON.stringify(password === undefined ? {} : { password }), { "Content-Type": "application/json" }
     )
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data

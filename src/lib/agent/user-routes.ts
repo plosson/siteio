@@ -31,7 +31,12 @@ export class UserRoutes {
     if (!this.failures.tryHit(ip)) return errorResponse("Too many failed attempts, try again in a minute", 429)
     const body = await readJson(req)
     const user = await this.users.verifyPassword(body?.username, body?.password)
-    if (!user || !userFitsHost(user, scope)) return errorResponse("Invalid username or password", 401)
+    if (!user) return errorResponse("Invalid username or password", 401)
+    if (!userFitsHost(user, scope)) {
+      // The password was right: tell the person where this account signs in. Still a counted attempt.
+      const domain = user.tenant ?? this.tenants.primaryDomain
+      return errorResponse(`This account belongs to ${domain} — sign in at https://api.${domain}/ui`, 401)
+    }
     this.failures.undo(ip)
     const { key, secret } = this.users.addKey(user.username, "session", "browser")
     return jsonResponse(this.meOf({ kind: "user", user, key }), 200, { "Set-Cookie": sessionCookie(secret) })
@@ -57,7 +62,7 @@ export class UserRoutes {
       if (auth.kind !== "user" || !this.users.revokeKey(auth.user.username, own[1]!)) return errorResponse("Key not found", 404)
       return jsonResponse({ revoked: true })
     }
-    if (path === "/users" || path.startsWith("/users/")) return this.manage(path, req, this.reachOf(auth))
+    if (path === "/users" || path.startsWith("/users/")) return this.manage(path, req, this.reachOf(auth), auth)
     return null
   }
 
@@ -69,7 +74,7 @@ export class UserRoutes {
     return null
   }
 
-  private async manage(path: string, req: Request, reach: Reach): Promise<Response> {
+  private async manage(path: string, req: Request, reach: Reach, auth: Auth): Promise<Response> {
     if (!reach) return errorResponse("Not found", 404)
     // An owner reaches its tenant's members; anyone else is "not found" to it.
     const reaches = (u: User) => "all" in reach || (u.tenant === reach.tenant && u.role === "member")
@@ -83,43 +88,61 @@ export class UserRoutes {
     const target = m ? this.users.get(m[1]!) : null
     if (!m || !target || !reaches(target)) return errorResponse("User not found", 404)
 
+    const self = auth.kind === "user" && auth.user.username === target.username
     if (!m[2] && req.method === "DELETE") {
-      if (target.role === "admin") return errorResponse("The admin can't be deleted", 400)
+      if (target.username === "admin") return errorResponse("The admin account can't be deleted", 400)
+      if (self) return errorResponse("You can't delete your own account", 400)
       this.users.delete(target.username)
       return jsonResponse({ deleted: target.username })
     }
     if (m[2] && req.method === "POST") {
-      if (target.role === "admin") {
-        return errorResponse("Change the admin password from the admin account, or on the server with `siteio agent password`", 400)
+      if (self) return errorResponse("Change your own password on the Account page", 400)
+      const body = await readJson(req)
+      const chosen = this.chosenPassword(body)
+      if (chosen instanceof Response) return chosen
+      const password = chosen ?? generatePassword()
+      try {
+        await this.users.setPassword(target.username, password)
+      } catch (err) {
+        if (err instanceof ValidationError) return errorResponse(err.message, 400)
+        throw err
       }
-      const password = generatePassword()
-      await this.users.setPassword(target.username, password)
-      return jsonResponse({ username: target.username, password })
+      return jsonResponse({ username: target.username, ...(chosen === undefined && { password }), generated: chosen === undefined })
     }
     return errorResponse("Not found", 404)
+  }
+
+  // The password a caller chose: undefined when none, or a 400 when it isn't a string.
+  private chosenPassword(body: Record<string, unknown> | null): string | undefined | Response {
+    if (body?.password === undefined) return undefined
+    if (typeof body.password !== "string") return errorResponse("'password' must be a string")
+    return body.password
   }
 
   private async createUser(req: Request, reach: NonNullable<Reach>): Promise<Response> {
     const body = await readJson(req)
     if (!body || typeof body.username !== "string") return errorResponse("'username' is required")
     const role = body.role ?? "member"
-    if (role !== "owner" && role !== "member") return errorResponse("'role' must be 'owner' or 'member'")
+    if (role !== "admin" && role !== "owner" && role !== "member") return errorResponse("'role' must be 'admin', 'owner' or 'member'")
     const asked = typeof body.tenant === "string" && body.tenant ? body.tenant.trim().toLowerCase() : undefined
 
     let tenant: string | undefined
     if ("all" in reach) {
+      if (role === "admin" && asked) return errorResponse("An admin has no tenant")
       if (asked && !this.tenants.tenants.some((t) => t.domain === asked)) return errorResponse(`No tenant '${asked}'`)
       tenant = asked
     } else {
-      if (role !== "member") return errorResponse("Only the admin can add an owner", 403)
+      if (role !== "member") return errorResponse("Only an admin can add an owner or an admin", 403)
       if (asked && asked !== reach.tenant) return errorResponse(`You can only add users to ${reach.tenant}`, 403)
       tenant = reach.tenant
     }
 
-    const password = generatePassword()
+    const chosen = this.chosenPassword(body)
+    if (chosen instanceof Response) return chosen
+    const password = chosen ?? generatePassword()
     try {
       const user = await this.users.create({ username: body.username, role, tenant, password })
-      return jsonResponse({ user: this.users.toInfo(user), password })
+      return jsonResponse({ user: this.users.toInfo(user), ...(chosen === undefined && { password }), generated: chosen === undefined })
     } catch (err) {
       if (err instanceof ValidationError) return errorResponse(err.message, 400)
       throw err

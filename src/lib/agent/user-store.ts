@@ -50,8 +50,8 @@ function isUser(value: unknown, username: string): value is User {
     typeof u.passwordHash === "string" &&
     Array.isArray(u.keys) &&
     u.keys.every(isKey) &&
-    // The admin is the one user named admin, with no tenant.
-    (u.role !== "admin" || (username === "admin" && !u.tenant))
+    // An admin has no tenant.
+    (u.role !== "admin" || !u.tenant)
   )
 }
 
@@ -119,11 +119,12 @@ export class UserStore {
   // Every read-modify-write below hashes first and then reads, mutates and
   // writes with no await in between, so a concurrent revoke or create is never
   // overwritten by a stale copy.
-  async create(input: { username: string; role: "owner" | "member"; tenant?: string; password: string }): Promise<User> {
+  async create(input: { username: string; role: UserRole; tenant?: string; password: string }): Promise<User> {
     const username = normalize(input.username)
     if (!this.path(username)) throw new ValidationError("Username must contain only lowercase letters, numbers, and hyphens")
     if (username === "admin") throw new ValidationError("'admin' is reserved for the server's admin")
-    if (input.role !== "owner" && input.role !== "member") throw new ValidationError("Role must be 'owner' or 'member'")
+    if (!ROLES.includes(input.role)) throw new ValidationError("Role must be 'admin', 'owner' or 'member'")
+    if (input.role === "admin" && input.tenant) throw new ValidationError("An admin has no tenant")
     if (input.role === "owner" && !input.tenant) throw new ValidationError("An owner belongs to a tenant: give its domain")
     const passwordHash = await hashPassword(input.password)
     if (this.get(username)) throw new ValidationError(`User '${username}' already exists`)

@@ -88,7 +88,9 @@ describe("CLI: siteio users", () => {
     const res = await runCli("admin", ["users", "add", "Bad Name"])
     expect(res.exitCode).toBe(1)
     expect(res.stderr).toContain("lowercase")
-    expect((await runCli("admin", ["users", "add", "yan", "--role", "admin"])).exitCode).toBe(1)
+    expect((await runCli("admin", ["users", "add", "yan", "--role", "admin", "--tenant", "nope.net"])).exitCode).toBe(1)
+    expect((await runCli("admin", ["users", "add", "yan", "--password", "short"])).exitCode).toBe(1)
+    expect(users.get("yan")).toBeNull()
   })
 
   test("reset-password and remove", async () => {
@@ -98,6 +100,30 @@ describe("CLI: siteio users", () => {
     expect((await runCli("admin", ["users", "remove", "rex"])).exitCode).toBe(0)
     expect(users.get("rex")).toBeNull()
     expect((await runCli("admin", ["users", "remove", "rex"])).exitCode).toBe(1)
+  })
+
+  test("add --role admin, and --password chosen without echo", async () => {
+    const admin = await runCli("admin", ["--json", "users", "add", "x", "--role", "admin"])
+    expect(admin.exitCode).toBe(0)
+    expect(users.get("x")?.role).toBe("admin")
+    const chosen = await runCli("admin", ["--json", "users", "add", "y", "--password", "chosen pass 1"])
+    expect(chosen.exitCode).toBe(0)
+    expect(await users.verifyPassword("y", "chosen pass 1")).not.toBeNull()
+    expect(chosen.stdout).not.toContain("chosen pass 1")
+    expect(JSON.parse(chosen.stdout).data.password).toBeUndefined()
+    const human = await runCli("admin", ["users", "add", "w", "--password", "chosen pass 2"])
+    expect(human.stderr).toContain("Password set")
+    expect(human.stderr).not.toContain("chosen pass 2")
+  })
+
+  test("reset-password --password sets it; a short one fails", async () => {
+    await users.create({ username: "kim", role: "member", password: "kim password" })
+    expect((await runCli("admin", ["users", "reset-password", "kim", "--password", "short"])).exitCode).toBe(1)
+    expect(await users.verifyPassword("kim", "kim password")).not.toBeNull()
+    const res = await runCli("admin", ["--json", "users", "reset-password", "kim", "--password", "kim new pass"])
+    expect(res.exitCode).toBe(0)
+    expect(res.stdout).not.toContain("kim new pass")
+    expect(await users.verifyPassword("kim", "kim new pass")).not.toBeNull()
   })
 
   test("keys lists your own keys; revoke-key revokes one", async () => {

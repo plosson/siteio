@@ -23,7 +23,7 @@ in with the API key itself.
 |---|---|---|
 | 1 | Main problem | Easier onboarding of a new machine |
 | 2 | Credential model | Users with passwords; every user gets their own keys, never the god or tenant key |
-| 3 | Admin | One admin per server, whose password is set at install |
+| 3 | Admin | One bootstrap `admin` (undeletable, set by install / `siteio agent password`) plus any number of admins created by admins |
 | 4 | Roles | `admin` (whole server), `owner` (one tenant, manages its members), `member` (works in one scope) |
 | 5 | Member rights | Every site and app in their scope, with tenant-level restrictions |
 | 6 | Keys | One key per approved login (per machine), revocable on its own |
@@ -81,13 +81,13 @@ interface UserKey {
 
 | Role | Scope | Created by |
 |---|---|---|
-| `admin` | whole server; exactly one, named `admin`, no tenant | install, or `siteio agent password` |
+| `admin` | whole server, no tenant: one bootstrap `admin` (undeletable, set by install / `siteio agent password`) plus any number of admins created by admins | install, `siteio agent password`, or an admin |
 | `owner` | one tenant (`tenant` required) | admin |
 | `member` | main domain or one tenant | admin, or that tenant's owner |
 
 - Code checks `role === "admin"` only, never the username.
 - A main-domain user can only be a `member`.
-- No route can create a second admin or delete `admin`.
+- An admin can create other admins (never with a tenant); no route can delete `admin` or your own account.
 
 **Admin password**
 - `siteio agent install` generates it and prints it once, next to the API
@@ -157,11 +157,11 @@ is unchanged).
 
 | Caller | May manage |
 |---|---|
-| admin (or god key) | every user except deleting `admin`; resets `admin`'s password only through `/me/password` or on the box |
+| admin (or god key) | every user except deleting `admin` or itself; resets any password but its own (that is `/me/password`) |
 | owner (or that tenant's `ten_` key) | members of their own tenant |
 | member | no one |
 
-- `POST /users` refuses `role: "admin"`; only the admin may create an owner.
+- Only an admin may create an admin or an owner; an admin has no tenant.
 - A user outside the caller's reach answers 404, not 403.
 - Every user can see their own keys (with `kind`, never the hash), revoke
   them, and change their own password.
@@ -272,13 +272,13 @@ update the agent or use `-t`".
 | Command | Who |
 |---|---|
 | `siteio users list` | admin (all), owner (their tenant) |
-| `siteio users add <name> [--role owner\|member] [--tenant <domain>]` | admin; owner adds members only, tenant implied |
+| `siteio users add <name> [--role admin\|owner\|member] [--password <p>] [--tenant <domain>]` | admin; owner adds members only, tenant implied |
 | `siteio users remove <name>` | same |
 | `siteio users reset-password <name>` | same |
 | `siteio users keys`, `siteio users revoke-key <id>` | own keys only |
 | `siteio agent password` (on the box) | sets or resets the admin password |
 
-`add` and `reset-password` generate the password and print it once. Users
+`add` and `reset-password` generate the password and print it once, unless `--password` sets one (never echoed). Users
 change their own password in the UI.
 
 **Routes** (API host)
@@ -308,7 +308,6 @@ change their own password in the UI.
 ## Out of scope
 
 - Per-site permissions for members.
-- More than one admin.
 - Changing your own password from the CLI.
 - Single sign-on (Google, etc.) for siteio users.
 - Revoking share codes when the user who created them is deleted.
@@ -338,7 +337,7 @@ change their own password in the UI.
   main-domain user, and the reverse; the 101st pending request is refused;
   approval without a session is refused; `replaces` revokes the old key of the
   same user, and is ignored for another user's key or a god key.
-- **Users**: `POST /users` with `role: admin` is refused; nobody can delete
+- **Users**: `POST /users` with `role: admin` is admin-only and tenant-less; nobody can delete
   `admin`; an owner can't create an owner, add to another tenant, or see,
   reset or delete another owner or a main-domain user (404); a member can't
   manage anyone.
