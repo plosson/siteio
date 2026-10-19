@@ -3,243 +3,195 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
   <title>siteio admin</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%230969da'/><text x='50%25' y='55%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-family='system-ui' font-size='18' font-weight='700'>s</text></svg>" />
-
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Fira+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/svg+xml" href="__ICON_URI__" />
 
   <link rel="stylesheet" href="https://sets.hugeicons.com/7v2rm862ty6.css" crossorigin="anonymous" />
-
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              blue: "#0969da",
-              green: "#2da44e",
-            },
-            gray: {
-              50: "#f6f8fa",
-              100: "#eaeef2",
-              200: "#d0d7de",
-              300: "#afb8c1",
-              400: "#8c959f",
-              500: "#6e7781",
-              600: "#57606a",
-              700: "#424a53",
-              800: "#32383f",
-              900: "#1f2328",
-            },
-          },
-          fontFamily: {
-            sans: ["Geist", "system-ui", "sans-serif"],
-            mono: ["Fira Mono", "monospace"],
-          },
-        },
-      },
-    }
-  </script>
-
   <link rel="stylesheet" href="/ui/ui.css" />
 
   <script defer src="/ui/chat-core.js"></script>
   <script defer src="/ui/ui.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3.15.3/dist/cdn.min.js"></script>
 </head>
-<body class="font-sans bg-gray-50 text-gray-900 antialiased" x-data="siteioAdmin()" x-init="init()" @keydown.escape.window="onEscape()">
+<body x-data="siteioAdmin()" x-init="init()" @keydown.escape.window="onEscape()">
 
   <template x-if="!authed">
-    <div id="login-view" class="min-h-screen flex items-center justify-center p-6 bg-gray-50">
-      <div class="w-full max-w-sm bg-white rounded-lg shadow p-6">
-        <div class="mb-4">
-          <h1 class="text-lg font-semibold text-gray-900">Sign in to siteio</h1>
-          <p class="text-sm text-gray-500 mt-1" x-text="loginMode === 'key' ? 'Enter your server API key.' : 'Enter your username and password.'"></p>
+    <div id="login-view" class="gate">
+      <div class="gate-box">
+        <div class="stacked">
+          <img src="__ICON_URI__" alt="" width="96" height="96" />
+          <h1>Sign in to siteio</h1>
         </div>
-        <form @submit.prevent="login()">
+        <p class="lede muted" x-text="loginMode === 'key' ? 'Enter your server API key.' : 'Enter your username and password.'"></p>
+        <form class="card" @submit.prevent="login()">
           <template x-if="loginMode === 'password'">
-            <div class="space-y-3">
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1" for="usernameInput">Username</label>
-                <input id="usernameInput" type="text" x-model="usernameInput" x-init="$nextTick(() => $el.focus())"
-                       autocomplete="username" autocapitalize="none" required
-                       class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1" for="passwordInput">Password</label>
-                <input id="passwordInput" type="password" x-model="passwordInput" autocomplete="current-password" required
-                       class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
-              </div>
+            <div>
+              <label class="form-field">
+                <span class="label">Username</span>
+                <input id="usernameInput" class="input" type="text" x-model="usernameInput" x-init="$nextTick(() => $el.focus())"
+                       autocomplete="username" autocapitalize="none" required />
+              </label>
+              <label class="form-field">
+                <span class="label">Password</span>
+                <input id="passwordInput" class="input" type="password" x-model="passwordInput" autocomplete="current-password" required />
+              </label>
             </div>
           </template>
           <template x-if="loginMode === 'key'">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1" for="apiKeyInput">API key</label>
-              <input id="apiKeyInput" type="password" x-model="apiKeyInput" x-init="$nextTick(() => $el.focus())" autocomplete="off" required
-                     class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
-            </div>
+            <label class="form-field">
+              <span class="label">API key</span>
+              <input id="apiKeyInput" class="input mono" type="password" x-model="apiKeyInput" x-init="$nextTick(() => $el.focus())" autocomplete="off" required />
+            </label>
           </template>
           <template x-if="loginError">
-            <p id="login-error" class="mt-2 text-sm text-red-600" x-text="loginError"></p>
+            <p id="login-error" class="field-error" x-text="loginError"></p>
           </template>
-          <button type="submit" :disabled="loginPending"
-                  class="mt-4 w-full bg-brand-blue hover:bg-brand-blue/90 disabled:opacity-60 text-white font-medium py-2 rounded text-sm">
+          <button type="submit" :disabled="loginPending" class="button primary wide">
             <span x-show="!loginPending">Sign in</span>
             <span x-show="loginPending">Signing in…</span>
           </button>
-          <button type="button" @click="loginMode = loginMode === 'key' ? 'password' : 'key'; loginError = ''"
-                  class="mt-3 w-full text-xs text-gray-500 hover:text-gray-700"
-                  x-text="loginMode === 'key' ? 'Use username and password' : 'Use API key'"></button>
         </form>
+        <button type="button" @click="loginMode = loginMode === 'key' ? 'password' : 'key'; loginError = ''"
+                class="button link switch-mode"
+                x-text="loginMode === 'key' ? 'Use username and password' : 'Use API key'"></button>
       </div>
     </div>
   </template>
 
   <template x-if="authed">
-    <div class="flex min-h-screen">
-      <aside class="w-56 shrink-0 border-r border-gray-200 bg-white flex flex-col">
-        <div class="p-4 border-b border-gray-200">
-          <div class="font-semibold text-gray-900">siteio</div>
-          <div class="text-xs text-gray-500 mt-1 font-mono" x-text="hostname"></div>
-        </div>
-        <nav class="flex-1 p-2 space-y-1">
-          <a href="#/services" :class="navClass('services')" class="flex items-center gap-2 px-3 py-2 rounded text-sm">
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="lockup"><img src="__ICON_URI__" alt="" width="26" height="26" />siteio</div>
+        <nav class="tabs" aria-label="Main">
+          <a href="#/services" :class="navClass('services')">
             <i class="hgi hgi-stroke hgi-dashboard-square-01"></i> Services
+            <span class="count" x-show="services" x-text="services ? services.length : ''"></span>
           </a>
-          <a href="#/settings" :class="navClass('settings')" class="flex items-center gap-2 px-3 py-2 rounded text-sm">
+          <a href="#/settings" :class="navClass('settings')">
             <i class="hgi hgi-stroke hgi-settings-02"></i> Settings
           </a>
           <template x-if="canManageUsers()">
-            <a href="#/users" :class="navClass('users')" class="flex items-center gap-2 px-3 py-2 rounded text-sm">
+            <a href="#/users" :class="navClass('users')">
               <i class="hgi hgi-stroke hgi-user-group"></i> Users
             </a>
           </template>
           <template x-if="me && me.username">
-            <a href="#/account" :class="navClass('account')" class="flex items-center gap-2 px-3 py-2 rounded text-sm">
+            <a href="#/account" :class="navClass('account')">
               <i class="hgi hgi-stroke hgi-user-circle"></i> Account
             </a>
           </template>
         </nav>
-        <div class="p-2 border-t border-gray-200">
+        <div class="where">
+          <span class="host mono" x-text="hostname"></span>
           <template x-if="me && me.username">
-            <a href="#/account" class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-50">
-              <span class="w-7 h-7 shrink-0 rounded-full bg-brand-blue text-white text-xs font-semibold flex items-center justify-center uppercase" x-text="me.username.charAt(0)"></span>
-              <span class="min-w-0">
-                <span class="block text-sm font-medium text-gray-900 truncate" x-text="me.username"></span>
-                <span class="block text-xs text-gray-500 truncate">
-                  <span class="px-1 py-0.5 rounded bg-gray-100 text-gray-700" x-text="me.role"></span>
-                  <span x-show="me.tenant" x-text="me.tenant"></span>
-                </span>
+            <a href="#/account" class="me">
+              <span class="avatar" x-text="me.username.charAt(0)"></span>
+              <span class="grow">
+                <span class="name" x-text="me.username"></span>
+                <span><span x-text="me.role"></span><span x-show="me.tenant" x-text="' · ' + me.tenant"></span></span>
               </span>
             </a>
           </template>
           <template x-if="me && !me.username">
-            <div class="px-3 py-2">
-              <p class="text-sm text-gray-900" x-text="me.role === 'owner' ? 'Signed in with the tenant key' : 'Signed in with the server key'"></p>
-              <p class="text-xs text-gray-500 mt-0.5">Sign in as a user to manage your password</p>
+            <div class="me">
+              <span class="grow">
+                <span class="name" x-text="me.role === 'owner' ? 'Signed in with the tenant key' : 'Signed in with the server key'"></span>
+                <span>Sign in as a user to manage your password</span>
+              </span>
             </div>
           </template>
-          <button @click="logout()" class="w-full flex items-center gap-2 px-3 py-2 rounded text-sm text-gray-700 hover:bg-gray-50">
+          <button @click="logout()" class="button link sign-out">
             <i class="hgi hgi-stroke hgi-logout-03"></i> Logout
           </button>
         </div>
       </aside>
 
-      <main class="flex-1 overflow-auto">
-        <div class="p-6" id="main-content">
+      <main id="main" tabindex="-1">
           <!-- Services grid (unified sites + apps) -->
           <template x-if="route.view === 'services'">
             <section>
-              <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
-                <h1 class="text-xl font-semibold">Services</h1>
-                <button @click="loadServices()" :disabled="pending.has('services-list')"
-                        class="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
-                  <i class="hgi hgi-stroke hgi-refresh"></i>
-                  <span x-show="!pending.has('services-list')">Refresh</span>
-                  <span x-show="pending.has('services-list')">Loading…</span>
-                </button>
+              <div class="pane-head">
+                <div class="title"><h1>Services</h1></div>
+                <div class="tools">
+                  <button @click="loadServices()" :disabled="pending.has('services-list')" class="button">
+                    <i class="hgi hgi-stroke hgi-refresh" :class="pending.has('services-list') ? 'spinning' : ''"></i>
+                    <span x-show="!pending.has('services-list')">Refresh</span>
+                    <span x-show="pending.has('services-list')">Loading…</span>
+                  </button>
+                </div>
               </div>
 
               <!-- Filter tabs -->
-              <div class="flex items-center gap-2 mb-4">
-                <template x-for="f in [{k:'all',label:'All'},{k:'sites',label:'Sites'},{k:'apps',label:'Apps'}]" :key="f.k">
-                  <button @click="serviceFilter = f.k"
-                          :class="serviceFilter === f.k ? 'bg-brand-blue text-white border-brand-blue' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'"
-                          class="inline-flex items-center gap-1.5 px-3 py-1 text-sm rounded-full border">
-                    <span x-text="f.label"></span>
-                    <span :class="serviceFilter === f.k ? 'bg-white/20' : 'bg-gray-100 text-gray-600'"
-                          class="text-xs rounded-full px-1.5 py-0.5 font-medium" x-text="serviceCount(f.k)"></span>
-                  </button>
-                </template>
+              <div class="bar">
+                <div class="seg" aria-label="Filter">
+                  <template x-for="f in [{k:'all',label:'All'},{k:'sites',label:'Sites'},{k:'apps',label:'Apps'}]" :key="f.k">
+                    <button @click="serviceFilter = f.k" :class="serviceFilter === f.k ? 'on' : ''" :aria-pressed="serviceFilter === f.k">
+                      <span x-text="f.label"></span>
+                      <span class="n" x-text="serviceCount(f.k)"></span>
+                    </button>
+                  </template>
+                </div>
               </div>
 
               <template x-if="services === null">
-                <div class="text-sm text-gray-500">Loading services…</div>
+                <div class="loading">Loading services…</div>
               </template>
 
               <template x-if="services && filteredServices().length === 0">
-                <div class="text-sm text-gray-500 border border-dashed border-gray-200 rounded-lg p-8 text-center">
-                  Nothing here yet. Deploy a site with <code class="font-mono">siteio sites deploy</code>
-                  or create an app with <code class="font-mono">siteio apps create</code>.
+                <div class="empty-state">
+                  Nothing here yet. Deploy a site with <code>siteio sites deploy</code>
+                  or create an app with <code>siteio apps create</code>.
                 </div>
               </template>
 
               <template x-if="services && filteredServices().length > 0">
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                <div class="svc-grid">
                   <template x-for="item in filteredServices()" :key="item.kind + ':' + item.name">
-                    <a :href="serviceHref(item)"
-                       :data-service-name="item.name"
-                       class="group block bg-white border border-gray-200 rounded-lg overflow-hidden hover:border-brand-blue hover:shadow-sm transition">
+                    <a :href="serviceHref(item)" :data-service-name="item.name" class="svc-card">
                       <!-- Card preview: generated thumbnail when available, else a placeholder -->
-                      <div class="aspect-[16/9] bg-gradient-to-br from-gray-50 to-gray-200 flex flex-col items-center justify-center text-gray-400 relative overflow-hidden">
+                      <div class="preview">
                         <template x-if="thumbs[item.kind + ':' + item.name]">
-                          <img :src="thumbs[item.kind + ':' + item.name]" alt=""
-                               class="absolute inset-0 w-full h-full object-cover object-top" />
+                          <img :src="thumbs[item.kind + ':' + item.name]" alt="" />
                         </template>
                         <template x-if="!thumbs[item.kind + ':' + item.name]">
-                          <div class="flex flex-col items-center justify-center">
-                            <i :class="item.kind === 'site' ? 'hgi-stroke hgi-globe' : 'hgi-stroke hgi-package'" class="hgi text-3xl"></i>
-                            <span class="text-[11px] mt-1 uppercase tracking-wide">No preview</span>
+                          <div class="preview-none">
+                            <i :class="item.kind === 'site' ? 'hgi-stroke hgi-globe' : 'hgi-stroke hgi-package'" class="hgi"></i>
+                            <div class="none">No preview</div>
                           </div>
                         </template>
                         <!-- Regenerate the preview without following the card link -->
                         <button @click.stop.prevent="refreshThumbnail(item)"
                                 :disabled="pending.has('thumb:' + item.kind + ':' + item.name)"
-                                :title="'Refresh preview'"
-                                class="absolute top-2 left-2 inline-flex items-center justify-center w-7 h-7 rounded bg-white/80 text-gray-500 hover:text-brand-blue hover:bg-white shadow-sm disabled:opacity-50">
+                                :title="'Refresh preview'" class="over left">
                           <i class="hgi hgi-stroke hgi-refresh"
-                             :class="pending.has('thumb:' + item.kind + ':' + item.name) ? 'animate-spin' : ''"></i>
+                             :class="pending.has('thumb:' + item.kind + ':' + item.name) ? 'spinning' : ''"></i>
                         </button>
                         <!-- Open the live URL in a new tab without triggering the card's link to detail -->
                         <button @click.stop.prevent="window.open(item.url, '_blank', 'noopener')"
-                                :title="'Open ' + servicePrimaryDomain(item)"
-                                class="absolute top-2 right-2 inline-flex items-center justify-center w-7 h-7 rounded bg-white/80 text-gray-500 hover:text-brand-blue hover:bg-white shadow-sm">
+                                :title="'Open ' + servicePrimaryDomain(item)" class="over right">
                           <i class="hgi hgi-stroke hgi-link-square-02"></i>
                         </button>
                       </div>
                       <!-- Body -->
-                      <div class="p-3">
-                        <div class="flex items-center justify-between gap-2 mb-1.5">
-                          <span :class="item.kind === 'site' ? 'bg-blue-50 text-brand-blue' : 'bg-purple-50 text-purple-700'"
-                                class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded font-medium capitalize" x-text="item.kind"></span>
-                          <span :class="statusBadgeClass(item.status)"
-                                class="inline-block px-2 py-0.5 text-xs rounded font-medium" x-text="item.status"></span>
+                      <div class="body">
+                        <div class="row">
+                          <span :class="'chip ' + item.kind" x-text="item.kind"></span>
+                          <span :class="statusBadgeClass(item.status)" x-text="item.status"></span>
                         </div>
-                        <div class="font-medium text-gray-900 truncate group-hover:text-brand-blue" x-text="servicePrimaryDomain(item)" :title="servicePrimaryDomain(item)"></div>
-                        <div class="text-xs text-gray-500 font-mono truncate" x-text="item.name"></div>
-                        <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
-                          <span x-text="serviceMeta(item)"></span>
-                          <span class="uppercase" x-text="item.tls ? ('tls: ' + item.tls) : ''"></span>
-                        </div>
-                        <template x-if="serviceUpdated(item)">
-                          <div class="mt-1 flex items-center gap-1 text-xs text-gray-400" :title="formatAbsoluteTime(item.deployedAt)">
-                            <i class="hgi hgi-stroke hgi-clock-01 text-[11px]"></i>
-                            <span x-text="serviceUpdated(item)"></span>
+                        <span class="domain" x-text="servicePrimaryDomain(item)" :title="servicePrimaryDomain(item)"></span>
+                        <span class="name" x-text="item.name"></span>
+                        <div class="meta">
+                          <div class="row">
+                            <span x-text="serviceMeta(item)"></span>
+                            <span class="tls" x-text="item.tls ? ('tls: ' + item.tls) : ''"></span>
                           </div>
-                        </template>
+                          <template x-if="serviceUpdated(item)">
+                            <div class="row updated" :title="formatAbsoluteTime(item.deployedAt)">
+                              <span class="updated"><i class="hgi hgi-stroke hgi-clock-01"></i><span x-text="serviceUpdated(item)"></span></span>
+                            </div>
+                          </template>
+                        </div>
                       </div>
                     </a>
                   </template>
@@ -250,72 +202,68 @@
 
           <!-- Account: own password and devices -->
           <template x-if="route.view === 'account'">
-            <section class="max-w-2xl space-y-6">
-              <div class="flex items-center gap-3">
-                <h1 class="text-xl font-semibold">Account</h1>
-                <template x-if="me && me.username">
-                  <div class="flex items-center gap-2 text-sm">
-                    <span class="font-medium" x-text="me.username"></span>
-                    <span class="px-1.5 py-0.5 rounded bg-gray-100 text-xs text-gray-700" x-text="me.role"></span>
-                  </div>
-                </template>
+            <section>
+              <div class="pane-head">
+                <div class="title">
+                  <h1>Account</h1>
+                  <template x-if="me && me.username">
+                    <span class="muted"><span x-text="me.username"></span> <span class="chip" x-text="me.role"></span></span>
+                  </template>
+                </div>
               </div>
-              <div class="bg-white rounded-lg border border-gray-200 p-4">
-                <h2 class="font-medium mb-3">Change password</h2>
-                <form @submit.prevent="changePassword()" class="space-y-3">
-                  <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1" for="pwCurrent">Current password</label>
-                    <input id="pwCurrent" type="password" x-model="pwCurrent" autocomplete="current-password" required
-                           class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
-                  </div>
-                  <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1" for="pwNew">New password</label>
-                    <input id="pwNew" type="password" x-model="pwNew" autocomplete="new-password" minlength="8" required
-                           class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
-                    <p class="text-xs text-gray-500 mt-1">8 characters or more.</p>
-                  </div>
-                  <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1" for="pwConfirm">Confirm new password</label>
-                    <input id="pwConfirm" type="password" x-model="pwConfirm" autocomplete="new-password" minlength="8" required
-                           class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
-                  </div>
-                  <template x-if="pwError"><p class="text-sm text-red-600" x-text="pwError"></p></template>
-                  <button type="submit" :disabled="pwPending" class="px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 disabled:opacity-60 text-white rounded">Change password</button>
+              <div class="readable">
+                <h2>Change password</h2>
+                <form @submit.prevent="changePassword()" class="card pad section">
+                  <label class="form-field">
+                    <span class="label">Current password</span>
+                    <input id="pwCurrent" class="input" type="password" x-model="pwCurrent" autocomplete="current-password" required />
+                  </label>
+                  <label class="form-field">
+                    <span class="label">New password</span>
+                    <input id="pwNew" class="input" type="password" x-model="pwNew" autocomplete="new-password" minlength="8" required />
+                    <span class="help">8 characters or more.</span>
+                  </label>
+                  <label class="form-field">
+                    <span class="label">Confirm new password</span>
+                    <input id="pwConfirm" class="input" type="password" x-model="pwConfirm" autocomplete="new-password" minlength="8" required />
+                  </label>
+                  <template x-if="pwError"><p class="field-error" x-text="pwError"></p></template>
+                  <button type="submit" :disabled="pwPending" class="button primary">Change password</button>
                 </form>
-              </div>
-              <div class="bg-white rounded-lg border border-gray-200 p-4">
-                <h2 class="font-medium mb-3">Signed-in devices</h2>
-                <template x-if="myKeys === null"><p class="text-sm text-gray-500">Loading…</p></template>
-                <template x-if="myKeys && myKeys.length === 0"><p class="text-sm text-gray-500">No signed-in devices.</p></template>
+
+                <h2>Signed-in devices</h2>
+                <template x-if="myKeys === null"><p class="loading">Loading…</p></template>
+                <template x-if="myKeys && myKeys.length === 0"><p class="empty-state">No signed-in devices.</p></template>
                 <template x-if="myKeys && myKeys.length > 0">
-                  <table class="w-full text-sm">
-                    <thead>
-                      <tr class="text-left text-xs text-gray-500">
-                        <th class="font-medium pb-2">Name</th>
-                        <th class="font-medium pb-2">Type</th>
-                        <th class="font-medium pb-2">Created</th>
-                        <th class="font-medium pb-2">Expires</th>
-                        <th class="pb-2"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="k in myKeys" :key="k.id">
-                        <tr class="border-t border-gray-100">
-                          <td class="py-2">
-                            <span class="font-medium" x-text="k.name"></span>
-                            <span class="ml-1 px-1.5 py-0.5 rounded bg-blue-50 text-xs text-brand-blue" x-show="me && k.id === me.currentKeyId">This browser</span>
-                          </td>
-                          <td class="py-2 text-gray-600" x-text="keyKindLabel(k)"></td>
-                          <td class="py-2 text-gray-600" x-text="shortDate(k.createdAt)"></td>
-                          <td class="py-2 text-gray-600" x-text="k.kind === 'session' ? shortDate(k.expiresAt) : ''"></td>
-                          <td class="py-2 text-right">
-                            <button @click="revokeMyKey(k.id)" x-show="!me || k.id !== me.currentKeyId"
-                                    class="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50">Revoke</button>
-                          </td>
+                  <div class="table-box">
+                    <table class="grid">
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Type</th>
+                          <th>Created</th>
+                          <th>Expires</th>
+                          <th></th>
                         </tr>
-                      </template>
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        <template x-for="k in myKeys" :key="k.id">
+                          <tr>
+                            <td>
+                              <b x-text="k.name"></b>
+                              <span class="chip accent" x-show="me && k.id === me.currentKeyId">This browser</span>
+                            </td>
+                            <td class="muted" x-text="keyKindLabel(k)"></td>
+                            <td class="muted" x-text="shortDate(k.createdAt)"></td>
+                            <td class="muted" x-text="k.kind === 'session' ? shortDate(k.expiresAt) : ''"></td>
+                            <td class="end">
+                              <button @click="revokeMyKey(k.id)" x-show="!me || k.id !== me.currentKeyId" class="button small danger">Revoke</button>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
                 </template>
               </div>
             </section>
@@ -323,134 +271,131 @@
 
           <!-- Users (admin and tenant owners) -->
           <template x-if="route.view === 'users'">
-            <section class="max-w-3xl space-y-6">
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <h1 class="text-xl font-semibold">Users</h1>
-                  <p class="text-sm text-gray-500 mt-1">People who can sign in to this server's admin UI and CLI.</p>
+            <section>
+              <div class="pane-head">
+                <div class="title"><h1>Users</h1></div>
+                <div class="tools">
+                  <template x-if="!usersForbidden">
+                    <button @click="toggleAddUser()" class="button primary">
+                      <i class="hgi hgi-stroke hgi-add-01"></i> Add user
+                    </button>
+                  </template>
                 </div>
-                <template x-if="!usersForbidden">
-                  <button @click="toggleAddUser()" class="inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 text-white rounded shrink-0">
-                    <i class="hgi hgi-stroke hgi-add-01"></i> Add user
-                  </button>
-                </template>
               </div>
+              <div class="readable">
+                <p class="lede">People who can sign in to this server's admin UI and CLI.</p>
 
-              <template x-if="showAddUser && !usersForbidden">
-                <div class="bg-white rounded-lg border border-gray-200 p-4">
-                  <h2 class="font-medium mb-3">Add user</h2>
-                  <form @submit.prevent="addUser()" class="space-y-3">
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-1" for="newUsername">Username</label>
-                      <input id="newUsername" x-model="newUser.username" required autocomplete="off" data-1p-ignore data-lpignore="true" autocapitalize="none"
-                             class="w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
-                      <p class="text-xs text-gray-500 mt-1">lowercase letters, numbers and hyphens</p>
-                    </div>
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-1" for="newRole">Role</label>
-                      <select id="newRole" x-model="newUser.role" @change="onNewUserRoleChange()" :disabled="!isAdmin()"
-                              class="w-full px-3 py-2 border border-gray-200 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500">
-                        <option value="member">member</option>
-                        <template x-if="isAdmin()"><option value="owner">owner</option></template>
-                        <template x-if="isAdmin()"><option value="admin">admin</option></template>
-                      </select>
-                    </div>
-                    <template x-if="isAdmin()">
-                      <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1" for="newScope">Scope</label>
-                        <select id="newScope" x-model="newUser.tenant" :disabled="newUser.role === 'admin'"
-                                class="w-full px-3 py-2 border border-gray-200 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500">
-                          <option value="" :disabled="newUser.role === 'owner'" x-text="'Main domain (' + (agentInfo ? agentInfo.domain : '…') + ')'"></option>
-                          <template x-for="t in tenantList()" :key="t">
-                            <option :value="t" x-text="t"></option>
-                          </template>
+                <template x-if="showAddUser && !usersForbidden">
+                  <div class="section">
+                    <h2>Add user</h2>
+                    <form @submit.prevent="addUser()" class="card pad">
+                      <label class="form-field">
+                        <span class="label">Username</span>
+                        <input id="newUsername" class="input" x-model="newUser.username" required autocomplete="off" data-1p-ignore data-lpignore="true" autocapitalize="none" />
+                        <span class="help">lowercase letters, numbers and hyphens</span>
+                      </label>
+                      <label class="form-field">
+                        <span class="label">Role</span>
+                        <select id="newRole" class="input" x-model="newUser.role" @change="onNewUserRoleChange()" :disabled="!isAdmin()">
+                          <option value="member">member</option>
+                          <template x-if="isAdmin()"><option value="owner">owner</option></template>
+                          <template x-if="isAdmin()"><option value="admin">admin</option></template>
                         </select>
+                      </label>
+                      <template x-if="isAdmin()">
+                        <label class="form-field">
+                          <span class="label">Scope</span>
+                          <select id="newScope" class="input" x-model="newUser.tenant" :disabled="newUser.role === 'admin'">
+                            <option value="" :disabled="newUser.role === 'owner'" x-text="'Main domain (' + (agentInfo ? agentInfo.domain : '…') + ')'"></option>
+                            <template x-for="t in tenantList()" :key="t">
+                              <option :value="t" x-text="t"></option>
+                            </template>
+                          </select>
+                        </label>
+                      </template>
+                      <fieldset class="plain">
+                        <legend class="label">Password</legend>
+                        <label class="check">
+                          <input type="radio" value="generate" x-model="newUser.passwordMode" /> Generate a password
+                        </label>
+                        <label class="check">
+                          <input type="radio" value="set" x-model="newUser.passwordMode" /> Set a password
+                        </label>
+                        <template x-if="newUser.passwordMode === 'set'">
+                          <input type="password" class="input" x-model="newUser.password" autocomplete="new-password" minlength="8" aria-label="Password" placeholder="At least 8 characters" />
+                        </template>
+                      </fieldset>
+                      <template x-if="ownerWithoutTenant()"><p class="field-error">Add a tenant first (siteio agent tenant add &lt;domain&gt;)</p></template>
+                      <template x-if="addUserError"><p class="field-error" x-text="addUserError"></p></template>
+                      <div class="actions">
+                        <button type="submit" :disabled="addUserPending || ownerWithoutTenant()" class="button primary">Create user</button>
+                        <button type="button" @click="showAddUser = false" class="button">Cancel</button>
                       </div>
-                    </template>
-                    <fieldset>
-                      <legend class="block text-sm font-medium text-gray-700 mb-1">Password</legend>
-                      <label class="flex items-center gap-2 text-sm">
-                        <input type="radio" value="generate" x-model="newUser.passwordMode" /> Generate a password
-                      </label>
-                      <label class="flex items-center gap-2 text-sm mt-1">
-                        <input type="radio" value="set" x-model="newUser.passwordMode" /> Set a password
-                      </label>
-                      <template x-if="newUser.passwordMode === 'set'">
-                        <input type="password" x-model="newUser.password" autocomplete="new-password" minlength="8" aria-label="Password" placeholder="At least 8 characters"
-                               class="mt-2 w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
-                      </template>
-                    </fieldset>
-                    <template x-if="ownerWithoutTenant()"><p class="text-sm text-red-600">Add a tenant first (siteio agent tenant add &lt;domain&gt;)</p></template>
-                    <template x-if="addUserError"><p class="text-sm text-red-600" x-text="addUserError"></p></template>
-                    <div class="flex gap-2">
-                      <button type="submit" :disabled="addUserPending || ownerWithoutTenant()" class="px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 disabled:opacity-60 text-white rounded">Create user</button>
-                      <button type="button" @click="showAddUser = false" class="px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50">Cancel</button>
-                    </div>
-                  </form>
-                </div>
-              </template>
+                    </form>
+                  </div>
+                </template>
 
-              <div class="bg-white rounded-lg border border-gray-200 p-4">
-                <template x-if="users === null"><p class="text-sm text-gray-500">Loading…</p></template>
-                <template x-if="usersForbidden"><p class="text-sm text-gray-500">You don't have access to user management.</p></template>
-                <template x-if="users && users.length === 0 && !usersForbidden"><p class="text-sm text-gray-500">No users yet.</p></template>
+                <template x-if="users === null"><p class="loading">Loading…</p></template>
+                <template x-if="usersForbidden"><p class="empty-state">You don't have access to user management.</p></template>
+                <template x-if="users && users.length === 0 && !usersForbidden"><p class="empty-state">No users yet.</p></template>
                 <template x-if="users && users.length > 0">
-                  <table class="w-full text-sm">
-                    <thead>
-                      <tr class="text-left text-xs text-gray-500">
-                        <th class="font-medium pb-2">Username</th>
-                        <th class="font-medium pb-2">Role</th>
-                        <th class="font-medium pb-2">Scope</th>
-                        <th class="font-medium pb-2">Created</th>
-                        <th class="pb-2"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="u in users" :key="u.username">
-                        <tr class="border-t border-gray-100 align-top">
-                          <td class="py-2">
-                            <span class="font-medium" x-text="u.username"></span>
-                            <span class="text-gray-500" x-show="me && u.username === me.username">(you)</span>
-                          </td>
-                          <td class="py-2"><span class="px-1.5 py-0.5 rounded bg-gray-100 text-xs text-gray-700" x-text="u.role"></span></td>
-                          <td class="py-2 text-gray-600" x-text="u.tenant || 'Main domain'"></td>
-                          <td class="py-2 text-gray-600" x-text="shortDate(u.createdAt)"></td>
-                          <td class="py-2 text-right">
-                            <template x-if="me && u.username === me.username">
-                              <a href="#/account" class="text-xs text-brand-blue hover:underline">Change on Account page</a>
-                            </template>
-                            <template x-if="!me || u.username !== me.username">
-                              <div>
-                                <div class="flex gap-2 justify-end">
-                                  <button @click="openReset(u.username)" class="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50">Set password</button>
-                                  <button x-show="u.username !== 'admin'" @click="deleteUser(u.username)" class="px-2 py-1 text-xs border border-red-200 text-red-700 rounded hover:bg-red-50">Remove</button>
-                                </div>
-                                <template x-if="resetFor === u.username">
-                                  <form @submit.prevent="resetUserPassword(u.username)" class="mt-2 p-3 bg-gray-50 border border-gray-200 rounded text-left space-y-2">
-                                    <label class="flex items-center gap-2 text-sm">
-                                      <input type="radio" value="generate" x-model="reset.mode" /> Generate a password
-                                    </label>
-                                    <label class="flex items-center gap-2 text-sm">
-                                      <input type="radio" value="set" x-model="reset.mode" /> Set a password
-                                    </label>
-                                    <template x-if="reset.mode === 'set'">
-                                      <input type="password" x-model="reset.password" autocomplete="new-password" minlength="8" aria-label="New password" placeholder="At least 8 characters"
-                                             class="w-full px-3 py-2 border border-gray-200 rounded text-sm bg-white" />
-                                    </template>
-                                    <template x-if="reset.error"><p class="text-sm text-red-600" x-text="reset.error"></p></template>
-                                    <div class="flex gap-2">
-                                      <button type="submit" :disabled="reset.pending" class="px-3 py-1.5 text-xs bg-brand-blue text-white rounded disabled:opacity-60">Save</button>
-                                      <button type="button" @click="resetFor = null" class="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-white">Cancel</button>
-                                    </div>
-                                  </form>
-                                </template>
-                              </div>
-                            </template>
-                          </td>
+                  <div class="table-box">
+                    <table class="grid">
+                      <thead>
+                        <tr>
+                          <th>Username</th>
+                          <th>Role</th>
+                          <th>Scope</th>
+                          <th>Created</th>
+                          <th></th>
                         </tr>
-                      </template>
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        <template x-for="u in users" :key="u.username">
+                          <tr class="top">
+                            <td>
+                              <b x-text="u.username"></b>
+                              <span class="muted" x-show="me && u.username === me.username">(you)</span>
+                            </td>
+                            <td><span class="chip" x-text="u.role"></span></td>
+                            <td class="muted" x-text="u.tenant || 'Main domain'"></td>
+                            <td class="muted" x-text="shortDate(u.createdAt)"></td>
+                            <td class="end">
+                              <template x-if="me && u.username === me.username">
+                                <a href="#/account" class="small">Change on Account page</a>
+                              </template>
+                              <template x-if="!me || u.username !== me.username">
+                                <div>
+                                  <div class="right">
+                                    <button @click="openReset(u.username)" class="button small">Set password</button>
+                                    <button x-show="u.username !== 'admin'" @click="deleteUser(u.username)" class="button small danger">Remove</button>
+                                  </div>
+                                  <template x-if="resetFor === u.username">
+                                    <form @submit.prevent="resetUserPassword(u.username)" class="inline-form">
+                                      <label class="check">
+                                        <input type="radio" value="generate" x-model="reset.mode" /> Generate a password
+                                      </label>
+                                      <label class="check">
+                                        <input type="radio" value="set" x-model="reset.mode" /> Set a password
+                                      </label>
+                                      <template x-if="reset.mode === 'set'">
+                                        <input type="password" class="input" x-model="reset.password" autocomplete="new-password" minlength="8" aria-label="New password" placeholder="At least 8 characters" />
+                                      </template>
+                                      <template x-if="reset.error"><p class="field-error" x-text="reset.error"></p></template>
+                                      <div class="actions">
+                                        <button type="submit" :disabled="reset.pending" class="button small primary">Save</button>
+                                        <button type="button" @click="resetFor = null" class="button small">Cancel</button>
+                                      </div>
+                                    </form>
+                                  </template>
+                                </div>
+                              </template>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
                 </template>
               </div>
             </section>
@@ -459,44 +404,39 @@
           <!-- Settings (read-only agent info) -->
           <template x-if="route.view === 'settings'">
             <section>
-              <div class="flex items-center justify-between mb-4">
-                <h1 class="text-xl font-semibold">Agent settings</h1>
-                <button @click="loadAgentInfo()" :disabled="pending.has('agent-info')"
-                        class="inline-flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
-                  <i class="hgi hgi-stroke hgi-refresh"></i> Refresh
-                </button>
+              <div class="pane-head">
+                <div class="title"><h1>Agent settings</h1></div>
+                <div class="tools">
+                  <button @click="loadAgentInfo()" :disabled="pending.has('agent-info')" class="button">
+                    <i class="hgi hgi-stroke hgi-refresh"></i> Refresh
+                  </button>
+                </div>
               </div>
 
               <template x-if="agentInfo === null">
-                <div class="text-sm text-gray-500">Loading settings…</div>
+                <div class="loading">Loading settings…</div>
               </template>
 
               <template x-if="agentInfo">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-3xl">
-                  <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                    <div class="text-xs uppercase text-gray-500 mb-2">Server</div>
-                    <div class="text-sm space-y-1">
-                      <div><span class="text-gray-500">Domain:</span> <span class="font-mono" x-text="agentInfo.domain"></span></div>
-                      <div><span class="text-gray-500">Agent version:</span> <span class="font-mono" x-text="agentInfo.version"></span></div>
-                      <div><span class="text-gray-500">Let's Encrypt email:</span> <span class="font-mono" x-text="agentInfo.email || '—'"></span></div>
-                    </div>
-                  </div>
-                  <div class="bg-white border border-gray-200 rounded p-4">
-                    <div class="text-xs uppercase text-gray-500 mb-2">Hosting</div>
-                    <div class="text-sm space-y-1">
-                      <div><span class="text-gray-500">Sites:</span> <span class="font-mono" x-text="agentInfo.siteCount"></span></div>
-                      <div><span class="text-gray-500">Apps:</span> <span class="font-mono" x-text="agentInfo.appCount"></span></div>
-                      <div><span class="text-gray-500">Apps surface:</span> <span class="font-mono" x-text="agentInfo.appsEnabled ? 'enabled' : 'disabled'"></span></div>
-                    </div>
-                  </div>
-                  <div class="bg-white border border-gray-200 rounded p-4">
-                    <div class="text-xs uppercase text-gray-500 mb-2">Runtime</div>
-                    <div class="text-sm space-y-1">
-                      <div><span class="text-gray-500">Data dir:</span> <span class="font-mono break-all" x-text="agentInfo.dataDir"></span></div>
-                      <div><span class="text-gray-500">HTTP / HTTPS:</span> <span class="font-mono" x-text="agentInfo.httpPort + ' / ' + agentInfo.httpsPort"></span></div>
-                      <div><span class="text-gray-500">Max upload:</span> <span class="font-mono" x-text="formatBytes(agentInfo.maxUploadSize)"></span></div>
-                    </div>
-                  </div>
+                <div class="readable">
+                  <h2>Server</h2>
+                  <ul class="kv">
+                    <li><span class="label">Domain</span><span class="value mono" x-text="agentInfo.domain"></span></li>
+                    <li><span class="label">Agent version</span><span class="value mono" x-text="agentInfo.version"></span></li>
+                    <li><span class="label">Let's Encrypt email</span><span class="value mono" x-text="agentInfo.email || '—'"></span></li>
+                  </ul>
+                  <h2>Hosting</h2>
+                  <ul class="kv">
+                    <li><span class="label">Sites</span><span class="value mono" x-text="agentInfo.siteCount"></span></li>
+                    <li><span class="label">Apps</span><span class="value mono" x-text="agentInfo.appCount"></span></li>
+                    <li><span class="label">Apps surface</span><span class="value mono" x-text="agentInfo.appsEnabled ? 'enabled' : 'disabled'"></span></li>
+                  </ul>
+                  <h2>Runtime</h2>
+                  <ul class="kv">
+                    <li><span class="label">Data dir</span><span class="value mono" x-text="agentInfo.dataDir"></span></li>
+                    <li><span class="label">HTTP / HTTPS</span><span class="value mono" x-text="agentInfo.httpPort + ' / ' + agentInfo.httpsPort"></span></li>
+                    <li><span class="label">Max upload</span><span class="value mono" x-text="formatBytes(agentInfo.maxUploadSize)"></span></li>
+                  </ul>
                 </div>
               </template>
             </section>
@@ -505,175 +445,167 @@
           <!-- App detail -->
           <template x-if="route.view === 'apps' && route.param">
             <section>
-              <div class="flex items-center gap-3 mb-4 flex-wrap">
-                <a href="#/services" class="text-sm text-gray-500 hover:text-gray-700">← Services</a>
-                <h1 class="text-xl font-semibold" x-text="route.param"></h1>
-                <template x-if="selectedApp && selectedApp !== 'not-found'">
-                  <span :class="statusBadgeClass(selectedApp.status)" class="inline-block px-2 py-0.5 text-xs rounded font-medium" x-text="selectedApp.status"></span>
-                </template>
-                <div class="ml-auto flex items-center gap-2" x-show="selectedApp && selectedApp !== 'not-found'">
-                  <a :href="selectedApp?.url" target="_blank" rel="noreferrer"
-                     class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-gray-200 hover:bg-gray-50">
+              <div class="pane-head">
+                <div class="title">
+                  <a href="#/services" class="back"><i class="hgi hgi-stroke hgi-arrow-left-01"></i>Services</a>
+                  <h1 x-text="route.param"></h1>
+                  <template x-if="selectedApp && selectedApp !== 'not-found'">
+                    <span :class="statusBadgeClass(selectedApp.status)" x-text="selectedApp.status"></span>
+                  </template>
+                </div>
+                <div class="tools" x-show="selectedApp && selectedApp !== 'not-found'">
+                  <a :href="selectedApp?.url" target="_blank" rel="noreferrer" class="button">
                     <i class="hgi hgi-stroke hgi-link-square-02"></i> Open ↗
                   </a>
-                  <button
-                    :disabled="anyAppActionPending()"
-                    @click="deployApp(route.param)"
-                    class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-brand-blue text-brand-blue hover:bg-brand-blue/5 disabled:opacity-60">
+                  <button :disabled="anyAppActionPending()" @click="deployApp(route.param)" class="button primary">
                     <i class="hgi hgi-stroke hgi-rocket"></i>
                     <span x-show="!pending.has('deploy')">Deploy</span>
                     <span x-show="pending.has('deploy')">Deploying…</span>
                   </button>
-                  <button
-                    :disabled="anyAppActionPending()"
-                    @click="stopApp(route.param)"
-                    class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-60">
+                  <button :disabled="anyAppActionPending()" @click="stopApp(route.param)" class="button">
                     <i class="hgi hgi-stroke hgi-stop-circle"></i> Stop
                   </button>
-                  <button
-                    :disabled="anyAppActionPending()"
-                    @click="restartApp(route.param)"
-                    class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-60">
+                  <button :disabled="anyAppActionPending()" @click="restartApp(route.param)" class="button">
                     <i class="hgi hgi-stroke hgi-reload"></i> Restart
                   </button>
-                  <button
-                    :disabled="anyAppActionPending()"
-                    @click="removeApp(route.param)"
-                    class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60">
+                  <button :disabled="anyAppActionPending()" @click="removeApp(route.param)" class="button danger">
                     <i class="hgi hgi-stroke hgi-delete-02"></i> Remove
                   </button>
                 </div>
               </div>
 
               <template x-if="selectedApp === null">
-                <div class="text-sm text-gray-500">Loading…</div>
+                <div class="loading">Loading…</div>
               </template>
 
               <template x-if="selectedApp === 'not-found'">
-                <div class="text-sm text-gray-500">
+                <div class="empty-state">
                   App not found — it may have been removed.
-                  <a href="#/services" class="text-brand-blue hover:underline ml-1">Back to services</a>.
+                  <a href="#/services">Back to services</a>.
                 </div>
               </template>
 
               <template x-if="selectedApp && selectedApp !== 'not-found'">
-                <div class="space-y-4">
+                <div>
                   <!-- Sub-tabs -->
-                  <div class="border-b border-gray-200 flex gap-4">
-                    <button @click="window.location.hash = '#/apps/' + route.param + '/overview'"
-                            :class="(route.subtab === 'overview' || !route.subtab) ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                            class="border-b-2 pb-2 text-sm">
-                      Overview
-                    </button>
-                    <button @click="window.location.hash = '#/apps/' + route.param + '/logs'"
-                            :class="route.subtab === 'logs' ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                            class="border-b-2 pb-2 text-sm">
-                      Logs
-                    </button>
+                  <div class="bar">
+                    <div class="seg">
+                      <button @click="window.location.hash = '#/apps/' + route.param + '/overview'"
+                              :class="(route.subtab === 'overview' || !route.subtab) ? 'on' : ''">
+                        Overview
+                      </button>
+                      <button @click="window.location.hash = '#/apps/' + route.param + '/logs'"
+                              :class="route.subtab === 'logs' ? 'on' : ''">
+                        Logs
+                      </button>
+                    </div>
                   </div>
 
                   <!-- Overview pane -->
                   <template x-if="!route.subtab || route.subtab === 'overview'">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div class="bg-white border border-gray-200 rounded p-4">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Source</div>
-                        <div class="text-sm font-mono break-all">
+                    <div class="grid-2">
+                      <div>
+                        <h2>Source</h2>
+                        <ul class="kv">
                           <template x-if="selectedApp.compose">
-                            <div>
-                              compose (<span x-text="selectedApp.compose.source"></span>) · primary: <span x-text="selectedApp.compose.primaryService"></span>
-                              <template x-if="selectedApp.compose.path"><div class="text-gray-600" x-text="'path: ' + selectedApp.compose.path"></div></template>
-                            </div>
+                            <li><span class="label">Compose</span>
+                              <span class="value mono">
+                                <span x-text="selectedApp.compose.source"></span> · primary: <span x-text="selectedApp.compose.primaryService"></span>
+                                <template x-if="selectedApp.compose.path"><span class="block muted" x-text="'path: ' + selectedApp.compose.path"></span></template>
+                              </span>
+                            </li>
                           </template>
                           <template x-if="selectedApp.git && !selectedApp.compose">
-                            <div>
-                              <div x-text="selectedApp.git.repoUrl"></div>
-                              <div class="text-gray-600" x-text="'branch: ' + selectedApp.git.branch + ' · dockerfile: ' + selectedApp.git.dockerfile"></div>
-                              <template x-if="selectedApp.git.context"><div class="text-gray-600" x-text="'context: ' + selectedApp.git.context"></div></template>
-                              <template x-if="selectedApp.git.tokenSet"><div class="text-gray-600">token: *** (stored)</div></template>
-                            </div>
+                            <li><span class="label">Git</span>
+                              <span class="value mono">
+                                <span class="block" x-text="selectedApp.git.repoUrl"></span>
+                                <span class="block muted" x-text="'branch: ' + selectedApp.git.branch + ' · dockerfile: ' + selectedApp.git.dockerfile"></span>
+                                <template x-if="selectedApp.git.context"><span class="block muted" x-text="'context: ' + selectedApp.git.context"></span></template>
+                                <template x-if="selectedApp.git.tokenSet"><span class="block muted">token: *** (stored)</span></template>
+                              </span>
+                            </li>
                           </template>
                           <template x-if="selectedApp.dockerfile && !selectedApp.git">
-                            <div>inline dockerfile</div>
+                            <li><span class="label">Dockerfile</span><span class="value mono">inline dockerfile</span></li>
                           </template>
                           <template x-if="!selectedApp.compose && !selectedApp.git && !selectedApp.dockerfile">
-                            <div x-text="selectedApp.image"></div>
+                            <li><span class="label">Image</span><span class="value mono" x-text="selectedApp.image"></span></li>
                           </template>
-                        </div>
+                        </ul>
                       </div>
 
-                      <div class="bg-white border border-gray-200 rounded p-4">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Routing</div>
-                        <div class="text-sm">
-                          <div><span class="text-gray-500">Internal port:</span> <span class="font-mono" x-text="selectedApp.internalPort"></span></div>
-                          <div class="flex flex-wrap items-baseline gap-x-2">
-                            <span class="text-gray-500">Domains:</span>
-                            <template x-if="(selectedApp.domains || []).length === 0"><span class="font-mono">—</span></template>
-                            <template x-for="d in (selectedApp.domains || [])" :key="d">
-                              <a :href="'https://' + d" target="_blank" rel="noreferrer" class="font-mono text-brand-blue hover:underline" x-text="d"></a>
-                            </template>
-                          </div>
-                          <div><span class="text-gray-500">Restart policy:</span> <span class="font-mono" x-text="selectedApp.restartPolicy || 'unless-stopped'"></span></div>
-                        </div>
+                      <div>
+                        <h2>Routing</h2>
+                        <ul class="kv">
+                          <li><span class="label">Internal port</span><span class="value mono" x-text="selectedApp.internalPort"></span></li>
+                          <li><span class="label">Domains</span>
+                            <span class="value links mono">
+                              <template x-if="(selectedApp.domains || []).length === 0"><span>—</span></template>
+                              <template x-for="d in (selectedApp.domains || [])" :key="d">
+                                <a :href="'https://' + d" target="_blank" rel="noreferrer" x-text="d"></a>
+                              </template>
+                            </span>
+                          </li>
+                          <li><span class="label">Restart policy</span><span class="value mono" x-text="selectedApp.restartPolicy || 'unless-stopped'"></span></li>
+                        </ul>
                       </div>
 
-                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Environment</div>
+                      <div class="span">
+                        <h2>Environment</h2>
                         <template x-if="Object.keys(selectedApp.env || {}).length === 0">
-                          <div class="text-sm text-gray-500">No env vars set.</div>
+                          <ul class="kv"><li><span class="empty">No env vars set.</span></li></ul>
                         </template>
                         <template x-if="Object.keys(selectedApp.env || {}).length > 0">
-                          <ul class="text-sm font-mono space-y-1">
+                          <ul class="kv env">
                             <template x-for="k in Object.keys(selectedApp.env).sort()" :key="k">
-                              <li class="grid grid-cols-[max-content_1fr] gap-x-4">
-                                <span class="text-gray-700" x-text="k"></span>
-                                <span class="text-gray-900 break-all" x-text="selectedApp.env[k]"></span>
+                              <li>
+                                <span class="label" x-text="k"></span>
+                                <span class="value mono" x-text="selectedApp.env[k]"></span>
                               </li>
                             </template>
                           </ul>
                         </template>
                       </div>
 
-                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Volumes</div>
+                      <div class="span">
+                        <h2>Volumes</h2>
                         <template x-if="(selectedApp.volumes || []).length === 0">
-                          <div class="text-sm text-gray-500">No volumes.</div>
+                          <ul class="kv"><li><span class="empty">No volumes.</span></li></ul>
                         </template>
                         <template x-if="(selectedApp.volumes || []).length > 0">
-                          <ul class="text-sm font-mono space-y-1">
+                          <ul class="kv">
                             <template x-for="v in selectedApp.volumes" :key="v.name + ':' + v.mountPath">
-                              <li x-text="v.name + ' → ' + v.mountPath + (v.readonly ? ' (ro)' : '')"></li>
+                              <li class="mono" x-text="v.name + ' → ' + v.mountPath + (v.readonly ? ' (ro)' : '')"></li>
                             </template>
                           </ul>
                         </template>
                       </div>
 
-
-                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Build / deploy state</div>
-                        <div class="text-sm font-mono space-y-1">
-                          <div><span class="text-gray-500">Created:</span> <span x-text="selectedApp.createdAt || '—'"></span></div>
-                          <div><span class="text-gray-500">Deployed:</span> <span x-text="selectedApp.deployedAt || '—'"></span></div>
-                          <template x-if="selectedApp.commitHash"><div><span class="text-gray-500">Commit:</span> <span x-text="selectedApp.commitHash"></span></div></template>
-                          <template x-if="selectedApp.lastBuildAt"><div><span class="text-gray-500">Last build:</span> <span x-text="selectedApp.lastBuildAt"></span></div></template>
-                          <template x-if="selectedApp.containerId"><div><span class="text-gray-500">Container:</span> <span x-text="selectedApp.containerId.substring(0, 12)"></span></div></template>
-                        </div>
+                      <div class="span">
+                        <h2>Build / deploy state</h2>
+                        <ul class="kv">
+                          <li><span class="label">Created</span><span class="value mono" x-text="selectedApp.createdAt || '—'"></span></li>
+                          <li><span class="label">Deployed</span><span class="value mono" x-text="selectedApp.deployedAt || '—'"></span></li>
+                          <template x-if="selectedApp.commitHash"><li><span class="label">Commit</span><span class="value mono" x-text="selectedApp.commitHash"></span></li></template>
+                          <template x-if="selectedApp.lastBuildAt"><li><span class="label">Last build</span><span class="value mono" x-text="selectedApp.lastBuildAt"></span></li></template>
+                          <template x-if="selectedApp.containerId"><li><span class="label">Container</span><span class="value mono" x-text="selectedApp.containerId.substring(0, 12)"></span></li></template>
+                        </ul>
                       </div>
                     </div>
                   </template>
 
                   <template x-if="route.subtab === 'logs'">
                     <div>
-                      <div class="flex items-center gap-3 mb-2">
-                        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <div class="bar">
+                        <label class="check">
                           <input type="checkbox" x-model="logsAuto" @change="logsAuto ? startLogsPoll() : stopLogsPoll()">
                           Auto-refresh (3s)
                         </label>
-                        <button
-                          @click="loadLogs(route.param)"
-                          :disabled="pending.has('logs')"
-                          class="ml-auto inline-flex items-center gap-1 px-3 py-1 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
-                          <i class="hgi hgi-stroke hgi-refresh"></i> Refresh now
-                        </button>
+                        <div class="tools">
+                          <button @click="loadLogs(route.param)" :disabled="pending.has('logs')" class="button">
+                            <i class="hgi hgi-stroke hgi-refresh"></i> Refresh now
+                          </button>
+                        </div>
                       </div>
                       <pre class="logs" x-ref="logsEl" x-text="logs || 'No logs yet.'"></pre>
                     </div>
@@ -687,126 +619,131 @@
           <!-- Site detail -->
           <template x-if="route.view === 'sites' && route.param">
             <section>
-              <div class="flex items-center gap-3 mb-4 flex-wrap">
-                <a href="#/services" class="text-sm text-gray-500 hover:text-gray-700">← Services</a>
-                <h1 class="text-xl font-semibold" x-text="route.param"></h1>
-                <template x-if="selectedSite && selectedSite !== 'not-found'">
-                  <span :class="statusBadgeClass(selectedSite.status)" class="inline-block px-2 py-0.5 text-xs rounded font-medium" x-text="selectedSite.status"></span>
-                </template>
-                <div class="ml-auto flex items-center gap-2" x-show="selectedSite && selectedSite !== 'not-found'">
-                  <a :href="selectedSite?.url" target="_blank" rel="noreferrer"
-                     class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-gray-200 hover:bg-gray-50">
+              <div class="pane-head">
+                <div class="title">
+                  <a href="#/services" class="back"><i class="hgi hgi-stroke hgi-arrow-left-01"></i>Services</a>
+                  <h1 x-text="route.param"></h1>
+                  <template x-if="selectedSite && selectedSite !== 'not-found'">
+                    <span :class="statusBadgeClass(selectedSite.status)" x-text="selectedSite.status"></span>
+                  </template>
+                </div>
+                <div class="tools" x-show="selectedSite && selectedSite !== 'not-found'">
+                  <a :href="selectedSite?.url" target="_blank" rel="noreferrer" class="button">
                     <i class="hgi hgi-stroke hgi-link-square-02"></i> Open ↗
                   </a>
-                  <button
-                    :disabled="pending.has('undeploy')"
-                    @click="undeploySite(route.param)"
-                    class="inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60">
+                  <button :disabled="pending.has('undeploy')" @click="undeploySite(route.param)" class="button danger">
                     <i class="hgi hgi-stroke hgi-delete-02"></i> Remove
                   </button>
                 </div>
               </div>
 
-              <template x-if="selectedSite === null"><div class="text-sm text-gray-500">Loading…</div></template>
+              <template x-if="selectedSite === null"><div class="loading">Loading…</div></template>
               <template x-if="selectedSite === 'not-found'">
-                <div class="text-sm text-gray-500">
+                <div class="empty-state">
                   Site not found.
-                  <a href="#/services" class="text-brand-blue hover:underline ml-1">Back to services</a>.
+                  <a href="#/services">Back to services</a>.
                 </div>
               </template>
 
               <template x-if="selectedSite && selectedSite !== 'not-found'">
-                <div class="space-y-4">
-                  <div class="border-b border-gray-200 flex gap-4">
-                    <button @click="window.location.hash = '#/sites/' + route.param + '/overview'"
-                            :class="(route.subtab === 'overview' || !route.subtab) ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                            class="border-b-2 pb-2 text-sm">Overview</button>
-                    <button @click="window.location.hash = '#/sites/' + route.param + '/history'"
-                            :class="route.subtab === 'history' ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                            class="border-b-2 pb-2 text-sm">History</button>
-                    <button @click="window.location.hash = '#/sites/' + route.param + '/logs'"
-                            :class="route.subtab === 'logs' ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                            class="border-b-2 pb-2 text-sm">Logs</button>
-                    <template x-if="selectedSite.chatEnabled">
-                      <button @click="window.location.hash = '#/sites/' + route.param + '/chat'"
-                              :class="route.subtab === 'chat' ? 'border-brand-blue text-gray-900 font-medium' : 'border-transparent text-gray-500'"
-                              class="border-b-2 pb-2 text-sm inline-flex items-center gap-1">
-                        <i class="hgi hgi-stroke hgi-ai-chat-02"></i> Chat
-                      </button>
-                    </template>
+                <div>
+                  <div class="bar">
+                    <div class="seg">
+                      <button @click="window.location.hash = '#/sites/' + route.param + '/overview'"
+                              :class="(route.subtab === 'overview' || !route.subtab) ? 'on' : ''">Overview</button>
+                      <button @click="window.location.hash = '#/sites/' + route.param + '/history'"
+                              :class="route.subtab === 'history' ? 'on' : ''">History</button>
+                      <button @click="window.location.hash = '#/sites/' + route.param + '/logs'"
+                              :class="route.subtab === 'logs' ? 'on' : ''">Logs</button>
+                      <template x-if="selectedSite.chatEnabled">
+                        <button @click="window.location.hash = '#/sites/' + route.param + '/chat'"
+                                :class="route.subtab === 'chat' ? 'on' : ''">
+                          <i class="hgi hgi-stroke hgi-ai-chat-02"></i> Chat
+                        </button>
+                      </template>
+                    </div>
                   </div>
 
                   <template x-if="!route.subtab || route.subtab === 'overview'">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="grid-2">
                       <template x-if="selectedSite.chatEnabled">
-                        <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2 flex items-center justify-between gap-3">
-                          <div>
-                            <div class="text-xs uppercase text-gray-500 mb-1">Live editor</div>
-                            <div class="text-sm text-gray-700">Edit this site by chatting on the site itself — changes go live immediately.</div>
+                        <div class="banner span">
+                          <div class="grow">
+                            <b>Live editor</b>
+                            <span>Edit this site by chatting on the site itself — changes go live immediately.</span>
                           </div>
-                          <button @click="openLiveEditor(route.param)" :disabled="pending.has('editlink-' + route.param)"
-                                  class="shrink-0 px-3 py-2 text-sm rounded bg-brand-blue text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1">
+                          <button @click="openLiveEditor(route.param)" :disabled="pending.has('editlink-' + route.param)" class="button primary">
                             <i class="hgi hgi-stroke hgi-pencil-edit-02"></i> Open live editor
                           </button>
                         </div>
                       </template>
-                      <div class="bg-white border border-gray-200 rounded p-4">
-                        <div class="text-xs uppercase text-gray-500 mb-2">URL</div>
-                        <a :href="selectedSite.url" target="_blank" rel="noreferrer" class="text-brand-blue hover:underline font-mono text-sm break-all" x-text="selectedSite.url"></a>
+                      <div>
+                        <h2>URL</h2>
+                        <ul class="kv">
+                          <li><a :href="selectedSite.url" target="_blank" rel="noreferrer" class="mono" x-text="selectedSite.url"></a></li>
+                        </ul>
                       </div>
-                      <div class="bg-white border border-gray-200 rounded p-4">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Deployed</div>
-                        <div class="text-sm font-mono" x-text="selectedSite.deployedAt"></div>
-                        <div class="text-sm"><span class="text-gray-500">Version:</span> <span class="font-mono" x-text="selectedSite.version || '—'"></span></div>
-                        <div class="text-sm"><span class="text-gray-500">Size:</span> <span class="font-mono" x-text="formatBytes(selectedSite.size)"></span></div>
-                        <div class="text-sm"><span class="text-gray-500">TLS:</span> <span class="font-mono" x-text="selectedSite.tls || '—'"></span></div>
+                      <div>
+                        <h2>Deployed</h2>
+                        <ul class="kv">
+                          <li><span class="label">Deployed</span><span class="value mono" x-text="selectedSite.deployedAt"></span></li>
+                          <li><span class="label">Version</span><span class="value mono" x-text="selectedSite.version || '—'"></span></li>
+                          <li><span class="label">Size</span><span class="value mono" x-text="formatBytes(selectedSite.size)"></span></li>
+                          <li><span class="label">TLS</span><span class="value mono" x-text="selectedSite.tls || '—'"></span></li>
+                        </ul>
                       </div>
-                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Custom domains</div>
-                        <template x-if="(selectedSite.domains || []).length === 0"><div class="text-sm font-mono">—</div></template>
-                        <div class="text-sm font-mono flex flex-wrap gap-x-3 gap-y-1">
-                          <template x-for="d in (selectedSite.domains || [])" :key="d">
-                            <a :href="'https://' + d" target="_blank" rel="noreferrer" class="text-brand-blue hover:underline" x-text="d"></a>
-                          </template>
-                        </div>
+                      <div class="span">
+                        <h2>Custom domains</h2>
+                        <ul class="kv">
+                          <li>
+                            <template x-if="(selectedSite.domains || []).length === 0"><span class="mono">—</span></template>
+                            <span class="value links start mono">
+                              <template x-for="d in (selectedSite.domains || [])" :key="d">
+                                <a :href="'https://' + d" target="_blank" rel="noreferrer" x-text="d"></a>
+                              </template>
+                            </span>
+                          </li>
+                        </ul>
                       </div>
-                      <div class="bg-white border border-gray-200 rounded p-4 md:col-span-2">
-                        <div class="text-xs uppercase text-gray-500 mb-2">Backend</div>
-                        <div class="text-sm"><span class="text-gray-500">Status:</span> <span class="font-mono" x-text="selectedSite.status"></span></div>
-                        <div class="text-sm"><span class="text-gray-500">PocketBase:</span> <span class="font-mono" x-text="selectedSite.pocketbaseVersion"></span></div>
-                        <div class="text-sm"><span class="text-gray-500">Admin:</span> <a :href="selectedSite.adminUrl" target="_blank" rel="noreferrer" class="text-brand-blue hover:underline font-mono break-all" x-text="selectedSite.adminUrl"></a></div>
+                      <div class="span">
+                        <h2>Backend</h2>
+                        <ul class="kv">
+                          <li><span class="label">Status</span><span class="value mono" x-text="selectedSite.status"></span></li>
+                          <li><span class="label">PocketBase</span><span class="value mono" x-text="selectedSite.pocketbaseVersion"></span></li>
+                          <li><span class="label">Admin</span><span class="value"><a :href="selectedSite.adminUrl" target="_blank" rel="noreferrer" class="mono" x-text="selectedSite.adminUrl"></a></span></li>
+                        </ul>
                       </div>
                     </div>
                   </template>
 
                   <template x-if="route.subtab === 'history'">
                     <div>
-                      <template x-if="siteHistory === null"><div class="text-sm text-gray-500">Loading history…</div></template>
-                      <template x-if="siteHistory && siteHistory.length === 0"><div class="text-sm text-gray-500">No history.</div></template>
+                      <template x-if="siteHistory === null"><div class="loading">Loading history…</div></template>
+                      <template x-if="siteHistory && siteHistory.length === 0"><div class="empty-state">No history.</div></template>
                       <template x-if="siteHistory && siteHistory.length > 0">
-                        <div class="border border-gray-200 rounded overflow-hidden bg-white">
-                          <table class="w-full text-sm">
-                            <thead class="bg-gray-50 text-left text-xs uppercase text-gray-600">
+                        <div class="table-box">
+                          <table class="grid">
+                            <thead>
                               <tr>
-                                <th class="px-3 py-2">Version</th>
-                                <th class="px-3 py-2">Deployed</th>
-                                <th class="px-3 py-2">By</th>
-                                <th class="px-3 py-2">Size</th>
-                                <th class="px-3 py-2"></th>
+                                <th>Version</th>
+                                <th>Deployed</th>
+                                <th>By</th>
+                                <th>Size</th>
+                                <th></th>
                               </tr>
                             </thead>
                             <tbody>
                               <template x-for="v in siteHistory" :key="v.version">
-                                <tr class="border-t border-gray-100" :data-version="v.version">
-                                  <td class="px-3 py-2 font-mono" x-text="v.version"></td>
-                                  <td class="px-3 py-2 font-mono text-gray-700" x-text="v.deployedAt"></td>
-                                  <td class="px-3 py-2 text-gray-700" x-text="v.deployedBy || '—'"></td>
-                                  <td class="px-3 py-2 text-gray-700" x-text="formatBytes(v.size)"></td>
-                                  <td class="px-3 py-2 text-right">
+                                <tr :data-version="v.version">
+                                  <td class="mono" x-text="v.version"></td>
+                                  <td class="mono muted" x-text="v.deployedAt"></td>
+                                  <td class="muted" x-text="v.deployedBy || '—'"></td>
+                                  <td class="muted" x-text="formatBytes(v.size)"></td>
+                                  <td class="end">
                                     <button
                                       :disabled="pending.has('rollback-' + v.version) || v.version === selectedSite.version"
                                       @click="rollbackSite(route.param, v.version)"
-                                      class="px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                                      class="button small">
                                       <template x-if="v.version === selectedSite.version"><span>current</span></template>
                                       <template x-if="v.version !== selectedSite.version"><span>Rollback</span></template>
                                     </button>
@@ -822,17 +759,16 @@
 
                   <template x-if="route.subtab === 'logs'">
                     <div>
-                      <div class="flex items-center gap-3 mb-2">
-                        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                      <div class="bar">
+                        <label class="check">
                           <input type="checkbox" x-model="logsAuto" @change="logsAuto ? startLogsPoll() : stopLogsPoll()">
                           Auto-refresh (3s)
                         </label>
-                        <button
-                          @click="loadLogs(route.param)"
-                          :disabled="pending.has('logs')"
-                          class="ml-auto inline-flex items-center gap-1 px-3 py-1 text-sm border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50">
-                          <i class="hgi hgi-stroke hgi-refresh"></i> Refresh now
-                        </button>
+                        <div class="tools">
+                          <button @click="loadLogs(route.param)" :disabled="pending.has('logs')" class="button">
+                            <i class="hgi hgi-stroke hgi-refresh"></i> Refresh now
+                          </button>
+                        </div>
                       </div>
                       <pre class="logs" x-ref="logsEl" x-text="logs || 'No logs yet.'"></pre>
                     </div>
@@ -840,46 +776,45 @@
 
                   <!-- Chat (AI editor) -->
                   <template x-if="route.subtab === 'chat' && !selectedSite.chatEnabled">
-                    <div class="bg-white border border-gray-200 rounded p-6 text-sm text-gray-600">
+                    <div class="card pad muted">
                       Chat is not configured on this agent. Set a Claude subscription token
-                      (<code class="font-mono">SITEIO_LLM_OAUTH_TOKEN</code>) or
-                      <code class="font-mono">SITEIO_LLM_API_KEY</code> and restart the agent to enable it.
+                      (<code>SITEIO_LLM_OAUTH_TOKEN</code>) or
+                      <code>SITEIO_LLM_API_KEY</code> and restart the agent to enable it.
                     </div>
                   </template>
 
                   <template x-if="route.subtab === 'chat' && selectedSite.chatEnabled">
-                    <div class="flex flex-col" style="height: calc(100vh - 230px); min-height: 420px;">
+                    <div class="chat">
                       <!-- Header -->
-                      <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-                        <div class="text-xs text-gray-500">
+                      <div class="chat-head">
+                        <div>
                           <span x-show="chatStatus">
                             <span x-text="(chatStatus?.provider || 'ai')"></span><span x-show="chatStatus?.model" x-text="' · ' + chatStatus?.model"></span>
-                            <span x-show="chatStatus?.sandbox" class="ml-1 inline-flex items-center gap-1 text-brand-green"><i class="hgi hgi-stroke hgi-shield-01 text-[11px]"></i>sandboxed</span>
+                            <span x-show="chatStatus?.sandbox" class="sandboxed"><i class="hgi hgi-stroke hgi-shield-01"></i>sandboxed</span>
                           </span>
                         </div>
                         <button @click="clearChat(route.param)"
                                 :disabled="chatStreaming || !(chatMessages && chatMessages.length)"
-                                class="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-40">
+                                class="button small">
                           <i class="hgi hgi-stroke hgi-delete-02"></i> Clear
                         </button>
                       </div>
 
                       <!-- Transcript -->
-                      <div class="flex-1 overflow-auto border border-gray-200 rounded bg-gray-50 p-3 space-y-3" x-ref="chatScroll">
+                      <div class="transcript" x-ref="chatScroll">
                         <template x-if="chatMessages === null">
-                          <div class="text-sm text-gray-500">Loading conversation…</div>
+                          <div class="loading">Loading conversation…</div>
                         </template>
 
                         <!-- Empty state -->
                         <template x-if="chatMessages && chatMessages.length === 0 && !chatStreaming">
-                          <div class="text-sm text-gray-600 space-y-3">
-                            <div class="font-medium text-gray-900">Edit this site by chatting</div>
+                          <div class="intro">
+                            <b>Edit this site by chatting</b>
                             <div>Describe a change and the AI will edit the site's files and
-                              <span class="font-medium">deploy it live immediately</span>. Every change can be reverted from its message.</div>
-                            <div class="space-y-1">
+                              <b class="inline">deploy it live immediately</b>. Every change can be reverted from its message.</div>
+                            <div class="examples">
                               <template x-for="ex in chatExamples" :key="ex">
-                                <button @click="chatInput = ex; $refs.chatInputEl && $refs.chatInputEl.focus()"
-                                        class="block w-full text-left px-3 py-2 bg-white border border-gray-200 rounded hover:border-brand-blue text-gray-700" x-text="ex"></button>
+                                <button @click="chatInput = ex; $refs.chatInputEl && $refs.chatInputEl.focus()" x-text="ex"></button>
                               </template>
                             </div>
                           </div>
@@ -887,23 +822,23 @@
 
                         <!-- Messages -->
                         <template x-for="m in (chatMessages || [])" :key="m.id">
-                          <div :class="m.role === 'user' ? 'flex justify-end' : 'flex justify-start'">
-                            <div :class="chatBubbleClass(m)" class="max-w-[85%] rounded-lg px-3 py-2 text-sm border">
-                              <div class="whitespace-pre-wrap break-words" x-text="m.text"></div>
+                          <div :class="m.role === 'user' ? 'msg-row user' : 'msg-row'">
+                            <div :class="chatBubbleClass(m)">
+                              <div class="text" x-text="m.text"></div>
 
                               <!-- picked element/text this message was anchored to -->
                               <template x-if="m.target">
-                                <div class="mt-1.5 pt-1.5 border-t border-white/25 text-[11px] opacity-80 break-all">
+                                <div class="target">
                                   ✎ <span x-text="targetLabel(m.target)"></span>
                                 </div>
                               </template>
 
                               <!-- tool call chips -->
                               <template x-if="m.toolCalls && m.toolCalls.length">
-                                <div class="mt-2 flex flex-wrap gap-1">
+                                <div class="tool-chips">
                                   <template x-for="(tc, i) in m.toolCalls" :key="i">
-                                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-mono rounded bg-gray-100 text-gray-600">
-                                      <span x-text="tc.name"></span><span x-show="tc.detail" class="text-gray-400" x-text="tc.detail"></span>
+                                    <span class="tool-chip">
+                                      <span x-text="tc.name"></span><span x-show="tc.detail" class="detail" x-text="tc.detail"></span>
                                     </span>
                                   </template>
                                 </div>
@@ -911,24 +846,24 @@
 
                               <!-- changed files + deploy + revert -->
                               <template x-if="m.role === 'assistant' && m.deployed">
-                                <div class="mt-2 pt-2 border-t border-gray-200/70 text-xs text-gray-600">
-                                  <div class="flex items-center gap-2 flex-wrap">
-                                    <span class="inline-flex items-center gap-1 text-brand-green"><i class="hgi hgi-stroke hgi-checkmark-circle-02"></i>Deployed v<span x-text="m.versionAfter"></span></span>
-                                    <a :href="selectedSite.url" target="_blank" rel="noreferrer" class="text-brand-blue hover:underline inline-flex items-center gap-1"><i class="hgi hgi-stroke hgi-link-square-02"></i>View live</a>
+                                <div class="msg-foot">
+                                  <div class="row">
+                                    <span class="deployed"><i class="hgi hgi-stroke hgi-checkmark-circle-02"></i><span>Deployed v<span x-text="m.versionAfter"></span></span></span>
+                                    <a :href="selectedSite.url" target="_blank" rel="noreferrer"><i class="hgi hgi-stroke hgi-link-square-02"></i>View live</a>
                                     <button @click="revertTurn(route.param, m)"
                                             :disabled="pending.has('revert-' + m.id) || m.versionBefore === undefined || m.versionBefore === 0"
-                                            class="ml-auto inline-flex items-center gap-1 px-2 py-0.5 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-40">
+                                            class="button small push">
                                       <i class="hgi hgi-stroke hgi-arrow-turn-backward"></i> Revert this change
                                     </button>
                                   </div>
                                   <template x-if="m.changedFiles && m.changedFiles.length">
-                                    <div class="mt-1 font-mono text-gray-500 break-all" x-text="m.changedFiles.length + ' file' + (m.changedFiles.length===1?'':'s') + ': ' + m.changedFiles.join(', ')"></div>
+                                    <div class="files" x-text="m.changedFiles.length + ' file' + (m.changedFiles.length===1?'':'s') + ': ' + m.changedFiles.join(', ')"></div>
                                   </template>
                                 </div>
                               </template>
 
                               <template x-if="m.role === 'assistant' && m.status === 'no_changes'">
-                                <div class="mt-1 text-xs text-gray-400">No changes — nothing deployed.</div>
+                                <div class="note">No changes — nothing deployed.</div>
                               </template>
                             </div>
                           </div>
@@ -936,20 +871,20 @@
 
                         <!-- Live in-progress turn -->
                         <template x-if="chatStreaming">
-                          <div class="flex justify-start">
-                            <div class="max-w-[85%] rounded-lg px-3 py-2 text-sm border bg-white border-gray-200 text-gray-800">
-                              <div class="whitespace-pre-wrap break-words" x-text="chatLiveText || '…'"></div>
+                          <div class="msg-row">
+                            <div class="msg">
+                              <div class="text" x-text="chatLiveText || '…'"></div>
                               <template x-if="chatLiveTools.length">
-                                <div class="mt-2 flex flex-wrap gap-1">
+                                <div class="tool-chips">
                                   <template x-for="(tc, i) in chatLiveTools" :key="i">
-                                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-mono rounded bg-gray-100 text-gray-600">
-                                      <span x-text="tc.name"></span><span x-show="tc.detail" class="text-gray-400" x-text="tc.detail"></span>
+                                    <span class="tool-chip">
+                                      <span x-text="tc.name"></span><span x-show="tc.detail" class="detail" x-text="tc.detail"></span>
                                     </span>
                                   </template>
                                 </div>
                               </template>
                               <template x-if="chatLiveStatus">
-                                <div class="mt-1 text-xs text-brand-blue inline-flex items-center gap-1"><i class="hgi hgi-stroke hgi-loading-03 animate-spin"></i><span x-text="chatLiveStatus"></span></div>
+                                <div class="live-status"><i class="hgi hgi-stroke hgi-loading-03 spinning"></i><span x-text="chatLiveStatus"></span></div>
                               </template>
                             </div>
                           </div>
@@ -957,26 +892,24 @@
 
                         <!-- Another client's turn is running -->
                         <template x-if="!chatStreaming && chatStatus && chatStatus.active">
-                          <div class="text-xs text-gray-500 inline-flex items-center gap-1"><i class="hgi hgi-stroke hgi-loading-03 animate-spin"></i> A turn is running…</div>
+                          <div class="running"><i class="hgi hgi-stroke hgi-loading-03 spinning"></i> A turn is running…</div>
                         </template>
                       </div>
 
                       <!-- Composer -->
-                      <form @submit.prevent="sendChat(route.param)" class="mt-2 flex items-end gap-2">
+                      <form @submit.prevent="sendChat(route.param)" class="composer">
                         <textarea x-ref="chatInputEl" x-model="chatInput" rows="2"
                                   @keydown.enter.exact.prevent="sendChat(route.param)"
                                   :disabled="chatStreaming"
                                   placeholder="Describe a change… (Enter to send, Shift+Enter for newline)"
-                                  class="flex-1 px-3 py-2 border border-gray-200 rounded text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue disabled:bg-gray-50"></textarea>
+                                  class="input"></textarea>
                         <template x-if="!chatStreaming">
-                          <button type="submit" :disabled="!chatInput.trim()"
-                                  class="inline-flex items-center gap-1 px-4 py-2 text-sm rounded bg-brand-blue text-white hover:bg-brand-blue/90 disabled:opacity-50">
+                          <button type="submit" :disabled="!chatInput.trim()" class="button primary">
                             <i class="hgi hgi-stroke hgi-sent"></i> Send
                           </button>
                         </template>
                         <template x-if="chatStreaming">
-                          <button type="button" @click="stopChat(route.param)"
-                                  class="inline-flex items-center gap-1 px-4 py-2 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50">
+                          <button type="button" @click="stopChat(route.param)" class="button danger">
                             <i class="hgi hgi-stroke hgi-stop-circle"></i> Stop
                           </button>
                         </template>
@@ -987,32 +920,29 @@
               </template>
             </section>
           </template>
-
-        </div>
       </main>
 
-          <template x-if="shownPassword">
-            <div class="fixed inset-0 z-40 m-0 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-              <div class="bg-white rounded-lg border border-gray-200 shadow-lg p-5 w-full max-w-md">
-                <h2 class="font-medium">Password for <span x-text="shownPassword.username"></span></h2>
-                <div class="mt-3 flex items-center gap-2">
-                  <code class="flex-1 font-mono text-sm bg-gray-50 border border-gray-200 rounded px-3 py-2 select-all break-all" x-text="shownPassword.password"></code>
-                  <button @click="copyPassword()" class="px-3 py-2 text-sm border border-gray-200 rounded hover:bg-gray-50">Copy</button>
-                </div>
-                <p class="text-sm text-gray-500 mt-3">Shown only once — share it securely. They can change it on their Account page.</p>
-                <div class="mt-4 text-right">
-                  <button @click="shownPassword = null" class="px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 text-white rounded">Done</button>
-                </div>
-              </div>
+      <template x-if="shownPassword">
+        <div class="overlay" role="dialog" aria-modal="true">
+          <div class="dialog">
+            <h2>Password for <span x-text="shownPassword.username"></span></h2>
+            <div class="secret">
+              <code x-text="shownPassword.password"></code>
+              <button @click="copyPassword()" class="button">Copy</button>
             </div>
-          </template>
+            <p class="help">Shown only once — share it securely. They can change it on their Account page.</p>
+            <div class="actions">
+              <button @click="shownPassword = null" class="button primary">Done</button>
+            </div>
+          </div>
+        </div>
+      </template>
     </div>
   </template>
 
-  <div class="fixed bottom-4 right-4 z-50 space-y-2 pointer-events-none" aria-live="polite">
+  <div id="toasts" aria-live="polite">
     <template x-for="t in toasts" :key="t.id">
-      <div :class="t.type === 'error' ? 'bg-red-600' : (t.type === 'success' ? 'bg-brand-green' : 'bg-gray-900')"
-           class="pointer-events-auto text-white text-sm px-3 py-2 rounded shadow-md min-w-[220px] max-w-sm">
+      <div :class="t.type === 'error' ? 'toast error' : (t.type === 'success' ? 'toast success' : 'toast')">
         <span x-text="t.message"></span>
       </div>
     </template>

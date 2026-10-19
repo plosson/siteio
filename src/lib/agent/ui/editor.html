@@ -6,14 +6,32 @@
 <meta name="robots" content="noindex, nofollow" />
 <title>Edit __SITE_NAME__ · siteio</title>
 <style>
+  /* agentio's Mac values (as in the admin's brand.css), for the editor's own chrome. */
   :root {
-    --bg: #0f172a; --panel: #ffffff; --ink: #0f172a; --muted: #64748b;
-    --line: #e2e8f0; --blue: #2563eb; --blue-ink: #ffffff; --green: #16a34a;
-    --red: #dc2626; --shadow: 0 12px 40px rgba(15, 23, 42, .28);
+    color-scheme: light dark;
+    --panel: #FFFFFF; --ink: #1D1D1F; --muted: #6E6E73; --line: #E0E0E5;
+    --canvas: #F5F5F7; --soft: #0000000D; --blue: #007AFF; --blue-deep: #0062CC; --blue-ink: #FFFFFF;
+    --green: #248A3D; --green-bg: #E9F6EC; --green-line: #BFE5C8;
+    --red: #D70015; --red-bg: #FDECEE; --red-line: #F5C2C7;
+    --warn-bg: #FFF1DB; --warn-line: #F6DFB2; --warn-ink: #6B4A00;
+    --accent-bg: #E5F1FF; --accent-line: #B8D8FF; --accent-ink: #0062CC;
+    --shadow: 0 12px 40px rgba(0, 0, 0, .22);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --panel: #2C2C2E; --ink: #F5F5F7; --muted: #98989D; --line: #3A3A3C;
+      --canvas: #232325; --soft: #FFFFFF0F; --blue: #0A84FF; --blue-deep: #0A84FF;
+      --green: #30D158; --green-bg: #1E3324; --green-line: #2E5537;
+      --red: #FF453A; --red-bg: #3B1F1E; --red-line: #5C2B28;
+      --warn-bg: #3D2E12; --warn-line: #5A4520; --warn-ink: #FFD60A;
+      --accent-bg: #0A2A4D; --accent-line: #164A80; --accent-ink: #64B5FF;
+      --shadow: 0 12px 40px rgba(0, 0, 0, .6);
+    }
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); }
-  body { background: #f8fafc; overflow: hidden; }
+  html, body { margin: 0; height: 100%; font-family: var(--font); color: var(--ink); }
+  body { background: var(--canvas); overflow: hidden; }
 
   /* Framed site fills the viewport; the widget floats above it. */
   #frame-wrap { position: fixed; inset: 0; }
@@ -23,28 +41,29 @@
   /* Applying-change overlay over the framed site. */
   #applying {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    background: rgba(248, 250, 252, .82); backdrop-filter: blur(2px); z-index: 30;
+    background: color-mix(in srgb, var(--canvas) 82%, transparent); backdrop-filter: blur(2px); z-index: 30;
   }
-  #applying .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 12px; font-weight: 600; }
+  #applying .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 12px; font-weight: 600; }
   .spin { width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* Gate / welcome / terminal-state screen. */
-  #gate { position: absolute; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: linear-gradient(160deg, #eef2ff, #f8fafc); padding: 20px; }
-  .gate-card { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); max-width: 460px; width: 100%; padding: 30px 28px; text-align: center; }
-  .gate-card .mark { width: 46px; height: 46px; border-radius: 12px; background: var(--blue); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 22px; margin-bottom: 14px; }
+  #gate { position: absolute; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: var(--canvas); padding: 20px; }
+  .gate-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); max-width: 460px; width: 100%; padding: 30px 28px; text-align: center; }
+  .gate-card .mark-icon { display: block; width: 64px; height: 64px; margin: 0 auto 14px; }
+  .gate-card .mark { width: 46px; height: 46px; border-radius: 12px; background: var(--soft); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; font-size: 22px; margin-bottom: 14px; }
   .gate-card h1 { font-size: 20px; margin: 0 0 8px; }
   .gate-card p { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 8px; }
   .gate-card .site { font-weight: 700; color: var(--ink); }
-  .warn { background: #fef9c3; border: 1px solid #fde68a; color: #854d0e; border-radius: 10px; padding: 10px 12px; font-size: 13px; margin: 14px 0 18px; text-align: left; }
+  .warn { background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink); border-radius: 10px; padding: 10px 12px; font-size: 13px; margin: 14px 0 18px; text-align: left; }
   .btn { border: 0; border-radius: 10px; padding: 11px 18px; font-size: 15px; font-weight: 600; cursor: pointer; }
   .btn-primary { background: var(--blue); color: var(--blue-ink); }
-  .btn-primary:hover { background: #1d4ed8; }
+  .btn-primary:hover { background: var(--blue-deep); }
   .btn:disabled { opacity: .55; cursor: default; }
 
   /* Chat bubble (Intercom-style, docked bottom-right). */
   #bubble { position: fixed; right: 20px; bottom: 20px; z-index: 40; }
-  #bubble-toggle { width: 58px; height: 58px; border-radius: 50%; border: 0; background: var(--blue); color: #fff; font-size: 24px; cursor: pointer; box-shadow: var(--shadow); }
+  #bubble-toggle { width: 58px; height: 58px; border-radius: 50%; border: 0; background: var(--blue); color: var(--blue-ink); font-size: 24px; cursor: pointer; box-shadow: var(--shadow); }
   #panel {
     position: absolute; right: 0; bottom: 70px; width: min(380px, calc(100vw - 40px));
     height: min(560px, calc(100vh - 110px)); background: var(--panel); border: 1px solid var(--line);
@@ -54,40 +73,40 @@
   #panel header .title { font-weight: 700; font-size: 14px; }
   #panel header .sub { color: var(--muted); font-size: 12px; }
   #panel header button { border: 0; background: transparent; font-size: 20px; cursor: pointer; color: var(--muted); line-height: 1; }
-  #transcript { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: #f8fafc; }
+  #transcript { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: var(--canvas); }
   .msg { max-width: 88%; border-radius: 12px; padding: 9px 12px; font-size: 13.5px; line-height: 1.45; border: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; }
-  .msg.user { align-self: flex-end; background: var(--blue); color: #fff; border-color: var(--blue); }
+  .msg.user { align-self: flex-end; background: var(--blue); color: var(--blue-ink); border-color: var(--blue); }
   /* The picked element/text a message was anchored to, shown inside its bubble. */
   .msg-target { margin-top: 5px; font-size: 11px; opacity: .82; word-break: break-all; border-top: 1px solid rgba(255, 255, 255, .25); padding-top: 4px; }
-  .msg.assistant { align-self: flex-start; background: #fff; }
-  .msg.error { align-self: flex-start; background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+  .msg.assistant { align-self: flex-start; background: var(--panel); }
+  .msg.error { align-self: flex-start; background: var(--red-bg); border-color: var(--red-line); color: var(--red); }
   .msg.note { align-self: center; background: transparent; border: 0; color: var(--muted); font-size: 12px; }
-  .live { align-self: flex-start; max-width: 88%; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; font-size: 13px; color: var(--muted); }
+  .live { align-self: flex-start; max-width: 88%; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; font-size: 13px; color: var(--muted); }
   .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-  .chip { background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 2px 9px; font-size: 11px; }
+  .chip { background: var(--soft); color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; border-radius: 999px; padding: 2px 9px; font-size: 11px; }
   .live-status { margin-top: 6px; color: var(--blue); display: flex; align-items: center; gap: 6px; }
-  .card-live { align-self: flex-start; max-width: 88%; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 10px 12px; font-size: 13px; }
-  .card-live .headline { font-weight: 700; color: #166534; display: flex; align-items: center; gap: 6px; }
+  .card-live { align-self: flex-start; max-width: 88%; background: var(--green-bg); border: 1px solid var(--green-line); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
+  .card-live .headline { font-weight: 700; color: var(--green); display: flex; align-items: center; gap: 6px; }
   .card-live details { margin-top: 6px; color: var(--muted); font-size: 12px; }
   .card-live summary { cursor: pointer; }
   .card-live .actions { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
   .link-btn { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; color: var(--ink); }
-  .link-btn:hover { background: #fff; }
-  #composer { border-top: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; background: #fff; }
+  .link-btn:hover { background: var(--panel); }
+  #composer { border-top: 1px solid var(--line); padding: 10px; display: flex; flex-direction: column; gap: 8px; background: var(--panel); }
   .composer-row { display: flex; gap: 8px; align-items: flex-end; }
   /* Crosshair toggle: enter "point at an element" mode. */
-  #pick { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 16px; line-height: 1; cursor: pointer; color: var(--muted); }
+  #pick { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 16px; line-height: 1; cursor: pointer; color: var(--muted); }
   #pick:hover { color: var(--ink); }
-  #pick.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+  #pick.active { background: var(--blue); color: var(--blue-ink); border-color: var(--blue); }
   /* Selection chip: what the user pointed at, attached to the next message. */
-  #target-chip { display: flex; align-items: center; gap: 6px; background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; border-radius: 8px; padding: 5px 9px; font-size: 12px; }
+  #target-chip { display: flex; align-items: center; gap: 6px; background: var(--accent-bg); border: 1px solid var(--accent-line); color: var(--accent-ink); border-radius: 8px; padding: 5px 9px; font-size: 12px; }
   #target-chip .tc-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #target-chip button { border: 0; background: transparent; color: #3730a3; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
-  #composer textarea { flex: 1; resize: none; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font: inherit; font-size: 13.5px; max-height: 120px; }
-  #composer textarea:focus { outline: 2px solid #bfdbfe; border-color: var(--blue); }
-  #send { background: var(--blue); color: #fff; border: 0; border-radius: 10px; padding: 9px 14px; font-weight: 600; cursor: pointer; }
+  #target-chip button { border: 0; background: transparent; color: var(--accent-ink); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
+  #composer textarea { flex: 1; resize: none; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font: inherit; font-size: 13.5px; max-height: 120px; }
+  #composer textarea:focus { outline: 3px solid color-mix(in srgb, var(--blue) 50%, transparent); outline-offset: 0; border-color: var(--blue); }
+  #send { background: var(--blue); color: var(--blue-ink); border: 0; border-radius: 10px; padding: 9px 14px; font-weight: 600; cursor: pointer; }
   #send:disabled { opacity: .5; cursor: default; }
-  #stop { background: #fff; color: var(--red); border: 1px solid #fecaca; border-radius: 10px; padding: 9px 14px; font-weight: 600; cursor: pointer; }
+  #stop { background: var(--panel); color: var(--red); border: 1px solid var(--red-line); border-radius: 10px; padding: 9px 14px; font-weight: 600; cursor: pointer; }
 
   @media (max-width: 640px) {
     /* On a phone an expanded panel covers the site you're editing — so it fills
@@ -204,7 +223,7 @@
 
   function welcomeGate() {
     showGate(
-      '<div class="mark">✏️</div>' +
+      '<img class="mark-icon" src="__ICON_URI__" alt="">' +
       '<h1>Edit <span class="site">' + esc(SITE) + '</span></h1>' +
       '<p>Chat with an AI editor right on the site. Describe a change and watch it land in place.</p>' +
       '<div class="warn">Changes go <strong>live to real visitors immediately</strong>. Every change can be undone from the chat.</div>' +

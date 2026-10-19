@@ -263,13 +263,16 @@ export class OAuthProvider {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Connect to ${escapeHtml(shown)}</title>
 <style>
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:420px;margin:80px auto;padding:24px;color:#1a1a1a}
-  h1{font-size:20px} p{color:#555;line-height:1.5}
-  code{background:#f3f3f3;padding:2px 6px;border-radius:4px}
-  input[type=text]{width:100%;padding:12px;font-size:16px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box;font-family:ui-monospace,monospace}
-  button{margin-top:16px;width:100%;padding:12px;font-size:16px;background:#111;color:#fff;border:0;border-radius:8px;cursor:pointer}
-  .err{color:#c0202f;background:#fdeef0;padding:10px 12px;border-radius:8px}
-  .site{font-weight:600;color:#111}
+  :root{color-scheme:light dark;--bg:#F5F5F7;--card:#FFFFFF;--fg:#1D1D1F;--muted:#6E6E73;--line:#E0E0E5;--code:#F2F2F5;--link:#007AFF;--bad:#D70015;--bad-bg:#FDECEE}
+  @media (prefers-color-scheme:dark){:root{--bg:#232325;--card:#2C2C2E;--fg:#F5F5F7;--muted:#98989D;--line:#3A3A3C;--code:#1C1C1E;--link:#0A84FF;--bad:#FF453A;--bad-bg:#3B1F1E}}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:420px;margin:80px auto;padding:24px;color:var(--fg);background:var(--bg);-webkit-font-smoothing:antialiased}
+  h1{font-size:20px} p{color:var(--muted);line-height:1.5}
+  code{background:var(--code);padding:2px 6px;border-radius:6px}
+  input[type=text]{width:100%;padding:10px 12px;font-size:16px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:6px;box-sizing:border-box;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  input[type=text]:focus{outline:3px solid color-mix(in srgb,var(--link) 50%,transparent);border-color:var(--link)}
+  button{margin-top:16px;width:100%;padding:12px;font-size:16px;font-weight:500;background:var(--link);color:#fff;border:0;border-radius:6px;cursor:pointer}
+  .err{color:var(--bad);background:var(--bad-bg);padding:10px 12px;border-radius:6px}
+  .site{font-weight:600;color:var(--fg)}
 </style></head>
 <body>
   <h1>Edit <span class="site">${escapeHtml(shown)}</span></h1>

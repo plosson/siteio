@@ -1,5 +1,22 @@
 // siteio admin UI — single root Alpine component
 
+// Inside a companion app (a native macOS window around this page, as AgentIO
+// Companion is for agentio), the app's bridge exists before this script runs:
+// the page leaves room for the window's buttons and reads like a Mac window.
+if (window.siteioCompanion?.present === true) document.documentElement.classList.add("app")
+
+// The app's web view ignores app-region: pressing an empty part of the
+// sidebar, a pane header, or the sign-in background asks the app to move its
+// window. Controls keep their clicks.
+const WINDOW_CONTROLS = "a, button, input, select, textarea, label, summary, [role=\"button\"]"
+document.addEventListener("mousedown", (ev) => {
+  if (!document.documentElement.classList.contains("app") || ev.button !== 0 || ev.detail > 1) return
+  const target = ev.target
+  if (target.closest(WINDOW_CONTROLS)) return
+  if (!target.closest(".sidebar, .pane-head, .gate")) return
+  window.siteioCompanion.dragWindow?.()
+})
+
 function siteioAdmin() {
   return {
     // auth: an API key (from `siteio ui` or the API key form) or a session cookie
@@ -137,7 +154,7 @@ function siteioAdmin() {
       // "Services" stays highlighted on the app/site detail views too.
       const inServices = ["services", "apps", "sites"].includes(this.route.view)
       const active = view === "services" ? inServices : this.route.view === view
-      return active ? "nav-link nav-link-active" : "nav-link"
+      return active ? "on" : ""
     },
 
     async login() {
@@ -893,10 +910,10 @@ function siteioAdmin() {
     },
 
     chatBubbleClass(m) {
-      if (m.role === "user") return "bg-brand-blue text-white border-brand-blue"
-      if (m.status === "error") return "bg-red-50 border-red-200 text-red-800"
-      if (m.status === "no_changes") return "bg-white border-gray-200 text-gray-500"
-      return "bg-white border-gray-200 text-gray-800"
+      if (m.role === "user") return "msg user"
+      if (m.status === "error") return "msg error"
+      if (m.status === "no_changes") return "msg quiet"
+      return "msg"
     },
 
     // Compact label for the element/text a message was anchored to (in-site
@@ -1023,11 +1040,11 @@ function siteioAdmin() {
 
     statusBadgeClass(status) {
       switch (status) {
-        case "running": return "bg-green-100 text-green-800"
-        case "stopped": return "bg-gray-100 text-gray-700"
-        case "failed":  return "bg-red-100 text-red-800"
+        case "running": return "chip ok"
+        case "stopped": return "chip"
+        case "failed":  return "chip bad"
         case "pending":
-        default:        return "bg-amber-100 text-amber-800"
+        default:        return "chip warn"
       }
     },
 
