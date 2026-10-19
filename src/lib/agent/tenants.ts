@@ -13,6 +13,11 @@ import type { AppStorage } from "./app-storage.ts"
 // its first `--`.
 export type Scope = Tenant | null
 
+// Who is calling: the scope its names live in, and whether it is the operator
+// (god key or admin user), who sees and may do everything. A main-domain
+// member has the primary scope but is no operator.
+export type Caller = { scope: Scope; admin: boolean }
+
 // A site or app as checkNewTenant sees it: its key and its custom domains.
 export type TenantService = { kind: "Site" | "App"; name: string; domains: string[] }
 
@@ -108,6 +113,12 @@ export class TenantRegistry {
 
   inScope(key: string, scope: Scope): boolean {
     return this.nameIn(key, scope) !== null
+  }
+
+  // Whether `caller` may see `key` in lists, counts and conflict messages.
+  sees(key: string, caller: Caller): boolean {
+    if (caller.admin) return true
+    return (this.ownerOf(key)?.domain ?? null) === (caller.scope?.domain ?? null)
   }
 
   baseDomain(scope: Scope): string {
