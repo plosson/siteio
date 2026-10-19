@@ -38,13 +38,13 @@ export class UserRoutes {
   }
 
   // Routes for an authenticated caller, or null when `path` isn't one of them.
-  async handle(path: string, req: Request, auth: Auth, ip: string): Promise<Response | null> {
+  async handle(path: string, req: Request, auth: Auth, ip: () => string): Promise<Response | null> {
     if (path === "/auth/logout" && req.method === "POST") {
       if (auth.kind === "user" && auth.key.kind === "session") this.users.revokeKey(auth.user.username, auth.key.id)
       return jsonResponse({ loggedOut: true }, 200, { "Set-Cookie": CLEAR_SESSION_COOKIE })
     }
     if (path === "/me" && req.method === "GET") return jsonResponse(this.meOf(auth))
-    if (path === "/me/password" && req.method === "POST") return this.changeOwnPassword(req, auth, ip)
+    if (path === "/me/password" && req.method === "POST") return this.changeOwnPassword(req, auth, ip())
     if (path === "/me/keys" && req.method === "GET") {
       return jsonResponse(auth.kind === "user" ? this.users.activeKeys(auth.user).map((k) => this.users.keyInfo(k)) : [])
     }

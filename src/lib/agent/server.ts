@@ -507,7 +507,7 @@ export class AgentServer {
     if (auth.kind === "user") this.verifiedUsers.set(req, auth.user.username)
 
     // Own account and user management, for every kind of key (not the allowlist's business).
-    const userRoute = await this.userRoutes.handle(path, req, auth, requestIp(req, peer))
+    const userRoute = await this.userRoutes.handle(path, req, auth, () => requestIp(req, peer))
     if (userRoute) return userRoute
 
     const caller: Caller =
@@ -2345,10 +2345,7 @@ export class AgentServer {
     // The shell derives the framed site URL from its own origin (the link always
     // opens on the platform subdomain), so we only return session metadata.
     const data = { expiresAt: session.expiresAt, versionAtStart: session.versionAtStart }
-    return new Response(JSON.stringify({ success: true, data } satisfies ApiResponse<typeof data>), {
-      status: 200,
-      headers: { "Content-Type": "application/json", "Set-Cookie": cookie },
-    })
+    return jsonResponse(data, 200, { "Set-Cookie": cookie })
   }
 
   // Revoke the (invisible) sessions derived from an edit code, without touching
