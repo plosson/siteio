@@ -361,7 +361,7 @@
                         <select id="newScope" x-model="newUser.tenant" :disabled="newUser.role === 'admin'"
                                 class="w-full px-3 py-2 border border-gray-200 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500">
                           <option value="" :disabled="newUser.role === 'owner'" x-text="'Main domain (' + (agentInfo ? agentInfo.domain : '…') + ')'"></option>
-                          <template x-for="t in (agentInfo && agentInfo.tenants) || []" :key="t">
+                          <template x-for="t in tenantList()" :key="t">
                             <option :value="t" x-text="t"></option>
                           </template>
                         </select>
@@ -376,13 +376,14 @@
                         <input type="radio" value="set" x-model="newUser.passwordMode" /> Set a password
                       </label>
                       <template x-if="newUser.passwordMode === 'set'">
-                        <input type="password" x-model="newUser.password" autocomplete="new-password" minlength="8" aria-label="Password"
+                        <input type="password" x-model="newUser.password" autocomplete="new-password" minlength="8" aria-label="Password" placeholder="At least 8 characters"
                                class="mt-2 w-full px-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:border-brand-blue" />
                       </template>
                     </fieldset>
+                    <template x-if="ownerWithoutTenant()"><p class="text-sm text-red-600">Add a tenant first (siteio agent tenant add &lt;domain&gt;)</p></template>
                     <template x-if="addUserError"><p class="text-sm text-red-600" x-text="addUserError"></p></template>
                     <div class="flex gap-2">
-                      <button type="submit" :disabled="addUserPending" class="px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 disabled:opacity-60 text-white rounded">Create user</button>
+                      <button type="submit" :disabled="addUserPending || ownerWithoutTenant()" class="px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 disabled:opacity-60 text-white rounded">Create user</button>
                       <button type="button" @click="showAddUser = false" class="px-3 py-1.5 text-sm border border-gray-200 rounded hover:bg-gray-50">Cancel</button>
                     </div>
                   </form>
@@ -433,12 +434,12 @@
                                       <input type="radio" value="set" x-model="reset.mode" /> Set a password
                                     </label>
                                     <template x-if="reset.mode === 'set'">
-                                      <input type="password" x-model="reset.password" autocomplete="new-password" minlength="8" aria-label="New password"
+                                      <input type="password" x-model="reset.password" autocomplete="new-password" minlength="8" aria-label="New password" placeholder="At least 8 characters"
                                              class="w-full px-3 py-2 border border-gray-200 rounded text-sm bg-white" />
                                     </template>
                                     <template x-if="reset.error"><p class="text-sm text-red-600" x-text="reset.error"></p></template>
                                     <div class="flex gap-2">
-                                      <button type="submit" :disabled="reset.pending" class="px-3 py-1.5 text-xs bg-brand-blue text-white rounded disabled:opacity-60">Set password</button>
+                                      <button type="submit" :disabled="reset.pending" class="px-3 py-1.5 text-xs bg-brand-blue text-white rounded disabled:opacity-60">Save</button>
                                       <button type="button" @click="resetFor = null" class="px-3 py-1.5 text-xs border border-gray-200 rounded hover:bg-white">Cancel</button>
                                     </div>
                                   </form>
@@ -452,22 +453,6 @@
                   </table>
                 </template>
               </div>
-
-              <template x-if="shownPassword">
-                <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-                  <div class="bg-white rounded-lg border border-gray-200 shadow-lg p-5 w-full max-w-md">
-                    <h2 class="font-medium">Password for <span x-text="shownPassword.username"></span></h2>
-                    <div class="mt-3 flex items-center gap-2">
-                      <code class="flex-1 font-mono text-sm bg-gray-50 border border-gray-200 rounded px-3 py-2 select-all break-all" x-text="shownPassword.password"></code>
-                      <button @click="copyPassword()" class="px-3 py-2 text-sm border border-gray-200 rounded hover:bg-gray-50">Copy</button>
-                    </div>
-                    <p class="text-sm text-gray-500 mt-3">Shown only once — share it securely. They can change it on their Account page.</p>
-                    <div class="mt-4 text-right">
-                      <button @click="shownPassword = null" class="px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 text-white rounded">Done</button>
-                    </div>
-                  </div>
-                </div>
-              </template>
             </section>
           </template>
 
@@ -1005,6 +990,22 @@
 
         </div>
       </main>
+
+          <template x-if="shownPassword">
+            <div class="fixed inset-0 z-40 m-0 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+              <div class="bg-white rounded-lg border border-gray-200 shadow-lg p-5 w-full max-w-md">
+                <h2 class="font-medium">Password for <span x-text="shownPassword.username"></span></h2>
+                <div class="mt-3 flex items-center gap-2">
+                  <code class="flex-1 font-mono text-sm bg-gray-50 border border-gray-200 rounded px-3 py-2 select-all break-all" x-text="shownPassword.password"></code>
+                  <button @click="copyPassword()" class="px-3 py-2 text-sm border border-gray-200 rounded hover:bg-gray-50">Copy</button>
+                </div>
+                <p class="text-sm text-gray-500 mt-3">Shown only once — share it securely. They can change it on their Account page.</p>
+                <div class="mt-4 text-right">
+                  <button @click="shownPassword = null" class="px-3 py-1.5 text-sm bg-brand-blue hover:bg-brand-blue/90 text-white rounded">Done</button>
+                </div>
+              </div>
+            </div>
+          </template>
     </div>
   </template>
 

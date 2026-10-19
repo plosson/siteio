@@ -105,8 +105,9 @@ function siteioAdmin() {
       if (this.route.view === "services") this.loadServices()
       if (this.route.view === "settings") this.loadAgentInfo()
       if (this.route.view === "account") this.loadMyKeys()
+      if (this.route.view !== "users") this.shownPassword = null
       if (this.route.view === "users") {
-        if (!this.agentInfo) this.loadAgentInfo()
+        this.loadAgentInfo()
         this.loadUsers()
       }
       if (this.route.view === "apps" && this.route.param) {
@@ -213,9 +214,23 @@ function siteioAdmin() {
       this.stopLogsPoll()
       this.stopChatPoll()
       this.apiKey = null
-      this.me = null
+      this.resetAccountState()
       this.authed = false
       this.loginError = "Session expired. Please sign in again."
+    },
+
+    // Forget everything tied to the signed-in account (next login may be someone else).
+    resetAccountState() {
+      this.me = null
+      this.users = null
+      this.myKeys = null
+      this.agentInfo = null
+      this.usersForbidden = false
+      this.resetFor = null
+      this.showAddUser = false
+      this.resetNewUser()
+      this.pwCurrent = ""; this.pwNew = ""; this.pwConfirm = ""; this.pwError = ""
+      this.shownPassword = null
     },
 
     onEscape() {
@@ -235,7 +250,7 @@ function siteioAdmin() {
       this.stopChatPoll()
       // Always drop the session cookie too, so a stale one can't resume later.
       fetch("/auth/logout", { method: "POST", headers: { "X-Siteio-UI": "1" } }).catch(() => {})
-      this.me = null
+      this.resetAccountState()
       sessionStorage.removeItem("siteio_api_key")
       this.apiKey = null
       this.authed = false
@@ -318,7 +333,10 @@ function siteioAdmin() {
       this.usersForbidden = false
       const res = await this.apiFetch("/users").catch(() => null)
       if (res && res.status === 404) { this.usersForbidden = true; this.users = []; return }
-      this.users = res && res.ok ? (await res.json()).data : []
+      if (res && res.ok) { this.users = (await res.json()).data; return }
+      const data = res ? await res.json().catch(() => ({})) : {}
+      this.users = []
+      this.toast("error", data.error || "Could not load users")
     },
 
     toggleAddUser() {
@@ -333,7 +351,13 @@ function siteioAdmin() {
 
     onNewUserRoleChange() {
       if (this.newUser.role === "admin") this.newUser.tenant = ""
+      if (this.newUser.role === "owner" && !this.newUser.tenant) this.newUser.tenant = this.tenantList()[0] || ""
     },
+
+    tenantList() { return (this.agentInfo && this.agentInfo.tenants) || [] },
+
+    // An owner needs a tenant to belong to.
+    ownerWithoutTenant() { return this.isAdmin() && this.newUser.role === "owner" && this.tenantList().length === 0 },
 
     async addUser() {
       this.addUserError = ""
@@ -354,7 +378,7 @@ function siteioAdmin() {
           body: JSON.stringify(body),
         }).catch(() => null)
         const data = res ? await res.json().catch(() => ({})) : {}
-        if (!res || !res.ok) { this.addUserError = data.error || "Could not add the user"; this.toast("error", this.addUserError); return }
+        if (!res || !res.ok) { this.addUserError = data.error || "Could not add the user"; return }
         const out = data.data
         if (out.generated && out.password) this.shownPassword = { username: out.user.username, password: out.password }
         else this.toast("success", `User ${out.user.username} created`)
@@ -393,7 +417,7 @@ function siteioAdmin() {
           body: JSON.stringify(this.reset.mode === "set" ? { password: this.reset.password } : {}),
         }).catch(() => null)
         const data = res ? await res.json().catch(() => ({})) : {}
-        if (!res || !res.ok) { this.reset.error = data.error || "Could not set the password"; this.toast("error", this.reset.error); return }
+        if (!res || !res.ok) { this.reset.error = data.error || "Could not set the password"; return }
         this.resetFor = null
         if (data.data.generated && data.data.password) this.shownPassword = { username: data.data.username, password: data.data.password }
         else this.toast("success", "Password updated")
