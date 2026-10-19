@@ -36,6 +36,8 @@ import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 import { assertValidSiteEnvKeys, publicEnv, sameEnv, type EnvUpdate } from "./env.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
+import { UserStore } from "./user-store.ts"
+import { userFitsHost, type Auth } from "./auth.ts"
 import { TenantRegistry, assertValidNewName, normalizeDomains, tenantServices, type Scope, type Caller } from "./tenants.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
@@ -57,6 +59,11 @@ const TENANT_ROUTE =
 
 // The app routes a tenant allowed to run apps (Tenant.apps) may reach.
 const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|restart|logs|status|thumbnail))?)?$/
+
+// What a main-domain member reaches beyond the tenant allowlist: the AI
+// editor (chat and in-site edit links), which runs on the operator's LLM
+// credential and is not offered to tenants.
+const MEMBER_EXTRA_ROUTE = /^\/sites\/[a-z0-9-]+\/(chat|chat\/stop|edit-link)$/
 
 // A tenant's volume is a plain name, which DockerManager keeps under
 // volumes/<key>/<name>: never a host path, never a way out of that folder.
@@ -163,6 +170,9 @@ export class AgentServer {
   private storage: SiteStorage
   private appStorage: AppStorage
   private grants: GrantStore
+  private users: UserStore
+  // Requests authenticated by a user key: their checked username (requestUser).
+  private verifiedUsers = new WeakMap<Request, string>()
   private tenants: TenantRegistry
   private staging: StagingStore
   private chats: ChatStore
@@ -197,6 +207,7 @@ export class AgentServer {
     this.storage = new SiteStorage(config.dataDir)
     this.appStorage = new AppStorage(config.dataDir)
     this.grants = new GrantStore(config.dataDir)
+    this.users = new UserStore(config.dataDir)
     this.staging = new StagingStore(config.dataDir)
     this.chats = new ChatStore(config.dataDir)
     this.oauth = new OAuthStore(config.dataDir)
@@ -292,9 +303,12 @@ export class AgentServer {
 
   // `reason` is an optional machine-readable code (e.g. the editor shell maps it
   // to a client-friendly terminal state instead of the admin login flow).
-  // Who a request says it comes from: X-Siteio-User (percent-encoded), or the
-  // X-Deployed-By older CLIs sent on site deploys. Self-declared, never checked.
+  // Who a request comes from: the username of a user key (checked), else
+  // X-Siteio-User (percent-encoded) or the X-Deployed-By older CLIs sent on
+  // site deploys, which are self-declared and never checked.
   private requestUser(req: Request): string | undefined {
+    const verified = this.verifiedUsers.get(req)
+    if (verified) return verified
     const raw = req.headers.get("X-Siteio-User")
     if (!raw) return req.headers.get("X-Deployed-By") || undefined
     try {
@@ -313,14 +327,18 @@ export class AgentServer {
   // Resolve who is calling. The god API key grants full access on the primary
   // API host; a tenant key grants that tenant's sites, only on its own API
   // host; a share-grant token (sent as X-API-Key by a scoped CLI login) grants
-  // a narrow, per-site scope enforced in handleScopedRequest. `scope` is the
-  // scope of the host the request arrived on.
-  private authenticate(
-    req: Request,
-    scope: Scope
-  ): { kind: "god" } | { kind: "tenant"; tenant: Tenant } | { kind: "grant"; grant: ShareGrant } | null {
+  // a narrow, per-site scope enforced in handleScopedRequest; a user key
+  // (usr_) grants what its user's role allows, only on the API host of the
+  // user's scope. `scope` is the scope of the host the request arrived on.
+  private authenticate(req: Request, scope: Scope): Auth | null {
     const key = req.headers.get("X-API-Key") || ""
     if (!key) return null
+    // A user's CLI key, only on the API host of the user's scope. Session
+    // secrets go in the cookie, never in this header.
+    if (key.startsWith("usr_")) {
+      const hit = this.users.resolveKey(key)
+      return hit && hit.key.kind === "machine" && userFitsHost(hit.user, scope) ? { kind: "user", ...hit } : null
+    }
     if (key === this.config.apiKey) return scope ? null : { kind: "god" }
     const tenant = this.tenants.findByApiKey(key)
     if (tenant) return tenant.domain === scope?.domain ? { kind: "tenant", tenant } : null
@@ -462,12 +480,19 @@ export class AgentServer {
 
     // The caller: its scope (names in paths are as it sees them, and storage
     // works on keys, see tenants.ts) and whether it is the operator.
-    const caller: Caller = auth.kind === "tenant" ? { scope: auth.tenant, admin: false } : { scope: null, admin: true }
+    if (auth.kind === "user") this.verifiedUsers.set(req, auth.user.username)
+    const caller: Caller =
+      auth.kind === "tenant" ? { scope: auth.tenant, admin: false }
+      : auth.kind === "user" ? { scope: apiScope, admin: auth.user.role === "admin" }
+      : { scope: null, admin: true }
     const scope = caller.scope
     if (!caller.admin) {
       const isApps = path === "/apps" || path.startsWith("/apps/")
       if (scope && isApps && !scope.apps) return this.error("Apps are disabled on this agent", 403)
-      if (path.includes("--") || !(isApps ? TENANT_APP_ROUTE : TENANT_ROUTE).test(path)) return this.error("Not found", 404)
+      const allowed = isApps
+        ? TENANT_APP_ROUTE.test(path)
+        : TENANT_ROUTE.test(path) || (!scope && MEMBER_EXTRA_ROUTE.test(path))
+      if (path.includes("--") || !allowed) return this.error("Not found", 404)
       // A name that is no valid label can't exist in a tenant: 404, never a throw.
       const named = path.match(/^\/(sites|apps)\/([a-z0-9-]+)/)
       if (named && !this.tenants.resolve(named[2]!, scope)) {
