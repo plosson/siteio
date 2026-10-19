@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { spawn } from "bun"
+import { UserStore } from "../../lib/agent/user-store.ts"
 
 // `siteio agent tenant` edits <dataDir>/agent-config.json on the box.
 describe("CLI: agent tenant", () => {
@@ -109,5 +110,20 @@ describe("CLI: agent tenant", () => {
     expect(res.exitCode).toBe(1)
     expect(res.stderr).toContain("blog--friend-com")
     expect(config().tenants).toBeUndefined()
+  })
+
+  test("remove deletes the tenant's users, and add clears users left from before", async () => {
+    await runCli(["agent", "tenant", "add", "friend.com"])
+    const store = new UserStore(dataDir)
+    await store.create({ username: "tom", role: "member", tenant: "friend.com", password: "tom password" })
+    await store.create({ username: "mia", role: "member", password: "mia password" })
+    expect((await runCli(["agent", "tenant", "remove", "friend.com"])).exitCode).toBe(0)
+    expect(store.get("tom")).toBeNull()
+    expect(store.get("mia")).not.toBeNull()
+
+    // A file left behind (say, restored from a backup) must not come back with the domain.
+    await store.create({ username: "tom", role: "member", tenant: "friend.com", password: "tom password" })
+    expect((await runCli(["agent", "tenant", "add", "friend.com"])).exitCode).toBe(0)
+    expect(store.get("tom")).toBeNull()
   })
 })

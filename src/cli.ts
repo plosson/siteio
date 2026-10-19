@@ -544,6 +544,7 @@ agent
   .option("--data-dir <path>", "Data directory (default: /data)")
   .option("--email <email>", "Email for Let's Encrypt")
   .option("--cloudflare-token <token>", "Cloudflare API token for automatic DNS setup")
+  .option("--admin-password <password>", "Admin UI password (generated if not given)")
   .option("-i, --identity <keyfile>", "SSH identity file for remote install")
   .action(async (target, options) => {
     const { installAgentCommand } = await import("./commands/agent/install.ts")
@@ -593,6 +594,15 @@ agent
   .action(async () => {
     const { statusAgentCommand } = await import("./commands/agent/status.ts")
     await statusAgentCommand()
+  })
+
+agent
+  .command("password")
+  .description("Set or reset the admin's password for the admin UI (generated unless --password is given)")
+  .option("--password <password>", "Use this password instead of generating one")
+  .action(async (options) => {
+    const { agentPasswordCommand } = await import("./commands/agent/password.ts")
+    await agentPasswordCommand({ json: program.opts().json, password: options.password })
   })
 
 // Agent config subcommands

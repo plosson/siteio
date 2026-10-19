@@ -22,6 +22,7 @@ interface InstallOptions {
   email?: string
   identity?: string
   cloudflareToken?: string
+  adminPassword?: string
   acmeChallenge?: AcmeChallengeType
   acmeDnsProvider?: string
 }
@@ -458,6 +459,21 @@ async function installLocal(options: InstallOptions): Promise<void> {
   spawnSync({ cmd: writeConfigCmd, stdout: "pipe", stderr: "pipe" })
   s.stop(chalk.green("Configuration saved"))
 
+  // The admin's password for the admin UI. Set through the CLI itself so it
+  // runs with the same rights as the config write (sudo when not root).
+  s.start("Setting the admin password")
+  const passwordCmd = [
+    ...(isRoot ? [] : ["sudo"]),
+    "env", `SITEIO_DATA_DIR=${dataDir}`,
+    binaryPath, "--json", "agent", "password",
+    ...(options.adminPassword ? ["--password", options.adminPassword] : []),
+  ]
+  const passwordResult = spawnSync({ cmd: passwordCmd, stdout: "pipe", stderr: "pipe" })
+  const adminPassword = passwordResult.exitCode === 0
+    ? (JSON.parse(passwordResult.stdout.toString()) as { password: string }).password
+    : null
+  s.stop(adminPassword ? chalk.green("Admin password set") : chalk.yellow("Could not set the admin password — run `siteio agent password` later"))
+
   // Generate and write service file
   s.start("Creating systemd service")
   const serviceContent = generateServiceFile(binaryPath, dataDir, domain, apiKey, email)
@@ -595,6 +611,7 @@ async function installLocal(options: InstallOptions): Promise<void> {
   console.log(`  URL:     ${apiUrl}`)
   console.log(`  API Key: ${apiKey}`)
   console.log(`  Token:   ${token}`)
+  if (adminPassword) console.log(`  Admin:   admin / ${adminPassword}  (admin UI: ${apiUrl}/ui)`)
   console.log("")
   console.log(chalk.cyan.bold("──────────────────────────────"))
   console.log("")

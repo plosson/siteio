@@ -2,6 +2,7 @@ import chalk from "chalk"
 import { getAgentDataDir, loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import { SiteStorage } from "../../lib/agent/storage.ts"
 import { AppStorage } from "../../lib/agent/app-storage.ts"
+import { UserStore } from "../../lib/agent/user-store.ts"
 import { TenantRegistry, tenantServices } from "../../lib/agent/tenants.ts"
 import type { Tenant } from "../../types.ts"
 import { encodeToken, generateApiKey } from "../../utils/token.ts"
@@ -36,6 +37,8 @@ export async function addTenantCommand(rawDomain: string, options: { json?: bool
     createdAt: new Date().toISOString(),
     ...(options.apps && { apps: true }),
   }
+  // Users left from an earlier tenant with this domain must not come back with it.
+  new UserStore(dataDir).deleteTenantUsers(domain)
   updateAgentConfig(dataDir, { tenants: [...tenants, tenant] })
 
   const apiUrl = `https://api.${domain}`
@@ -96,9 +99,11 @@ export async function removeTenantCommand(rawDomain: string, options: { json?: b
   }
 
   updateAgentConfig(dataDir, { tenants: tenants.filter((t) => t.domain !== domain) })
+  const removedUsers = new UserStore(dataDir).deleteTenantUsers(domain)
   if (options.json) {
-    console.log(JSON.stringify({ removed: domain }))
+    console.log(JSON.stringify({ removed: domain, removedUsers }))
     return
   }
   console.error(formatSuccess(`Tenant '${domain}' removed — restart the agent: siteio agent restart`))
+  if (removedUsers.length) console.error(chalk.gray(`  Users removed: ${removedUsers.join(", ")}`))
 }
