@@ -62,10 +62,10 @@ interface UserKey {
 **Keys**
 - A user key is `usr_<random>`. `utils/grant-token.ts` gains a prefix parameter
   and generates and hashes it; there is no second generator.
-- Lookup is by hash through a cached hash → username index. On every hit the
-  store re-reads the user file and checks that the hash is still in
-  `user.keys` and not expired, so a revoked key fails at once. The index is
-  reset when a user or key is added or removed.
+- Lookup is by hash, reading the users folder on every lookup, so a revoked or
+  expired key fails at once. There is no cache: on-box commands
+  (`siteio agent password`) write user files from another process, and a
+  server has few users.
 - The secret is shown once: in the device-login poll answer, or in the session
   cookie.
 - The store never writes on a read. There is no `lastUsedAt`.
@@ -90,10 +90,10 @@ interface UserKey {
 - No route can create a second admin or delete `admin`.
 
 **Admin password**
-- `siteio agent install` asks for it on a TTY. Without a TTY, or when
-  `--domain` is given (as `siteio server create` does over SSH), it generates
-  one and prints it once. `--admin-password <p>` sets it explicitly.
-  `siteio server create` shows the generated password in its output.
+- `siteio agent install` generates it and prints it once, next to the API
+  key; `--admin-password <p>` sets it instead. It never prompts, so
+  `siteio server create` (which streams the remote install's output) shows it
+  without hanging.
 - `siteio agent password` (on the box) sets or resets it. It creates the
   `admin` user if there isn't one, which is how existing servers get one.
 
@@ -317,9 +317,9 @@ change their own password in the UI.
 
 - **Keys**: a member key on `/tenants`, agent config or a tenant host is
   refused; a tenant user's key on the main host or another tenant is refused;
-  the admin key on a tenant host is refused; a revoked key is refused at once
-  with a warm cache; a user of a removed tenant is refused, and stays refused
-  after the domain is added again.
+  the admin key on a tenant host is refused; a revoked key is refused at once;
+  a user of a removed tenant is refused, and stays refused after the domain
+  is added again.
 - **Operator exemptions**: a main-domain member can't create a compose app,
   mount a host path, clone `file://` or ssh, set a denied env key, claim a
   main-domain hostname for an app, or get the operator view of `GET /agent`.
