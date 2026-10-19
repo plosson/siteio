@@ -27,6 +27,17 @@ interface InstallOptions {
   acmeDnsProvider?: string
 }
 
+// The password printed by `siteio --json agent password`, or null when the
+// output is not exactly that JSON (so install can carry on without it).
+export function parseAdminPassword(stdout: string): string | null {
+  try {
+    const parsed = JSON.parse(stdout) as { password?: unknown } | null
+    return typeof parsed?.password === "string" && parsed.password ? parsed.password : null
+  } catch {
+    return null
+  }
+}
+
 function findBinaryPath(): string {
   const candidates = [
     "/usr/local/bin/siteio",
@@ -327,6 +338,9 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
   if (cloudflareToken) {
     remoteCmd += ` --cloudflare-token ${shellQuote(cloudflareToken)}`
   }
+  if (options.adminPassword) {
+    remoteCmd += ` --admin-password ${shellQuote(options.adminPassword)}`
+  }
 
   // Run remote install
   console.log(chalk.cyan("Running agent install on remote server..."))
@@ -470,7 +484,7 @@ async function installLocal(options: InstallOptions): Promise<void> {
   ]
   const passwordResult = spawnSync({ cmd: passwordCmd, stdout: "pipe", stderr: "pipe" })
   const adminPassword = passwordResult.exitCode === 0
-    ? (JSON.parse(passwordResult.stdout.toString()) as { password: string }).password
+    ? parseAdminPassword(passwordResult.stdout.toString())
     : null
   s.stop(adminPassword ? chalk.green("Admin password set") : chalk.yellow("Could not set the admin password — run `siteio agent password` later"))
 

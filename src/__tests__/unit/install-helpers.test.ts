@@ -1,5 +1,23 @@
 import { describe, test, expect } from "bun:test"
 import { isSslipDomain, buildSslipDomain, buildCloudflareTokenUrl } from "../../lib/cloudflare.ts"
+import { parseAdminPassword } from "../../commands/agent/install.ts"
+
+describe("Install flow: parseAdminPassword", () => {
+  test("reads the password from valid JSON", () => {
+    expect(parseAdminPassword('{"username":"admin","password":"s3cret-pass"}\n')).toBe("s3cret-pass")
+  })
+  test.each([
+    ["empty output", ""],
+    ["a warning line before the JSON", 'warning: x\n{"password":"abcdefgh"}'],
+    ["an empty object", "{}"],
+    ["a non-string password", '{"password":5}'],
+    ["an empty password", '{"password":""}'],
+    ["JSON null", "null"],
+    ["a bare string", '"abcdefgh"'],
+  ])("returns null for %s", (_name, out) => {
+    expect(parseAdminPassword(out)).toBeNull()
+  })
+})
 
 describe("Install flow: domain type detection", () => {
   test("sslip.io domain skips cloudflare", () => {
