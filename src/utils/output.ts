@@ -137,3 +137,8 @@ export function formatVersionEntry(version: {
   const user = version.deployedBy ? chalk.blue(version.deployedBy.padEnd(12)) : chalk.dim("unknown".padEnd(12))
   return `  ${chalk.bold(`v${version.version}`)}  ${user}  ${date}  ${formatBytes(version.size)}`
 }
+
+// The --json output of a command: { success: true, data } on stdout.
+export function printJson(data: unknown): void {
+  console.log(JSON.stringify({ success: true, data }, null, 2))
+}
