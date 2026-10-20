@@ -21,6 +21,7 @@ export class FakeRuntime implements Runtime {
   // Fixtures tests can override per-test:
   runReturn = "fake-container-id-123"
   runError: Error | null = null
+  startError: Error | null = null
   buildReturn = "siteio-fake:latest"
   buildError: Error | null = null
   // When set, build() waits for it, so a test can hold a deploy mid-build.
@@ -87,6 +88,15 @@ export class FakeRuntime implements Runtime {
 
   async restart(appName: string): Promise<void> {
     this.record("restart", [appName])
+  }
+
+  async start(appName: string): Promise<void> {
+    this.record("start", [appName])
+    if (this.startError) throw this.startError
+  }
+
+  async setRestartPolicy(container: string, policy: string): Promise<void> {
+    this.record("setRestartPolicy", [container, policy])
   }
 
   async remove(appName: string): Promise<void> {

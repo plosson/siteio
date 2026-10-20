@@ -59,10 +59,10 @@ const EDIT_SESSION_COOKIE = "siteio_edit"
 // stay operator-only unless listed here (or in MEMBER_EXTRA_ROUTE, for
 // main-domain members).
 const TENANT_ROUTE =
-  /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|env|rename|grants|grants\/grt_[a-z0-9]+))?)$/
+  /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|env|rename|stop|start|grants|grants\/grt_[a-z0-9]+))?)$/
 
 // The app routes a tenant allowed to run apps (Tenant.apps) may reach.
-const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|restart|logs|status|thumbnail))?)?$/
+const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|start|restart|logs|status|thumbnail))?)?$/
 
 // What a main-domain member reaches beyond the tenant allowlist: the AI
 // editor (chat and in-site edit links), which runs on the operator's LLM
@@ -298,6 +298,7 @@ export class AgentServer {
         },
         lsRemote: (url, patterns, token) => this.git.lsRemote(url, patterns, token),
         deploy: async (name, ref) => {
+          if (this.appStorage.get(name)?.status === "stopped") throw new DeployError(this.stoppedMessage("app", name, null), 409)
           await this.deployContainerApp(name, { ref })
         },
         isDeploying: (name) => this.isDeploying(name),
@@ -382,7 +383,7 @@ export class AgentServer {
       path === "/mcp" || path.startsWith("/mcp/") ||
       path.startsWith("/.well-known/oauth-")
     if (isMcpSurface) {
-      const ctx = this.oauthProvider.hostContext(host)
+      const ctx = this.liveHostContext(host)
       if (!ctx) return this.error("Not found", 404)
       if (req.method === "OPTIONS") return this.oauthProvider.preflight()
 
@@ -420,7 +421,7 @@ export class AgentServer {
     // `https://<site>.<domain>/_siteio` — it then appends /sites/... etc. as
     // usual. Authenticated by a share code (grant token) as X-API-Key.
     if (path === "/_siteio" || path.startsWith("/_siteio/")) {
-      const ctx = this.oauthProvider.hostContext(host)
+      const ctx = this.liveHostContext(host)
       if (!ctx) return this.error("Not found", 404)
       const rest = path.slice("/_siteio".length) || "/"
       // Health is unauthenticated (CLI version-skew probe), like /health.
@@ -598,6 +599,18 @@ export class AgentServer {
       return this.handleUpgradeSite(k(siteUpgradeMatch[1]!), scope)
     }
 
+    // POST /sites/:name/stop - take the site offline (container removed, data kept)
+    const siteStopMatch = path.match(/^\/sites\/([a-z0-9-]+)\/stop$/)
+    if (siteStopMatch && req.method === "POST") {
+      return this.handleStopSite(k(siteStopMatch[1]!), req, scope)
+    }
+
+    // POST /sites/:name/start - bring a stopped site back
+    const siteStartMatch = path.match(/^\/sites\/([a-z0-9-]+)\/start$/)
+    if (siteStartMatch && req.method === "POST") {
+      return this.handleStartSite(k(siteStartMatch[1]!), req, scope)
+    }
+
     // /sites/:name/chat - AI editor: GET history+status, POST a turn (SSE),
     // DELETE clears history.
     const siteChatMatch = path.match(/^\/sites\/([a-z0-9-]+)\/chat$/)
@@ -697,10 +710,16 @@ export class AgentServer {
       return this.handleDeployApp(k(appDeployMatch[1]!), url, req, scope)
     }
 
-    // POST /apps/:name/stop - stop app
+    // POST /apps/:name/stop - take the app offline (containers stopped and kept, restart policy off)
     const appStopMatch = path.match(/^\/apps\/([a-z0-9-]+)\/stop$/)
     if (appStopMatch && req.method === "POST") {
-      return this.handleStopApp(k(appStopMatch[1]!), scope)
+      return this.handleStopApp(k(appStopMatch[1]!), req, scope)
+    }
+
+    // POST /apps/:name/start - bring a stopped app back
+    const appStartMatch = path.match(/^\/apps\/([a-z0-9-]+)\/start$/)
+    if (appStartMatch && req.method === "POST") {
+      return this.handleStartApp(k(appStartMatch[1]!), req, scope)
     }
 
     // POST /apps/:name/restart - restart app
@@ -1190,6 +1209,7 @@ export class AgentServer {
     if (!app) {
       return this.error("App not found", 404)
     }
+    if (app.status === "stopped") return this.stoppedError("app", name, scope)
 
     const noCache = url.searchParams.get("noCache") === "true"
 
@@ -1225,6 +1245,71 @@ export class AgentServer {
   }
 
   /**
+   * Write the siteio override for the app's current config and bring the
+   * project up. Returns the primary service's container ID. Throws DeployError.
+   */
+  private async composeUpApp(app: App): Promise<{ containerId?: string; warnings: string[] }> {
+    const { name, compose } = app
+    if (!compose) throw new DeployError("Not a compose app", 400)
+    const project = `siteio-${name}`
+
+    // Resolve the base file alone: it must hold the primary service, and
+    // the override needs the networks that service is already on.
+    let resolved: { spec: ComposeSpec; warnings: string[] }
+    try {
+      resolved = await this.resolveComposeBase(app)
+    } catch (err) {
+      if (!(err instanceof ValidationError)) throw err
+      throw new DeployError(err.message, 400)
+    }
+    const primary = resolved.spec.services[compose.primaryService] as { networks?: Record<string, unknown> }
+
+    // Regenerate the override every time so env/domain updates apply
+    const overrideYaml = buildOverride(app, {
+      domains: this.appStorage.routedDomains(app, this.tenants),
+      baseNetworks: Object.keys(primary.networks ?? {}),
+      dataDir: this.config.dataDir,
+    })
+    this.compose.writeOverride(name, overrideYaml)
+    const files = [this.composeBasePath(app), this.compose.overridePath(name)]
+    const envFile = this.writeComposeEnvFile(app)
+
+    await this.docker.composeUp(project, files, envFile)
+    const ps = await this.docker.composePs(project, files, envFile)
+    const containerId = ps.find((s) => s.service === compose.primaryService)?.containerId
+    return { containerId, warnings: resolved.warnings }
+  }
+
+  // Traefik reads the labels baked into an image too: a tenant's image could
+  // route any hostname, the operator's API included, to itself. Tenant
+  // containers run from the inspected ID, so a concurrent retag can't swap it.
+  private async tenantSafeImage(name: string, image: string): Promise<string> {
+    if (!this.tenants.ownerOf(name)) return image
+    const { id, labels } = await this.docker.imageInspect(image)
+    if (Object.keys(labels).some((key) => key.toLowerCase().startsWith("traefik."))) {
+      throw new DeployError("Image labels starting with 'traefik.' are not allowed for tenant apps", 400)
+    }
+    return id
+  }
+
+  // Replace the app's container with one running `image`, routed on its
+  // domains. Returns the new container ID.
+  private async runAppContainer(app: App, image: string): Promise<string> {
+    if (this.docker.containerExists(app.name)) await this.docker.remove(app.name)
+    const labels = this.docker.buildTraefikLabels(app.name, this.appStorage.routedDomains(app, this.tenants), app.internalPort)
+    return this.docker.run({
+      name: app.name,
+      image,
+      internalPort: app.internalPort,
+      env: app.env,
+      volumes: app.volumes,
+      restartPolicy: app.restartPolicy,
+      network: "siteio-network",
+      labels,
+    })
+  }
+
+  /**
    * Deploy a compose app: (re)write the siteio override and bring the project
    * up. Throws DeployError.
    */
@@ -1249,42 +1334,13 @@ export class AgentServer {
         )
       }
 
-      const project = `siteio-${name}`
-
-      // Resolve the base file alone: it must hold the primary service, and
-      // the override needs the networks that service is already on.
-      let resolved: { spec: ComposeSpec; warnings: string[] }
-      try {
-        resolved = await this.resolveComposeBase(app)
-      } catch (err) {
-        if (!(err instanceof ValidationError)) throw err
-        throw new DeployError(err.message, 400)
-      }
-      const { spec, warnings } = resolved
-      const primary = spec.services[compose.primaryService] as { networks?: Record<string, unknown> }
-
-      // Write the override (regenerate every deploy so env/domain updates apply)
-      const overrideYaml = buildOverride(app, {
-        domains: this.appStorage.routedDomains(app, this.tenants),
-        baseNetworks: Object.keys(primary.networks ?? {}),
-        dataDir: this.config.dataDir,
-      })
-      this.compose.writeOverride(name, overrideYaml)
-      const files = [basePath, this.compose.overridePath(name)]
-      const envFile = this.writeComposeEnvFile(app)
-
-      // Bring up the project
-      await this.docker.composeUp(project, files, envFile)
-
-      // Resolve primary service's container ID via ps
-      const psOutput = await this.docker.composePs(project, files, envFile)
-      const primaryState = psOutput.find((s) => s.service === compose.primaryService)
+      const { containerId, warnings } = await this.composeUpApp(app)
 
       const commitHash = compose.source === "git" ? await this.git.getCommitHash(name) : undefined
 
       const updated = this.appStorage.update(name, {
         status: "running",
-        containerId: primaryState?.containerId,
+        containerId,
         deployedAt: new Date().toISOString(),
         lastBuildAt: new Date().toISOString(),
         ...(commitHash && { commitHash }),
@@ -1377,37 +1433,13 @@ export class AgentServer {
         imageToRun = app.image
       }
 
-      // Traefik reads the labels baked into an image too: a tenant's image
-      // could route any hostname, the operator's API included, to itself.
-      // The container starts from the inspected image's ID: another deploy
-      // could retag the image in between.
-      if (this.tenants.ownerOf(name)) {
-        const { id, labels } = await this.docker.imageInspect(imageToRun)
-        if (Object.keys(labels).some((key) => key.toLowerCase().startsWith("traefik."))) {
-          throw new DeployError("Image labels starting with 'traefik.' are not allowed for tenant apps", 400)
-        }
-        imageToRun = id
-      }
+      imageToRun = await this.tenantSafeImage(name, imageToRun)
 
       // The new image is ready: only now replace the running container, if
       // the app still exists.
       if (!this.appStorage.get(name)) throw new DeployError("App not found", 404)
       swapped = true
-      if (this.docker.containerExists(name)) {
-        await this.docker.remove(name)
-      }
-
-      const labels = this.docker.buildTraefikLabels(name, this.appStorage.routedDomains(app, this.tenants), app.internalPort)
-      const containerId = await this.docker.run({
-        name: app.name,
-        image: imageToRun,
-        internalPort: app.internalPort,
-        env: app.env,
-        volumes: app.volumes,
-        restartPolicy: app.restartPolicy,
-        network: "siteio-network",
-        labels,
-      })
+      const containerId = await this.runAppContainer(app, imageToRun)
 
       const updated = this.appStorage.update(name, {
         status: "running",
@@ -1436,26 +1468,95 @@ export class AgentServer {
     }
   }
 
-  private async handleStopApp(name: string, scope: Scope): Promise<Response> {
+  // Take an app offline: stop its containers and turn their restart policy
+  // off, so Traefik has no route and a reboot can't revive them. The
+  // containers stay, so their anonymous volumes come back on `start`.
+  private async handleStopApp(name: string, req: Request, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
     }
+    if (app.status === "stopped") return this.error(`App '${this.tenants.displayName(name, scope)}' is already stopped`, 409)
     if (this.isDeploying(name)) {
       return this.error("Deploy already in progress", 409)
     }
     try {
+      // Containers stay (their anonymous volumes with them); with the restart
+      // policy off, a daemon or server restart can't bring them back.
       if (app.compose) {
         const files = this.composeFiles(app)
-        await this.docker.composeStop(`siteio-${name}`, files, this.writeComposeEnvFile(app))
+        const envFile = this.writeComposeEnvFile(app)
+        await this.docker.composeStop(`siteio-${name}`, files, envFile)
+        for (const s of await this.docker.composePs(`siteio-${name}`, files, envFile)) {
+          await this.docker.setRestartPolicy(s.containerId, "no")
+        }
       } else if (this.docker.containerExists(name)) {
         await this.docker.stop(name)
+        await this.docker.setRestartPolicy(this.docker.containerName(name), "no")
       }
-      const updated = this.appStorage.update(name, { status: "stopped" })
-      return this.json(updated && this.appView(updated, scope))
+      const updated = this.appStorage.update(name, { status: "stopped" })!
+      this.pageApp(updated, "stopped", this.requestUser(req))
+      return this.json(this.appView(updated, scope))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to stop app"
       return this.error(message, 500)
+    }
+  }
+
+  // Bring a stopped app back. Single container: the same container, with its
+  // restart policy put back; settings changed while stopped apply on the next
+  // deploy. Gone container: recreate it from the image on the server, or
+  // deploy when that is gone too. Compose: `compose up` (unchanged containers
+  // are reused), then each service's restart policy put back.
+  private async startApp(app: App, by?: string): Promise<App> {
+    if (!this.docker.isAvailable()) throw new DeployError("Docker is not available", 500)
+    this.docker.ensureNetwork()
+    const name = app.name
+    const image = app.git || app.dockerfile ? this.docker.imageTag(name) : app.image
+    const hasContainer = !app.compose && this.docker.containerExists(name)
+    if (!app.compose && !hasContainer && !this.docker.imageExists(image)) return this.deployContainerApp(name, { deployedBy: by })
+    try {
+      let containerId = app.containerId
+      if (app.compose) {
+        containerId = (await this.composeUpApp(app)).containerId
+        const { spec } = await this.resolveComposeBase(app)
+        const project = `siteio-${name}`
+        const files = this.composeFiles(app)
+        for (const s of await this.docker.composePs(project, files, this.writeComposeEnvFile(app))) {
+          const svc = spec.services[s.service] as { restart?: string; deploy?: { restart_policy?: { condition?: string } } } | undefined
+          // Compose v2 maps deploy.restart_policy.condition to the container policy when `restart` is unset
+          const restart =
+            svc?.restart ?? ({ any: "always", "on-failure": "on-failure" } as Record<string, string>)[svc?.deploy?.restart_policy?.condition ?? ""] ?? "no"
+          await this.docker.setRestartPolicy(s.containerId, restart)
+        }
+      } else if (hasContainer) {
+        await this.docker.setRestartPolicy(this.docker.containerName(name), app.restartPolicy)
+        await this.docker.start(name)
+      } else {
+        containerId = await this.runAppContainer(app, await this.tenantSafeImage(name, image))
+      }
+      const updated = this.appStorage.update(name, { status: "running", containerId })
+      if (!updated) throw new DeployError("App not found", 404)
+      this.pageApp(updated, "started", by)
+      return updated
+    } catch (err) {
+      this.appStorage.update(name, { status: "failed" })
+      if (err instanceof DeployError) throw err
+      throw new DeployError(err instanceof Error ? err.message : "Failed to start app", 500)
+    }
+  }
+
+  private async handleStartApp(name: string, req: Request, scope: Scope): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) return this.error("App not found", 404)
+    if (app.status !== "stopped") return this.error(`App '${this.tenants.displayName(name, scope)}' is not stopped`, 409)
+    if (this.isDeploying(name)) return this.error("Deploy already in progress", 409)
+    try {
+      const updated = await this.startApp(app, this.requestUser(req))
+      return this.json(this.appView(updated, scope))
+    } catch (err) {
+      const status = err instanceof DeployError ? err.status : 500
+      return this.error(err instanceof Error ? err.message : "Failed to start app", status)
     }
   }
 
@@ -1467,6 +1568,7 @@ export class AgentServer {
     if (this.isDeploying(name)) {
       return this.error("Deploy already in progress", 409)
     }
+    if (app.status === "stopped") return this.handleStartApp(name, req, scope)
     try {
       if (app.compose) {
         const files = this.composeFiles(app)
@@ -1828,6 +1930,7 @@ export class AgentServer {
   private handleSiteChat(name: string, req: Request, deployedBy?: string): Response {
     if (!this.chatController) return this.error("Chat is not configured", 400)
     if (!this.storage.exists(name)) return this.error("Site not found", 404)
+    if (this.storage.get(name)?.status === "stopped") return this.stoppedError("site", name, this.tenants.ownerOf(name))
 
     const controller = this.chatController
 
@@ -1934,6 +2037,7 @@ export class AgentServer {
 
     // Create metadata on first deploy (generates superuser creds).
     let site = this.storage.get(name)
+    if (site?.status === "stopped") return this.stoppedError("site", name, scope)
 
     const conflict = this.checkExpectedVersion(req, site)
     if (conflict) return conflict
@@ -2109,6 +2213,7 @@ export class AgentServer {
     const name = grant.site
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
+    if (site.status === "stopped") return this.stoppedError("site", name, scope)
     const conflict = this.checkExpectedVersion(req, site)
     if (conflict) return conflict
 
@@ -2151,6 +2256,7 @@ export class AgentServer {
   ): Promise<SiteInfo> {
     const site = this.storage.get(siteName)
     if (!site) throw new Error(`Site "${siteName}" no longer exists`)
+    if (site.status === "stopped") throw new Error(this.stoppedMessage("site", siteName, this.tenants.ownerOf(siteName)))
     if (!this.docker.isAvailable()) throw new Error("Docker is not available")
     try {
       return await this.runSiteDeploy(site, zipData, deployedBy, message)
@@ -2470,6 +2576,7 @@ export class AgentServer {
   private async handleUpgradeSite(name: string, scope: Scope): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
+    if (site.status === "stopped") return this.stoppedError("site", name, scope)
     const from = site.pocketbaseVersion
     const to = POCKETBASE_VERSION
     if (from === to) {
@@ -2515,6 +2622,52 @@ export class AgentServer {
     }
   }
 
+  // A stopped site or app takes no deploy until `start`. Callers check this
+  // before any try/catch that marks the item "failed": that would lose it.
+  private stoppedMessage(kind: "site" | "app", key: string, scope: Scope): string {
+    const shown = this.tenants.displayName(key, scope)
+    return `${kind === "site" ? "Site" : "App"} '${shown}' is stopped; run 'siteio ${kind}s start ${shown}' first`
+  }
+
+  private stoppedError(kind: "site" | "app", key: string, scope: Scope): Response {
+    return this.error(this.stoppedMessage(kind, key, scope), 409, "stopped")
+  }
+
+  // Take a site offline: remove its container (code, pb_data and history
+  // stay), so Traefik has no route and no restart policy can revive it.
+  private async handleStopSite(name: string, req: Request, scope: Scope): Promise<Response> {
+    const site = this.storage.get(name)
+    if (!site) return this.error("Site not found", 404)
+    if (site.status === "stopped") return this.error(`Site '${this.tenants.displayName(name, scope)}' is already stopped`, 409)
+    if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+    try {
+      if (this.docker.containerExists(name)) await this.docker.remove(name)
+    } catch (err) {
+      return this.error(err instanceof Error ? err.message : "Failed to stop site", 500)
+    }
+    const updated = this.storage.update(name, { status: "stopped", containerId: undefined })!
+    this.pageSite(updated, "stopped", this.requestUser(req))
+    return this.json(this.storage.toInfo(updated, this.tenants, scope))
+  }
+
+  // Bring a stopped site back from its stored record, so domain, env and
+  // rename changes made while it was stopped apply now.
+  private async handleStartSite(name: string, req: Request, scope: Scope): Promise<Response> {
+    const site = this.storage.get(name)
+    if (!site) return this.error("Site not found", 404)
+    if (site.status !== "stopped") return this.error(`Site '${this.tenants.displayName(name, scope)}' is not stopped`, 409)
+    if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+    try {
+      const containerId = await this.startSiteContainer(site)
+      const updated = this.storage.update(name, { status: "running", containerId })!
+      this.pageSite(updated, "started", this.requestUser(req))
+      return this.json(this.storage.toInfo(updated, this.tenants, scope))
+    } catch (err) {
+      this.storage.update(name, { status: "failed" })
+      return this.error(err instanceof Error ? err.message : "Failed to start site", 500)
+    }
+  }
+
   // How long a freshly (re)created site container gets to finish PocketBase's
   // boot-time migrations and start serving.
   siteStartTimeoutMs = 120_000
@@ -2553,6 +2706,7 @@ export class AgentServer {
   private async runRollback(name: string, version: number, deployedBy?: string, scope: Scope = null): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
+    if (site.status === "stopped") return this.stoppedError("site", name, scope)
     if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
     try {
       const restored = this.storage.restoreVersion(name, version)
@@ -2788,7 +2942,15 @@ export class AgentServer {
     })
   }
 
-  private pageApp(app: App, event: "deployed" | "restarted", by?: string): void {
+  private pageSite(site: Site, event: "stopped" | "started", by?: string): void {
+    this.pager?.notify({
+      title: `Site '${site.name}' ${event}`,
+      message: [by && `by ${by}`, `on ${this.config.domain}`].filter(Boolean).join(" · "),
+      url: this.storage.toInfo(site, this.tenants).url,
+    })
+  }
+
+  private pageApp(app: App, event: "deployed" | "restarted" | "stopped" | "started", by?: string): void {
     const url = this.appStorage.url(app, this.tenants)
     this.pager?.notify({
       title: `App '${app.name}' ${event}`,
@@ -2800,6 +2962,14 @@ export class AgentServer {
     if (event === "deployed") {
       this.ranking?.report({ user: by, version: app.commitHash?.slice(0, 7) ?? app.image, url })
     }
+  }
+
+  // The site a host serves, or null when there is none or it is stopped: a
+  // stopped site answers 404 everywhere, the agent's own routes included.
+  private liveHostContext(host: string): ReturnType<OAuthProvider["hostContext"]> {
+    const ctx = this.oauthProvider.hostContext(host)
+    if (!ctx || this.storage.get(ctx.site)?.status === "stopped") return null
+    return ctx
   }
 
   isDeploying(name: string): boolean {

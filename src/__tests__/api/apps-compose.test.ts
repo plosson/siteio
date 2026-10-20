@@ -180,14 +180,77 @@ describe("API: Apps (compose)", () => {
       runtime.calls = []
     }
 
-    test("stop invokes composeStop, not docker.stop", async () => {
+    test("stop stops the project, keeps its containers and turns every restart policy off", async () => {
       await setup("stopapp")
-      const r = await req("POST", "/apps/stopapp/stop")
-      const app = await jsonOk<App>(r)
-      expect(app.status).toBe("stopped")
-      expect(runtime.callsOf("composeStop")).toHaveLength(1)
-      expect(runtime.callsOf("stop")).toHaveLength(0)
-      expect(runtime.callsOf("composeStop")[0]!.args[0]).toBe("siteio-stopapp")
+      runtime.composePsReturn = [
+        { service: "web", containerId: "w1", state: "running" },
+        { service: "db", containerId: "d1", state: "running" },
+      ]
+      try {
+        const app = await jsonOk<App>(await req("POST", "/apps/stopapp/stop"))
+        expect(app.status).toBe("stopped")
+        expect(runtime.callsOf("composeStop")[0]!.args[0]).toBe("siteio-stopapp")
+        expect(runtime.callsOf("setRestartPolicy").map((c) => c.args)).toEqual([["w1", "no"], ["d1", "no"]])
+        expect(runtime.callsOf("composeDown")).toHaveLength(0) // that one passes -v
+      } finally {
+        runtime.composePsReturn = [{ service: "web", containerId: "fake-web-id", state: "running" }]
+      }
+    })
+
+    test("start brings the project up and puts each service's restart policy back", async () => {
+      await setup("startapp")
+      await req("POST", "/apps/startapp/stop")
+      runtime.composeConfigReturn = { services: { web: { restart: "always" }, db: {} } }
+      runtime.composePsReturn = [
+        { service: "web", containerId: "w1", state: "running" },
+        { service: "db", containerId: "d1", state: "running" },
+      ]
+      runtime.calls = []
+      try {
+        const app = await jsonOk<App>(await req("POST", "/apps/startapp/start"))
+        expect(app.status).toBe("running")
+        expect(runtime.callsOf("composeUp")).toHaveLength(1)
+        expect(runtime.callsOf("setRestartPolicy").map((c) => c.args)).toEqual([["w1", "always"], ["d1", "no"]])
+      } finally {
+        runtime.composePsReturn = [{ service: "web", containerId: "fake-web-id", state: "running" }]
+      }
+    })
+
+    test("start falls back to deploy.restart_policy.condition; explicit restart wins", async () => {
+      await setup("startdeploy")
+      await req("POST", "/apps/startdeploy/stop")
+      runtime.composeConfigReturn = {
+        services: {
+          web: { deploy: { restart_policy: { condition: "any" } } },
+          db: { restart: "unless-stopped", deploy: { restart_policy: { condition: "none" } } },
+          job: { deploy: { restart_policy: { condition: "on-failure" } } },
+          odd: { deploy: { restart_policy: { condition: "bogus" } } },
+        },
+      }
+      runtime.composePsReturn = [
+        { service: "web", containerId: "w1", state: "running" },
+        { service: "db", containerId: "d1", state: "running" },
+        { service: "job", containerId: "j1", state: "running" },
+        { service: "odd", containerId: "o1", state: "running" },
+      ]
+      runtime.calls = []
+      try {
+        await jsonOk<App>(await req("POST", "/apps/startdeploy/start"))
+        expect(runtime.callsOf("setRestartPolicy").map((c) => c.args)).toEqual([
+          ["w1", "always"], ["d1", "unless-stopped"], ["j1", "on-failure"], ["o1", "no"],
+        ])
+      } finally {
+        runtime.composePsReturn = [{ service: "web", containerId: "fake-web-id", state: "running" }]
+      }
+    })
+
+    test("start brings the project up again without cloning", async () => {
+      await setup("startapp")
+      await req("POST", "/apps/startapp/stop")
+      runtime.calls = []
+      const app = await jsonOk<App>(await req("POST", "/apps/startapp/start"))
+      expect(app.status).toBe("running")
+      expect(runtime.callsOf("composeUp")).toHaveLength(1)
     })
 
     test("restart invokes composeRestart", async () => {
@@ -392,7 +455,7 @@ describe("API: Apps (compose)", () => {
       expect(runtime.callsOf("composeStop")[0]!.args[2]).toBe(expectedEnvPath)
 
       await req("POST", "/apps/lifecycleenv/restart")
-      expect(runtime.callsOf("composeRestart")[0]!.args[2]).toBe(expectedEnvPath)
+      expect(runtime.callsOf("composeUp")[0]!.args[2]).toBe(expectedEnvPath)
 
       await req("GET", "/apps/lifecycleenv/logs")
       // composeLogs signature: (project, files, envFile, opts) → envFile at args[2]

@@ -151,6 +151,18 @@ export class SiteioClient {
     return response.data
   }
 
+  async stopSite(name: string): Promise<SiteInfo> {
+    const response = await this.request<ApiResponse<SiteInfo>>("POST", `/sites/${name}/stop`)
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
+  async startSite(name: string): Promise<SiteInfo> {
+    const response = await this.request<ApiResponse<SiteInfo>>("POST", `/sites/${name}/start`)
+    if (!response.data) throw new ApiError("Invalid response from server")
+    return response.data
+  }
+
   async updateSiteDomains(name: string, domains: string[]): Promise<SiteInfo> {
     const response = await this.request<ApiResponse<SiteInfo>>(
       "PATCH",
@@ -397,6 +409,14 @@ export class SiteioClient {
 
   async restartApp(name: string): Promise<AppInfo> {
     const response = await this.request<ApiResponse<AppInfo>>("POST", `/apps/${name}/restart`)
+    if (!response.data) {
+      throw new ApiError("Invalid response from server")
+    }
+    return response.data
+  }
+
+  async startApp(name: string): Promise<AppInfo> {
+    const response = await this.request<ApiResponse<AppInfo>>("POST", `/apps/${name}/start`)
     if (!response.data) {
       throw new ApiError("Invalid response from server")
     }

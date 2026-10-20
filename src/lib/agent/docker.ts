@@ -366,6 +366,34 @@ export class DockerManager implements Runtime {
   }
 
   /**
+   * Start a stopped container
+   */
+  async start(appName: string): Promise<void> {
+    const result = spawnSync({
+      cmd: ["docker", "start", this.containerName(appName)],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    if (result.exitCode !== 0) {
+      throw new SiteioError(`Failed to start container: ${result.stderr.toString()}`)
+    }
+  }
+
+  /**
+   * Change a container's restart policy in place (`docker update`)
+   */
+  async setRestartPolicy(container: string, policy: string): Promise<void> {
+    const result = spawnSync({
+      cmd: ["docker", "update", "--restart", policy, container],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    if (result.exitCode !== 0) {
+      throw new SiteioError(`Failed to set restart policy: ${result.stderr.toString()}`)
+    }
+  }
+
+  /**
    * Build Traefik labels for routing
    */
   buildTraefikLabels(

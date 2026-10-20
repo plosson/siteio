@@ -183,4 +183,35 @@ describe("API: site chat", () => {
     expect(body.success).toBe(true)
     expect(body.data.stopped).toBe(false) // nothing running right now
   })
+
+  test("a chat turn on a stopped site is refused before the LLM runs", async () => {
+    let ran = false
+    server = makeServer(dataDir, { chat: CHAT, executor: { run: async () => { ran = true; return { finalText: "", isError: false, aborted: false, timedOut: false } } } })
+    await deploySite(server, "blog", "<h1>Old</h1>")
+    await server.handleRequestForTest(new Request("http://x/sites/blog/stop", { method: "POST", headers: GOD }))
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog/chat", { method: "POST", headers: GOD_JSON, body: JSON.stringify({ message: "hi" }) })
+    )
+    expect(res.status).toBe(409)
+    expect(ran).toBe(false)
+  })
+
+  test("a site stopped during a chat turn refuses that turn's deploy and stays stopped", async () => {
+    const stopper: ChatExecutor = {
+      run: async (input) => {
+        await server.handleRequestForTest(new Request("http://x/sites/blog/stop", { method: "POST", headers: GOD }))
+        writeFileSync(join(input.workspaceDir, "index.html"), "<h1>New</h1>")
+        return { finalText: "Done.", isError: false, aborted: false, timedOut: false }
+      },
+    }
+    server = makeServer(dataDir, { chat: CHAT, executor: stopper })
+    await deploySite(server, "blog", "<h1>Old</h1>")
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog/chat", { method: "POST", headers: GOD_JSON, body: JSON.stringify({ message: "edit" }) })
+    )
+    await res.text() // drain the SSE stream so the turn finishes
+    const site: any = await (await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))).json()
+    expect(site.data.status).toBe("stopped")
+    expect(site.data.version).toBe(1)
+  })
 })
