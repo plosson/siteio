@@ -26,7 +26,7 @@ import { DockerfileStorage } from "./dockerfile-storage.ts"
 import { ComposeStorage } from "./compose-storage.ts"
 import { buildOverride } from "./compose-override.ts"
 import { composeWarnings, missingPrimaryService, type ComposeSpec } from "./compose.ts"
-import { ADMIN_UI_HTML, ADMIN_UI_JS, ADMIN_UI_CSS, CHAT_CORE_JS, EDITOR_SHELL_HTML, PICKER_JS } from "./ui/assets.ts"
+import { ADMIN_UI_HTML, CHAT_CORE_JS, EDITOR_SHELL_HTML, PICKER_JS } from "./ui/assets.ts"
 import { POCKETBASE_VERSION, pocketbaseImage } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
 import { encodeToken, generateApiKey } from "../../utils/token.ts"
@@ -473,8 +473,8 @@ export class AgentServer {
       return this.json({ status: "ok", version: getVersion() })
     }
 
-    // Admin UI assets are served via the Bun.serve routes map. Any other
-    // /ui/* path is a missing asset — return 404 without requiring auth.
+    // The admin page is served via the Bun.serve routes map. Any /ui/* path
+    // (such as the old /ui/ui.js) is not found — 404 without requiring auth.
     if (path === "/ui" || path.startsWith("/ui/")) {
       return this.error("Not found", 404)
     }
@@ -2839,7 +2839,7 @@ export class AgentServer {
 
     const port = this.config.port || 3000
 
-    // Admin UI assets are static text embedded in the binary. Because we serve
+    // The admin page is static text embedded in the binary. Because we serve
     // the exact bytes, we can emit a proper HTTP validator: a content-hash
     // ETag plus `Cache-Control: no-cache` (store, but revalidate before reuse).
     // Caches/browsers revalidate with `If-None-Match`; unchanged assets get a
@@ -2859,9 +2859,6 @@ export class AgentServer {
       return new Response(body, { headers })
     }
     const htmlEtag = etagFor(ADMIN_UI_HTML)
-    const jsEtag = etagFor(ADMIN_UI_JS)
-    const cssEtag = etagFor(ADMIN_UI_CSS)
-    const chatCoreEtag = etagFor(CHAT_CORE_JS)
 
     // Start HTTP server. idleTimeout is raised to Bun's max (255s) so a
     // long-running chat SSE stream isn't cut mid-turn between heartbeats; the
@@ -2870,10 +2867,8 @@ export class AgentServer {
       port,
       idleTimeout: 255,
       routes: {
+        // The admin page carries its styles and scripts inline (assets.ts).
         "/ui": (req) => serveUiAsset(req, ADMIN_UI_HTML, "text/html; charset=utf-8", htmlEtag),
-        "/ui/ui.js": (req) => serveUiAsset(req, ADMIN_UI_JS, "application/javascript; charset=utf-8", jsEtag),
-        "/ui/ui.css": (req) => serveUiAsset(req, ADMIN_UI_CSS, "text/css; charset=utf-8", cssEtag),
-        "/ui/chat-core.js": (req) => serveUiAsset(req, CHAT_CORE_JS, "application/javascript; charset=utf-8", chatCoreEtag),
       },
       fetch: (req, srv) => this.handleRequest(req, srv.requestIP(req)?.address ?? ""),
     })

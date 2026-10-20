@@ -3,7 +3,9 @@ import appJs from "./ui.js" with { type: "text" }
 import familyCss from "./family.css" with { type: "text" }
 import brandCss from "./brand.css" with { type: "text" }
 import appCss from "./ui.css" with { type: "text" }
+import iconsCss from "./icons.css" with { type: "text" }
 import iconSvg from "./icon.svg" with { type: "text" }
+import alpineJs from "./alpine.min.js" with { type: "text" }
 import chatCoreJs from "./chat-core.js" with { type: "text" }
 import editorHtml from "./editor.html" with { type: "text" }
 import pickerJs from "./picker.js" with { type: "text" }
@@ -19,14 +21,25 @@ const text = (source: unknown): string => source as string
 // is escaped too: the editor puts the URI inside a single-quoted JS string.
 const ICON_URI = `data:image/svg+xml;utf8,${encodeURIComponent(text(iconSvg)).replace(/'/g, "%27")}`
 
-export const ADMIN_UI_HTML = text(indexHtml).replaceAll("__ICON_URI__", () => ICON_URI)
-export const ADMIN_UI_JS = text(appJs)
-// The family tokens, then siteio's brand values (agentio's), then the admin's
-// own rules: one stylesheet, served at /ui/ui.css.
-export const ADMIN_UI_CSS = [familyCss, brandCss, appCss].map(text).join("\n")
-// Shared SSE/chat transport, served to the admin panel and inlined into the
-// in-site editor shell (which lives on a different host).
-export const CHAT_CORE_JS = chatCoreJs as unknown as string
+// Shared SSE/chat transport, inlined into the admin page and into the in-site
+// editor shell (which lives on a different host).
+export const CHAT_CORE_JS = text(chatCoreJs)
+
+// The family tokens, then siteio's brand values (agentio's), then the icons,
+// then the admin's own rules.
+const ADMIN_UI_CSS = [familyCss, brandCss, iconsCss, appCss].map(text).join("\n")
+
+// The admin page with its styles and scripts inlined, as agentio's: one
+// response, nothing from a CDN, so it works the same in a browser and in the
+// companion app. Function replacers keep `$` sequences in the sources from
+// being read as replacement patterns.
+export const ADMIN_UI_HTML = text(indexHtml)
+  .replaceAll("__ICON_URI__", () => ICON_URI)
+  .replace("/*__STYLES__*/", () => ADMIN_UI_CSS)
+  .replace("//__CHAT_CORE__", () => CHAT_CORE_JS)
+  .replace("//__UI_JS__", () => text(appJs))
+  .replace("//__ALPINE__", () => text(alpineJs))
+
 // In-site live editor shell. Served (with site name/URL + chat-core injected)
 // at <site>.<domain>/_siteio/edit.
 export const EDITOR_SHELL_HTML = text(editorHtml).replaceAll("__ICON_URI__", () => ICON_URI)
