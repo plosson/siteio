@@ -38,8 +38,8 @@ app to `stopped` (`server.ts` `handleStopApp`). So `stopped` always means
 |---|---|
 | `siteio sites stop [name]` | New. Removes the PocketBase container, sets `stopped`. |
 | `siteio sites start [name]` | New. Creates the container from the current stored config (`startSiteContainer`), sets `running`. |
-| `siteio apps stop [name]` | Changed: removes the containers (`docker rm`, `compose down` without `-v`) instead of stopping them. |
-| `siteio apps start [name]` | New. Creates the containers again from the stored config and the image already on the server, without a build or pull. Fails with "deploy first" when no image exists. |
+| `siteio apps stop [name]` | Changed: removes the containers (`docker rm`, or `compose down` **without** `-v`; the existing down call passes `-v` and deletes volumes) instead of stopping them. |
+| `siteio apps start [name]` | New. Creates the containers again from the stored config and the image already on the server, without a build or pull. When no image is left (pruned), falls back to a full deploy, since `deploy` itself is refused while stopped. |
 | `siteio apps restart [name]` | Changed: on a running app, as today. On a stopped app, does the same as `apps start` (same function). |
 
 `[name]` defaults to `.siteio/config.json`, like the other commands. Output
