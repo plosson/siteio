@@ -59,7 +59,7 @@ const EDIT_SESSION_COOKIE = "siteio_edit"
 // stay operator-only unless listed here (or in MEMBER_EXTRA_ROUTE, for
 // main-domain members).
 const TENANT_ROUTE =
-  /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|env|rename|grants|grants\/grt_[a-z0-9]+))?)$/
+  /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|env|rename|stop|start|grants|grants\/grt_[a-z0-9]+))?)$/
 
 // The app routes a tenant allowed to run apps (Tenant.apps) may reach.
 const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|restart|logs|status|thumbnail))?)?$/
@@ -382,7 +382,7 @@ export class AgentServer {
       path === "/mcp" || path.startsWith("/mcp/") ||
       path.startsWith("/.well-known/oauth-")
     if (isMcpSurface) {
-      const ctx = this.oauthProvider.hostContext(host)
+      const ctx = this.liveHostContext(host)
       if (!ctx) return this.error("Not found", 404)
       if (req.method === "OPTIONS") return this.oauthProvider.preflight()
 
@@ -420,7 +420,7 @@ export class AgentServer {
     // `https://<site>.<domain>/_siteio` — it then appends /sites/... etc. as
     // usual. Authenticated by a share code (grant token) as X-API-Key.
     if (path === "/_siteio" || path.startsWith("/_siteio/")) {
-      const ctx = this.oauthProvider.hostContext(host)
+      const ctx = this.liveHostContext(host)
       if (!ctx) return this.error("Not found", 404)
       const rest = path.slice("/_siteio".length) || "/"
       // Health is unauthenticated (CLI version-skew probe), like /health.
@@ -596,6 +596,18 @@ export class AgentServer {
     const siteUpgradeMatch = path.match(/^\/sites\/([a-z0-9-]+)\/upgrade$/)
     if (siteUpgradeMatch && req.method === "POST") {
       return this.handleUpgradeSite(k(siteUpgradeMatch[1]!), scope)
+    }
+
+    // POST /sites/:name/stop - take the site offline (container removed, data kept)
+    const siteStopMatch = path.match(/^\/sites\/([a-z0-9-]+)\/stop$/)
+    if (siteStopMatch && req.method === "POST") {
+      return this.handleStopSite(k(siteStopMatch[1]!), req, scope)
+    }
+
+    // POST /sites/:name/start - bring a stopped site back
+    const siteStartMatch = path.match(/^\/sites\/([a-z0-9-]+)\/start$/)
+    if (siteStartMatch && req.method === "POST") {
+      return this.handleStartSite(k(siteStartMatch[1]!), req, scope)
     }
 
     // /sites/:name/chat - AI editor: GET history+status, POST a turn (SSE),
@@ -2515,6 +2527,52 @@ export class AgentServer {
     }
   }
 
+  // A stopped site or app takes no deploy until `start`. Callers check this
+  // before any try/catch that marks the item "failed": that would lose it.
+  private stoppedMessage(kind: "site" | "app", key: string, scope: Scope): string {
+    const shown = this.tenants.displayName(key, scope)
+    return `${kind === "site" ? "Site" : "App"} '${shown}' is stopped; run 'siteio ${kind}s start ${shown}' first`
+  }
+
+  private stoppedError(kind: "site" | "app", key: string, scope: Scope): Response {
+    return this.error(this.stoppedMessage(kind, key, scope), 409, "stopped")
+  }
+
+  // Take a site offline: remove its container (code, pb_data and history
+  // stay), so Traefik has no route and no restart policy can revive it.
+  private async handleStopSite(name: string, req: Request, scope: Scope): Promise<Response> {
+    const site = this.storage.get(name)
+    if (!site) return this.error("Site not found", 404)
+    if (site.status === "stopped") return this.error(`Site '${this.tenants.displayName(name, scope)}' is already stopped`, 409)
+    if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+    try {
+      if (this.docker.containerExists(name)) await this.docker.remove(name)
+    } catch (err) {
+      return this.error(err instanceof Error ? err.message : "Failed to stop site", 500)
+    }
+    const updated = this.storage.update(name, { status: "stopped", containerId: undefined })!
+    this.pageSite(updated, "stopped", this.requestUser(req))
+    return this.json(this.storage.toInfo(updated, this.tenants, scope))
+  }
+
+  // Bring a stopped site back from its stored record, so domain, env and
+  // rename changes made while it was stopped apply now.
+  private async handleStartSite(name: string, req: Request, scope: Scope): Promise<Response> {
+    const site = this.storage.get(name)
+    if (!site) return this.error("Site not found", 404)
+    if (site.status !== "stopped") return this.error(`Site '${this.tenants.displayName(name, scope)}' is not stopped`, 409)
+    if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
+    try {
+      const containerId = await this.startSiteContainer(site)
+      const updated = this.storage.update(name, { status: "running", containerId })!
+      this.pageSite(updated, "started", this.requestUser(req))
+      return this.json(this.storage.toInfo(updated, this.tenants, scope))
+    } catch (err) {
+      this.storage.update(name, { status: "failed" })
+      return this.error(err instanceof Error ? err.message : "Failed to start site", 500)
+    }
+  }
+
   // How long a freshly (re)created site container gets to finish PocketBase's
   // boot-time migrations and start serving.
   siteStartTimeoutMs = 120_000
@@ -2788,6 +2846,14 @@ export class AgentServer {
     })
   }
 
+  private pageSite(site: Site, event: "stopped" | "started", by?: string): void {
+    this.pager?.notify({
+      title: `Site '${site.name}' ${event}`,
+      message: [by && `by ${by}`, `on ${this.config.domain}`].filter(Boolean).join(" · "),
+      url: this.storage.toInfo(site, this.tenants).url,
+    })
+  }
+
   private pageApp(app: App, event: "deployed" | "restarted", by?: string): void {
     const url = this.appStorage.url(app, this.tenants)
     this.pager?.notify({
@@ -2800,6 +2866,14 @@ export class AgentServer {
     if (event === "deployed") {
       this.ranking?.report({ user: by, version: app.commitHash?.slice(0, 7) ?? app.image, url })
     }
+  }
+
+  // The site a host serves, or null when there is none or it is stopped: a
+  // stopped site answers 404 everywhere, the agent's own routes included.
+  private liveHostContext(host: string): ReturnType<OAuthProvider["hostContext"]> {
+    const ctx = this.oauthProvider.hostContext(host)
+    if (!ctx || this.storage.get(ctx.site)?.status === "stopped") return null
+    return ctx
   }
 
   isDeploying(name: string): boolean {
