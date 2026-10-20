@@ -443,7 +443,7 @@ apps
 
 apps
   .command("start [name]")
-  .description("Bring a stopped app back online with the image already on the server")
+  .description("Bring a stopped app back online (same containers)")
   .action(async (name) => {
     const { startAppCommand } = await import("./commands/apps/start.ts")
     await startAppCommand(name, { json: program.opts().json })

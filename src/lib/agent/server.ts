@@ -1523,7 +1523,10 @@ export class AgentServer {
         const project = `siteio-${name}`
         const files = this.composeFiles(app)
         for (const s of await this.docker.composePs(project, files, this.writeComposeEnvFile(app))) {
-          const restart = (spec.services[s.service] as { restart?: string } | undefined)?.restart ?? "no"
+          const svc = spec.services[s.service] as { restart?: string; deploy?: { restart_policy?: { condition?: string } } } | undefined
+          // Compose v2 maps deploy.restart_policy.condition to the container policy when `restart` is unset
+          const restart =
+            svc?.restart ?? ({ any: "always", "on-failure": "on-failure" } as Record<string, string>)[svc?.deploy?.restart_policy?.condition ?? ""] ?? "no"
           await this.docker.setRestartPolicy(s.containerId, restart)
         }
       } else if (hasContainer) {

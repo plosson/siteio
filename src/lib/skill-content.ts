@@ -255,6 +255,6 @@ siteio apps deploy myapp
 
 - **Config**: \`siteio apps set myapp -e KEY=value\` (also \`--secret\`, \`-v\` volumes, \`-p\` port), then \`siteio apps deploy myapp\` to apply
 - **Custom domains**: \`siteio apps set myapp -d <domain>\`
-- **Lifecycle**: \`siteio apps stop|start|restart|rm myapp\`. \`stop\` stops the containers (they and their volumes are kept) and the URL answers 404, even after a reboot; \`start\` (or \`restart\`) brings back the same containers. Settings changed with \`apps set\` while stopped apply on the next \`apps deploy\`. A stopped app refuses \`deploy\`: start it first
+- **Lifecycle**: \`siteio apps stop|start|restart|rm myapp\`. \`stop\` stops the containers (they and their volumes are kept) and the URL answers 404, even after a reboot; \`start\` (or \`restart\`) brings back the same containers. Settings changed with \`apps set\` while stopped apply on the next \`apps deploy\` (compose apps: on \`start\`). A stopped app refuses \`deploy\`: start it first
 - **Logs**: \`siteio apps logs myapp\`
 `

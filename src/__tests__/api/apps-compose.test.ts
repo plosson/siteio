@@ -216,6 +216,34 @@ describe("API: Apps (compose)", () => {
       }
     })
 
+    test("start falls back to deploy.restart_policy.condition; explicit restart wins", async () => {
+      await setup("startdeploy")
+      await req("POST", "/apps/startdeploy/stop")
+      runtime.composeConfigReturn = {
+        services: {
+          web: { deploy: { restart_policy: { condition: "any" } } },
+          db: { restart: "unless-stopped", deploy: { restart_policy: { condition: "none" } } },
+          job: { deploy: { restart_policy: { condition: "on-failure" } } },
+          odd: { deploy: { restart_policy: { condition: "bogus" } } },
+        },
+      }
+      runtime.composePsReturn = [
+        { service: "web", containerId: "w1", state: "running" },
+        { service: "db", containerId: "d1", state: "running" },
+        { service: "job", containerId: "j1", state: "running" },
+        { service: "odd", containerId: "o1", state: "running" },
+      ]
+      runtime.calls = []
+      try {
+        await jsonOk<App>(await req("POST", "/apps/startdeploy/start"))
+        expect(runtime.callsOf("setRestartPolicy").map((c) => c.args)).toEqual([
+          ["w1", "always"], ["d1", "unless-stopped"], ["j1", "on-failure"], ["o1", "no"],
+        ])
+      } finally {
+        runtime.composePsReturn = [{ service: "web", containerId: "fake-web-id", state: "running" }]
+      }
+    })
+
     test("start brings the project up again without cloning", async () => {
       await setup("startapp")
       await req("POST", "/apps/startapp/stop")
