@@ -673,6 +673,11 @@ function siteioAdmin() {
       await this.loadApp(name)
     },
 
+    async startApp(name) {
+      await this._runAction(name, "start", "POST", `/apps/${encodeURIComponent(name)}/start`, `App ${name} started`)
+      await this.loadApp(name)
+    },
+
     async removeApp(name) {
       if (!confirm(`Remove app '${name}'? Container and image will be deleted.`)) return
       await this._runAction(name, "remove", "DELETE", `/apps/${encodeURIComponent(name)}`, `App ${name} removed`)
@@ -684,6 +689,7 @@ function siteioAdmin() {
       return this.pending.has("deploy")
           || this.pending.has("stop")
           || this.pending.has("restart")
+          || this.pending.has("start")
           || this.pending.has("remove")
     },
 
@@ -717,6 +723,17 @@ function siteioAdmin() {
           this.toast("error", "Could not reach server")
         }
       }
+    },
+
+    async stopSite(name) {
+      if (!confirm(`Stop site '${name}'? It answers 404 until you start it again. Nothing is deleted.`)) return
+      await this._runAction(name, "site-stop", "POST", `/sites/${encodeURIComponent(name)}/stop`, `Site ${name} stopped`)
+      await this.loadSite(name)
+    },
+
+    async startSite(name) {
+      await this._runAction(name, "site-start", "POST", `/sites/${encodeURIComponent(name)}/start`, `Site ${name} started`)
+      await this.loadSite(name)
     },
 
     async undeploySite(name) {

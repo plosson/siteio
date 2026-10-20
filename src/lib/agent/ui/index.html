@@ -459,12 +459,21 @@
                     <span x-show="!pending.has('deploy')">Deploy</span>
                     <span x-show="pending.has('deploy')">Deploying…</span>
                   </button>
-                  <button :disabled="anyAppActionPending()" @click="stopApp(route.param)" class="button">
-                    <i class="hgi hgi-stroke hgi-stop-circle"></i> Stop
-                  </button>
-                  <button :disabled="anyAppActionPending()" @click="restartApp(route.param)" class="button">
-                    <i class="hgi hgi-stroke hgi-reload"></i> Restart
-                  </button>
+                  <template x-if="selectedApp?.status !== 'stopped'">
+                    <button :disabled="anyAppActionPending()" @click="stopApp(route.param)" class="button">
+                      <i class="hgi hgi-stroke hgi-stop-circle"></i> Stop
+                    </button>
+                  </template>
+                  <template x-if="selectedApp?.status !== 'stopped'">
+                    <button :disabled="anyAppActionPending()" @click="restartApp(route.param)" class="button">
+                      <i class="hgi hgi-stroke hgi-reload"></i> Restart
+                    </button>
+                  </template>
+                  <template x-if="selectedApp?.status === 'stopped'">
+                    <button :disabled="anyAppActionPending()" @click="startApp(route.param)" class="button">
+                      <i class="hgi hgi-stroke hgi-reload"></i> Start
+                    </button>
+                  </template>
                   <button :disabled="anyAppActionPending()" @click="removeApp(route.param)" class="button danger">
                     <i class="hgi hgi-stroke hgi-delete-02"></i> Remove
                   </button>
@@ -628,6 +637,16 @@
                   <a :href="selectedSite?.url" target="_blank" rel="noreferrer" class="button">
                     <i class="hgi hgi-stroke hgi-link-square-02"></i> Open ↗
                   </a>
+                  <template x-if="selectedSite?.status !== 'stopped'">
+                    <button :disabled="pending.has('site-stop')" @click="stopSite(route.param)" class="button">
+                      <i class="hgi hgi-stroke hgi-stop-circle"></i> Stop
+                    </button>
+                  </template>
+                  <template x-if="selectedSite?.status === 'stopped'">
+                    <button :disabled="pending.has('site-start')" @click="startSite(route.param)" class="button">
+                      <i class="hgi hgi-stroke hgi-reload"></i> Start
+                    </button>
+                  </template>
                   <button :disabled="pending.has('undeploy')" @click="undeploySite(route.param)" class="button danger">
                     <i class="hgi hgi-stroke hgi-delete-02"></i> Remove
                   </button>
