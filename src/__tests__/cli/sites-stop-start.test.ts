@@ -67,12 +67,23 @@ describe("CLI: sites stop / start / upgrade --all", () => {
     expect(JSON.parse(stop.stdout).data.status).toBe("stopped")
     const start = await runCli(["--json", "sites", "start", "blog"])
     expect(start.exitCode).toBe(0)
-    expect(JSON.parse(start.stdout).data.status).not.toBe("stopped")
+    expect(JSON.parse(start.stdout).data.status).toBe("running")
   })
 
   test("stopping an unknown site fails non-zero", async () => {
     const r = await runCli(["sites", "stop", "ghost"])
     expect(r.exitCode).not.toBe(0)
+    expect(r.stderr).toContain("not found")
+  })
+
+  test("a restarted site is no longer skipped by upgrade --all", async () => {
+    await deploySite("a")
+    expect((await runCli(["sites", "stop", "a"])).exitCode).toBe(0)
+    expect((await runCli(["sites", "start", "a"])).exitCode).toBe(0)
+    const r = await runCli(["--json", "sites", "upgrade", "--all", "--yes"])
+    const parsed = JSON.parse(r.stdout)
+    expect(parsed.skipped).toEqual([])
+    expect(parsed.data.map((o: { name: string }) => o.name)).toEqual(["a"])
   })
 
   test("upgrade --all skips stopped sites and lists them in JSON `skipped`", async () => {
