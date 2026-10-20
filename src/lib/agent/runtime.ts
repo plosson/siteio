@@ -37,6 +37,9 @@ export interface Runtime {
   run(config: ContainerRunConfig): Promise<string>
   stop(appName: string): Promise<void>
   restart(appName: string): Promise<void>
+  start(appName: string): Promise<void>
+  // Name or ID, as given: compose containers are addressed by ID.
+  setRestartPolicy(container: string, policy: string): Promise<void>
   remove(appName: string): Promise<void>
   removeImage(tag: string): Promise<void>
   logs(appName: string, tail: number): Promise<string>
@@ -57,7 +60,6 @@ export interface Runtime {
   composeStop(project: string, files: string[], envFile?: string): Promise<void>
   composeRestart(project: string, files: string[], envFile?: string): Promise<void>
   composeDown(project: string, files: string[], envFile?: string): Promise<void>
-  composeDownKeepVolumes(project: string, files: string[], envFile?: string): Promise<void>
   composeLogs(project: string, files: string[], envFile: string | undefined, opts: ComposeLogsOptions): Promise<string>
   composePs(project: string, files: string[], envFile?: string): Promise<ComposeServiceState[]>
 }

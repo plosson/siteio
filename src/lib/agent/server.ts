@@ -1468,8 +1468,9 @@ export class AgentServer {
     }
   }
 
-  // Take an app offline: remove its containers (volumes and config stay), so
-  // Traefik has no route and no restart policy, compose's included, revives it.
+  // Take an app offline: stop its containers and turn their restart policy
+  // off, so Traefik has no route and a reboot can't revive them. The
+  // containers stay, so their anonymous volumes come back on `start`.
   private async handleStopApp(name: string, req: Request, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
@@ -1480,13 +1481,20 @@ export class AgentServer {
       return this.error("Deploy already in progress", 409)
     }
     try {
+      // Containers stay (their anonymous volumes with them); with the restart
+      // policy off, a daemon or server restart can't bring them back.
       if (app.compose) {
         const files = this.composeFiles(app)
-        await this.docker.composeDownKeepVolumes(`siteio-${name}`, files, this.writeComposeEnvFile(app))
+        const envFile = this.writeComposeEnvFile(app)
+        await this.docker.composeStop(`siteio-${name}`, files, envFile)
+        for (const s of await this.docker.composePs(`siteio-${name}`, files, envFile)) {
+          await this.docker.setRestartPolicy(s.containerId, "no")
+        }
       } else if (this.docker.containerExists(name)) {
-        await this.docker.remove(name)
+        await this.docker.stop(name)
+        await this.docker.setRestartPolicy(this.docker.containerName(name), "no")
       }
-      const updated = this.appStorage.update(name, { status: "stopped", containerId: undefined })!
+      const updated = this.appStorage.update(name, { status: "stopped" })!
       this.pageApp(updated, "stopped", this.requestUser(req))
       return this.json(this.appView(updated, scope))
     } catch (err) {
@@ -1495,24 +1503,41 @@ export class AgentServer {
     }
   }
 
-  // Bring a stopped app back from its stored config and the image already on
-  // the server: no build, no pull. With no image left (never built, or
-  // pruned), fall back to a full deploy rather than leave it stuck.
+  // Bring a stopped app back. Single container: the same container, with its
+  // restart policy put back; settings changed while stopped apply on the next
+  // deploy. Gone container: recreate it from the image on the server, or
+  // deploy when that is gone too. Compose: `compose up` (unchanged containers
+  // are reused), then each service's restart policy put back.
   private async startApp(app: App, by?: string): Promise<App> {
     if (!this.docker.isAvailable()) throw new DeployError("Docker is not available", 500)
     this.docker.ensureNetwork()
-    const image = app.git || app.dockerfile ? this.docker.imageTag(app.name) : app.image
-    if (!app.compose && !this.docker.imageExists(image)) return this.deployContainerApp(app.name, { deployedBy: by })
+    const name = app.name
+    const image = app.git || app.dockerfile ? this.docker.imageTag(name) : app.image
+    const hasContainer = !app.compose && this.docker.containerExists(name)
+    if (!app.compose && !hasContainer && !this.docker.imageExists(image)) return this.deployContainerApp(name, { deployedBy: by })
     try {
-      const containerId = app.compose
-        ? (await this.composeUpApp(app)).containerId
-        : await this.runAppContainer(app, await this.tenantSafeImage(app.name, image))
-      const updated = this.appStorage.update(app.name, { status: "running", containerId })
+      let containerId = app.containerId
+      if (app.compose) {
+        containerId = (await this.composeUpApp(app)).containerId
+        const { spec } = await this.resolveComposeBase(app)
+        const project = `siteio-${name}`
+        const files = this.composeFiles(app)
+        for (const s of await this.docker.composePs(project, files, this.writeComposeEnvFile(app))) {
+          const restart = (spec.services[s.service] as { restart?: string } | undefined)?.restart ?? "no"
+          await this.docker.setRestartPolicy(s.containerId, restart)
+        }
+      } else if (hasContainer) {
+        await this.docker.setRestartPolicy(this.docker.containerName(name), app.restartPolicy)
+        await this.docker.start(name)
+      } else {
+        containerId = await this.runAppContainer(app, await this.tenantSafeImage(name, image))
+      }
+      const updated = this.appStorage.update(name, { status: "running", containerId })
       if (!updated) throw new DeployError("App not found", 404)
       this.pageApp(updated, "started", by)
       return updated
     } catch (err) {
-      this.appStorage.update(app.name, { status: "failed" })
+      this.appStorage.update(name, { status: "failed" })
       if (err instanceof DeployError) throw err
       throw new DeployError(err instanceof Error ? err.message : "Failed to start app", 500)
     }
