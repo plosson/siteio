@@ -21,10 +21,14 @@ export async function sitesUpgradeCommand(
   try {
     const client = new SiteioClient()
     let names: string[]
+    let skipped: string[] = []
     if (options.all) {
       if (name) throw new ValidationError("Pass either a site name or --all, not both")
-      names = (await client.listSites()).map((s) => s.name)
-      if (names.length === 0) throw new ValidationError("No sites to upgrade")
+      const sites = await client.listSites()
+      skipped = sites.filter((s) => s.status === "stopped").map((s) => s.name)
+      names = sites.filter((s) => s.status !== "stopped").map((s) => s.name)
+      for (const s of skipped) console.error(chalk.dim(`${s}: stopped, skipped`))
+      if (names.length === 0) throw new ValidationError(skipped.length ? "Every site is stopped; nothing to upgrade" : "No sites to upgrade")
     } else {
       const resolved = resolveSiteName(name, getCurrentServer()?.domain ?? "")
       if (!resolved) {
@@ -57,11 +61,11 @@ export async function sitesUpgradeCommand(
 
     const failed = outcomes.filter((o) => !o.ok)
     if (options.json) {
-      console.log(JSON.stringify({ success: failed.length === 0, data: outcomes }, null, 2))
+      console.log(JSON.stringify({ success: failed.length === 0, data: outcomes, skipped }, null, 2))
     } else if (names.length > 1) {
       const upgraded = outcomes.filter((o) => o.ok && o.result.upgraded).length
       console.error("")
-      console.error(`${upgraded} upgraded, ${outcomes.length - upgraded - failed.length} already current, ${failed.length} failed`)
+      console.error(`${upgraded} upgraded, ${outcomes.length - upgraded - failed.length} already current, ${failed.length} failed${skipped.length > 0 ? `, ${skipped.length} stopped (skipped)` : ""}`)
     }
     process.exit(failed.length === 0 ? 0 : 1)
   } catch (err) {

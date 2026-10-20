@@ -225,6 +225,22 @@ function registerSiteCommands(sites: Command): void {
     })
 
   sites
+    .command("stop [name]")
+    .description("Take a site offline (404) without deleting it; bring it back with 'start'")
+    .action(async (name) => {
+      const { sitesStopCommand } = await import("./commands/sites/stop.ts")
+      await sitesStopCommand(name, { json: program.opts().json })
+    })
+
+  sites
+    .command("start [name]")
+    .description("Bring a stopped site back online, as it was")
+    .action(async (name) => {
+      const { sitesStartCommand } = await import("./commands/sites/start.ts")
+      await sitesStartCommand(name, { json: program.opts().json })
+    })
+
+  sites
     .command("rename <new-name>")
     .description("Rename a site (changes its subdomain)")
     .option("-n, --name <name>", "Site to rename (defaults to .siteio/config.json)")
@@ -419,10 +435,18 @@ apps
 
 apps
   .command("stop [name]")
-  .description("Stop an app container")
+  .description("Take an app offline (containers removed, volumes kept); bring it back with 'start'")
   .action(async (name) => {
     const { stopAppCommand } = await import("./commands/apps/stop.ts")
     await stopAppCommand(name, { json: program.opts().json })
+  })
+
+apps
+  .command("start [name]")
+  .description("Bring a stopped app back online with the image already on the server")
+  .action(async (name) => {
+    const { startAppCommand } = await import("./commands/apps/start.ts")
+    await startAppCommand(name, { json: program.opts().json })
   })
 
 apps
