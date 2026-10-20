@@ -40,6 +40,7 @@ app to `stopped` (`server.ts` `handleStopApp`). So `stopped` always means
 | `siteio sites start [name]` | New. Creates the container from the current stored config (`startSiteContainer`), sets `running`. |
 | `siteio apps stop [name]` | Changed: removes the containers (`docker rm`, `compose down` without `-v`) instead of stopping them. |
 | `siteio apps start [name]` | New. Creates the containers again from the stored config and the image already on the server, without a build or pull. Fails with "deploy first" when no image exists. |
+| `siteio apps restart [name]` | Changed: on a running app, as today. On a stopped app, does the same as `apps start` (same function). |
 
 `[name]` defaults to `.siteio/config.json`, like the other commands. Output
 follows the dual-output pattern: JSON on stdout, readable text on stderr.
@@ -52,7 +53,7 @@ follows the dual-output pattern: JSON on stdout, readable text on stderr.
 These return **409** with `"<site|app> '<name>' is stopped; run 'siteio <sites|apps> start <name>' first"`:
 
 - Sites: deploy (CLI, MCP, share and edit links, chat), rollback, upgrade.
-- Apps: deploy, restart.
+- Apps: deploy.
 - Chat: a new chat turn on a stopped site is refused **before** the LLM is
   called.
 - `siteio sites upgrade --all` skips stopped sites and lists them as skipped.
@@ -60,8 +61,7 @@ These return **409** with `"<site|app> '<name>' is stopped; run 'siteio <sites|a
 
 **The gate runs before any `try/catch` that writes `status: "failed"`**: at the
 start of `runSiteDeploy`, `runRollback`, `handleUpgradeSite` (before the pull
-and the container removal), `handleDeployApp`, `handleRestartApp` and
-`handleSiteChat`. Otherwise the error handler overwrites `stopped` with
+and the container removal), `handleDeployApp` and `handleSiteChat`. Otherwise the error handler overwrites `stopped` with
 `failed` and the marker is lost.
 
 ## Allowed while stopped (the item stays offline)
@@ -108,8 +108,8 @@ the tenant or revoke their keys.
 ## Admin UI
 
 - Sites: Stop and Start buttons; the one shown depends on the status.
-- Apps: a Start button next to the existing Stop and Restart; Restart is
-  hidden while stopped.
+- Apps: a Start button next to the existing Stop and Restart. While stopped,
+  Start is shown and Stop and Restart are hidden.
 
 ## Docs
 
@@ -118,13 +118,13 @@ the tenant or revoke their keys.
 
 ## Breaking changes
 
-- `apps deploy` and `apps restart` on a stopped app now fail; use
-  `apps start`. Apps already stopped on the production servers are affected.
+- `apps deploy` on a stopped app now fails; use `apps start` (or
+  `apps restart`), then deploy. Apps already stopped on the production servers are affected.
   Say so in the release notes.
 - `apps stop` now removes the containers. Data in named volumes and bind
   mounts is kept; data written only to the container's own filesystem is
   lost (as on every deploy today).
-- Check whether the Mac app (plosson/siteio-app) calls `restart` on stopped
+- Check whether the Mac app (plosson/siteio-app) calls `deploy` on stopped
   apps.
 
 ## Tests (adversarial)
@@ -139,7 +139,9 @@ the tenant or revoke their keys.
 - `stop` twice and `start` twice return errors and do not change state.
 - `apps start` on an app that was never deployed fails cleanly with status
   unchanged.
-- `apps deploy` and `apps restart` on a stopped app return 409.
+- `apps deploy` on a stopped app returns 409 and the status stays `stopped`.
+- `apps restart` on a stopped app starts it with the same image (no build or
+  pull) and applies settings changed while stopped.
 - A share grant cannot call stop or start; a tenant cannot stop or start
   another tenant's item.
 - `upgrade --all` skips a stopped site and leaves it stopped.
