@@ -237,6 +237,7 @@ function registerSiteCommands(sites: Command): void {
     .command("rm [name]")
     .description("Remove a deployed site and its data")
     .option("-y, --yes", "Skip confirmation prompt")
+    .option("--ignore-errors", "Remove the site even if its container can't be removed (leftovers are reported)")
     .action(async (name, options) => {
       const { sitesRmCommand } = await import("./commands/sites/rm.ts")
       await sitesRmCommand(name, { ...options, json: program.opts().json })
@@ -435,9 +436,12 @@ apps
 
 apps
   .command("rm [name]")
-  .description("Remove an app")
+  .description("Remove an app, its containers and its volumes (data)")
   .option("-f, --force", "Force remove even if running")
   .option("-y, --yes", "Skip confirmation prompt")
+  .option("--keep-data", "Keep the app's volumes (compose volumes and siteio-managed volume folders)")
+  .option("--images", "Also remove the app's images (compose: down --rmi all; image apps: the pulled image if nothing else uses it)")
+  .option("--ignore-errors", "Remove siteio's records even if Docker cleanup fails (leftovers are reported)")
   .action(async (name, options) => {
     const { rmAppCommand } = await import("./commands/apps/rm.ts")
     await rmAppCommand(name, { ...options, json: program.opts().json })

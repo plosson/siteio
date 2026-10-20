@@ -17,6 +17,11 @@ export async function dockerAsync(args: string[]): Promise<{ exitCode: number; s
   return { exitCode, stdout, stderr }
 }
 
+export interface ComposeDownOptions {
+  keepVolumes?: boolean
+  removeImages?: boolean
+}
+
 export interface ComposeSpec {
   services: Record<string, unknown>
   networks?: Record<string, unknown>
@@ -145,8 +150,16 @@ export class ComposeManager {
     return [...this.buildBaseArgs(project, files, envFile), "up", "-d", "--build", "--remove-orphans"]
   }
 
-  buildDownArgs(project: string, files: string[], envFile?: string): string[] {
-    return [...this.buildBaseArgs(project, files, envFile), "down", "-v", "--remove-orphans"]
+  // `-v` (the default) also deletes the project's named and anonymous volumes;
+  // `keepVolumes` leaves them. `removeImages` adds `--rmi all`.
+  buildDownArgs(project: string, files: string[], envFile?: string, opts: ComposeDownOptions = {}): string[] {
+    return [
+      ...this.buildBaseArgs(project, files, envFile),
+      "down",
+      ...(opts.keepVolumes ? [] : ["-v"]),
+      ...(opts.removeImages ? ["--rmi", "all"] : []),
+      "--remove-orphans",
+    ]
   }
 
   buildStopArgs(project: string, files: string[], envFile?: string): string[] {
@@ -186,9 +199,9 @@ export class ComposeManager {
     }
   }
 
-  async down(project: string, files: string[], envFile?: string): Promise<void> {
+  async down(project: string, files: string[], envFile?: string, opts: ComposeDownOptions = {}): Promise<void> {
     const result = spawnSync({
-      cmd: ["docker", ...this.buildDownArgs(project, files, envFile)],
+      cmd: ["docker", ...this.buildDownArgs(project, files, envFile, opts)],
       stdout: "pipe",
       stderr: "pipe",
     })

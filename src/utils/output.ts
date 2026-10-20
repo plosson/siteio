@@ -32,6 +32,16 @@ export function printComposeWarnings(warnings: string[] | undefined): void {
   console.log("")
 }
 
+// What a delete could not clean up, on stderr (stdout stays for --json).
+export function printRemovalWarnings(warnings: string[] | undefined): void {
+  if (!warnings || warnings.length === 0) return
+  console.error(chalk.yellow("Warnings:"))
+  for (const w of warnings) {
+    console.error(chalk.yellow(`  • ${w}`))
+  }
+  console.error("")
+}
+
 export function formatInfo(message: string): string {
   return chalk.cyan(`${symbols.info} ${message}`)
 }

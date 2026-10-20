@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, realpathSync } from "fs"
+import { existsSync, mkdirSync, realpathSync, rmSync } from "fs"
 import { dirname, isAbsolute, join, resolve, sep } from "path"
 import { createHash } from "node:crypto"
 import { unzipSync, zipSync } from "fflate"
@@ -551,7 +551,7 @@ export class AgentServer {
       const siteName = k(siteMatch[1]!)
       if (req.method === "POST") return this.handleDeploySite(siteName, req, scope)
       if (req.method === "GET") return this.handleGetSite(siteName, scope, true)
-      if (req.method === "DELETE") return this.handleDeleteSite(siteName)
+      if (req.method === "DELETE") return this.handleDeleteSite(siteName, url)
     }
 
     // GET /sites/:name/logs
@@ -687,7 +687,7 @@ export class AgentServer {
       }
       // DELETE /apps/:name - delete app
       if (req.method === "DELETE") {
-        return this.handleDeleteApp(appName)
+        return this.handleDeleteApp(appName, url)
       }
     }
 
@@ -1123,7 +1123,19 @@ export class AgentServer {
     }
   }
 
-  private async handleDeleteApp(name: string): Promise<Response> {
+  // DELETE /apps/:name. Query flags:
+  //   keepData=true     keep the app's volumes (compose `down` without -v, and
+  //                     the siteio-managed <dataDir>/volumes/<app> folder)
+  //   images=true       also remove the app's images (`down --rmi all` for
+  //                     compose, the pulled image for an image app when no
+  //                     other app or site uses it)
+  //   ignoreErrors=true drop siteio's records even when Docker cleanup fails
+  // When stopping and removing the containers fails, the app and its files
+  // are kept so a retried delete can finish the job instead of orphaning
+  // what is still running. Everything after that is best effort, and every
+  // problem, including resources still tied to a compose project, comes back
+  // as a warning.
+  private async handleDeleteApp(name: string, url: URL): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
@@ -1131,49 +1143,76 @@ export class AgentServer {
     if (this.isDeploying(name)) {
       return this.error("Deploy already in progress", 409)
     }
+    const keepData = queryFlag(url, "keepData")
+    const removeImages = queryFlag(url, "images")
+    const ignoreErrors = queryFlag(url, "ignoreErrors")
+    const failures: string[] = []
+    const warnings: string[] = []
 
+    // 1. Stop and remove the containers. A failure here keeps the app.
     if (app.compose) {
+      failures.push(...(await this.composeTeardown(app, { keepData, removeImages }, warnings)))
+    } else if (this.docker.containerExists(name)) {
       try {
-        const files = this.composeFiles(app)
-        await this.docker.composeDown(`siteio-${name}`, files, this.writeComposeEnvFile(app))
-      } catch {
-        // Best-effort; the base file may be missing if the repo was cleaned up.
+        await this.docker.remove(name)
+      } catch (err) {
+        failures.push(`Failed to remove container ${this.docker.containerName(name)}: ${errorMessage(err)}`)
       }
+    }
+    if (failures.length > 0) {
+      for (const f of [...failures, ...warnings]) console.log(`> Removing app '${name}': ${f}`)
+      if (!ignoreErrors) {
+        const detail = [...failures, ...warnings].join("; ")
+        return this.error(
+          `App '${name}' was not removed: ${detail}. siteio kept the app and its files; retry, or pass ignoreErrors (CLI: --ignore-errors) to remove its records anyway`,
+          500,
+          "cleanup_failed"
+        )
+      }
+      warnings.unshift(...failures)
+    }
+
+    // 2. Images, siteio's files, data and records: best effort.
+    const attempt = (what: string, fn: () => unknown) => {
       try {
-        this.compose.remove(name)
-      } catch {
-        // Ignore
+        fn()
+      } catch (err) {
+        warnings.push(`Failed to remove ${what}: ${errorMessage(err)}`)
       }
+    }
+    const attemptAsync = async (what: string, fn: () => Promise<unknown>) => {
+      try {
+        await fn()
+      } catch (err) {
+        warnings.push(`Failed to remove ${what}: ${errorMessage(err)}`)
+      }
+    }
+    if (app.compose) {
+      attempt("compose files", () => this.compose.remove(name))
     } else {
-      if (this.docker.containerExists(name)) {
-        try {
-          await this.docker.remove(name)
-        } catch {
-          // Ignore
-        }
-      }
       if (app.dockerfile && this.dockerfiles.exists(name)) {
-        try {
-          this.dockerfiles.remove(name)
-        } catch {
-          // Ignore
-        }
+        attempt("stored Dockerfile", () => this.dockerfiles.remove(name))
       }
       if (app.git || app.dockerfile) {
-        try {
-          const imageTag = this.docker.imageTag(name)
-          await this.docker.removeImage(imageTag)
-        } catch {
-          // Ignore
+        const imageTag = this.docker.imageTag(name)
+        await attemptAsync(`image ${imageTag}`, () => this.docker.removeImage(imageTag))
+      } else if (removeImages && app.image) {
+        const users = this.imageUsers(app.image, name)
+        if (users.length > 0) {
+          warnings.push(`Kept image ${app.image}: also used by ${users.join(", ")}`)
+        } else {
+          // Not forced: Docker refuses if a container outside siteio still uses it.
+          await attemptAsync(`image ${app.image}`, () => this.docker.removeImage(app.image, { force: false }))
         }
       }
     }
-
     if (app.git && this.git.exists(name)) {
-      try {
-        await this.git.remove(name)
-      } catch {
-        // Ignore
+      await attemptAsync("git checkout", () => this.git.remove(name))
+    }
+    if (!keepData) {
+      const volumesDir = join(this.config.dataDir, "volumes", name)
+      if (existsSync(volumesDir)) {
+        attempt(`volumes folder ${volumesDir}`, () => rmSync(volumesDir, { recursive: true, force: true }))
       }
     }
 
@@ -1182,7 +1221,84 @@ export class AgentServer {
       return this.error("Failed to delete app", 500)
     }
     this.thumbnails?.delete(name)
-    return this.json(null)
+    for (const w of warnings) console.log(`> Removed app '${name}' with a warning: ${w}`)
+    return this.json({ deleted: true, warnings })
+  }
+
+  // `docker compose down` for a compose app, then a check for what it left
+  // behind. Returns the failures that must keep the app; pushes the rest onto
+  // `warnings`.
+  private async composeTeardown(
+    app: App,
+    opts: { keepData: boolean; removeImages: boolean },
+    warnings: string[]
+  ): Promise<string[]> {
+    const project = `siteio-${app.name}`
+    const failures: string[] = []
+    const base = this.composeBasePath(app)
+    if (!existsSync(base)) {
+      // Without the user's compose file `down` can't run (and compose would
+      // fall back to a file in the agent's working directory). Nothing to do
+      // if the project left nothing behind, e.g. a git app never deployed.
+      if (app.deployedAt) warnings.push(`Compose file ${base} is missing; skipped docker compose down`)
+    } else {
+      const override = this.compose.overridePath(app.name)
+      const files = existsSync(override) ? [base, override] : [base]
+      const envFile = this.writeComposeEnvFile(app)
+      const downOpts = { keepVolumes: opts.keepData, removeImages: opts.removeImages }
+      try {
+        await this.docker.composeDown(project, files, envFile, downOpts)
+      } catch (err) {
+        if (!opts.removeImages) {
+          failures.push(errorMessage(err))
+        } else {
+          // `--rmi all` fails on an image another container still uses: the
+          // stack itself may be down. Retry without it so that doesn't block
+          // the delete forever.
+          warnings.push(`Could not remove the stack's images: ${errorMessage(err)}`)
+          try {
+            await this.docker.composeDown(project, files, envFile, { ...downOpts, removeImages: false })
+          } catch (retryErr) {
+            failures.push(errorMessage(retryErr))
+          }
+        }
+      }
+    }
+
+    try {
+      const left = await this.docker.projectLeftovers(project)
+      const kinds: Array<[string, string[]]> = [
+        ["containers", left.containers],
+        ["networks", left.networks],
+        // With keepData the volumes are meant to stay
+        ["volumes", opts.keepData ? [] : left.volumes],
+      ]
+      const leftovers = kinds.filter(([, names]) => names.length > 0).map(([kind, names]) => `${kind} ${names.join(", ")}`)
+      if (leftovers.length > 0) {
+        const users = Object.entries(left.volumeUsers ?? {})
+          .filter(([volume]) => !opts.keepData && left.volumes.includes(volume))
+          .map(([volume, containers]) => ` (volume ${volume} is still mounted by ${containers.join(", ")})`)
+          .join("")
+        const message = `Docker resources still tied to ${project}: ${leftovers.join("; ")}${users}`
+        // Containers still there mean the stack isn't down: keep the app.
+        if (left.containers.length > 0) failures.push(message)
+        else warnings.push(message)
+      }
+      if (opts.keepData && left.volumes.length > 0) {
+        warnings.push(`Kept volumes: ${left.volumes.join(", ")}`)
+      }
+    } catch (err) {
+      warnings.push(`Could not check for leftover Docker resources: ${errorMessage(err)}`)
+    }
+    return failures
+  }
+
+  // Other apps and sites that run `image`, by name.
+  private imageUsers(image: string, except: string): string[] {
+    return [
+      ...this.appStorage.list().filter((a) => a.name !== except && !a.compose && a.image === image).map((a) => `app ${a.name}`),
+      ...this.storage.list().filter((s) => pocketbaseImage(s.pocketbaseVersion) === image).map((s) => `site ${s.name}`),
+    ]
   }
 
   private async handleDeployApp(name: string, url: URL, req: Request, scope: Scope): Promise<Response> {
@@ -1648,22 +1764,35 @@ export class AgentServer {
     })
   }
 
-  private async handleDeleteSite(name: string): Promise<Response> {
+  // DELETE /sites/:name. When the site's container can't be removed, the site
+  // and its data are kept so a retried delete can finish; `ignoreErrors=true`
+  // removes them anyway.
+  private async handleDeleteSite(name: string, url: URL): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
+    const warnings: string[] = []
     try {
       if (this.docker.isAvailable() && this.docker.containerExists(name)) {
         await this.docker.remove(name)
       }
-    } catch {
-      // best effort — proceed to remove metadata/code even if the container is gone
+    } catch (err) {
+      const failure = `Failed to remove container ${this.docker.containerName(name)}: ${errorMessage(err)}`
+      console.log(`> Removing site '${name}': ${failure}`)
+      if (!queryFlag(url, "ignoreErrors")) {
+        return this.error(
+          `Site '${name}' was not removed: ${failure}. Its files and data were kept; retry, or pass ignoreErrors (CLI: --ignore-errors) to remove it anyway`,
+          500,
+          "cleanup_failed"
+        )
+      }
+      warnings.push(failure)
     }
     // A re-created site of the same key must not inherit old share/edit codes.
     for (const g of [...this.grants.listForSite(name), ...this.grants.listEditForSite(name)]) this.revokeGrant(g.id)
     this.storage.delete(name)
     this.thumbnails?.delete(name)
     this.chats.clear(name)
-    return this.json({ deleted: true })
+    return this.json({ deleted: true, warnings })
   }
 
   // Return the stored card preview (WebP). 404 when none exists — the UI falls
@@ -2976,4 +3105,14 @@ export class AgentServer {
       this.server = null
     }
   }
+}
+
+// A boolean query flag: `?name=true` or `?name=1`.
+function queryFlag(url: URL, name: string): boolean {
+  const value = url.searchParams.get(name)
+  return value === "true" || value === "1"
+}
+
+function errorMessage(err: unknown): string {
+  return (err instanceof Error ? err.message : String(err)).trim()
 }

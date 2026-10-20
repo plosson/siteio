@@ -371,10 +371,15 @@ siteio apps stop myapp
 # Restart an app
 siteio apps restart myapp
 
-# Remove an app
+# Remove an app: its containers, volumes (data) and siteio's files for it.
+# If Docker cleanup fails the app is kept so a retry can finish; anything left
+# on the server (images, networks, volumes, containers) is printed as a warning.
 siteio apps rm myapp
+siteio apps rm myapp --keep-data      # keep its volumes
+siteio apps rm myapp --images         # also remove its images
+siteio apps rm myapp --ignore-errors  # drop siteio's records even if cleanup fails
 
-# Remove a site
+# Remove a site: its container, files, PocketBase data, history and backups
 siteio sites rm mysite
 
 # Open the in-site live editor: chat with an AI editor on the site itself and

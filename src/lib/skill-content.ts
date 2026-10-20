@@ -255,5 +255,6 @@ siteio apps deploy myapp
 - **Config**: \`siteio apps set myapp -e KEY=value\` (also \`--secret\`, \`-v\` volumes, \`-p\` port), then \`siteio apps deploy myapp\` to apply
 - **Custom domains**: \`siteio apps set myapp -d <domain>\`
 - **Lifecycle**: \`siteio apps stop|restart|rm myapp\`
+- **Remove**: \`siteio apps rm myapp\` deletes the containers and the app's volumes, so its data is gone. Add \`--keep-data\` to keep the volumes, \`--images\` to also free the images. If Docker cleanup fails the app is kept: read the error and retry (\`--ignore-errors\` removes it anyway). Read the warnings it prints: they list anything left on the server.
 - **Logs**: \`siteio apps logs myapp\`
 `

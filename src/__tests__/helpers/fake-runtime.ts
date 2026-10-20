@@ -2,8 +2,8 @@
 import type { BuildConfig, ContainerRunConfig } from "../../lib/agent/docker"
 import type { ContainerInspect } from "../../types"
 import type { Runtime } from "../../lib/agent/runtime"
-import type { ComposeSpec } from "../../lib/agent/compose"
-import type { ComposeLogsOptions, ComposeServiceState } from "../../lib/agent/runtime"
+import type { ComposeDownOptions, ComposeSpec } from "../../lib/agent/compose"
+import type { ComposeLogsOptions, ComposeServiceState, ProjectLeftovers } from "../../lib/agent/runtime"
 
 export interface RecordedCall {
   method: string
@@ -40,6 +40,14 @@ export class FakeRuntime implements Runtime {
     { service: "web", containerId: "fake-web-id", state: "running" },
   ]
   composeLogsReturn = ""
+  // Delete-path fixtures: errors thrown by the matching call, and what
+  // projectLeftovers reports. composeDownError can be a function of the call's
+  // options, to fail only `--rmi all`, say.
+  removeError: Error | null = null
+  removeImageError: Error | null = null
+  composeDownError: Error | ((opts: ComposeDownOptions) => Error | null) | null = null
+  projectLeftoversReturn: ProjectLeftovers = { containers: [], networks: [], volumes: [] }
+  projectLeftoversError: Error | null = null
 
   private record(method: string, args: unknown[]): void {
     this.calls.push({ method, args })
@@ -91,10 +99,12 @@ export class FakeRuntime implements Runtime {
 
   async remove(appName: string): Promise<void> {
     this.record("remove", [appName])
+    if (this.removeError) throw this.removeError
   }
 
-  async removeImage(tag: string): Promise<void> {
-    this.record("removeImage", [tag])
+  async removeImage(tag: string, opts?: { force?: boolean }): Promise<void> {
+    this.record("removeImage", [tag, opts])
+    if (this.removeImageError) throw this.removeImageError
   }
 
   async logs(appName: string, tail: number): Promise<string> {
@@ -161,8 +171,15 @@ export class FakeRuntime implements Runtime {
   async composeRestart(project: string, files: string[], envFile?: string): Promise<void> {
     this.record("composeRestart", [project, files, envFile])
   }
-  async composeDown(project: string, files: string[], envFile?: string): Promise<void> {
-    this.record("composeDown", [project, files, envFile])
+  async composeDown(project: string, files: string[], envFile?: string, opts: ComposeDownOptions = {}): Promise<void> {
+    this.record("composeDown", [project, files, envFile, opts])
+    const err = typeof this.composeDownError === "function" ? this.composeDownError(opts) : this.composeDownError
+    if (err) throw err
+  }
+  async projectLeftovers(project: string): Promise<ProjectLeftovers> {
+    this.record("projectLeftovers", [project])
+    if (this.projectLeftoversError) throw this.projectLeftoversError
+    return this.projectLeftoversReturn
   }
   async composeLogs(
     project: string,

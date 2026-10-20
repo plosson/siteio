@@ -127,6 +127,20 @@ export interface AppInfo {
   hasThumbnail?: boolean
 }
 
+// DELETE /apps/:name and DELETE /sites/:name. `warnings` lists what could not
+// be cleaned up (images, leftover Docker resources, files) once the
+// containers were gone.
+export interface DeleteResult {
+  deleted: boolean
+  warnings: string[]
+}
+
+export interface DeleteAppOptions {
+  keepData?: boolean // keep the app's volumes
+  images?: boolean // also remove the app's images
+  ignoreErrors?: boolean // remove siteio's records even if Docker cleanup fails
+}
+
 // Compose hints returned by create, update and deploy of compose apps
 export interface WithComposeWarnings {
   warnings?: string[]
