@@ -371,6 +371,13 @@ siteio apps stop myapp
 # Restart an app
 siteio apps restart myapp
 
+# Bring a stopped app back (same image, no rebuild)
+siteio apps start myapp
+
+# Take a site offline (404) and bring it back
+siteio sites stop mysite
+siteio sites start mysite
+
 # Remove an app
 siteio apps rm myapp
 

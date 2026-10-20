@@ -205,6 +205,7 @@ Access stays valid until you revoke it; the token/code is shown once.
 - **Version history & rollback**: \`siteio sites history\` / \`siteio sites rollback\` (code only — data is never rolled back)
 - **Backend logs**: \`siteio sites logs\`
 - **Rename**: \`siteio sites rename <new-name>\`
+- **Stop / start**: \`siteio sites stop\` takes the site offline (404) and keeps everything; \`siteio sites start\` brings it back as it was. While stopped, deploys, rollbacks, chat and share links are refused
 - **Env vars & secrets for hooks**: \`siteio sites set -e KEY=value | --secret KEY=value\` / \`siteio sites unset -e KEY\`
 `
 
@@ -254,6 +255,6 @@ siteio apps deploy myapp
 
 - **Config**: \`siteio apps set myapp -e KEY=value\` (also \`--secret\`, \`-v\` volumes, \`-p\` port), then \`siteio apps deploy myapp\` to apply
 - **Custom domains**: \`siteio apps set myapp -d <domain>\`
-- **Lifecycle**: \`siteio apps stop|restart|rm myapp\`
+- **Lifecycle**: \`siteio apps stop|start|restart|rm myapp\`. \`stop\` removes the containers (volumes kept) and the URL answers 404; \`start\` (or \`restart\`) brings back the same image. A stopped app refuses \`deploy\`: start it first
 - **Logs**: \`siteio apps logs myapp\`
 `
