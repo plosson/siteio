@@ -1237,6 +1237,71 @@ export class AgentServer {
   }
 
   /**
+   * Write the siteio override for the app's current config and bring the
+   * project up. Returns the primary service's container ID. Throws DeployError.
+   */
+  private async composeUpApp(app: App): Promise<{ containerId?: string; warnings: string[] }> {
+    const { name, compose } = app
+    if (!compose) throw new DeployError("Not a compose app", 400)
+    const project = `siteio-${name}`
+
+    // Resolve the base file alone: it must hold the primary service, and
+    // the override needs the networks that service is already on.
+    let resolved: { spec: ComposeSpec; warnings: string[] }
+    try {
+      resolved = await this.resolveComposeBase(app)
+    } catch (err) {
+      if (!(err instanceof ValidationError)) throw err
+      throw new DeployError(err.message, 400)
+    }
+    const primary = resolved.spec.services[compose.primaryService] as { networks?: Record<string, unknown> }
+
+    // Regenerate the override every time so env/domain updates apply
+    const overrideYaml = buildOverride(app, {
+      domains: this.appStorage.routedDomains(app, this.tenants),
+      baseNetworks: Object.keys(primary.networks ?? {}),
+      dataDir: this.config.dataDir,
+    })
+    this.compose.writeOverride(name, overrideYaml)
+    const files = [this.composeBasePath(app), this.compose.overridePath(name)]
+    const envFile = this.writeComposeEnvFile(app)
+
+    await this.docker.composeUp(project, files, envFile)
+    const ps = await this.docker.composePs(project, files, envFile)
+    const containerId = ps.find((s) => s.service === compose.primaryService)?.containerId
+    return { containerId, warnings: resolved.warnings }
+  }
+
+  // Traefik reads the labels baked into an image too: a tenant's image could
+  // route any hostname, the operator's API included, to itself. Tenant
+  // containers run from the inspected ID, so a concurrent retag can't swap it.
+  private async tenantSafeImage(name: string, image: string): Promise<string> {
+    if (!this.tenants.ownerOf(name)) return image
+    const { id, labels } = await this.docker.imageInspect(image)
+    if (Object.keys(labels).some((key) => key.toLowerCase().startsWith("traefik."))) {
+      throw new DeployError("Image labels starting with 'traefik.' are not allowed for tenant apps", 400)
+    }
+    return id
+  }
+
+  // Replace the app's container with one running `image`, routed on its
+  // domains. Returns the new container ID.
+  private async runAppContainer(app: App, image: string): Promise<string> {
+    if (this.docker.containerExists(app.name)) await this.docker.remove(app.name)
+    const labels = this.docker.buildTraefikLabels(app.name, this.appStorage.routedDomains(app, this.tenants), app.internalPort)
+    return this.docker.run({
+      name: app.name,
+      image,
+      internalPort: app.internalPort,
+      env: app.env,
+      volumes: app.volumes,
+      restartPolicy: app.restartPolicy,
+      network: "siteio-network",
+      labels,
+    })
+  }
+
+  /**
    * Deploy a compose app: (re)write the siteio override and bring the project
    * up. Throws DeployError.
    */
@@ -1261,42 +1326,13 @@ export class AgentServer {
         )
       }
 
-      const project = `siteio-${name}`
-
-      // Resolve the base file alone: it must hold the primary service, and
-      // the override needs the networks that service is already on.
-      let resolved: { spec: ComposeSpec; warnings: string[] }
-      try {
-        resolved = await this.resolveComposeBase(app)
-      } catch (err) {
-        if (!(err instanceof ValidationError)) throw err
-        throw new DeployError(err.message, 400)
-      }
-      const { spec, warnings } = resolved
-      const primary = spec.services[compose.primaryService] as { networks?: Record<string, unknown> }
-
-      // Write the override (regenerate every deploy so env/domain updates apply)
-      const overrideYaml = buildOverride(app, {
-        domains: this.appStorage.routedDomains(app, this.tenants),
-        baseNetworks: Object.keys(primary.networks ?? {}),
-        dataDir: this.config.dataDir,
-      })
-      this.compose.writeOverride(name, overrideYaml)
-      const files = [basePath, this.compose.overridePath(name)]
-      const envFile = this.writeComposeEnvFile(app)
-
-      // Bring up the project
-      await this.docker.composeUp(project, files, envFile)
-
-      // Resolve primary service's container ID via ps
-      const psOutput = await this.docker.composePs(project, files, envFile)
-      const primaryState = psOutput.find((s) => s.service === compose.primaryService)
+      const { containerId, warnings } = await this.composeUpApp(app)
 
       const commitHash = compose.source === "git" ? await this.git.getCommitHash(name) : undefined
 
       const updated = this.appStorage.update(name, {
         status: "running",
-        containerId: primaryState?.containerId,
+        containerId,
         deployedAt: new Date().toISOString(),
         lastBuildAt: new Date().toISOString(),
         ...(commitHash && { commitHash }),
@@ -1389,37 +1425,13 @@ export class AgentServer {
         imageToRun = app.image
       }
 
-      // Traefik reads the labels baked into an image too: a tenant's image
-      // could route any hostname, the operator's API included, to itself.
-      // The container starts from the inspected image's ID: another deploy
-      // could retag the image in between.
-      if (this.tenants.ownerOf(name)) {
-        const { id, labels } = await this.docker.imageInspect(imageToRun)
-        if (Object.keys(labels).some((key) => key.toLowerCase().startsWith("traefik."))) {
-          throw new DeployError("Image labels starting with 'traefik.' are not allowed for tenant apps", 400)
-        }
-        imageToRun = id
-      }
+      imageToRun = await this.tenantSafeImage(name, imageToRun)
 
       // The new image is ready: only now replace the running container, if
       // the app still exists.
       if (!this.appStorage.get(name)) throw new DeployError("App not found", 404)
       swapped = true
-      if (this.docker.containerExists(name)) {
-        await this.docker.remove(name)
-      }
-
-      const labels = this.docker.buildTraefikLabels(name, this.appStorage.routedDomains(app, this.tenants), app.internalPort)
-      const containerId = await this.docker.run({
-        name: app.name,
-        image: imageToRun,
-        internalPort: app.internalPort,
-        env: app.env,
-        volumes: app.volumes,
-        restartPolicy: app.restartPolicy,
-        network: "siteio-network",
-        labels,
-      })
+      const containerId = await this.runAppContainer(app, imageToRun)
 
       const updated = this.appStorage.update(name, {
         status: "running",

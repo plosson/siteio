@@ -92,6 +92,13 @@ describe("Unit: ComposeManager.buildArgs", () => {
     expect(envFlagIdx).toBeLessThan(logsIdx)
   })
 
+  test("buildDownKeepVolumesArgs removes containers but never volumes", () => {
+    const args = cm.buildDownKeepVolumesArgs("siteio-x", ["/b.yml"], "/e")
+    expect(args).toEqual(["compose", "-p", "siteio-x", "-f", "/b.yml", "--env-file", "/e", "down", "--remove-orphans"])
+    expect(args).not.toContain("-v")
+    expect(args).not.toContain("--volumes")
+  })
+
   test("buildDownArgs with envFile", () => {
     const args = cm.buildDownArgs("siteio-x", ["/b.yml"], "/e")
     expect(args).toContain("--env-file")

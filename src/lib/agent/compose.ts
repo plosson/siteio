@@ -149,6 +149,11 @@ export class ComposeManager {
     return [...this.buildBaseArgs(project, files, envFile), "down", "-v", "--remove-orphans"]
   }
 
+  // For `apps stop`: the containers go, named volumes stay for `start`.
+  buildDownKeepVolumesArgs(project: string, files: string[], envFile?: string): string[] {
+    return [...this.buildBaseArgs(project, files, envFile), "down", "--remove-orphans"]
+  }
+
   buildStopArgs(project: string, files: string[], envFile?: string): string[] {
     return [...this.buildBaseArgs(project, files, envFile), "stop"]
   }
@@ -189,6 +194,17 @@ export class ComposeManager {
   async down(project: string, files: string[], envFile?: string): Promise<void> {
     const result = spawnSync({
       cmd: ["docker", ...this.buildDownArgs(project, files, envFile)],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    if (result.exitCode !== 0) {
+      throw new SiteioError(`docker compose down failed: ${result.stderr.toString()}`)
+    }
+  }
+
+  async downKeepVolumes(project: string, files: string[], envFile?: string): Promise<void> {
+    const result = spawnSync({
+      cmd: ["docker", ...this.buildDownKeepVolumesArgs(project, files, envFile)],
       stdout: "pipe",
       stderr: "pipe",
     })

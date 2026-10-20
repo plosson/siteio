@@ -164,6 +164,9 @@ export class FakeRuntime implements Runtime {
   async composeDown(project: string, files: string[], envFile?: string): Promise<void> {
     this.record("composeDown", [project, files, envFile])
   }
+  async composeDownKeepVolumes(project: string, files: string[], envFile?: string): Promise<void> {
+    this.record("composeDownKeepVolumes", [project, files, envFile])
+  }
   async composeLogs(
     project: string,
     files: string[],

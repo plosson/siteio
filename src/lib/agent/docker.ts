@@ -469,6 +469,9 @@ export class DockerManager implements Runtime {
   composeDown(project: string, files: string[], envFile?: string): Promise<void> {
     return this.compose.down(project, files, envFile)
   }
+  composeDownKeepVolumes(project: string, files: string[], envFile?: string): Promise<void> {
+    return this.compose.downKeepVolumes(project, files, envFile)
+  }
   composeLogs(project: string, files: string[], envFile: string | undefined, opts: ComposeLogsOptions): Promise<string> {
     return this.compose.logs(project, files, envFile, opts)
   }
