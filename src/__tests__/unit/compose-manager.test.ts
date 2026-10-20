@@ -25,6 +25,16 @@ describe("Unit: ComposeManager.buildArgs", () => {
     ])
   })
 
+  test("buildDownArgs with keepVolumes drops -v", () => {
+    const args = cm.buildDownArgs("siteio-x", ["/base.yml"], undefined, { keepVolumes: true })
+    expect(args.slice(-2)).toEqual(["down", "--remove-orphans"])
+  })
+
+  test("buildDownArgs with removeImages adds --rmi all", () => {
+    const args = cm.buildDownArgs("siteio-x", ["/base.yml"], undefined, { removeImages: true })
+    expect(args.slice(-5)).toEqual(["down", "-v", "--rmi", "all", "--remove-orphans"])
+  })
+
   test("buildConfigArgs appends config --format json", () => {
     const args = cm.buildConfigArgs("siteio-x", ["/base.yml"])
     expect(args).toEqual([

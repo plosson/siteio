@@ -3,8 +3,8 @@ import { join } from "path"
 import type { ContainerInspect, RestartPolicy, VolumeMount } from "../../types"
 import { SiteioError } from "../../utils/errors"
 import type { Runtime } from "./runtime"
-import { ComposeManager, dockerAsync, type ComposeSpec } from "./compose"
-import type { ComposeLogsOptions, ComposeServiceState } from "./runtime"
+import { ComposeManager, dockerAsync, type ComposeDownOptions, type ComposeSpec } from "./compose"
+import type { ComposeLogsOptions, ComposeServiceState, ProjectLeftovers } from "./runtime"
 import { routerLabels } from "./traefik"
 
 export interface ContainerRunConfig {
@@ -442,9 +442,10 @@ export class DockerManager implements Runtime {
   /**
    * Remove a locally built image
    */
-  async removeImage(tag: string): Promise<void> {
+  async removeImage(tag: string, opts: { force?: boolean } = {}): Promise<void> {
+    const force = opts.force ?? true
     const result = spawnSync({
-      cmd: ["docker", "rmi", "-f", tag],
+      cmd: ["docker", "rmi", ...(force ? ["-f"] : []), tag],
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -466,8 +467,46 @@ export class DockerManager implements Runtime {
   composeRestart(project: string, files: string[], envFile?: string): Promise<void> {
     return this.compose.restart(project, files, envFile)
   }
-  composeDown(project: string, files: string[], envFile?: string): Promise<void> {
-    return this.compose.down(project, files, envFile)
+  composeDown(project: string, files: string[], envFile?: string, opts?: ComposeDownOptions): Promise<void> {
+    return this.compose.down(project, files, envFile, opts)
+  }
+
+  async projectLeftovers(project: string): Promise<ProjectLeftovers> {
+    const label = "com.docker.compose.project"
+    // One line per resource: "<name>\t<compose project label or empty>"
+    const list = async (args: string[]): Promise<Array<[string, string]>> => {
+      const result = await dockerAsync([...args, "--format", `{{.Name}}\t{{.Label "${label}"}}`])
+      if (result.exitCode !== 0) {
+        throw new SiteioError(`docker ${args.join(" ")} failed: ${result.stderr.trim()}`)
+      }
+      return result.stdout
+        .split("\n")
+        .filter((l) => l.trim())
+        .map((l) => {
+          const [name = "", owner = ""] = l.split("\t")
+          return [name.trim(), owner.trim()]
+        })
+    }
+    // Compose names networks and volumes `<project>_<key>`; app names can't
+    // contain `_`, so the prefix can't match another app's project.
+    const owned = ([name, owner]: [string, string]) => owner === project || name.startsWith(`${project}_`)
+    const containers = await dockerAsync(["ps", "-a", "--filter", `label=${label}=${project}`, "--format", "{{.Names}}"])
+    if (containers.exitCode !== 0) {
+      throw new SiteioError(`docker ps failed: ${containers.stderr.trim()}`)
+    }
+    const lines = (text: string) => text.split("\n").map((l) => l.trim()).filter(Boolean)
+    const volumes = (await list(["volume", "ls"])).filter(owned).map(([n]) => n)
+    const volumeUsers: Record<string, string[]> = {}
+    for (const volume of volumes) {
+      const users = await dockerAsync(["ps", "-a", "--filter", `volume=${volume}`, "--format", "{{.Names}}"])
+      if (users.exitCode === 0 && lines(users.stdout).length > 0) volumeUsers[volume] = lines(users.stdout)
+    }
+    return {
+      containers: lines(containers.stdout),
+      networks: (await list(["network", "ls"])).filter(owned).map(([n]) => n),
+      volumes,
+      volumeUsers,
+    }
   }
   composeLogs(project: string, files: string[], envFile: string | undefined, opts: ComposeLogsOptions): Promise<string> {
     return this.compose.logs(project, files, envFile, opts)

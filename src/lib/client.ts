@@ -1,7 +1,7 @@
 import { getCliUser, loadConfig } from "../config/loader.ts"
 import { ApiError, ConfigError } from "../utils/errors.ts"
 import type {
-  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, WithComposeWarnings, ShareGrantInfo, ShareGrantCreated, EditLinkCreated, AutoDeployMode, UserInfo, UserKeyInfo,
+  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, WithComposeWarnings, DeleteResult, DeleteAppOptions, ShareGrantInfo, ShareGrantCreated, EditLinkCreated, AutoDeployMode, UserInfo, UserKeyInfo,
 } from "../types.ts"
 
 // Build an ApiError from a failed response, keeping the agent's message and
@@ -108,8 +108,10 @@ export class SiteioClient {
     return response.data
   }
 
-  async deleteSite(name: string): Promise<void> {
-    await this.request<ApiResponse<{ deleted: boolean }>>("DELETE", `/sites/${name}`)
+  async deleteSite(name: string, options: { ignoreErrors?: boolean } = {}): Promise<DeleteResult> {
+    const query = options.ignoreErrors ? "?ignoreErrors=true" : ""
+    const response = await this.request<ApiResponse<DeleteResult>>("DELETE", `/sites/${name}${query}`)
+    return { deleted: true, warnings: response.data?.warnings ?? [] }
   }
 
   async downloadSite(name: string, version?: number): Promise<Uint8Array> {
@@ -365,8 +367,14 @@ export class SiteioClient {
     return response.data
   }
 
-  async deleteApp(name: string): Promise<void> {
-    await this.request<ApiResponse<{ deleted: boolean }>>("DELETE", `/apps/${name}`)
+  async deleteApp(name: string, options: DeleteAppOptions = {}): Promise<DeleteResult> {
+    const params = new URLSearchParams()
+    if (options.keepData) params.set("keepData", "true")
+    if (options.images) params.set("images", "true")
+    if (options.ignoreErrors) params.set("ignoreErrors", "true")
+    const query = params.size > 0 ? `?${params}` : ""
+    const response = await this.request<ApiResponse<DeleteResult>>("DELETE", `/apps/${name}${query}`)
+    return { deleted: true, warnings: response.data?.warnings ?? [] }
   }
 
   async deployApp(
