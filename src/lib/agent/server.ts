@@ -62,7 +62,7 @@ const TENANT_ROUTE =
   /^\/(agent|sites|sites\/[a-z0-9-]+(\/(logs|admin|download|thumbnail|history|rollback|upgrade|domains|env|rename|stop|start|grants|grants\/grt_[a-z0-9]+))?)$/
 
 // The app routes a tenant allowed to run apps (Tenant.apps) may reach.
-const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|restart|logs|status|thumbnail))?)?$/
+const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|start|restart|logs|status|thumbnail))?)?$/
 
 // What a main-domain member reaches beyond the tenant allowlist: the AI
 // editor (chat and in-site edit links), which runs on the operator's LLM
@@ -298,6 +298,7 @@ export class AgentServer {
         },
         lsRemote: (url, patterns, token) => this.git.lsRemote(url, patterns, token),
         deploy: async (name, ref) => {
+          if (this.appStorage.get(name)?.status === "stopped") throw new DeployError(this.stoppedMessage("app", name, null), 409)
           await this.deployContainerApp(name, { ref })
         },
         isDeploying: (name) => this.isDeploying(name),
@@ -709,10 +710,16 @@ export class AgentServer {
       return this.handleDeployApp(k(appDeployMatch[1]!), url, req, scope)
     }
 
-    // POST /apps/:name/stop - stop app
+    // POST /apps/:name/stop - take the app offline (containers removed, volumes kept)
     const appStopMatch = path.match(/^\/apps\/([a-z0-9-]+)\/stop$/)
     if (appStopMatch && req.method === "POST") {
-      return this.handleStopApp(k(appStopMatch[1]!), scope)
+      return this.handleStopApp(k(appStopMatch[1]!), req, scope)
+    }
+
+    // POST /apps/:name/start - bring a stopped app back
+    const appStartMatch = path.match(/^\/apps\/([a-z0-9-]+)\/start$/)
+    if (appStartMatch && req.method === "POST") {
+      return this.handleStartApp(k(appStartMatch[1]!), req, scope)
     }
 
     // POST /apps/:name/restart - restart app
@@ -1202,6 +1209,7 @@ export class AgentServer {
     if (!app) {
       return this.error("App not found", 404)
     }
+    if (app.status === "stopped") return this.stoppedError("app", name, scope)
 
     const noCache = url.searchParams.get("noCache") === "true"
 
@@ -1460,26 +1468,67 @@ export class AgentServer {
     }
   }
 
-  private async handleStopApp(name: string, scope: Scope): Promise<Response> {
+  // Take an app offline: remove its containers (volumes and config stay), so
+  // Traefik has no route and no restart policy, compose's included, revives it.
+  private async handleStopApp(name: string, req: Request, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) {
       return this.error("App not found", 404)
     }
+    if (app.status === "stopped") return this.error(`App '${this.tenants.displayName(name, scope)}' is already stopped`, 409)
     if (this.isDeploying(name)) {
       return this.error("Deploy already in progress", 409)
     }
     try {
       if (app.compose) {
         const files = this.composeFiles(app)
-        await this.docker.composeStop(`siteio-${name}`, files, this.writeComposeEnvFile(app))
+        await this.docker.composeDownKeepVolumes(`siteio-${name}`, files, this.writeComposeEnvFile(app))
       } else if (this.docker.containerExists(name)) {
-        await this.docker.stop(name)
+        await this.docker.remove(name)
       }
-      const updated = this.appStorage.update(name, { status: "stopped" })
-      return this.json(updated && this.appView(updated, scope))
+      const updated = this.appStorage.update(name, { status: "stopped", containerId: undefined })!
+      this.pageApp(updated, "stopped", this.requestUser(req))
+      return this.json(this.appView(updated, scope))
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to stop app"
       return this.error(message, 500)
+    }
+  }
+
+  // Bring a stopped app back from its stored config and the image already on
+  // the server: no build, no pull. With no image left (never built, or
+  // pruned), fall back to a full deploy rather than leave it stuck.
+  private async startApp(app: App, by?: string): Promise<App> {
+    if (!this.docker.isAvailable()) throw new DeployError("Docker is not available", 500)
+    this.docker.ensureNetwork()
+    const image = app.git || app.dockerfile ? this.docker.imageTag(app.name) : app.image
+    if (!app.compose && !this.docker.imageExists(image)) return this.deployContainerApp(app.name, { deployedBy: by })
+    try {
+      const containerId = app.compose
+        ? (await this.composeUpApp(app)).containerId
+        : await this.runAppContainer(app, await this.tenantSafeImage(app.name, image))
+      const updated = this.appStorage.update(app.name, { status: "running", containerId })
+      if (!updated) throw new DeployError("App not found", 404)
+      this.pageApp(updated, "started", by)
+      return updated
+    } catch (err) {
+      this.appStorage.update(app.name, { status: "failed" })
+      if (err instanceof DeployError) throw err
+      throw new DeployError(err instanceof Error ? err.message : "Failed to start app", 500)
+    }
+  }
+
+  private async handleStartApp(name: string, req: Request, scope: Scope): Promise<Response> {
+    const app = this.appStorage.get(name)
+    if (!app) return this.error("App not found", 404)
+    if (app.status !== "stopped") return this.error(`App '${this.tenants.displayName(name, scope)}' is not stopped`, 409)
+    if (this.isDeploying(name)) return this.error("Deploy already in progress", 409)
+    try {
+      const updated = await this.startApp(app, this.requestUser(req))
+      return this.json(this.appView(updated, scope))
+    } catch (err) {
+      const status = err instanceof DeployError ? err.status : 500
+      return this.error(err instanceof Error ? err.message : "Failed to start app", status)
     }
   }
 
@@ -1491,6 +1540,7 @@ export class AgentServer {
     if (this.isDeploying(name)) {
       return this.error("Deploy already in progress", 409)
     }
+    if (app.status === "stopped") return this.handleStartApp(name, req, scope)
     try {
       if (app.compose) {
         const files = this.composeFiles(app)
@@ -2872,7 +2922,7 @@ export class AgentServer {
     })
   }
 
-  private pageApp(app: App, event: "deployed" | "restarted", by?: string): void {
+  private pageApp(app: App, event: "deployed" | "restarted" | "stopped" | "started", by?: string): void {
     const url = this.appStorage.url(app, this.tenants)
     this.pager?.notify({
       title: `App '${app.name}' ${event}`,

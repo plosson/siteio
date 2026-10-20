@@ -180,14 +180,23 @@ describe("API: Apps (compose)", () => {
       runtime.calls = []
     }
 
-    test("stop invokes composeStop, not docker.stop", async () => {
+    test("stop removes the project's containers and keeps its volumes", async () => {
       await setup("stopapp")
       const r = await req("POST", "/apps/stopapp/stop")
       const app = await jsonOk<App>(r)
       expect(app.status).toBe("stopped")
-      expect(runtime.callsOf("composeStop")).toHaveLength(1)
-      expect(runtime.callsOf("stop")).toHaveLength(0)
-      expect(runtime.callsOf("composeStop")[0]!.args[0]).toBe("siteio-stopapp")
+      expect(runtime.callsOf("composeDownKeepVolumes")[0]!.args[0]).toBe("siteio-stopapp")
+      expect(runtime.callsOf("composeDown")).toHaveLength(0) // that one passes -v
+      expect(runtime.callsOf("composeStop")).toHaveLength(0)
+    })
+
+    test("start brings the project up again without cloning", async () => {
+      await setup("startapp")
+      await req("POST", "/apps/startapp/stop")
+      runtime.calls = []
+      const app = await jsonOk<App>(await req("POST", "/apps/startapp/start"))
+      expect(app.status).toBe("running")
+      expect(runtime.callsOf("composeUp")).toHaveLength(1)
     })
 
     test("restart invokes composeRestart", async () => {
@@ -389,10 +398,10 @@ describe("API: Apps (compose)", () => {
       const expectedEnvPath = siteioEnv("lifecycleenv")
 
       await req("POST", "/apps/lifecycleenv/stop")
-      expect(runtime.callsOf("composeStop")[0]!.args[2]).toBe(expectedEnvPath)
+      expect(runtime.callsOf("composeDownKeepVolumes")[0]!.args[2]).toBe(expectedEnvPath)
 
       await req("POST", "/apps/lifecycleenv/restart")
-      expect(runtime.callsOf("composeRestart")[0]!.args[2]).toBe(expectedEnvPath)
+      expect(runtime.callsOf("composeUp")[0]!.args[2]).toBe(expectedEnvPath)
 
       await req("GET", "/apps/lifecycleenv/logs")
       // composeLogs signature: (project, files, envFile, opts) → envFile at args[2]

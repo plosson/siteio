@@ -474,7 +474,7 @@ describe("API: tenants", () => {
       await createApp({ name: "vault" }, "god-key", "localhost")
       const calls: [string, string][] = [
         ["GET", ""], ["PATCH", ""], ["DELETE", ""], ["POST", "/deploy"], ["POST", "/stop"],
-        ["POST", "/restart"], ["GET", "/logs"], ["GET", "/status"], ["GET", "/thumbnail"],
+        ["POST", "/restart"], ["POST", "/start"], ["GET", "/logs"], ["GET", "/status"], ["GET", "/thumbnail"],
       ]
       for (const target of ["hub", "hub--example-com", "vault--friend-com"]) {
         for (const [method, sub] of calls) {
