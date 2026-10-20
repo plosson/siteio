@@ -255,6 +255,6 @@ siteio apps deploy myapp
 
 - **Config**: \`siteio apps set myapp -e KEY=value\` (also \`--secret\`, \`-v\` volumes, \`-p\` port), then \`siteio apps deploy myapp\` to apply
 - **Custom domains**: \`siteio apps set myapp -d <domain>\`
-- **Lifecycle**: \`siteio apps stop|start|restart|rm myapp\`. \`stop\` removes the containers (volumes kept) and the URL answers 404; \`start\` (or \`restart\`) brings back the same image. A stopped app refuses \`deploy\`: start it first
+- **Lifecycle**: \`siteio apps stop|start|restart|rm myapp\`. \`stop\` removes the containers (volumes kept) and the URL answers 404; \`start\` (or \`restart\`) brings back the same image. Data in an image's anonymous volumes (e.g. a \`postgres\` image run without \`-v\`) is not reattached after stop/start, as after every deploy: mount a named volume with \`-v\` for data that must survive. A stopped app refuses \`deploy\`: start it first
 - **Logs**: \`siteio apps logs myapp\`
 `

@@ -122,8 +122,9 @@ the tenant or revoke their keys.
   `apps restart`), then deploy. Apps already stopped on the production servers are affected.
   Say so in the release notes.
 - `apps stop` now removes the containers. Data in named volumes and bind
-  mounts is kept; data written only to the container's own filesystem is
-  lost (as on every deploy today).
+  mounts is kept; anonymous volumes (an image's own `VOLUME`, e.g. `postgres`
+  run without `-v`) are not reattached, and data written only to the
+  container's own filesystem is lost (as on every deploy today).
 - Check whether the Mac app (plosson/siteio-app) calls `deploy` on stopped
   apps.
 

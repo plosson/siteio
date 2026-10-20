@@ -33,10 +33,10 @@ export async function startAppCommand(
     if (options.json) {
       console.log(JSON.stringify({ success: true, data: app }, null, 2))
     } else {
-      console.log("")
-      console.log(formatSuccess(`App ${chalk.bold(name)} started.`))
-      console.log(`  Status: ${chalk.green(app.status)}`)
-      console.log("")
+      console.error("")
+      console.error(formatSuccess(`App ${chalk.bold(name)} started.`))
+      console.error(`  Status: ${chalk.green(app.status)}`)
+      console.error("")
     }
     process.exit(0)
   } catch (err) {

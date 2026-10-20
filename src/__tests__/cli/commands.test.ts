@@ -179,6 +179,8 @@ describe("CLI: Commands", () => {
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain("_siteio")
     expect(result.stdout).toContain("complete -F _siteio siteio")
+    expect(result.stdout).toContain("rm domain stop start\"")
+    expect(result.stdout).toContain("deploy stop start restart")
   })
 
   test("should output zsh completion script", async () => {
@@ -186,12 +188,18 @@ describe("CLI: Commands", () => {
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain("#compdef siteio")
     expect(result.stdout).toContain("_siteio")
+    expect(result.stdout).toContain("'start:Start a stopped site'")
+    expect(result.stdout).toContain("'stop:Stop a site'")
+    expect(result.stdout).toContain("'start:Start a stopped app'")
   })
 
   test("should output fish completion script", async () => {
     const result = await runCli(["completion", "fish"])
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain("complete -c siteio")
+    expect(result.stdout).toContain("from sites\" -a start")
+    expect(result.stdout).toContain("from sites\" -a stop")
+    expect(result.stdout).toContain("from apps\" -a start")
   })
 
   test("should reject invalid shell for completion", async () => {

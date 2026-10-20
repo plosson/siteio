@@ -5,8 +5,8 @@ _siteio() {
     _init_completion || return
 
     local commands="status login logout config sites apps agent update skill completion"
-    local sites_cmds="init dev deploy list ls info download logs admin history rollback rename rm domain"
-    local apps_cmds="init create list ls info deploy stop restart rm logs set unset"
+    local sites_cmds="init dev deploy list ls info download logs admin history rollback rename rm domain stop start"
+    local apps_cmds="init create list ls info deploy stop start restart rm logs set unset"
     local agent_cmds="install uninstall start stop restart status config"
     local skill_cmds="install uninstall"
 
@@ -81,6 +81,8 @@ _siteio() {
         'rename:Rename a site'
         'rm:Remove a deployed site'
         'domain:Manage custom domains'
+        'stop:Stop a site'
+        'start:Start a stopped site'
     )
 
     apps_cmds=(
@@ -91,6 +93,7 @@ _siteio() {
         'info:Show detailed info about an app'
         'deploy:Deploy (start) an app container'
         'stop:Stop an app container'
+        'start:Start a stopped app'
         'restart:Restart an app container'
         'rm:Remove an app'
         'logs:View app container logs'
@@ -161,6 +164,8 @@ complete -c siteio -n "__fish_seen_subcommand_from sites" -a rollback -d "Rollba
 complete -c siteio -n "__fish_seen_subcommand_from sites" -a rename -d "Rename a site"
 complete -c siteio -n "__fish_seen_subcommand_from sites" -a rm -d "Remove a deployed site"
 complete -c siteio -n "__fish_seen_subcommand_from sites" -a domain -d "Manage custom domains"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a stop -d "Stop a site"
+complete -c siteio -n "__fish_seen_subcommand_from sites" -a start -d "Start a stopped site"
 
 # Apps subcommands
 complete -c siteio -n "__fish_seen_subcommand_from apps" -a create -d "Create a new app"
@@ -169,6 +174,7 @@ complete -c siteio -n "__fish_seen_subcommand_from apps" -a ls -d "List all apps
 complete -c siteio -n "__fish_seen_subcommand_from apps" -a info -d "Show detailed info about an app"
 complete -c siteio -n "__fish_seen_subcommand_from apps" -a deploy -d "Deploy (start) an app container"
 complete -c siteio -n "__fish_seen_subcommand_from apps" -a stop -d "Stop an app container"
+complete -c siteio -n "__fish_seen_subcommand_from apps" -a start -d "Start a stopped app"
 complete -c siteio -n "__fish_seen_subcommand_from apps" -a restart -d "Restart an app container"
 complete -c siteio -n "__fish_seen_subcommand_from apps" -a rm -d "Remove an app"
 complete -c siteio -n "__fish_seen_subcommand_from apps" -a logs -d "View app container logs"
