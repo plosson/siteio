@@ -7,12 +7,9 @@
   <title>siteio admin</title>
   <link rel="icon" type="image/svg+xml" href="__ICON_URI__" />
 
-  <link rel="stylesheet" href="https://sets.hugeicons.com/7v2rm862ty6.css" crossorigin="anonymous" />
-  <link rel="stylesheet" href="/ui/ui.css" />
-
-  <script defer src="/ui/chat-core.js"></script>
-  <script defer src="/ui/ui.js"></script>
-  <script defer src="https://unpkg.com/alpinejs@3.15.3/dist/cdn.min.js"></script>
+  <style>
+/*__STYLES__*/
+  </style>
 </head>
 <body x-data="siteioAdmin()" x-init="init()" @keydown.escape.window="onEscape()">
 
@@ -947,5 +944,15 @@
       </div>
     </template>
   </div>
+  <!-- The chat transport, the admin's component, then Alpine, which starts on them. -->
+  <script>
+//__CHAT_CORE__
+  </script>
+  <script>
+//__UI_JS__
+  </script>
+  <script>
+//__ALPINE__
+  </script>
 </body>
 </html>
