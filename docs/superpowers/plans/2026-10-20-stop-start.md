@@ -1286,6 +1286,6 @@ git commit -m "docs: stop and start for sites and apps"
 - [ ] Search the Mac app (plosson/siteio-app) for calls to `/deploy` on apps that might be stopped, and for `/stop` (its behavior changed). Report what you find. Don't change that repo in this plan.
 - [ ] Release notes for the version bump:
   - `apps deploy` on a stopped app now fails; use `apps start` (or `apps restart`) first.
-  - `apps stop` removes the containers. Named volumes and bind mounts are kept.
-  - Data in an image's anonymous volumes (e.g. `postgres` run without `-v`) is not reattached after stop/start, as after every deploy; mount a named volume with `-v` for data that must survive.
-  - Apps already stopped on servers are affected.
+  - `apps deploy` on a stopped app now fails; use `apps start` (or `apps restart`) first.
+  - `apps stop` now also turns the containers' restart policy off until `apps start`, so a stopped app stays stopped after a reboot. Containers and volumes are kept.
+  - Apps already stopped on servers are affected by the first point.

@@ -710,7 +710,7 @@ export class AgentServer {
       return this.handleDeployApp(k(appDeployMatch[1]!), url, req, scope)
     }
 
-    // POST /apps/:name/stop - take the app offline (containers removed, volumes kept)
+    // POST /apps/:name/stop - take the app offline (containers stopped and kept, restart policy off)
     const appStopMatch = path.match(/^\/apps\/([a-z0-9-]+)\/stop$/)
     if (appStopMatch && req.method === "POST") {
       return this.handleStopApp(k(appStopMatch[1]!), req, scope)

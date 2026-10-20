@@ -435,7 +435,7 @@ apps
 
 apps
   .command("stop [name]")
-  .description("Take an app offline (containers removed, volumes kept); bring it back with 'start'")
+  .description("Take an app offline (containers stopped and kept, restart policy off); bring it back with 'start'")
   .action(async (name) => {
     const { stopAppCommand } = await import("./commands/apps/stop.ts")
     await stopAppCommand(name, { json: program.opts().json })
