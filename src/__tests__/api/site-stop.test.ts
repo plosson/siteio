@@ -6,7 +6,7 @@ import { zipSync } from "fflate"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { SiteStorage } from "../../lib/agent/storage.ts"
 import { FakeRuntime } from "../helpers/fake-runtime.ts"
-import type { AgentConfig, ApiResponse, SiteInfo } from "../../types.ts"
+import type { AgentConfig, ApiResponse, SiteInfo, ShareGrantCreated } from "../../types.ts"
 
 const GOD = { "X-API-Key": "test-key" }
 const GOD_ZIP = { ...GOD, "Content-Type": "application/zip" }
@@ -110,5 +110,38 @@ describe("API: site stop / start", () => {
   test("unknown site: stop and start answer 404", async () => {
     expect((await stop("nope")).status).toBe(404)
     expect((await start("nope")).status).toBe(404)
+  })
+
+  test("deploy, rollback and upgrade on a stopped site are refused and it stays stopped", async () => {
+    await deploy() // v2, so v1 exists for the rollback
+    await stop()
+    runtime.calls = []
+    const attempts = [
+      await deploy(),
+      await req("/sites/blog/rollback", { method: "POST", headers: GOD_JSON, body: JSON.stringify({ version: 1 }) }),
+      await req("/sites/blog/upgrade", { method: "POST", headers: GOD }),
+    ]
+    for (const res of attempts) {
+      expect(res.status).toBe(409)
+      expect(((await res.json()) as ApiResponse<null>).error).toBe("Site 'blog' is stopped; run 'siteio sites start blog' first")
+    }
+    expect(runtime.callsOf("run")).toHaveLength(0)
+    expect(runtime.callsOf("pull")).toHaveLength(0)
+    expect(stored().status).toBe("stopped") // not "failed": the catch blocks never ran
+  })
+
+  test("a share code can't deploy, stop or start a stopped site", async () => {
+    const grant = await req("/sites/blog/grants", { method: "POST", headers: GOD_JSON, body: "{}" })
+    const code = ((await grant.json()) as ApiResponse<ShareGrantCreated>).data!.code
+    expect((await req("/sites/blog/stop", { method: "POST", headers: { "X-API-Key": code } })).status).toBe(403)
+    await stop()
+    expect((await req("/sites/blog/start", { method: "POST", headers: { "X-API-Key": code } })).status).toBe(403)
+    const res = await req("/sites/blog", {
+      method: "POST",
+      headers: { "X-API-Key": code, "Content-Type": "application/zip" },
+      body: zipSync({ "public/index.html": new TextEncoder().encode("<h1>x</h1>") }),
+    })
+    expect(res.status).toBe(409)
+    expect(stored().status).toBe("stopped")
   })
 })

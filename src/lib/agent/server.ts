@@ -1840,6 +1840,7 @@ export class AgentServer {
   private handleSiteChat(name: string, req: Request, deployedBy?: string): Response {
     if (!this.chatController) return this.error("Chat is not configured", 400)
     if (!this.storage.exists(name)) return this.error("Site not found", 404)
+    if (this.storage.get(name)?.status === "stopped") return this.stoppedError("site", name, this.tenants.ownerOf(name))
 
     const controller = this.chatController
 
@@ -1946,6 +1947,7 @@ export class AgentServer {
 
     // Create metadata on first deploy (generates superuser creds).
     let site = this.storage.get(name)
+    if (site?.status === "stopped") return this.stoppedError("site", name, scope)
 
     const conflict = this.checkExpectedVersion(req, site)
     if (conflict) return conflict
@@ -2121,6 +2123,7 @@ export class AgentServer {
     const name = grant.site
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
+    if (site.status === "stopped") return this.stoppedError("site", name, scope)
     const conflict = this.checkExpectedVersion(req, site)
     if (conflict) return conflict
 
@@ -2163,6 +2166,7 @@ export class AgentServer {
   ): Promise<SiteInfo> {
     const site = this.storage.get(siteName)
     if (!site) throw new Error(`Site "${siteName}" no longer exists`)
+    if (site.status === "stopped") throw new Error(this.stoppedMessage("site", siteName, this.tenants.ownerOf(siteName)))
     if (!this.docker.isAvailable()) throw new Error("Docker is not available")
     try {
       return await this.runSiteDeploy(site, zipData, deployedBy, message)
@@ -2482,6 +2486,7 @@ export class AgentServer {
   private async handleUpgradeSite(name: string, scope: Scope): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
+    if (site.status === "stopped") return this.stoppedError("site", name, scope)
     const from = site.pocketbaseVersion
     const to = POCKETBASE_VERSION
     if (from === to) {
@@ -2611,6 +2616,7 @@ export class AgentServer {
   private async runRollback(name: string, version: number, deployedBy?: string, scope: Scope = null): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
+    if (site.status === "stopped") return this.stoppedError("site", name, scope)
     if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
     try {
       const restored = this.storage.restoreVersion(name, version)
