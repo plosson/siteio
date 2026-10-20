@@ -18,15 +18,20 @@ site) and bring it back exactly as it was with one command.
 One concept, `stop`, for sites and apps. It reuses the existing
 `status: "stopped"` (`ContainerStatus` in `src/types.ts`); no new field.
 
-The agent's **stored** status is the gate, not Docker's live state. Stopping
-**removes** the containers (volumes and data are kept), so:
+The agent's **stored** status is the gate, not Docker's live state.
 
-- nothing can restart them (restart policy `always`, compose `restart:`
-  policies and Docker daemon restarts no longer matter);
-- the existing "no container" paths already leave the item offline:
-  `restartSiteContainer` does nothing without a container, and `rename` skips
-  the restart when there was none. So `domain add/remove`, `set/unset` and
-  `rename` on a stopped site change the stored config only.
+**Sites:** stopping **removes** the PocketBase container. A site keeps all its
+data in `pb_data` on a host folder, so nothing is lost, and the existing "no
+container" paths already leave the site offline: `restartSiteContainer` does
+nothing without a container, and `rename` skips the restart when there was
+none. So `domain add/remove`, `set/unset` and `rename` on a stopped site change
+the stored config only.
+
+**Apps:** stopping **keeps** the containers, so an image's anonymous volumes
+(e.g. `postgres` run without `-v`) come back with them. To survive a reboot,
+stop also sets each container's restart policy to `no` (`docker update
+--restart no`); start puts the policy back. Without that, Docker would start
+an `always` container again when the daemon or the server restarts.
 
 Today nothing sets a site to `stopped`, and only the app stop handler sets an
 app to `stopped` (`server.ts` `handleStopApp`). So `stopped` always means
@@ -38,8 +43,8 @@ app to `stopped` (`server.ts` `handleStopApp`). So `stopped` always means
 |---|---|
 | `siteio sites stop [name]` | New. Removes the PocketBase container, sets `stopped`. |
 | `siteio sites start [name]` | New. Creates the container from the current stored config (`startSiteContainer`), sets `running`. |
-| `siteio apps stop [name]` | Changed: removes the containers (`docker rm`, or `compose down` **without** `-v`; the existing down call passes `-v` and deletes volumes) instead of stopping them. |
-| `siteio apps start [name]` | New. Creates the containers again from the stored config and the image already on the server, without a build or pull. When no image is left (pruned), falls back to a full deploy, since `deploy` itself is refused while stopped. |
+| `siteio apps stop [name]` | Changed: stops the containers (`docker stop`, or `compose stop`) and sets each one's restart policy to `no`. |
+| `siteio apps start [name]` | New. Single container: puts back the app's restart policy and starts the **same** container (`docker start`). If the container is gone, creates it from the stored config and the image on the server; with no image left either, falls back to a full deploy, since `deploy` itself is refused while stopped. Compose: `compose up` (which reuses unchanged containers and keeps anonymous volumes on the ones it recreates), then puts back each service's restart policy from the compose file. |
 | `siteio apps restart [name]` | Changed: on a running app, as today. On a stopped app, does the same as `apps start` (same function). |
 
 `[name]` defaults to `.siteio/config.json`, like the other commands. Output
@@ -68,8 +73,9 @@ and the container removal), `handleDeployApp` and `handleSiteChat`. Otherwise th
 
 - Sites: `domain add/remove`, `set/unset`, `rename`. Changes take effect on
   `start`.
-- Apps: `apps set`. Changes take effect on `start`, because `start` creates
-  the containers again.
+- Apps: `apps set`. As for a running app, changes take effect on the next
+  `apps deploy` (after `start`). For compose apps, `start` runs `compose up`,
+  which already applies them.
 - Both: `info`, `list`, `logs` (of the last run, if Docker still has them; may
   be empty), `history`, `download`, `rm`, share link `list` and `revoke`.
 
@@ -121,10 +127,8 @@ the tenant or revoke their keys.
 - `apps deploy` on a stopped app now fails; use `apps start` (or
   `apps restart`), then deploy. Apps already stopped on the production servers are affected.
   Say so in the release notes.
-- `apps stop` now removes the containers. Data in named volumes and bind
-  mounts is kept; anonymous volumes (an image's own `VOLUME`, e.g. `postgres`
-  run without `-v`) are not reattached, and data written only to the
-  container's own filesystem is lost (as on every deploy today).
+- `apps stop` now also sets the containers' restart policy to `no` until
+  `start`. The containers and all their volumes are kept.
 - Check whether the Mac app (plosson/siteio-app) calls `deploy` on stopped
   apps.
 
@@ -141,8 +145,12 @@ the tenant or revoke their keys.
 - `apps start` on an app that was never deployed fails cleanly with status
   unchanged.
 - `apps deploy` on a stopped app returns 409 and the status stays `stopped`.
-- `apps restart` on a stopped app starts it with the same image (no build or
-  pull) and applies settings changed while stopped.
+- `apps stop` never removes a container; it stops it and sets its restart
+  policy to `no` (every compose container too). `apps start` starts the same
+  container and puts the policy back (the app's, or each compose service's).
+- `apps restart` on a stopped app starts it like `apps start`.
+- `apps start` with the container gone recreates it from the image on the
+  server; with the image gone too, it deploys.
 - A share grant cannot call stop or start; a tenant cannot stop or start
   another tenant's item.
 - `upgrade --all` skips a stopped site and leaves it stopped.
