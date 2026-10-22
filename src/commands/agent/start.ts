@@ -99,6 +99,10 @@ export async function startAgentCommand(): Promise<void> {
 
   const apiKey = process.env.SITEIO_API_KEY || persistedConfig.apiKey
   const maxUploadSize = parseSize(process.env.SITEIO_MAX_UPLOAD_SIZE || "50MB")
+  // Zip-bomb bounds for uploaded site code; unset falls back to the defaults in zip-limits.ts.
+  const maxUnzippedSize = process.env.SITEIO_MAX_UNZIPPED_SIZE ? parseSize(process.env.SITEIO_MAX_UNZIPPED_SIZE) : undefined
+  const zipEntriesEnv = parseInt(process.env.SITEIO_MAX_ZIP_ENTRIES || "", 10)
+  const maxZipEntries = Number.isFinite(zipEntriesEnv) && zipEntriesEnv > 0 ? zipEntriesEnv : undefined
   const httpPort = parseInt(process.env.SITEIO_HTTP_PORT || "80", 10)
   const httpsPort = parseInt(process.env.SITEIO_HTTPS_PORT || "443", 10)
   const email = process.env.SITEIO_EMAIL
@@ -164,6 +168,8 @@ export async function startAgentCommand(): Promise<void> {
     dataDir,
     domain,
     maxUploadSize,
+    maxUnzippedSize,
+    maxZipEntries,
     httpPort,
     httpsPort,
     email,
