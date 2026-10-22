@@ -263,6 +263,8 @@ export interface AgentConfig {
   dataDir: string
   domain: string
   maxUploadSize: number
+  maxUnzippedSize?: number // total bytes an uploaded zip may expand to (default 10x maxUploadSize)
+  maxZipEntries?: number // entries an uploaded zip may hold (default 10000)
   httpPort: number
   httpsPort: number
   email?: string // For Let's Encrypt

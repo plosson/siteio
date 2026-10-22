@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, realpathSync } from "fs"
 import { dirname, isAbsolute, join, resolve, sep } from "path"
 import { createHash } from "node:crypto"
-import { unzipSync, zipSync } from "fflate"
+import { zipSync } from "fflate"
+import { checkZipDeclared, InvalidZipError, safeUnzip, ZipLimitError, zipLimitsFor, type ZipLimits } from "./zip-limits.ts"
 import type { AgentConfig, SiteInfo, App, AppInfo, AppServiceStatus, AppStatus, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated, Tenant } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager, accessLogPath } from "./traefik.ts"
@@ -189,6 +190,7 @@ export class AgentServer {
   private chats: ChatStore
   private chatController: ChatController | null = null
   private oauth: OAuthStore
+  private zipLimits: ZipLimits
   private oauthProvider: OAuthProvider
   private mcp: McpHandler
   private docker: Runtime
@@ -215,7 +217,8 @@ export class AgentServer {
   ) {
     this.config = config
     this.tenants = new TenantRegistry(config.domain, config.tenants ?? [])
-    this.storage = new SiteStorage(config.dataDir)
+    this.zipLimits = zipLimitsFor(config)
+    this.storage = new SiteStorage(config.dataDir, this.zipLimits)
     this.appStorage = new AppStorage(config.dataDir)
     this.grants = new GrantStore(config.dataDir)
     this.users = new UserStore(config.dataDir)
@@ -2028,6 +2031,9 @@ export class AgentServer {
     if (zipData.length > this.config.maxUploadSize) {
       return this.error("Upload too large", 413)
     }
+    // Entry count and declared expanded size, from the central directory only.
+    const zipProblem = this.zipError(() => checkZipDeclared(zipData, this.zipLimits))
+    if (zipProblem) return zipProblem
 
     // Fail fast before any state mutation so a Docker outage never leaves an
     // orphaned "pending" site with extracted code but no container.
@@ -2054,6 +2060,9 @@ export class AgentServer {
       const info = await this.runSiteDeploy(site, zipData, deployedBy, undefined, scope)
       return this.json(info)
     } catch (err) {
+      // A rejected archive is caught before the live code is touched.
+      const zipProblem = this.zipErrorResponse(err)
+      if (zipProblem) return zipProblem
       this.storage.update(name, { status: "failed" })
       const message = err instanceof Error ? err.message : "Failed to deploy site"
       return this.error(message, 500)
@@ -2209,6 +2218,27 @@ export class AgentServer {
     )
   }
 
+  // The response for a rejected upload archive: 413 over the limits, 400 when
+  // unreadable. Null for any other error.
+  private zipErrorResponse(err: unknown): Response | null {
+    if (err instanceof ZipLimitError) return this.error(err.message, 413)
+    if (err instanceof InvalidZipError) return this.error(err.message, 400)
+    return null
+  }
+
+  // Run `fn` and map a rejected archive to its response (see zipErrorResponse);
+  // other errors propagate. Null when `fn` succeeds.
+  private zipError(fn: () => void): Response | null {
+    try {
+      fn()
+      return null
+    } catch (err) {
+      const res = this.zipErrorResponse(err)
+      if (res) return res
+      throw err
+    }
+  }
+
   private async handleScopedDeploy(grant: ShareGrant, req: Request, scope: Scope): Promise<Response> {
     const name = grant.site
     const site = this.storage.get(name)
@@ -2224,9 +2254,13 @@ export class AgentServer {
     if (zipData.length > this.config.maxUploadSize) return this.error("Upload too large", 413)
     if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
 
+    let unzipped: Record<string, Uint8Array>
+    const zipProblem = this.zipError(() => { unzipped = safeUnzip(zipData, this.zipLimits) })
+    if (zipProblem) return zipProblem
+
     try {
       const incoming: Record<string, Uint8Array> = {}
-      for (const [k, v] of Object.entries(unzipSync(zipData))) {
+      for (const [k, v] of Object.entries(unzipped!)) {
         if (!k.endsWith("/")) incoming[k] = v
       }
       const merged = mergeScopedDeploy({

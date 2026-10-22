@@ -2,7 +2,8 @@ import {
   existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, cpSync, statSync, renameSync,
 } from "fs"
 import { join, resolve, sep } from "path"
-import { unzipSync, zipSync } from "fflate"
+import { zipSync } from "fflate"
+import { safeUnzip, zipLimitsFor, type ZipLimits } from "./zip-limits.ts"
 import type { Site, SiteInfo, SiteVersion } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
 import type { Scope, TenantRegistry } from "./tenants.ts"
@@ -21,7 +22,12 @@ export class SiteStorage {
   // On-disk directory names keep the historical "pocket" prefix: renaming
   // them would break the volume mounts of every already-deployed site's
   // container for zero user-visible benefit.
-  constructor(dataDir: string) {
+  // Bounds for uploaded code zips (see zip-limits.ts); defaults follow the
+  // default 50MB upload limit when the caller passes none.
+  private readonly zipLimits: ZipLimits
+
+  constructor(dataDir: string, zipLimits: ZipLimits = zipLimitsFor({ maxUploadSize: 50 * 1024 * 1024 })) {
+    this.zipLimits = zipLimits
     this.metaDir = join(dataDir, "pockets")
     this.codeDir = join(dataDir, "pocket-code")
     this.dataDir = join(dataDir, "pocket-data")
@@ -241,6 +247,16 @@ export class SiteStorage {
   // the read-only mount source. NEVER touches the pb_data volume.
   async extractCode(name: string, zipData: Uint8Array): Promise<{ size: number; version: number }> {
     const codePath = this.getCodePath(name)
+    // Unzip (within the limits) before touching the live code, so a rejected
+    // archive leaves the current version in place.
+    let unzipped = safeUnzip(zipData, this.zipLimits)
+    const resolvedBase = resolve(codePath)
+    for (const filename of Object.keys(unzipped)) {
+      const resolved = resolve(join(codePath, filename))
+      if (resolved !== resolvedBase && !resolved.startsWith(resolvedBase + sep)) {
+        throw new ValidationError(`Unsafe path in upload: ${filename}`)
+      }
+    }
     if (existsSync(codePath)) {
       this.archiveCode(name)
       rmSync(codePath, { recursive: true })
@@ -248,8 +264,6 @@ export class SiteStorage {
     mkdirSync(codePath, { recursive: true, mode: 0o755 })
 
     let size = 0
-    const resolvedBase = resolve(codePath)
-    let unzipped = unzipSync(zipData)
 
     // Back-compat with pre-merge CLIs that upload a flat static-site zip:
     // if no entry lives under a known code dir, treat everything as web root.
