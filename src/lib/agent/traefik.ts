@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, writeFileSync, mkdirSync, renameSync, rmSync } from "fs"
 import { join } from "path"
 import { spawnSync } from "bun"
 import { connect as tlsConnect, type PeerCertificate } from "tls"
@@ -55,8 +55,14 @@ export interface TraefikConfig {
   httpsPort: number
   fileServerPort: number
   apiHosts?: string[] // every `api.<base>` host (primary + tenants); defaults to api.<domain>
+  platformOffDomains?: string[] // tenant domains whose site hosts don't get mcp-router
   acme?: AcmeConfig
   accessLog?: boolean // write a JSON access log for traffic analytics (set iff ANALYTICS_URL)
+}
+
+// A literal for a Go (RE2) regex: the metacharacters Go's regexp.QuoteMeta escapes.
+function escapeRegex(s: string): string {
+  return s.replace(/[\\.+*?()|[\]{}^$]/g, "\\$&")
 }
 
 export class TraefikManager {
@@ -190,7 +196,8 @@ log:
   //     sites' custom (vanity) domains — the agent resolves the host to a site.
   //     Each site's own router already provisions the Let's Encrypt cert reused.
   //     Container apps opt out: their routers carry APP_ROUTER_PRIORITY, so
-  //     `/mcp` on an app host reaches the app, not the agent.
+  //     `/mcp` on an app host reaches the app, not the agent. So do the hosts
+  //     of tenants with platform paths off (see mcpRule).
   // Everything else (sites and apps alike) routes via docker-label discovery.
   generateDynamicConfig(): string {
     const { domain, fileServerPort, apiHosts = [`api.${domain}`] } = this.config
@@ -205,14 +212,11 @@ log:
             service: "api-service",
             tls: {
               certResolver: "letsencrypt",
+              ...this.wildcardDomains(),
             },
           },
           "mcp-router": {
-            rule:
-              "PathPrefix(`/mcp`) || " +
-              "PathPrefix(`/_siteio`) || " +
-              "PathPrefix(`/.well-known/oauth-authorization-server`) || " +
-              "PathPrefix(`/.well-known/oauth-protected-resource`)",
+            rule: this.mcpRule(),
             entryPoints: ["websecure"],
             service: "api-service",
             priority: MCP_ROUTER_PRIORITY,
@@ -232,6 +236,37 @@ log:
     }
 
     return this.toYaml(config)
+  }
+
+  // Under DNS-01, ask for one wildcard certificate per tenant (`<tenant>` plus
+  // `*.<tenant>`) so its site subdomains never hit Let's Encrypt's per-host
+  // limits. An HTTP challenge cannot issue wildcards, so nothing is added.
+  // apiHosts contract: every entry is `api.<base>`, one per scope (the primary
+  // domain plus each tenant). The tenant domains are derived from it, minus the
+  // primary's own: no second list to keep in step with setApiHosts.
+  // In Traefik v3 a router with tls.domains requests ONLY those domains, so the
+  // primary's `api.<domain>` must be listed explicitly once any entry exists.
+  private wildcardDomains(): { domains?: ({ main: string; sans?: string[] })[] } {
+    const { domain, acme, apiHosts = [] } = this.config
+    if (acme?.challenge !== "dns") return {}
+    const primaryApi = `api.${domain}`
+    const tenants = apiHosts.filter((h) => h !== primaryApi).map((h) => h.slice("api.".length))
+    if (tenants.length === 0) return {}
+    // Every tenant api host is covered by its wildcard; only the primary is not.
+    return { domains: [{ main: primaryApi }, ...tenants.map((main) => ({ main, sans: [`*.${main}`] }))] }
+  }
+
+  // The platform paths, minus the hosts of tenants that turned them off: their
+  // apex and every subdomain (`^(.+\.)?<domain>$`), so those paths reach the site.
+  private mcpRule(): string {
+    const paths =
+      "PathPrefix(`/mcp`) || " +
+      "PathPrefix(`/_siteio`) || " +
+      "PathPrefix(`/.well-known/oauth-authorization-server`) || " +
+      "PathPrefix(`/.well-known/oauth-protected-resource`)"
+    const off = this.config.platformOffDomains ?? []
+    if (off.length === 0) return paths
+    return [`(${paths})`, ...off.map((d) => `!HostRegexp(\`^(.+\\.)?${escapeRegex(d)}$\`)`)].join(" && ")
   }
 
   private toYaml(obj: unknown, indent = 0): string {
@@ -261,7 +296,8 @@ log:
             }
           }
         } else {
-          result += `${spaces}- ${item}\n`
+          // Strings are quoted: a bare `*.x` would parse as a YAML alias.
+          result += `${spaces}- ${typeof item === "string" ? JSON.stringify(item) : item}\n`
         }
       }
     } else if (typeof obj === "object" && obj !== null) {
@@ -281,14 +317,39 @@ log:
     writeFileSync(this.staticConfigPath, this.generateStaticConfig())
   }
 
+  // Traefik watches this file. An in-place write lets it read a truncated or
+  // half-written config and drop every router, so write a temp file in the same
+  // directory and rename it over the target (atomic within a filesystem).
   updateDynamicConfig(): void {
-    writeFileSync(this.dynamicConfigPath, this.generateDynamicConfig())
+    const tmpPath = `${this.dynamicConfigPath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
+    try {
+      writeFileSync(tmpPath, this.generateDynamicConfig())
+      renameSync(tmpPath, this.dynamicConfigPath)
+    } catch (err) {
+      rmSync(tmpPath, { force: true })
+      throw err
+    }
   }
 
   // Route a changed set of API hosts (a tenant was added). Traefik watches the
   // dynamic config, so this takes effect without a restart.
   setApiHosts(apiHosts: string[]): void {
     this.config.apiHosts = apiHosts
+    this.updateDynamicConfig()
+  }
+
+  // Turn platform paths off on a changed set of tenant domains (a tenant was
+  // added or removed). Takes effect without a restart, like setApiHosts.
+  setPlatformOffDomains(domains: string[]): void {
+    this.config.platformOffDomains = domains
+    this.updateDynamicConfig()
+  }
+
+  // Both tenant-driven settings in one write, so a failing write cannot leave
+  // one applied without the other (used when a tenant is added or removed).
+  setTenantRouting(apiHosts: string[], platformOffDomains: string[]): void {
+    this.config.apiHosts = apiHosts
+    this.config.platformOffDomains = platformOffDomains
     this.updateDynamicConfig()
   }
 
