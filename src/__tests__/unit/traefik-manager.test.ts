@@ -276,4 +276,65 @@ describe("Unit: TraefikManager", () => {
     makeTraefik({ accessLog: true })
     expect(statSync(join(TEST_DATA_DIR, "traefik-logs")).mode & 0o777).toBe(0o700)
   })
+
+  describe("wildcard tls.domains per tenant (DNS-01)", () => {
+    type Parsed = {
+      http: {
+        routers: Record<string, { entryPoints: string[]; tls: { certResolver: string; domains?: { main: string; sans: string[] }[] } }>
+      }
+    }
+    const parse = (yml: string) => Bun.YAML.parse(yml) as Parsed
+    const dns = { challenge: "dns" as const, dnsProvider: "cloudflare" }
+    const apiHosts = ["api.test.siteio.me", "api.k7f2.mynino.app", "api.x9.mynino.app"]
+    const domains = (t: TraefikManager) => parse(t.generateDynamicConfig()).http.routers["api-router"]!.tls.domains
+
+    it("dns: one entry per tenant with the apex as main and the wildcard as a string san", () => {
+      expect(domains(makeTraefik({ acme: dns, apiHosts }))).toEqual([
+        { main: "k7f2.mynino.app", sans: ["*.k7f2.mynino.app"] },
+        { main: "x9.mynino.app", sans: ["*.x9.mynino.app"] },
+      ])
+    })
+
+    it("the wildcard is quoted in the emitted YAML (a bare `*` is an alias, not a string)", () => {
+      const yml = makeTraefik({ acme: dns, apiHosts }).generateDynamicConfig()
+      expect(yml).toContain('- "*.k7f2.mynino.app"')
+      expect(yml).not.toMatch(/^\s*- \*/m)
+    })
+
+    it("dns without tenants: no domains, and the main domain gets no wildcard", () => {
+      expect(domains(makeTraefik({ acme: dns }))).toBeUndefined()
+      expect(domains(makeTraefik({ acme: dns, apiHosts: ["api.test.siteio.me"] }))).toBeUndefined()
+    })
+
+    it("http challenge (explicit or default): no domains, a wildcard cannot be issued", () => {
+      expect(domains(makeTraefik({ acme: { challenge: "http" }, apiHosts }))).toBeUndefined()
+      expect(domains(makeTraefik({ apiHosts }))).toBeUndefined()
+      expect(makeTraefik({ apiHosts }).generateDynamicConfig()).not.toContain("*.")
+    })
+
+    it("only the api-router carries domains; mcp-router keeps its plain resolver", () => {
+      const routers = parse(makeTraefik({ acme: dns, apiHosts }).generateDynamicConfig()).http.routers
+      expect(routers["mcp-router"]!.tls).toEqual({ certResolver: "letsencrypt" })
+      expect(routers["api-router"]!.tls.certResolver).toBe("letsencrypt")
+    })
+
+    it("existing arrays still parse to the same values", () => {
+      const routers = parse(makeTraefik({ acme: dns, apiHosts }).generateDynamicConfig()).http.routers
+      expect(routers["api-router"]!.entryPoints).toEqual(["websecure"])
+      expect(routers["mcp-router"]!.entryPoints).toEqual(["websecure"])
+    })
+
+    it("setApiHosts adds and removes tenants live, rewriting dynamic.yml", () => {
+      const traefik = makeTraefik({ acme: dns })
+      const file = join(TEST_DATA_DIR, "traefik", "dynamic.yml")
+      traefik.setApiHosts(apiHosts)
+      expect(parse(readFileSync(file, "utf-8")).http.routers["api-router"]!.tls.domains).toHaveLength(2)
+      traefik.setApiHosts(["api.test.siteio.me", "api.x9.mynino.app"])
+      expect(parse(readFileSync(file, "utf-8")).http.routers["api-router"]!.tls.domains).toEqual([
+        { main: "x9.mynino.app", sans: ["*.x9.mynino.app"] },
+      ])
+      traefik.setApiHosts(["api.test.siteio.me"])
+      expect(parse(readFileSync(file, "utf-8")).http.routers["api-router"]!.tls.domains).toBeUndefined()
+    })
+  })
 })

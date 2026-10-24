@@ -212,6 +212,7 @@ log:
             service: "api-service",
             tls: {
               certResolver: "letsencrypt",
+              ...this.wildcardDomains(),
             },
           },
           "mcp-router": {
@@ -235,6 +236,18 @@ log:
     }
 
     return this.toYaml(config)
+  }
+
+  // Under DNS-01, ask for one wildcard certificate per tenant (`<tenant>` plus
+  // `*.<tenant>`) so its site subdomains never hit Let's Encrypt's per-host
+  // limits. An HTTP challenge cannot issue wildcards, so nothing is added.
+  // The tenant domains come from apiHosts (`api.<base>` per scope), minus the
+  // primary's own: no second list to keep in step with setApiHosts.
+  private wildcardDomains(): { domains?: { main: string; sans: string[] }[] } {
+    const { domain, acme, apiHosts = [] } = this.config
+    if (acme?.challenge !== "dns") return {}
+    const tenants = apiHosts.filter((h) => h !== `api.${domain}`).map((h) => h.slice("api.".length))
+    return tenants.length === 0 ? {} : { domains: tenants.map((main) => ({ main, sans: [`*.${main}`] })) }
   }
 
   // The platform paths, minus the hosts of tenants that turned them off: their
@@ -277,7 +290,8 @@ log:
             }
           }
         } else {
-          result += `${spaces}- ${item}\n`
+          // Strings are quoted: a bare `*.x` would parse as a YAML alias.
+          result += `${spaces}- ${typeof item === "string" ? JSON.stringify(item) : item}\n`
         }
       }
     } else if (typeof obj === "object" && obj !== null) {
