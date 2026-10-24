@@ -89,15 +89,20 @@ describe("Unit: TraefikManager", () => {
     })
     const out = reader.stdout.getReader()
     await out.read() // wait for "ready"
-    for (let i = 0; i < 200; i++) traefik.setApiHosts(hostSets[i % 2]!)
-    await Bun.write(file + ".stop", "")
     let text = ""
+    try {
+      for (let i = 0; i < 200; i++) traefik.setApiHosts(hostSets[i % 2]!)
+    } finally {
+      await Bun.write(file + ".stop", "")
+      setTimeout(() => reader.kill(), 30000).unref()
+    }
     for (;;) {
       const { value, done } = await out.read()
       if (done) break
       text += new TextDecoder().decode(value)
     }
     await reader.exited
+    expect(reader.exitCode).toBe(0)
     const result = JSON.parse(text.trim().split("\n").pop()!)
     expect(result.n).toBeGreaterThan(0)
     expect(result.bad).toBe(0)
@@ -280,7 +285,7 @@ describe("Unit: TraefikManager", () => {
   describe("wildcard tls.domains per tenant (DNS-01)", () => {
     type Parsed = {
       http: {
-        routers: Record<string, { entryPoints: string[]; tls: { certResolver: string; domains?: { main: string; sans: string[] }[] } }>
+        routers: Record<string, { entryPoints: string[]; tls: { certResolver: string; domains?: { main: string; sans?: string[] }[] } }>
       }
     }
     const parse = (yml: string) => Bun.YAML.parse(yml) as Parsed
@@ -288,8 +293,9 @@ describe("Unit: TraefikManager", () => {
     const apiHosts = ["api.test.siteio.me", "api.k7f2.mynino.app", "api.x9.mynino.app"]
     const domains = (t: TraefikManager) => parse(t.generateDynamicConfig()).http.routers["api-router"]!.tls.domains
 
-    it("dns: one entry per tenant with the apex as main and the wildcard as a string san", () => {
+    it("dns: one entry per tenant (apex main, wildcard san) plus the primary api host, which tls.domains would otherwise drop", () => {
       expect(domains(makeTraefik({ acme: dns, apiHosts }))).toEqual([
+        { main: "api.test.siteio.me" },
         { main: "k7f2.mynino.app", sans: ["*.k7f2.mynino.app"] },
         { main: "x9.mynino.app", sans: ["*.x9.mynino.app"] },
       ])
@@ -304,6 +310,25 @@ describe("Unit: TraefikManager", () => {
     it("dns without tenants: no domains, and the main domain gets no wildcard", () => {
       expect(domains(makeTraefik({ acme: dns }))).toBeUndefined()
       expect(domains(makeTraefik({ acme: dns, apiHosts: ["api.test.siteio.me"] }))).toBeUndefined()
+    })
+
+    it("dns: a host already covered by a tenant wildcard gets no extra entry", () => {
+      const d = domains(makeTraefik({ acme: dns, apiHosts }))!
+      expect(d.map((e) => e.main)).not.toContain("api.k7f2.mynino.app")
+    })
+
+    it("setTenantRouting sets both fields with a single write", () => {
+      const traefik = makeTraefik({ acme: dns })
+      const file = join(TEST_DATA_DIR, "traefik", "dynamic.yml")
+      traefik.updateDynamicConfig()
+      const before = statSync(file).ino
+      traefik.setTenantRouting(apiHosts, ["k7f2.mynino.app"])
+      expect(statSync(file).ino).not.toBe(before) // one atomic rename
+      const yml = readFileSync(file, "utf-8")
+      expect(yml).toContain("api.k7f2.mynino.app")
+      expect(yml).toContain("k7f2")
+      expect(yml).toContain("HostRegexp")
+      expect(parse(yml).http.routers["api-router"]!.tls.domains).toHaveLength(3)
     })
 
     it("http challenge (explicit or default): no domains, a wildcard cannot be issued", () => {
@@ -328,9 +353,10 @@ describe("Unit: TraefikManager", () => {
       const traefik = makeTraefik({ acme: dns })
       const file = join(TEST_DATA_DIR, "traefik", "dynamic.yml")
       traefik.setApiHosts(apiHosts)
-      expect(parse(readFileSync(file, "utf-8")).http.routers["api-router"]!.tls.domains).toHaveLength(2)
+      expect(parse(readFileSync(file, "utf-8")).http.routers["api-router"]!.tls.domains).toHaveLength(3)
       traefik.setApiHosts(["api.test.siteio.me", "api.x9.mynino.app"])
       expect(parse(readFileSync(file, "utf-8")).http.routers["api-router"]!.tls.domains).toEqual([
+        { main: "api.test.siteio.me" },
         { main: "x9.mynino.app", sans: ["*.x9.mynino.app"] },
       ])
       traefik.setApiHosts(["api.test.siteio.me"])

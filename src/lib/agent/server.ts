@@ -68,8 +68,9 @@ const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|start|restart|logs
 // What a main-domain member reaches beyond the tenant allowlist: the AI
 // editor (chat and in-site edit links), which runs on the operator's LLM
 // credential and is not offered to tenants.
-const PLATFORM_PATHS_OFF = "Platform paths are off for this tenant"
 const MEMBER_EXTRA_ROUTE = /^\/sites\/[a-z0-9-]+\/(chat|chat\/stop|edit-link)$/
+
+const PLATFORM_PATHS_OFF = "Platform paths are off for this tenant"
 
 // A tenant's volume is a plain name, which DockerManager keeps under
 // volumes/<key>/<name>: never a host path, never a way out of that folder.
@@ -1740,8 +1741,7 @@ export class AgentServer {
 
   // Bring Traefik's routing in line with a changed tenant list, without a restart.
   private routeTenants(): void {
-    this.traefik?.setApiHosts(this.tenants.apiHosts())
-    this.traefik?.setPlatformOffDomains(this.tenants.platformOffDomains())
+    this.traefik?.setTenantRouting(this.tenants.apiHosts(), this.tenants.platformOffDomains())
   }
 
   // Site handlers

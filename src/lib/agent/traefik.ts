@@ -241,13 +241,19 @@ log:
   // Under DNS-01, ask for one wildcard certificate per tenant (`<tenant>` plus
   // `*.<tenant>`) so its site subdomains never hit Let's Encrypt's per-host
   // limits. An HTTP challenge cannot issue wildcards, so nothing is added.
-  // The tenant domains come from apiHosts (`api.<base>` per scope), minus the
+  // apiHosts contract: every entry is `api.<base>`, one per scope (the primary
+  // domain plus each tenant). The tenant domains are derived from it, minus the
   // primary's own: no second list to keep in step with setApiHosts.
-  private wildcardDomains(): { domains?: { main: string; sans: string[] }[] } {
+  // In Traefik v3 a router with tls.domains requests ONLY those domains, so the
+  // primary's `api.<domain>` must be listed explicitly once any entry exists.
+  private wildcardDomains(): { domains?: ({ main: string; sans?: string[] })[] } {
     const { domain, acme, apiHosts = [] } = this.config
     if (acme?.challenge !== "dns") return {}
-    const tenants = apiHosts.filter((h) => h !== `api.${domain}`).map((h) => h.slice("api.".length))
-    return tenants.length === 0 ? {} : { domains: tenants.map((main) => ({ main, sans: [`*.${main}`] })) }
+    const primaryApi = `api.${domain}`
+    const tenants = apiHosts.filter((h) => h !== primaryApi).map((h) => h.slice("api.".length))
+    if (tenants.length === 0) return {}
+    // Every tenant api host is covered by its wildcard; only the primary is not.
+    return { domains: [{ main: primaryApi }, ...tenants.map((main) => ({ main, sans: [`*.${main}`] }))] }
   }
 
   // The platform paths, minus the hosts of tenants that turned them off: their
@@ -336,6 +342,14 @@ log:
   // added or removed). Takes effect without a restart, like setApiHosts.
   setPlatformOffDomains(domains: string[]): void {
     this.config.platformOffDomains = domains
+    this.updateDynamicConfig()
+  }
+
+  // Both tenant-driven settings in one write, so a failing write cannot leave
+  // one applied without the other (used when a tenant is added or removed).
+  setTenantRouting(apiHosts: string[], platformOffDomains: string[]): void {
+    this.config.apiHosts = apiHosts
+    this.config.platformOffDomains = platformOffDomains
     this.updateDynamicConfig()
   }
 
