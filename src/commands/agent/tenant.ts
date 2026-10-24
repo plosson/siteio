@@ -4,7 +4,6 @@ import { SiteStorage } from "../../lib/agent/storage.ts"
 import { AppStorage } from "../../lib/agent/app-storage.ts"
 import { UserStore } from "../../lib/agent/user-store.ts"
 import { TenantRegistry, tenantServices } from "../../lib/agent/tenants.ts"
-import type { Tenant } from "../../types.ts"
 import { encodeToken, generateApiKey } from "../../utils/token.ts"
 import { formatError, formatSuccess } from "../../utils/output.ts"
 
@@ -59,16 +58,7 @@ export async function addTenantCommand(rawDomain: string, options: { json?: bool
 export async function listTenantsCommand(options: { json?: boolean }): Promise<void> {
   const dataDir = getAgentDataDir()
   const { tenants, registry } = load(dataDir)
-  const sites = new SiteStorage(dataDir).list()
-  const apps = new AppStorage(dataDir).list()
-  const owns = (t: Tenant) => (key: string) => registry.ownerOf(key)?.domain === t.domain
-  const rows = tenants.map((t) => ({
-    domain: t.domain,
-    createdAt: t.createdAt,
-    apps: t.apps === true,
-    sites: sites.filter((s) => owns(t)(s.name)).length,
-    appCount: apps.filter((a) => owns(t)(a.name)).length,
-  }))
+  const rows = registry.summaries(tenantServices(new SiteStorage(dataDir), new AppStorage(dataDir)))
   if (options.json) {
     console.log(JSON.stringify(rows, null, 2))
     return
@@ -89,14 +79,8 @@ export async function removeTenantCommand(rawDomain: string, options: { json?: b
   const { tenants, registry } = load(dataDir)
   if (!tenants.some((t) => t.domain === domain)) fail(`No tenant '${domain}'`)
 
-  const ownedBy = (key: string) => registry.ownerOf(key)?.domain === domain
-  const owned = [
-    ...new SiteStorage(dataDir).list().filter((s) => ownedBy(s.name)).map((s) => `site ${s.name}`),
-    ...new AppStorage(dataDir).list().filter((a) => ownedBy(a.name)).map((a) => `app ${a.name}`),
-  ]
-  if (owned.length > 0) {
-    fail(`Tenant '${domain}' still has ${owned.length} site(s) or app(s): ${owned.join(", ")}. Delete them first.`)
-  }
+  const blocker = registry.removalBlocker(domain, tenantServices(new SiteStorage(dataDir), new AppStorage(dataDir)))
+  if (blocker) fail(blocker)
 
   updateAgentConfig(dataDir, { tenants: tenants.filter((t) => t.domain !== domain) })
   const removedUsers = new UserStore(dataDir).deleteTenantUsers(domain)
