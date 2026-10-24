@@ -3,7 +3,7 @@ import { dirname, isAbsolute, join, resolve, sep } from "path"
 import { createHash } from "node:crypto"
 import { zipSync } from "fflate"
 import { checkZipDeclared, InvalidZipError, safeUnzip, ZipLimitError, zipLimitsFor, type ZipLimits } from "./zip-limits.ts"
-import type { AgentConfig, SiteInfo, App, AppInfo, AppServiceStatus, AppStatus, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated, Tenant } from "../../types.ts"
+import type { AgentConfig, SiteInfo, App, AppInfo, AppServiceStatus, AppStatus, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated } from "../../types.ts"
 import { SiteStorage } from "./storage.ts"
 import { TraefikManager, accessLogPath } from "./traefik.ts"
 import { ThumbnailManager } from "./thumbnails.ts"
@@ -30,7 +30,7 @@ import { composeWarnings, missingPrimaryService, type ComposeSpec } from "./comp
 import { ADMIN_UI_HTML, CHAT_CORE_JS, EDITOR_SHELL_HTML, PICKER_JS } from "./ui/assets.ts"
 import { POCKETBASE_VERSION, pocketbaseImage } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
-import { encodeToken, generateApiKey } from "../../utils/token.ts"
+import { encodeToken } from "../../utils/token.ts"
 import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
 import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { SiteioError, ValidationError } from "../../utils/errors.ts"
@@ -42,7 +42,7 @@ import { SESSION_COOKIE, userFitsHost, type Auth } from "./auth.ts"
 import { errorResponse, jsonResponse } from "./http.ts"
 import { UserRoutes } from "./user-routes.ts"
 import { requestIp } from "./request-ip.ts"
-import { TenantRegistry, assertValidNewName, normalizeDomains, tenantServices, type Scope, type Caller } from "./tenants.ts"
+import { TenantRegistry, assertValidNewName, newTenant, normalizeDomains, tenantServices, type Scope, type Caller } from "./tenants.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
 // gets the same window (clamped to the code). The per-grant spend cap is a
@@ -271,6 +271,7 @@ export class AgentServer {
         httpsPort: config.httpsPort,
         fileServerPort: config.port || 3000,
         apiHosts: this.tenants.apiHosts(),
+        platformOffDomains: this.tenants.platformOffDomains(),
         acme: config.acme,
         accessLog: !!config.analyticsUrl,
       })
@@ -1681,33 +1682,38 @@ export class AgentServer {
   // Add a tenant and serve it at once, like `siteio agent tenant add` but
   // without the restart. DNS (*.<domain> → this server) is the caller's job.
   private async handleAddTenant(req: Request): Promise<Response> {
-    let body: { domain?: unknown; apps?: unknown }
+    let body: { domain?: unknown; apps?: unknown; platformPaths?: unknown }
     try {
-      body = (await req.json()) as { domain?: unknown; apps?: unknown }
+      body = (await req.json()) as { domain?: unknown; apps?: unknown; platformPaths?: unknown }
     } catch {
       return this.error("Invalid JSON body")
     }
     if (typeof body?.domain !== "string") return this.error("'domain' is required")
     if (body.apps !== undefined && typeof body.apps !== "boolean") return this.error("'apps' must be true or false")
+    if (body.platformPaths !== undefined && typeof body.platformPaths !== "boolean") {
+      return this.error("'platformPaths' must be true or false")
+    }
     const domain = body.domain.trim().toLowerCase()
 
     const reason = this.tenants.checkNewTenant(domain, tenantServices(this.storage, this.appStorage))
     if (reason) return this.error(reason)
 
-    const tenant: Tenant = {
-      domain,
-      apiKey: generateApiKey(),
-      createdAt: new Date().toISOString(),
-      ...(body.apps === true && { apps: true }),
-    }
+    const tenant = newTenant(domain, { apps: body.apps, platformPaths: body.platformPaths })
     // Append to what's on disk, which may hold tenants added on-box since start.
     const persisted = (loadAgentConfig(this.config.dataDir).tenants ?? []).filter((t) => t.domain !== domain)
     updateAgentConfig(this.config.dataDir, { tenants: [...persisted, tenant] })
     this.tenants.add(tenant)
-    this.traefik?.setApiHosts(this.tenants.apiHosts())
+    this.routeTenants()
 
     const apiUrl = `https://api.${domain}`
-    return this.json({ domain, apiUrl, apiKey: tenant.apiKey, token: encodeToken(apiUrl, tenant.apiKey), apps: tenant.apps === true })
+    return this.json({
+      domain,
+      apiUrl,
+      apiKey: tenant.apiKey,
+      token: encodeToken(apiUrl, tenant.apiKey),
+      apps: tenant.apps === true,
+      platformPaths: tenant.platformPaths !== false,
+    })
   }
 
   private handleListTenants(): Response {
@@ -1727,8 +1733,14 @@ export class AgentServer {
     updateAgentConfig(this.config.dataDir, { tenants: persisted })
     const removedUsers = this.users.deleteTenantUsers(domain)
     this.tenants.remove(domain)
-    this.traefik?.setApiHosts(this.tenants.apiHosts())
+    this.routeTenants()
     return this.json({ removed: domain, removedUsers })
+  }
+
+  // Bring Traefik's routing in line with a changed tenant list, without a restart.
+  private routeTenants(): void {
+    this.traefik?.setApiHosts(this.tenants.apiHosts())
+    this.traefik?.setPlatformOffDomains(this.tenants.platformOffDomains())
   }
 
   // Site handlers
@@ -3036,10 +3048,13 @@ export class AgentServer {
   }
 
   // The site a host serves, or null when there is none or it is stopped: a
-  // stopped site answers 404 everywhere, the agent's own routes included.
+  // stopped site answers 404 everywhere, the agent's own routes included. A
+  // tenant with platform paths off gets null too: Traefik sends those paths to
+  // its sites, and this refuses any request that still reaches the agent.
   private liveHostContext(host: string): ReturnType<OAuthProvider["hostContext"]> {
     const ctx = this.oauthProvider.hostContext(host)
     if (!ctx || this.storage.get(ctx.site)?.status === "stopped") return null
+    if (ctx.scope?.platformPaths === false) return null
     return ctx
   }
 

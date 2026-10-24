@@ -161,6 +161,84 @@ describe("Unit: TraefikManager", () => {
     expect(mcpBlock).toContain('service: "api-service"')
   })
 
+  describe("tenants with platform paths off", () => {
+    const PATHS =
+      "PathPrefix(`/mcp`) || PathPrefix(`/_siteio`) || " +
+      "PathPrefix(`/.well-known/oauth-authorization-server`) || PathPrefix(`/.well-known/oauth-protected-resource`)"
+    // The mcp-router rule as Traefik reads it (after JSON + YAML unescaping).
+    const mcpRule = (yml: string): string =>
+      (Bun.YAML.parse(yml) as { http: { routers: Record<string, { rule: string }> } }).http.routers["mcp-router"]!.rule
+    // The regexes inside `!HostRegexp(...)`, compiled (Go RE2 and JS agree on this subset).
+    const excluded = (rule: string): RegExp[] =>
+      [...rule.matchAll(/!HostRegexp\(`([^`]*)`\)/g)].map((m) => new RegExp(m[1]!))
+    const isExcluded = (rule: string, host: string) => excluded(rule).some((re) => re.test(host))
+
+    it("keeps today's rule exactly when no tenant opts out", () => {
+      expect(mcpRule(makeTraefik().generateDynamicConfig())).toBe(PATHS)
+      expect(mcpRule(makeTraefik({ platformOffDomains: [] }).generateDynamicConfig())).toBe(PATHS)
+    })
+
+    it("adds one !HostRegexp per opted-out tenant, dots escaped, around the unchanged paths", () => {
+      const rule = mcpRule(makeTraefik({ platformOffDomains: ["k7f2.mynino.app", "b.app"] }).generateDynamicConfig())
+      expect(rule).toBe(
+        `(${PATHS}) && !HostRegexp(\`^(.+\\.)?k7f2\\.mynino\\.app$\`) && !HostRegexp(\`^(.+\\.)?b\\.app$\`)`,
+      )
+      expect(rule.match(/!HostRegexp/g)).toHaveLength(2)
+    })
+
+    it("excludes the tenant apex and every subdomain, nothing else", () => {
+      const rule = mcpRule(makeTraefik({ platformOffDomains: ["k7f2.mynino.app"] }).generateDynamicConfig())
+      for (const host of ["k7f2.mynino.app", "bbq.k7f2.mynino.app", "a.b.k7f2.mynino.app"]) {
+        expect(isExcluded(rule, host)).toBe(true)
+      }
+      // A dot left unescaped would match `k7f2Xmynino.app`; a missing anchor would match the rest.
+      for (const host of [
+        "bbq.mynino.app", "k7f2xmynino.app", "bbq.k7f2xmynino.app", "xk7f2.mynino.app",
+        "k7f2.mynino.app.evil.com", "k7f2.mynino.apps", "mynino.app", "api.test.siteio.me", "",
+      ]) {
+        expect(isExcluded(rule, host)).toBe(false)
+      }
+    })
+
+    it("a tenant whose domain is a suffix of another does not overmatch (b.app vs ab.app)", () => {
+      const rule = mcpRule(makeTraefik({ platformOffDomains: ["b.app"] }).generateDynamicConfig())
+      for (const host of ["x.ab.app", "ab.app", "x.cb.app"]) expect(isExcluded(rule, host)).toBe(false)
+      for (const host of ["x.b.app", "b.app", "x.y.b.app"]) expect(isExcluded(rule, host)).toBe(true)
+    })
+
+    it("escapes every regex metacharacter, and hyphens stay literal", () => {
+      const rule = mcpRule(makeTraefik({ platformOffDomains: ["my-site.co.uk", "a+b(c)[d]{e}|f^g$h*i?j\\k.app"] }).generateDynamicConfig())
+      expect(isExcluded(rule, "blog.my-site.co.uk")).toBe(true)
+      expect(isExcluded(rule, "blog.mysite.co.uk")).toBe(false)
+      expect(isExcluded(rule, "blog.my-sitexcoxuk")).toBe(false)
+      // The odd domain matches only itself, literally.
+      expect(isExcluded(rule, "x.a+b(c)[d]{e}|f^g$h*i?j\\k.app")).toBe(true)
+      for (const host of ["x.aab(c)[d]{e}|f^g$h*i?j\\k.app", "f", "x.abc.app", "x.ab.app"]) {
+        expect(isExcluded(rule, host)).toBe(false)
+      }
+    })
+
+    it("setPlatformOffDomains rewrites dynamic.yml, and an empty list restores today's rule", () => {
+      const traefik = makeTraefik({ platformOffDomains: ["b.app"] })
+      const file = join(TEST_DATA_DIR, "traefik", "dynamic.yml")
+      traefik.setPlatformOffDomains(["b.app", "c.app"])
+      expect(mcpRule(readFileSync(file, "utf-8")).match(/!HostRegexp/g)).toHaveLength(2)
+      traefik.setPlatformOffDomains(["c.app"])
+      const after = readFileSync(file, "utf-8")
+      expect(mcpRule(after)).not.toContain("b\\.app")
+      expect(mcpRule(after)).toContain("c\\.app")
+      traefik.setPlatformOffDomains([])
+      expect(mcpRule(readFileSync(file, "utf-8"))).toBe(PATHS)
+    })
+
+    it("the opted-out list leaves the api router and the other api hosts untouched", () => {
+      const traefik = makeTraefik({ apiHosts: ["api.test.siteio.me", "api.b.app"], platformOffDomains: ["b.app"] })
+      const routers = (Bun.YAML.parse(traefik.generateDynamicConfig()) as { http: { routers: Record<string, { rule: string; priority?: number }> } }).http.routers
+      expect(routers["api-router"]!.rule).toBe("Host(`api.test.siteio.me`) || Host(`api.b.app`)")
+      expect(routers["mcp-router"]!.priority).toBe(1000)
+    })
+  })
+
   it("creates config and certs directories with acme.json", () => {
     makeTraefik()
     expect(existsSync(join(TEST_DATA_DIR, "traefik"))).toBe(true)

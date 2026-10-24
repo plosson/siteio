@@ -55,8 +55,14 @@ export interface TraefikConfig {
   httpsPort: number
   fileServerPort: number
   apiHosts?: string[] // every `api.<base>` host (primary + tenants); defaults to api.<domain>
+  platformOffDomains?: string[] // tenant domains whose site hosts don't get mcp-router
   acme?: AcmeConfig
   accessLog?: boolean // write a JSON access log for traffic analytics (set iff ANALYTICS_URL)
+}
+
+// A literal for a Go (RE2) regex: the metacharacters Go's regexp.QuoteMeta escapes.
+function escapeRegex(s: string): string {
+  return s.replace(/[\\.+*?()|[\]{}^$]/g, "\\$&")
 }
 
 export class TraefikManager {
@@ -190,7 +196,8 @@ log:
   //     sites' custom (vanity) domains — the agent resolves the host to a site.
   //     Each site's own router already provisions the Let's Encrypt cert reused.
   //     Container apps opt out: their routers carry APP_ROUTER_PRIORITY, so
-  //     `/mcp` on an app host reaches the app, not the agent.
+  //     `/mcp` on an app host reaches the app, not the agent. So do the hosts
+  //     of tenants with platform paths off (see mcpRule).
   // Everything else (sites and apps alike) routes via docker-label discovery.
   generateDynamicConfig(): string {
     const { domain, fileServerPort, apiHosts = [`api.${domain}`] } = this.config
@@ -208,11 +215,7 @@ log:
             },
           },
           "mcp-router": {
-            rule:
-              "PathPrefix(`/mcp`) || " +
-              "PathPrefix(`/_siteio`) || " +
-              "PathPrefix(`/.well-known/oauth-authorization-server`) || " +
-              "PathPrefix(`/.well-known/oauth-protected-resource`)",
+            rule: this.mcpRule(),
             entryPoints: ["websecure"],
             service: "api-service",
             priority: MCP_ROUTER_PRIORITY,
@@ -232,6 +235,19 @@ log:
     }
 
     return this.toYaml(config)
+  }
+
+  // The platform paths, minus the hosts of tenants that turned them off: their
+  // apex and every subdomain (`^(.+\.)?<domain>$`), so those paths reach the site.
+  private mcpRule(): string {
+    const paths =
+      "PathPrefix(`/mcp`) || " +
+      "PathPrefix(`/_siteio`) || " +
+      "PathPrefix(`/.well-known/oauth-authorization-server`) || " +
+      "PathPrefix(`/.well-known/oauth-protected-resource`)"
+    const off = this.config.platformOffDomains ?? []
+    if (off.length === 0) return paths
+    return [`(${paths})`, ...off.map((d) => `!HostRegexp(\`^(.+\\.)?${escapeRegex(d)}$\`)`)].join(" && ")
   }
 
   private toYaml(obj: unknown, indent = 0): string {
@@ -299,6 +315,13 @@ log:
   // dynamic config, so this takes effect without a restart.
   setApiHosts(apiHosts: string[]): void {
     this.config.apiHosts = apiHosts
+    this.updateDynamicConfig()
+  }
+
+  // Turn platform paths off on a changed set of tenant domains (a tenant was
+  // added or removed). Takes effect without a restart, like setApiHosts.
+  setPlatformOffDomains(domains: string[]): void {
+    this.config.platformOffDomains = domains
     this.updateDynamicConfig()
   }
 

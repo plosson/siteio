@@ -1,5 +1,6 @@
 import type { Tenant } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
+import { generateApiKey } from "../../utils/token.ts"
 import type { SiteStorage } from "./storage.ts"
 import type { AppStorage } from "./app-storage.ts"
 
@@ -45,6 +46,17 @@ export function normalizeDomains(raw: unknown): string[] {
   const bad = domains.find((d) => !isValidDomain(d))
   if (bad !== undefined) throw new ValidationError(`Invalid domain format: ${bad}`)
   return domains
+}
+
+// A new tenant with a fresh API key. Only non-default flags are stored.
+export function newTenant(domain: string, flags: { apps?: boolean; platformPaths?: boolean } = {}): Tenant {
+  return {
+    domain,
+    apiKey: generateApiKey(),
+    createdAt: new Date().toISOString(),
+    ...(flags.apps === true && { apps: true }),
+    ...(flags.platformPaths === false && { platformPaths: false }),
+  }
 }
 
 export function tenantSlug(domain: string): string {
@@ -157,6 +169,11 @@ export class TenantRegistry {
     return this.scopes().map((s) => `api.${this.baseDomain(s)}`)
   }
 
+  // Tenant domains whose site hosts don't serve siteio's platform paths.
+  platformOffDomains(): string[] {
+    return this.tenants.filter((t) => t.platformPaths === false).map((t) => t.domain)
+  }
+
   // Why `domain` can't be a custom domain of a site owned by `owner`, or null.
   // Subdomains of every base domain are platform hostnames, and each base
   // domain's apex belongs to its own scope.
@@ -236,6 +253,7 @@ export class TenantRegistry {
       domain: t.domain,
       createdAt: t.createdAt,
       apps: t.apps === true,
+      platformPaths: t.platformPaths !== false,
       sites: this.ownedBy(t.domain, services).filter((o) => o.startsWith("site ")).length,
       appCount: this.ownedBy(t.domain, services).filter((o) => o.startsWith("app ")).length,
     }))

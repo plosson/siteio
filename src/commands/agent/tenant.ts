@@ -3,8 +3,8 @@ import { getAgentDataDir, loadAgentConfig, updateAgentConfig } from "../../confi
 import { SiteStorage } from "../../lib/agent/storage.ts"
 import { AppStorage } from "../../lib/agent/app-storage.ts"
 import { UserStore } from "../../lib/agent/user-store.ts"
-import { TenantRegistry, tenantServices } from "../../lib/agent/tenants.ts"
-import { encodeToken, generateApiKey } from "../../utils/token.ts"
+import { TenantRegistry, newTenant, tenantServices } from "../../lib/agent/tenants.ts"
+import { encodeToken } from "../../utils/token.ts"
 import { formatError, formatSuccess } from "../../utils/output.ts"
 
 // On-box management of tenants: extra base domains, each with its own API key
@@ -22,7 +22,10 @@ function load(dataDir: string) {
   return { tenants, registry: new TenantRegistry(config.domain, tenants) }
 }
 
-export async function addTenantCommand(rawDomain: string, options: { json?: boolean; apps?: boolean }): Promise<void> {
+export async function addTenantCommand(
+  rawDomain: string,
+  options: { json?: boolean; apps?: boolean; platformPaths?: boolean },
+): Promise<void> {
   const dataDir = getAgentDataDir()
   const domain = rawDomain.trim().toLowerCase()
   const { tenants, registry } = load(dataDir)
@@ -30,12 +33,7 @@ export async function addTenantCommand(rawDomain: string, options: { json?: bool
   const reason = registry.checkNewTenant(domain, tenantServices(new SiteStorage(dataDir), new AppStorage(dataDir)))
   if (reason) fail(reason)
 
-  const tenant = {
-    domain,
-    apiKey: generateApiKey(),
-    createdAt: new Date().toISOString(),
-    ...(options.apps && { apps: true }),
-  }
+  const tenant = newTenant(domain, { apps: options.apps, platformPaths: options.platformPaths })
   // Users left from an earlier tenant with this domain must not come back with it.
   new UserStore(dataDir).deleteTenantUsers(domain)
   updateAgentConfig(dataDir, { tenants: [...tenants, tenant] })
@@ -43,10 +41,12 @@ export async function addTenantCommand(rawDomain: string, options: { json?: bool
   const apiUrl = `https://api.${domain}`
   const token = encodeToken(apiUrl, tenant.apiKey)
   if (options.json) {
-    console.log(JSON.stringify({ domain, apiUrl, apiKey: tenant.apiKey, token, apps: options.apps === true }, null, 2))
+    const platformPaths = tenant.platformPaths !== false
+    console.log(JSON.stringify({ domain, apiUrl, apiKey: tenant.apiKey, token, apps: options.apps === true, platformPaths }, null, 2))
     return
   }
   console.error(formatSuccess(`Tenant '${domain}' added${options.apps ? " (sites and apps)" : " (sites only)"}`))
+  if (tenant.platformPaths === false) console.error(chalk.gray("  Platform paths (/mcp, /_siteio, OAuth) are off on its sites"))
   console.error("")
   console.error(`  1. Point DNS: *.${domain} → this server's IP`)
   console.error("  2. Restart the agent: siteio agent restart")
@@ -69,7 +69,8 @@ export async function listTenantsCommand(options: { json?: boolean }): Promise<v
   }
   for (const r of rows) {
     const appsText = r.apps ? `, ${r.appCount} app(s)` : ", sites only"
-    console.error(`  ${r.domain}  ${chalk.gray(`${r.sites} site(s)${appsText}, added ${r.createdAt}`)}`)
+    const pathsText = r.platformPaths ? "" : ", platform paths off"
+    console.error(`  ${r.domain}  ${chalk.gray(`${r.sites} site(s)${appsText}${pathsText}, added ${r.createdAt}`)}`)
   }
 }
 

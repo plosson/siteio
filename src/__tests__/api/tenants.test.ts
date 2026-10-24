@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync } from "fs"
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readdirSync, readFileSync } from "fs"
 import { join } from "path"
 import { tmpdir } from "os"
 import { zipSync } from "fflate"
@@ -340,6 +340,29 @@ describe("API: tenants", () => {
       expect(stored.find((t) => t.domain === "fourth.net")!.apps).toBe(true)
     })
 
+    test("platform paths stay on unless added with platformPaths: false; only false is stored", async () => {
+      const plain = await add({ domain: "third.net" })
+      expect(((await plain.json()) as ApiResponse<{ platformPaths: boolean }>).data!.platformPaths).toBe(true)
+      const on = await add({ domain: "fourth.net", platformPaths: true })
+      expect(((await on.json()) as ApiResponse<{ platformPaths: boolean }>).data!.platformPaths).toBe(true)
+      const off = await add({ domain: "fifth.net", platformPaths: false })
+      expect(off.status).toBe(200)
+      expect(((await off.json()) as ApiResponse<{ platformPaths: boolean }>).data!.platformPaths).toBe(false)
+      const stored = loadAgentConfig(dataDir).tenants!
+      expect("platformPaths" in stored.find((t) => t.domain === "third.net")!).toBe(false)
+      expect("platformPaths" in stored.find((t) => t.domain === "fourth.net")!).toBe(false)
+      expect(stored.find((t) => t.domain === "fifth.net")!.platformPaths).toBe(false)
+    })
+
+    test("refuses a platformPaths flag that is not a boolean", async () => {
+      for (const platformPaths of ["false", "no", 0, 1, null, {}, []]) {
+        const res = await add({ domain: "third.net", platformPaths })
+        expect(res.status).toBe(400)
+        expect(await errorOf(res)).toBe("'platformPaths' must be true or false")
+      }
+      expect(loadAgentConfig(dataDir).tenants).toBeUndefined()
+    })
+
     test("refuses an apps flag that is not a boolean", async () => {
       for (const apps of ["yes", "true", 1, null, {}]) {
         expect((await add({ domain: "third.net", apps })).status).toBe(400)
@@ -442,6 +465,18 @@ describe("API: tenants", () => {
       expect(body.data!.map((t) => t.domain)).toEqual(["friend.com", "other.org", "vaults.net"])
       expect(body.data!.map((t) => t.apps)).toEqual([false, false, true])
       for (const key of ["key-a", "key-b", "key-c", "apiKey"]) expect(JSON.stringify(body)).not.toContain(key)
+    })
+
+    test("GET /tenants lists platformPaths, false only for a tenant that opted out", async () => {
+      await req("/tenants", {
+        method: "POST",
+        headers: as("god-key", { "Content-Type": "application/json" }),
+        body: JSON.stringify({ domain: "third.net", platformPaths: false }),
+      })
+      const rows = ((await (await list()).json()) as ApiResponse<{ domain: string; platformPaths: boolean }[]>).data!
+      expect(rows.map((t) => [t.domain, t.platformPaths])).toEqual([
+        ["friend.com", true], ["other.org", true], ["vaults.net", true], ["third.net", false],
+      ])
     })
 
     test("GET /tenants counts only the sites each tenant owns", async () => {
@@ -1007,5 +1042,154 @@ describe("API: primary sites whose name contains --", () => {
     const { code } = ((await minted.json()) as ApiResponse<{ code: string }>).data!
     const dl = await server.handleRequestForTest(new Request("http://x/sites/my--site/download", { headers: { "X-API-Key": code } }), "localhost")
     expect(dl.status).toBe(200)
+  })
+})
+
+// A tenant added with platformPaths: false: siteio's own paths on its site
+// hosts fall through to the site. Traefik excludes its hosts from mcp-router;
+// the agent refuses them too, in case a request still reaches it.
+describe("API: tenants with platform paths off", () => {
+  const OFF: Tenant = { domain: "b.app", apiKey: "key-off", createdAt: "2026-10-24T00:00:00.000Z", platformPaths: false }
+  const ON: Tenant = { domain: "ab.app", apiKey: "key-on", createdAt: "2026-10-24T00:00:00.000Z" }
+  let dataDir: string
+  let server: AgentServer
+
+  const req = (path: string, init: RequestInit = {}, host = "localhost") =>
+    server.handleRequestForTest(new Request(`http://x${path}`, init), host)
+  const as = (key: string, extra: Record<string, string> = {}) => ({ "X-API-Key": key, ...extra })
+  const deploy = (name: string, key: string, host: string) =>
+    req(`/sites/${name}`, {
+      method: "POST",
+      headers: as(key, { "Content-Type": "application/zip" }),
+      body: zip({ "public/index.html": "<h1>hi</h1>" }),
+    }, host)
+  // Every platform path, with the method that reaches its handler.
+  const PLATFORM: Array<[string, string]> = [
+    ["POST", "/mcp"],
+    ["GET", "/mcp"],
+    ["OPTIONS", "/mcp"],
+    ["GET", "/.well-known/oauth-protected-resource"],
+    ["GET", "/.well-known/oauth-protected-resource/mcp"],
+    ["GET", "/.well-known/oauth-authorization-server"],
+    ["POST", "/mcp/oauth/register"],
+    ["GET", "/mcp/oauth/authorize"],
+    ["POST", "/mcp/oauth/token"],
+    ["PUT", "/mcp/upload/some-ticket"],
+    ["GET", "/_siteio/edit"],
+    ["GET", "/_siteio/health"],
+    ["GET", "/_siteio/sites"],
+  ]
+  const hit = (method: string, path: string, host: string) =>
+    req(path, method === "POST" || method === "PUT" ? { method, body: "{}" } : { method }, host)
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), "siteio-platform-off-"))
+    server = makeServer(dataDir, new FakeRuntime(), { tenants: [OFF, ON] })
+  })
+  afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  test("every platform path on an opted-out tenant's site host is a JSON 404", async () => {
+    await deploy("bbq", "key-off", "api.b.app")
+    for (const host of ["bbq.b.app", "bbq.b.app:443", "ghost.b.app"]) {
+      for (const [method, path] of PLATFORM) {
+        const res = await hit(method, path, host)
+        expect([method, path, host, res.status]).toEqual([method, path, host, 404])
+        expect(((await res.json()) as ApiResponse<null>).error).toBe("Not found")
+      }
+    }
+  })
+
+  test("the same paths still work on a tenant whose domain ends with the opted-out one (ab.app vs b.app)", async () => {
+    await deploy("bbq", "key-on", "api.ab.app")
+    expect((await hit("GET", "/.well-known/oauth-protected-resource", "bbq.ab.app")).status).toBe(200)
+    expect((await hit("GET", "/.well-known/oauth-authorization-server", "bbq.ab.app")).status).toBe(200)
+    expect((await hit("POST", "/mcp", "bbq.ab.app")).status).toBe(401)
+    expect((await hit("GET", "/_siteio/edit", "bbq.ab.app")).status).toBe(200)
+    expect((await hit("GET", "/_siteio/health", "bbq.ab.app")).status).toBe(200)
+  })
+
+  test("the same paths still work on the primary domain's sites", async () => {
+    expect((await hit("GET", "/.well-known/oauth-protected-resource", "blog.example.com")).status).toBe(200)
+    expect((await hit("GET", "/_siteio/health", "blog.example.com")).status).toBe(200)
+  })
+
+  test("a custom domain of an opted-out tenant's site is refused by the agent too", async () => {
+    await deploy("bbq", "key-off", "api.b.app")
+    const set = await req("/sites/bbq/domains", {
+      method: "PATCH",
+      headers: as("key-off", { "Content-Type": "application/json" }),
+      body: JSON.stringify({ domains: ["www.bbq-party.net"] }),
+    }, "api.b.app")
+    expect(set.status).toBe(200)
+    for (const [method, path] of PLATFORM) expect((await hit(method, path, "www.bbq-party.net")).status).toBe(404)
+  })
+
+  test("the tenant's own API host is not affected", async () => {
+    expect((await req("/sites", { headers: as("key-off") }, "api.b.app")).status).toBe(200)
+    expect((await deploy("bbq", "key-off", "api.b.app")).status).toBe(200)
+  })
+
+  test("a tenant added live with platformPaths: false is refused at once", async () => {
+    const added = await req("/tenants", {
+      method: "POST",
+      headers: as("god-key", { "Content-Type": "application/json" }),
+      body: JSON.stringify({ domain: "third.net", platformPaths: false }),
+    })
+    expect(added.status).toBe(200)
+    expect((await hit("GET", "/.well-known/oauth-protected-resource", "blog.third.net")).status).toBe(404)
+    expect((await hit("GET", "/.well-known/oauth-protected-resource", "blog.ab.app")).status).toBe(200)
+  })
+})
+
+// The same, with the real TraefikManager writing dynamic.yml (no Traefik process
+// is started: the server is never start()ed).
+describe("API: platform paths off in the Traefik config", () => {
+  const OFF: Tenant = { domain: "b.app", apiKey: "key-off", createdAt: "", platformPaths: false }
+  const ON: Tenant = { domain: "ab.app", apiKey: "key-on", createdAt: "" }
+  let dataDir: string
+  let server: AgentServer
+  const req = (path: string, init: RequestInit = {}) => server.handleRequestForTest(new Request(`http://x${path}`, init))
+  const json = { "X-API-Key": "god-key", "Content-Type": "application/json" }
+  const add = (body: unknown) => req("/tenants", { method: "POST", headers: json, body: JSON.stringify(body) })
+  const remove = (domain: string) => req(`/tenants/${domain}`, { method: "DELETE", headers: { "X-API-Key": "god-key" } })
+  const routers = () =>
+    (Bun.YAML.parse(readFileSync(join(dataDir, "traefik", "dynamic.yml"), "utf-8")) as {
+      http: { routers: Record<string, { rule: string }> }
+    }).http.routers
+  const excludedDomains = () =>
+    [...routers()["mcp-router"]!.rule.matchAll(/!HostRegexp\(`\^\(\.\+\\\.\)\?(.*?)\$`\)/g)].map((m) => m[1]!.replace(/\\\./g, "."))
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), "siteio-platform-off-traefik-"))
+    server = makeServer(dataDir, new FakeRuntime(), { tenants: [OFF, ON], skipTraefik: false })
+  })
+  afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  test("tenants opted out at start and added live are both excluded; others are not", async () => {
+    expect((await add({ domain: "third.net", platformPaths: false })).status).toBe(200)
+    expect((await add({ domain: "fourth.net" })).status).toBe(200)
+    expect(excludedDomains()).toEqual(["b.app", "third.net"])
+    expect(routers()["api-router"]!.rule).toContain("Host(`api.fourth.net`)")
+  })
+
+  test("removing an opted-out tenant drops its exclusion and changes nothing else", async () => {
+    expect((await add({ domain: "third.net", platformPaths: false })).status).toBe(200)
+    const before = routers()
+    expect((await remove("third.net")).status).toBe(200)
+    const after = routers()
+    expect(excludedDomains()).toEqual(["b.app"])
+    expect(after["api-router"]!.rule).toBe(before["api-router"]!.rule.replace(" || Host(`api.third.net`)", ""))
+    expect(after["mcp-router"]!.rule).toBe(before["mcp-router"]!.rule.replace(" && !HostRegexp(`^(.+\\.)?third\\.net$`)", ""))
+  })
+
+  test("removing the last opted-out tenant restores today's rule exactly", async () => {
+    expect((await remove("b.app")).status).toBe(200)
+    expect(routers()["mcp-router"]!.rule).not.toContain("HostRegexp")
+    expect(routers()["mcp-router"]!.rule.startsWith("PathPrefix(`/mcp`)")).toBe(true)
+  })
+
+  test("removing an opted-in tenant keeps the opted-out one excluded", async () => {
+    expect((await remove("ab.app")).status).toBe(200)
+    expect(excludedDomains()).toEqual(["b.app"])
   })
 })

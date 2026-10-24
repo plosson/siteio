@@ -209,6 +209,7 @@ export interface Tenant {
   apiKey: string
   createdAt: string
   apps?: boolean // may run Docker apps under its domain (absent: sites only)
+  platformPaths?: boolean // false: /mcp, /_siteio and OAuth paths reach its sites, not siteio (absent: on)
 }
 
 // A person who can log in to the admin UI (and, in Part 2, `siteio login`).

@@ -734,9 +734,14 @@ agentTenant
   .command("add <domain>")
   .description("Add a tenant domain and print its login command")
   .option("--apps", "Also let the tenant run Docker apps under its domain")
+  .option("--no-platform-paths", "Let /mcp, /_siteio and the OAuth paths on its sites reach the sites, not siteio")
   .action(async (domain, cmdOptions) => {
     const { addTenantCommand } = await import("./commands/agent/tenant.ts")
-    await addTenantCommand(domain, { json: program.opts().json, apps: cmdOptions.apps === true })
+    await addTenantCommand(domain, {
+      json: program.opts().json,
+      apps: cmdOptions.apps === true,
+      platformPaths: cmdOptions.platformPaths !== false,
+    })
   })
 
 agentTenant

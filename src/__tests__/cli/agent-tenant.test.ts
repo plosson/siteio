@@ -84,6 +84,24 @@ describe("CLI: agent tenant", () => {
     expect(tenants.find((t) => t.domain === "friend.com")!.apps).toBeUndefined()
   })
 
+  test("add --no-platform-paths stores platformPaths: false; a plain add stores nothing", async () => {
+    const plain = await runCli(["--json", "agent", "tenant", "add", "friend.com"])
+    expect(JSON.parse(plain.stdout).platformPaths).toBe(true)
+    const off = await runCli(["--json", "agent", "tenant", "add", "b.app", "--no-platform-paths", "--apps"])
+    expect(off.exitCode).toBe(0)
+    expect(JSON.parse(off.stdout)).toMatchObject({ platformPaths: false, apps: true })
+    const tenants = config().tenants as { domain: string; platformPaths?: boolean }[]
+    expect(tenants.find((t) => t.domain === "b.app")!.platformPaths).toBe(false)
+    expect("platformPaths" in tenants.find((t) => t.domain === "friend.com")!).toBe(false)
+    const list = JSON.parse((await runCli(["--json", "agent", "tenant", "list"])).stdout) as { domain: string; platformPaths: boolean }[]
+    expect(list.map((t) => [t.domain, t.platformPaths])).toEqual([["friend.com", true], ["b.app", false]])
+  })
+
+  test("add refuses a value given to --no-platform-paths", async () => {
+    expect((await runCli(["agent", "tenant", "add", "b.app", "--no-platform-paths=false"])).exitCode).not.toBe(0)
+    expect(config().tenants).toBeUndefined()
+  })
+
   test("remove refuses while the tenant still has apps", async () => {
     await runCli(["agent", "tenant", "add", "vaults.net", "--apps"])
     mkdirSync(join(dataDir, "apps"), { recursive: true })
