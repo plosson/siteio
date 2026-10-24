@@ -219,6 +219,48 @@ describe("Apps API - Git Source", () => {
     })
   })
 
+  describe("PATCH /apps/:name - changing the repository", () => {
+    test("points the app at a new repository and keeps everything else", async () => {
+      const created = await request<App>("POST", "/apps", {
+        name: "git-move-app",
+        git: { repoUrl: "https://github.com/user/old-name", branch: "main", dockerfile: "docker/Dockerfile", token: "ghp_x" },
+        internalPort: 3000,
+      })
+      expect(created.success).toBe(true)
+
+      const moved = await request<App>("PATCH", "/apps/git-move-app", {
+        git: { repoUrl: "  https://github.com/user/new-name  " },
+      })
+      expect(moved.success).toBe(true)
+      expect(moved.data?.git?.repoUrl).toBe("https://github.com/user/new-name")
+      expect(moved.data?.git?.branch).toBe("main")
+      expect(moved.data?.git?.dockerfile).toBe("docker/Dockerfile")
+      expect(moved.data?.git?.tokenSet).toBe(true)
+      expect(moved.data?.internalPort).toBe(3000)
+    })
+
+    test.each([[""], ["   "], [42], [null]])("refuses %p as a repository, leaving the old one", async (repoUrl) => {
+      const refused = await request<App>("PATCH", "/apps/git-move-app", { git: { repoUrl } })
+      expect(refused.success).toBe(false)
+
+      const after = await request<App>("GET", "/apps/git-move-app")
+      expect(after.data?.git?.repoUrl).toBe("https://github.com/user/new-name")
+    })
+
+    test("refuses a repository on an app that is not built from git", async () => {
+      const created = await request<App>("POST", "/apps", { name: "image-app-no-git", image: "nginx", internalPort: 80 })
+      expect(created.success).toBe(true)
+
+      const refused = await request<App>("PATCH", "/apps/image-app-no-git", {
+        git: { repoUrl: "https://github.com/user/anything" },
+      })
+      expect(refused.success).toBe(false)
+      const after = await request<App>("GET", "/apps/image-app-no-git")
+      expect(after.data?.git).toBeUndefined()
+      expect(after.data?.image).toBe("nginx")
+    })
+  })
+
   describe("DELETE /apps/:name - delete git-based app", () => {
     test("deletes git-based app", async () => {
       // Create a temporary app

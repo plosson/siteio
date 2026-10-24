@@ -104,3 +104,32 @@ describe("formatAutoDeploy", () => {
     expect(at("2030-01-01T00:00:00.000Z")).toContain("checked just now")
   })
 })
+
+describe("set --git", () => {
+  test("builds a patch with only the new repository", () => {
+    expect(buildGitPatch({ git: GIT }, { git: "https://github.com/user/renamed" })).toEqual({
+      repoUrl: "https://github.com/user/renamed",
+    })
+  })
+
+  test("trims the URL, so a pasted trailing newline is not stored", () => {
+    expect(buildGitPatch({ git: GIT }, { git: "  https://github.com/user/renamed\n" })).toEqual({
+      repoUrl: "https://github.com/user/renamed",
+    })
+  })
+
+  test.each(["", "   ", "\n"])("refuses an empty URL (%p) instead of breaking the next deploy", (url) => {
+    expect(() => buildGitPatch({ git: GIT }, { git: url })).toThrow("--git needs a repository URL")
+  })
+
+  test("refuses an app that is not built from git", () => {
+    expect(() => buildGitPatch({}, { git: "https://github.com/user/renamed" })).toThrow("non-git app")
+  })
+
+  test("combines with --git-token, for a move to a private repository", () => {
+    expect(buildGitPatch({ git: GIT }, { git: "https://github.com/user/private", gitToken: "t" })).toEqual({
+      repoUrl: "https://github.com/user/private",
+      token: "t",
+    })
+  })
+})
