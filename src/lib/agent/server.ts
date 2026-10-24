@@ -68,6 +68,7 @@ const TENANT_APP_ROUTE = /^\/apps(\/[a-z0-9-]+(\/(deploy|stop|start|restart|logs
 // What a main-domain member reaches beyond the tenant allowlist: the AI
 // editor (chat and in-site edit links), which runs on the operator's LLM
 // credential and is not offered to tenants.
+const PLATFORM_PATHS_OFF = "Platform paths are off for this tenant"
 const MEMBER_EXTRA_ROUTE = /^\/sites\/[a-z0-9-]+\/(chat|chat\/stop|edit-link)$/
 
 // A tenant's volume is a plain name, which DockerManager keeps under
@@ -2375,6 +2376,7 @@ export class AgentServer {
   private async handleCreateGrant(name: string, req: Request, scope: Scope): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
+    if (this.platformPathsOff(name)) return this.error(PLATFORM_PATHS_OFF, 400)
     try {
       const body = (await req.json().catch(() => ({}))) as {
         allowBackend?: boolean
@@ -2409,6 +2411,12 @@ export class AgentServer {
     }
   }
 
+  // Share and edit links are served on the platform paths, which a tenant can
+  // turn off: its sites would answer them themselves, so a link would dead-end.
+  private platformPathsOff(key: string): boolean {
+    return this.tenants.ownerOf(key)?.platformPaths === false
+  }
+
   private handleListGrants(name: string, scope: Scope): Response {
     if (!this.storage.exists(name)) return this.error("Site not found", 404)
     const site = this.tenants.displayName(name, scope)
@@ -2436,6 +2444,7 @@ export class AgentServer {
   private async handleCreateEditLink(name: string, req: Request): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
+    if (this.platformPathsOff(name)) return this.error(PLATFORM_PATHS_OFF, 400)
     if (site.version === undefined) {
       return this.error("Deploy the site once before creating an edit link", 400)
     }

@@ -1193,3 +1193,70 @@ describe("API: platform paths off in the Traefik config", () => {
     expect(excludedDomains()).toEqual(["b.app"])
   })
 })
+
+describe("API: share and edit links when platform paths are off", () => {
+  const OFF: Tenant = { domain: "off.net", apiKey: "key-off", createdAt: "2026-10-10T00:00:00.000Z", platformPaths: false }
+  const CHAT = {
+    provider: "anthropic", model: "claude-sonnet-5", sandbox: false,
+    sandboxImage: "x", sandboxNetwork: "n", maxTurns: 5, timeoutMs: 5000, oauthToken: "tok",
+  } as const
+  let dataDir: string
+  let server: AgentServer
+
+  const req = (path: string, init: RequestInit = {}, host = "localhost") =>
+    server.handleRequestForTest(new Request(`http://x${path}`, init), host)
+  const json = (key: string) => ({ "X-API-Key": key, "Content-Type": "application/json" })
+  const deploy = (name: string, key: string, host: string) =>
+    req(`/sites/${name}`, {
+      method: "POST",
+      headers: { "X-API-Key": key, "Content-Type": "application/zip" },
+      body: zip({ "public/index.html": "<h1>hi</h1>" }),
+    }, host)
+  const mint = (kind: "grants" | "edit-link", name: string, key: string, host: string) =>
+    req(`/sites/${name}/${kind}`, { method: "POST", headers: json(key), body: "{}" }, host)
+  const errorOf = async (res: Response) => ((await res.json()) as ApiResponse<null>).error
+  const grantFiles = () => {
+    const dir = join(dataDir, "share-grants")
+    return existsSync(dir) ? readdirSync(dir) : []
+  }
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), "siteio-pp-off-"))
+    server = makeServer(dataDir, new FakeRuntime(), { tenants: [A, OFF], chat: CHAT })
+  })
+  afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  for (const kind of ["grants", "edit-link"] as const) {
+    test(`${kind}: refused with 400 and nothing stored, as the tenant or as the operator by key`, async () => {
+      await deploy("blog", "key-off", "api.off.net")
+      // Edit links are operator-only (a tenant key gets 404 on that route).
+      const callers = [["blog--off-net", "god-key", "localhost"], ...(kind === "grants" ? [["blog", "key-off", "api.off.net"]] : [])] as const
+      for (const [name, key, host] of callers) {
+        const res = await mint(kind, name, key, host)
+        expect(res.status).toBe(400)
+        expect(await errorOf(res)).toBe("Platform paths are off for this tenant")
+      }
+      expect(grantFiles()).toEqual([])
+      const list = await req("/sites/blog/grants", { headers: json("key-off") }, "api.off.net")
+      expect(((await list.json()) as ApiResponse<unknown[]>).data).toEqual([])
+    })
+
+    test(`${kind}: other tenants and the main domain are unaffected`, async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      await deploy("blog", "god-key", "localhost")
+      const tenant = kind === "grants" ? ["blog", "key-a", "api.friend.com"] : ["blog--friend-com", "god-key", "localhost"]
+      expect((await mint(kind, ...(tenant as [string, string, string]))).status).toBe(200)
+      expect((await mint(kind, "blog", "god-key", "localhost")).status).toBe(200)
+      expect(grantFiles()).toHaveLength(2)
+    })
+
+    test(`${kind}: an unknown site is still 404, not the platform-paths error`, async () => {
+      expect((await mint(kind, "ghost", "god-key", "localhost")).status).toBe(404)
+    })
+  }
+
+  test("a site on the off tenant keeps working otherwise", async () => {
+    expect((await deploy("blog", "key-off", "api.off.net")).status).toBe(200)
+    expect((await req("/sites/blog", { headers: json("key-off") }, "api.off.net")).status).toBe(200)
+  })
+})
