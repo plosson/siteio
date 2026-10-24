@@ -534,6 +534,17 @@ describe("API: tenants", () => {
       expect(await domainsOf(await list())).toContain("other.org")
     })
 
+    test("DELETE /tenants/:d with a malformed percent-escape is a JSON 400", async () => {
+      for (const domain of ["%E0%A4%A", "%", "%zz", "other.org%"]) {
+        const res = await remove(domain)
+        expect(res.status).toBe(400)
+        const body = (await res.json()) as ApiResponse<null>
+        expect(body.success).toBe(false)
+        expect(body.error).toBe("Invalid tenant domain")
+      }
+      expect(await domainsOf(await list())).toContain("other.org")
+    })
+
     test("other methods on /tenants/:d are not routed", async () => {
       for (const method of ["GET", "PUT", "PATCH"]) {
         const res = await req("/tenants/other.org", { method, headers: as("god-key") })

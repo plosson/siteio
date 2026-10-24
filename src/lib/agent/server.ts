@@ -551,7 +551,13 @@ export class AgentServer {
     }
     const tenantPath = path.match(/^\/tenants\/([^/]+)$/)
     if (tenantPath && req.method === "DELETE") {
-      return this.handleRemoveTenant(decodeURIComponent(tenantPath[1]!))
+      let domain: string
+      try {
+        domain = decodeURIComponent(tenantPath[1]!)
+      } catch {
+        return this.error("Invalid tenant domain", 400)
+      }
+      return this.handleRemoveTenant(domain)
     }
 
     // GET /sites - list all sites
