@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test"
 import { TraefikManager, accessLogPath } from "../../lib/agent/traefik.ts"
-import { mkdirSync, rmSync, existsSync, readFileSync, statSync } from "fs"
+import { mkdirSync, rmSync, existsSync, readFileSync, readdirSync, statSync } from "fs"
 import { join } from "path"
 
 describe("Unit: TraefikManager", () => {
@@ -40,6 +40,67 @@ describe("Unit: TraefikManager", () => {
     traefik.setApiHosts(["api.test.siteio.me", "api.third.net"])
     const written = readFileSync(join(TEST_DATA_DIR, "traefik", "dynamic.yml"), "utf-8")
     expect(written).toContain("Host(`api.test.siteio.me`) || Host(`api.third.net`)")
+  })
+
+  it("leaves a complete dynamic config and no temp file behind", () => {
+    const traefik = makeTraefik()
+    traefik.setApiHosts(["api.test.siteio.me", "api.third.net"])
+    const dir = join(TEST_DATA_DIR, "traefik")
+    expect(readdirSync(dir).filter((f) => f.startsWith("dynamic.yml"))).toEqual(["dynamic.yml"])
+    expect(readFileSync(join(dir, "dynamic.yml"), "utf-8")).toBe(traefik.generateDynamicConfig())
+  })
+
+  it("cleans up the temp file when the write fails", () => {
+    const traefik = makeTraefik()
+    traefik.updateDynamicConfig()
+    const dir = join(TEST_DATA_DIR, "traefik")
+    // Make the rename fail: a directory cannot be replaced by a file.
+    rmSync(join(dir, "dynamic.yml"))
+    mkdirSync(join(dir, "dynamic.yml"))
+    expect(() => traefik.setApiHosts(["api.other.net"])).toThrow()
+    expect(readdirSync(dir).filter((f) => f.includes("tmp"))).toEqual([])
+  })
+
+  it("never exposes an empty or partial dynamic config to a concurrent reader", async () => {
+    const traefik = makeTraefik()
+    // Two different, large host lists written alternately: an in-place write
+    // shows a reader a mix of both (or an empty file) mid-rewrite.
+    const hostSets = ["a", "b"].map((p) => Array.from({ length: 20000 }, (_, i) => `api.${p}${i}.example.com`))
+    const configs = hostSets.map((h) => {
+      traefik.setApiHosts(h)
+      return traefik.generateDynamicConfig()
+    })
+    const file = join(TEST_DATA_DIR, "traefik", "dynamic.yml")
+    await Bun.write(file + ".expected", JSON.stringify(configs))
+    // Reader runs in a separate process: the writer below is synchronous and
+    // would starve an in-process poller.
+    const reader = Bun.spawn({
+      cmd: [
+        process.execPath,
+        "-e",
+        `const fs=require("fs");const f=process.argv[1];const want=JSON.parse(fs.readFileSync(f+".expected","utf-8"));
+         let bad=0,n=0;console.log("ready");
+         while(!fs.existsSync(f+".stop")){n++;let t="";try{t=fs.readFileSync(f,"utf-8")}catch{bad++;continue}
+           if(!want.includes(t)||!t.includes("api-router"))bad++}
+         console.log(JSON.stringify({bad,n}))`,
+        file,
+      ],
+      stdout: "pipe",
+    })
+    const out = reader.stdout.getReader()
+    await out.read() // wait for "ready"
+    for (let i = 0; i < 200; i++) traefik.setApiHosts(hostSets[i % 2]!)
+    await Bun.write(file + ".stop", "")
+    let text = ""
+    for (;;) {
+      const { value, done } = await out.read()
+      if (done) break
+      text += new TextDecoder().decode(value)
+    }
+    await reader.exited
+    const result = JSON.parse(text.trim().split("\n").pop()!)
+    expect(result.n).toBeGreaterThan(0)
+    expect(result.bad).toBe(0)
   })
 
   it("defaults to the primary api host", () => {

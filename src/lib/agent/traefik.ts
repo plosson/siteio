@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, writeFileSync, mkdirSync, renameSync, rmSync } from "fs"
 import { join } from "path"
 import { spawnSync } from "bun"
 import { connect as tlsConnect, type PeerCertificate } from "tls"
@@ -281,8 +281,18 @@ log:
     writeFileSync(this.staticConfigPath, this.generateStaticConfig())
   }
 
+  // Traefik watches this file. An in-place write lets it read a truncated or
+  // half-written config and drop every router, so write a temp file in the same
+  // directory and rename it over the target (atomic within a filesystem).
   updateDynamicConfig(): void {
-    writeFileSync(this.dynamicConfigPath, this.generateDynamicConfig())
+    const tmpPath = `${this.dynamicConfigPath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
+    try {
+      writeFileSync(tmpPath, this.generateDynamicConfig())
+      renameSync(tmpPath, this.dynamicConfigPath)
+    } catch (err) {
+      rmSync(tmpPath, { force: true })
+      throw err
+    }
   }
 
   // Route a changed set of API hosts (a tenant was added). Traefik watches the
