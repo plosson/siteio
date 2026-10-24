@@ -544,6 +544,22 @@ export class AgentServer {
       return this.handleAddTenant(req)
     }
 
+    // GET /tenants, DELETE /tenants/:domain - list and remove tenants (god key
+    // or admin only: not in TENANT_ROUTE)
+    if (path === "/tenants" && req.method === "GET") {
+      return this.handleListTenants()
+    }
+    const tenantPath = path.match(/^\/tenants\/([^/]+)$/)
+    if (tenantPath && req.method === "DELETE") {
+      let domain: string
+      try {
+        domain = decodeURIComponent(tenantPath[1]!)
+      } catch {
+        return this.error("Invalid tenant domain", 400)
+      }
+      return this.handleRemoveTenant(domain)
+    }
+
     // GET /sites - list all sites
     if (path === "/sites" && req.method === "GET") {
       return this.handleListSites(caller)
@@ -1692,6 +1708,27 @@ export class AgentServer {
 
     const apiUrl = `https://api.${domain}`
     return this.json({ domain, apiUrl, apiKey: tenant.apiKey, token: encodeToken(apiUrl, tenant.apiKey), apps: tenant.apps === true })
+  }
+
+  private handleListTenants(): Response {
+    return this.json(this.tenants.summaries(tenantServices(this.storage, this.appStorage)))
+  }
+
+  // Remove an empty tenant and stop serving it at once, like
+  // `siteio agent tenant remove` but without the restart.
+  private handleRemoveTenant(rawDomain: string): Response {
+    const domain = rawDomain.trim().toLowerCase()
+    if (!this.tenants.tenants.some((t) => t.domain === domain)) return this.error(`No tenant '${domain}'`, 404)
+    const blocker = this.tenants.removalBlocker(domain, tenantServices(this.storage, this.appStorage))
+    if (blocker) return this.error(blocker)
+
+    // Filter what's on disk, which may hold tenants added on-box since start.
+    const persisted = (loadAgentConfig(this.config.dataDir).tenants ?? []).filter((t) => t.domain !== domain)
+    updateAgentConfig(this.config.dataDir, { tenants: persisted })
+    const removedUsers = this.users.deleteTenantUsers(domain)
+    this.tenants.remove(domain)
+    this.traefik?.setApiHosts(this.tenants.apiHosts())
+    return this.json({ removed: domain, removedUsers })
   }
 
   // Site handlers

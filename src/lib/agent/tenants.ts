@@ -204,4 +204,40 @@ export class TenantRegistry {
     this.tenants.push(tenant)
     this.bySlug.set(tenantSlug(tenant.domain), tenant)
   }
+
+  // Stop serving a tenant; returns whether it existed. Splices in place: the
+  // list is the agent config's own array.
+  remove(domain: string): boolean {
+    const i = this.tenants.findIndex((t) => t.domain === domain)
+    if (i < 0) return false
+    this.bySlug.delete(tenantSlug(this.tenants[i]!.domain))
+    this.tenants.splice(i, 1)
+    return true
+  }
+
+  // The sites and apps a tenant still owns, as `site <key>` / `app <key>`.
+  ownedBy(domain: string, services: TenantService[]): string[] {
+    return services
+      .filter((s) => this.ownerOf(s.name)?.domain === domain)
+      .map((s) => `${s.kind.toLowerCase()} ${s.name}`)
+  }
+
+  // Why a tenant can't be removed yet, or null.
+  removalBlocker(domain: string, services: TenantService[]): string | null {
+    const owned = this.ownedBy(domain, services)
+    return owned.length > 0
+      ? `Tenant '${domain}' still has ${owned.length} site(s) or app(s): ${owned.join(", ")}. Delete them first.`
+      : null
+  }
+
+  // One row per tenant for listings; never carries the API key.
+  summaries(services: TenantService[]) {
+    return this.tenants.map((t) => ({
+      domain: t.domain,
+      createdAt: t.createdAt,
+      apps: t.apps === true,
+      sites: this.ownedBy(t.domain, services).filter((o) => o.startsWith("site ")).length,
+      appCount: this.ownedBy(t.domain, services).filter((o) => o.startsWith("app ")).length,
+    }))
+  }
 }

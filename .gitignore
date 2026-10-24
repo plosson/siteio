@@ -49,3 +49,9 @@ playwright-report/
 
 # orphaned local debug dumps
 .debug-data/
+
+# Local/agent files
+.claude/
+.claudiu/
+AGENTS.md
+output/

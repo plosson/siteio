@@ -427,6 +427,150 @@ describe("API: tenants", () => {
     })
   })
 
+  describe("GET and DELETE /tenants", () => {
+    const list = (key = "god-key", host = "localhost") => req("/tenants", { headers: as(key) }, host)
+    const remove = (domain: string, key = "god-key", host = "localhost") =>
+      req(`/tenants/${domain}`, { method: "DELETE", headers: as(key) }, host)
+    const domainsOf = async (res: Response) =>
+      ((await res.json()) as ApiResponse<{ domain: string }[]>).data!.map((t) => t.domain)
+    const errorOf = async (res: Response) => ((await res.json()) as ApiResponse<null>).error
+
+    test("GET /tenants with the god key lists A, B, C without keys", async () => {
+      const res = await list()
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as ApiResponse<{ domain: string; apps: boolean; sites: number; appCount: number }[]>
+      expect(body.data!.map((t) => t.domain)).toEqual(["friend.com", "other.org", "vaults.net"])
+      expect(body.data!.map((t) => t.apps)).toEqual([false, false, true])
+      for (const key of ["key-a", "key-b", "key-c", "apiKey"]) expect(JSON.stringify(body)).not.toContain(key)
+    })
+
+    test("GET /tenants counts only the sites each tenant owns", async () => {
+      await deploy("blog", "key-a", "api.friend.com")
+      await deploy("blog", "god-key", "localhost")
+      const rows = ((await (await list()).json()) as ApiResponse<{ domain: string; sites: number }[]>).data!
+      expect(rows.map((t) => [t.domain, t.sites])).toEqual([["friend.com", 1], ["other.org", 0], ["vaults.net", 0]])
+    })
+
+    test("GET /tenants with a tenant key is refused", async () => {
+      expect((await list("key-a", "api.friend.com")).status).toBeGreaterThanOrEqual(403)
+      expect((await list("key-a")).status).toBeGreaterThanOrEqual(401)
+      expect((await list("god-key", "api.friend.com")).status).toBeGreaterThanOrEqual(401)
+      expect((await list("nope")).status).toBe(401)
+      expect((await list("")).status).toBe(401)
+    })
+
+    test("DELETE /tenants/:d refuses while the tenant has a site", async () => {
+      expect((await deploy("blog", "key-a", "api.friend.com")).status).toBe(200)
+      const res = await remove("friend.com")
+      expect(res.status).toBe(400)
+      expect(await errorOf(res)).toBe("Tenant 'friend.com' still has 1 site(s) or app(s): site blog--friend-com. Delete them first.")
+      expect(await domainsOf(await list())).toContain("friend.com")
+      expect((await req("/sites", { headers: as("key-a") }, "api.friend.com")).status).toBe(200)
+    })
+
+    test("DELETE /tenants/:d refuses while the tenant has an app", async () => {
+      const made = await req("/apps", {
+        method: "POST",
+        headers: as("key-c", { "Content-Type": "application/json" }),
+        body: JSON.stringify({ name: "thing", image: "nginx" }),
+      }, "api.vaults.net")
+      expect(made.status).toBeLessThan(300)
+      const res = await remove("vaults.net")
+      expect(res.status).toBe(400)
+      expect(await errorOf(res)).toContain("app thing--vaults-net")
+      expect(await domainsOf(await list())).toContain("vaults.net")
+    })
+
+    test("DELETE /tenants/:d removes an empty tenant live", async () => {
+      const res = await remove("other.org")
+      expect(res.status).toBe(200)
+      expect(((await res.json()) as ApiResponse<{ removed: string; removedUsers: string[] }>).data).toEqual({ removed: "other.org", removedUsers: [] })
+      expect([401, 404]).toContain((await req("/sites", { headers: as("key-b") }, "api.other.org")).status)
+      expect((await req("/.well-known/oauth-protected-resource", {}, "blog.other.org")).status).toBe(404)
+      expect((loadAgentConfig(dataDir).tenants ?? []).map((t) => t.domain)).not.toContain("other.org")
+      expect(await domainsOf(await list())).toEqual(["friend.com", "vaults.net"])
+      // The others are untouched.
+      expect((await req("/sites", { headers: as("key-a") }, "api.friend.com")).status).toBe(200)
+    })
+
+    test("DELETE /tenants/:d keeps tenants added on-box since start", async () => {
+      const onBox: Tenant = { domain: "pending.io", apiKey: "key-p", createdAt: "" }
+      updateAgentConfig(dataDir, { tenants: [onBox, B] })
+      expect((await remove("other.org")).status).toBe(200)
+      expect(loadAgentConfig(dataDir).tenants!.map((t) => t.domain)).toEqual(["pending.io"])
+    })
+
+    test("DELETE /tenants/:d is case-insensitive, like adding", async () => {
+      expect((await remove("Other.ORG")).status).toBe(200)
+      expect(await domainsOf(await list())).toEqual(["friend.com", "vaults.net"])
+    })
+
+    test("DELETE /tenants/unknown.com returns 404", async () => {
+      for (const domain of ["unknown.com", "example.com", "api.friend.com", "sub.friend.com", "friend"]) {
+        expect((await remove(domain)).status).toBe(404)
+      }
+      expect(await domainsOf(await list())).toEqual(["friend.com", "other.org", "vaults.net"])
+    })
+
+    test("DELETE /tenants/:d with a tenant key is refused", async () => {
+      for (const [key, host] of [["key-a", "api.friend.com"], ["key-a", "localhost"], ["key-b", "api.friend.com"], ["key-a", "api.other.org"]] as const) {
+        expect((await remove("other.org", key, host)).status).toBeGreaterThanOrEqual(401)
+        expect((await remove("friend.com", key, host)).status).toBeGreaterThanOrEqual(401)
+      }
+      expect((await remove("other.org", "nope")).status).toBe(401)
+      expect(await domainsOf(await list())).toEqual(["friend.com", "other.org", "vaults.net"])
+    })
+
+    test("a share code can't list or remove tenants", async () => {
+      await deploy("blog", "god-key", "localhost")
+      const minted = await req("/sites/blog/grants", {
+        method: "POST",
+        headers: as("god-key", { "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
+      })
+      const { code } = ((await minted.json()) as ApiResponse<{ code: string }>).data!
+      expect((await remove("other.org", code)).status).toBe(403)
+      expect((await list(code)).status).toBe(403)
+      expect(await domainsOf(await list())).toContain("other.org")
+    })
+
+    test("DELETE /tenants/:d with a malformed percent-escape is a JSON 400", async () => {
+      for (const domain of ["%E0%A4%A", "%", "%zz", "other.org%"]) {
+        const res = await remove(domain)
+        expect(res.status).toBe(400)
+        const body = (await res.json()) as ApiResponse<null>
+        expect(body.success).toBe(false)
+        expect(body.error).toBe("Invalid tenant domain")
+      }
+      expect(await domainsOf(await list())).toContain("other.org")
+    })
+
+    test("other methods on /tenants/:d are not routed", async () => {
+      for (const method of ["GET", "PUT", "PATCH"]) {
+        const res = await req("/tenants/other.org", { method, headers: as("god-key") })
+        expect(res.status).toBe(404)
+      }
+      expect(await domainsOf(await list())).toContain("other.org")
+    })
+
+    test("DELETE then POST /tenants with the same domain gives a new key that works", async () => {
+      expect((await remove("other.org")).status).toBe(200)
+      const add = () => req("/tenants", {
+        method: "POST",
+        headers: as("god-key", { "Content-Type": "application/json" }),
+        body: JSON.stringify({ domain: "other.org" }),
+      })
+      const added = await add()
+      expect(added.status).toBe(200)
+      const { apiKey } = ((await added.json()) as ApiResponse<{ apiKey: string }>).data!
+      expect(apiKey).not.toBe("key-b")
+      expect((await req("/sites", { headers: as("key-b") }, "api.other.org")).status).toBe(401)
+      expect((await req("/sites", { headers: as(apiKey) }, "api.other.org")).status).toBe(200)
+      expect((await deploy("blog", apiKey, "api.other.org")).status).toBe(200)
+      expect((await add()).status).toBe(400)
+    })
+  })
+
   describe("tenant apps", () => {
     const json = (key: string) => as(key, { "Content-Type": "application/json" })
     const createApp = (body: Record<string, unknown>, key = "key-c", host = "api.vaults.net") =>
