@@ -16,7 +16,7 @@ const program = new Command()
   .addHelpText(
     "after",
     `
-AI agents: run 'siteio skill' for usage instructions.`
+AI agents: run 'siteio skill' for usage instructions.`,
   )
   .hook("preAction", async (_thisCommand, actionCommand) => {
     const commandPath: string[] = []
@@ -35,9 +35,7 @@ program
   })
 
 // Config command (client-side settings)
-const config = program
-  .command("config")
-  .description("Manage client configuration")
+const config = program.command("config").description("Manage client configuration")
 
 config
   .command("set <key> <value>")
@@ -124,7 +122,11 @@ function registerSiteCommands(sites: Command): void {
     .option("-n, --name <name>", "Site name (defaults to .siteio/config.json, then folder name)")
     .option("--test", "Deploy a simple test page (no folder required)")
     .option("--force", "Deploy even if there is a version conflict")
-    .option("--expected-version <n>", "Deploy only if the server is at this version (use after merging a newer version)", intArg)
+    .option(
+      "--expected-version <n>",
+      "Deploy only if the server is at this version (use after merging a newer version)",
+      intArg,
+    )
     .action(async (folder, options) => {
       const { sitesDeployCommand } = await import("./commands/sites/deploy.ts")
       await sitesDeployCommand(folder, { ...options, json: program.opts().json })
@@ -151,8 +153,18 @@ function registerSiteCommands(sites: Command): void {
     .command("set [name]")
     .description("Set env vars or secrets for a site's backend (read in pb_hooks with $os.getenv); restarts it")
     .option("-e, --env <KEY=value>", "Set environment variables, or a path to an env file (repeatable)", collect, [])
-    .option("--secret <KEY=value>", "Set secret environment variables — never displayed again (repeatable)", collect, [])
-    .option("--secret-file <KEY=path>", "Set a secret from a file's contents, keeping it out of shell history (repeatable)", collect, [])
+    .option(
+      "--secret <KEY=value>",
+      "Set secret environment variables — never displayed again (repeatable)",
+      collect,
+      [],
+    )
+    .option(
+      "--secret-file <KEY=path>",
+      "Set a secret from a file's contents, keeping it out of shell history (repeatable)",
+      collect,
+      [],
+    )
     .option("--secret-stdin <KEY>", "Set a secret read from stdin")
     .action(async (name, options) => {
       const { sitesSetCommand } = await import("./commands/sites/env.ts")
@@ -173,7 +185,11 @@ function registerSiteCommands(sites: Command): void {
     .description("Download a deployed site's code to a local folder (defaults to ./<name>)")
     .option("-n, --name <name>", "Site to download (defaults to .siteio/config.json)")
     .option("-y, --yes", "Overwrite existing folder contents")
-    .option("-v, --site-version <n>", "Download a past version (see 'siteio sites history') instead of the current one", intArg)
+    .option(
+      "-v, --site-version <n>",
+      "Download a past version (see 'siteio sites history') instead of the current one",
+      intArg,
+    )
     .action(async (outputFolder, options) => {
       const { sitesDownloadCommand } = await import("./commands/sites/download.ts")
       await sitesDownloadCommand(outputFolder, { ...options, version: options.siteVersion, json: program.opts().json })
@@ -258,16 +274,17 @@ function registerSiteCommands(sites: Command): void {
       await sitesRmCommand(name, { ...options, json: program.opts().json })
     })
 
-  const siteShare = sites
-    .command("share")
-    .description("Grant and manage revocable access for others to edit a site")
+  const siteShare = sites.command("share").description("Grant and manage revocable access for others to edit a site")
 
   // Bare `siteio sites share [name]` mints a link (the common case). The
   // list/revoke subcommands hang off the same group.
   siteShare
     .argument("[name]", "Site to share (defaults to .siteio/config.json)")
     .option("--label <label>", "Attribution label shown in the site's deploy history")
-    .option("--allow-backend", "Let the invitee also change backend code (pb_migrations, pb_hooks) — can affect live data and read the site's secrets")
+    .option(
+      "--allow-backend",
+      "Let the invitee also change backend code (pb_migrations, pb_hooks) — can affect live data and read the site's secrets",
+    )
     .action(async (name, options) => {
       const { sitesShareCommand } = await import("./commands/sites/share.ts")
       await sitesShareCommand(name, { ...options, json: program.opts().json })
@@ -294,7 +311,7 @@ function registerSiteCommands(sites: Command): void {
   sites
     .command("edit [name]")
     .description("Open the in-site live editor: chat on the site itself and watch edits land in place")
-    .option("--label <label>", "Who the link is for; shown in the site's deploy history (e.g. \"Acme design\")")
+    .option("--label <label>", 'Who the link is for; shown in the site\'s deploy history (e.g. "Acme design")')
     .option("--revoke", "Revoke all outstanding edit links for the site instead of minting one")
     .option("--open", "Open the editor link in your browser")
     .action(async (name, options) => {
@@ -302,9 +319,7 @@ function registerSiteCommands(sites: Command): void {
       await sitesEditCommand(name, { ...options, json: program.opts().json })
     })
 
-  const siteDomain = sites
-    .command("domain")
-    .description("Manage custom domains for a site")
+  const siteDomain = sites.command("domain").description("Manage custom domains for a site")
 
   siteDomain
     .command("add <domain>")
@@ -335,22 +350,15 @@ function registerSiteCommands(sites: Command): void {
     })
 }
 
-registerSiteCommands(
-  program
-    .command("sites")
-    .description("Manage deployed sites (static frontend + built-in backend)")
-)
+registerSiteCommands(program.command("sites").description("Manage deployed sites (static frontend + built-in backend)"))
 
 // Hidden transition alias: existing projects and scripts still say `siteio pocket`.
-const pocketAlias = new Command("pocket")
-  .description("Deprecated alias for 'sites'")
+const pocketAlias = new Command("pocket").description("Deprecated alias for 'sites'")
 registerSiteCommands(pocketAlias)
 program.addCommand(pocketAlias, { hidden: true })
 
 // Apps commands
-const apps = program
-  .command("apps")
-  .description("Manage containerized applications")
+const apps = program.command("apps").description("Manage containerized applications")
 
 apps
   .command("skill")
@@ -382,7 +390,10 @@ apps
   .option("--branch <branch>", "Git branch (default: main)")
   .option("--context <path>", "Build context subdirectory for monorepos")
   .option("--git-token <token>", "Personal access token for cloning a private HTTPS git repo")
-  .option("--auto-deploy <mode>", "Redeploy on new commits (commit), on higher vX.Y.Z tags (tag), or never (off, default)")
+  .option(
+    "--auto-deploy <mode>",
+    "Redeploy on new commits (commit), on higher vX.Y.Z tags (tag), or never (off, default)",
+  )
   .option("-p, --port <port>", "Internal port the container listens on", intArg)
   .option("--deploy", "Deploy right after creating, as 'siteio apps deploy <name>' would")
   .addHelpText(
@@ -391,7 +402,7 @@ apps
 Compose files can use these variables, set by siteio (your .env can override them):
   \${SITEIO_URL}     public URL, e.g. https://myapp.example.com
   \${SITEIO_DOMAIN}  public hostname
-  \${SITEIO_APP}     app name`
+  \${SITEIO_APP}     app name`,
   )
   .action(async (name, options) => {
     const { createAppCommand } = await import("./commands/apps/create.ts")
@@ -481,38 +492,66 @@ apps
 apps
   .command("set [name]")
   .description("Update app configuration")
-  .option("-e, --env <KEY=value>", "Set environment variables (repeatable)", (val: string, prev: string[]) => {
-    prev = prev || []
-    prev.push(val)
-    return prev
-  }, [])
-  .option("--secret <KEY=value>", "Set secret environment variables — never displayed again (repeatable)", (val: string, prev: string[]) => {
-    prev = prev || []
-    prev.push(val)
-    return prev
-  }, [])
-  .option("--secret-file <KEY=path>", "Set a secret from a file's contents, keeping it out of shell history (repeatable)", (val: string, prev: string[]) => {
-    prev = prev || []
-    prev.push(val)
-    return prev
-  }, [])
+  .option(
+    "-e, --env <KEY=value>",
+    "Set environment variables (repeatable)",
+    (val: string, prev: string[]) => {
+      prev = prev || []
+      prev.push(val)
+      return prev
+    },
+    [],
+  )
+  .option(
+    "--secret <KEY=value>",
+    "Set secret environment variables — never displayed again (repeatable)",
+    (val: string, prev: string[]) => {
+      prev = prev || []
+      prev.push(val)
+      return prev
+    },
+    [],
+  )
+  .option(
+    "--secret-file <KEY=path>",
+    "Set a secret from a file's contents, keeping it out of shell history (repeatable)",
+    (val: string, prev: string[]) => {
+      prev = prev || []
+      prev.push(val)
+      return prev
+    },
+    [],
+  )
   .option("--secret-stdin <KEY>", "Set a secret read from stdin")
-  .option("-v, --volume <name:path>", "Set volume mounts (repeatable)", (val: string, prev: string[]) => {
-    prev = prev || []
-    prev.push(val)
-    return prev
-  }, [])
-  .option("-d, --domain <domain>", "Set custom domains (repeatable)", (val: string, prev: string[]) => {
-    prev = prev || []
-    prev.push(val)
-    return prev
-  }, [])
+  .option(
+    "-v, --volume <name:path>",
+    "Set volume mounts (repeatable)",
+    (val: string, prev: string[]) => {
+      prev = prev || []
+      prev.push(val)
+      return prev
+    },
+    [],
+  )
+  .option(
+    "-d, --domain <domain>",
+    "Set custom domains (repeatable)",
+    (val: string, prev: string[]) => {
+      prev = prev || []
+      prev.push(val)
+      return prev
+    },
+    [],
+  )
   .option("-p, --port <port>", "Set internal port", intArg)
   .option("-r, --restart <policy>", "Set restart policy (always, unless-stopped, on-failure, no)")
   .option("--image <image>", "Set Docker image")
   .option("--dockerfile <path>", "Set Dockerfile path (git-based apps only)")
   .option("--git-token <token>", "Update the token used to clone a private HTTPS git repo (pass empty string to clear)")
-  .option("--auto-deploy <mode>", "Redeploy on new commits (commit), on higher vX.Y.Z tags (tag), or never (off) — git apps only")
+  .option(
+    "--auto-deploy <mode>",
+    "Redeploy on new commits (commit), on higher vX.Y.Z tags (tag), or never (off) — git apps only",
+  )
   .option("--compose-file <path>", "Replace the uploaded docker-compose.yml (compose apps created with --compose-file)")
   .option("--env-file <path>", "Replace the .env file used for compose variable interpolation (compose apps only)")
   .option("--service <name>", "Change which compose service receives traffic (compose apps only)")
@@ -524,11 +563,16 @@ apps
 apps
   .command("unset [name]")
   .description("Remove app configuration values")
-  .option("-e, --env <KEY>", "Remove environment variables or secrets (repeatable)", (val: string, prev: string[]) => {
-    prev = prev || []
-    prev.push(val)
-    return prev
-  }, [])
+  .option(
+    "-e, --env <KEY>",
+    "Remove environment variables or secrets (repeatable)",
+    (val: string, prev: string[]) => {
+      prev = prev || []
+      prev.push(val)
+      return prev
+    },
+    [],
+  )
   .action(async (name, options) => {
     const { unsetAppCommand } = await import("./commands/apps/unset.ts")
     await unsetAppCommand(name, { ...options, json: program.opts().json })
@@ -556,7 +600,12 @@ users
   .option("--password <password>", "Set this password (8 to 1024 characters) instead of generating one")
   .action(async (username, options) => {
     const { usersAddCommand } = await import("./commands/users.ts")
-    await usersAddCommand(username, { json: program.opts().json, role: options.role, tenant: options.tenant, password: options.password })
+    await usersAddCommand(username, {
+      json: program.opts().json,
+      role: options.role,
+      tenant: options.tenant,
+      password: options.password,
+    })
   })
 
 users
@@ -595,7 +644,8 @@ users
 
 // Cloud infrastructure managed from the client laptop.
 const server = program.command("server").description("Provision and destroy Hetzner servers")
-server.command("create [name]")
+server
+  .command("create [name]")
   .description("Provision a VM, configure DNS, install the agent and log in (resumes by name)")
   .option("--type <type>", "Hetzner x86 server type (default: cheapest available)")
   .option("--location <location>", "Hetzner location (default: fsn1 / Falkenstein)")
@@ -607,7 +657,8 @@ server.command("create [name]")
     const { serverCreateCommand } = await import("./commands/server/create.ts")
     await serverCreateCommand(name, options)
   })
-server.command("destroy <name>")
+server
+  .command("destroy <name>")
   .description("Delete a saved VM, firewall and owned DNS record; keep the domain")
   .option("-y, --yes", "Confirm destruction without prompting")
   .action(async (name, options) => {
@@ -616,13 +667,13 @@ server.command("destroy <name>")
   })
 
 // Agent command (for running the server)
-const agent = program
-  .command("agent")
-  .description("Run the siteio agent server")
+const agent = program.command("agent").description("Run the siteio agent server")
 
 agent
   .command("install [target]")
-  .description("Install and start the agent locally, or on a remote server via user@host (auto-configures with sslip.io if no domain provided)")
+  .description(
+    "Install and start the agent locally, or on a remote server via user@host (auto-configures with sslip.io if no domain provided)",
+  )
   .option("--domain <domain>", "Domain for this agent (default: auto-detected sslip.io)")
   .option("--data-dir <path>", "Data directory (default: /data)")
   .option("--email <email>", "Email for Let's Encrypt")
@@ -689,9 +740,7 @@ agent
   })
 
 // Agent config subcommands
-const agentConfig = agent
-  .command("config")
-  .description("Manage agent configuration")
+const agentConfig = agent.command("config").description("Manage agent configuration")
 
 agentConfig
   .command("list")
@@ -809,7 +858,9 @@ skill
 program
   .command("completion [shell]")
   .description("Set up shell completion (interactive) or output script (bash, zsh, fish)")
-  .addHelpText("after", `
+  .addHelpText(
+    "after",
+    `
 Examples:
 
   Interactive setup (recommended):
@@ -819,7 +870,8 @@ Examples:
     Bash: source <(siteio completion bash)
     Zsh:  source <(siteio completion zsh)
     Fish: siteio completion fish > ~/.config/fish/completions/siteio.fish
-`)
+`,
+  )
   .action(async (shell) => {
     const { completionCommand } = await import("./commands/completion.ts")
     await completionCommand(shell)

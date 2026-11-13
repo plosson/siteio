@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
-import { mkdtempSync, rmSync, existsSync } from "fs"
-import { join } from "path"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, rmSync } from "fs"
 import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server"
 import type { AgentConfig } from "../../types"
 
@@ -53,7 +53,13 @@ describe("API: Admin UI routes", () => {
     expect(html).toContain(".hgi-refresh {")
     expect(html).not.toMatch(/<script[^>]*\ssrc=/i)
     expect(html).not.toMatch(/<link[^>]*rel="stylesheet"/i)
-    for (const host of ["unpkg.com", "cdn.tailwindcss.com", "hugeicons.com", "fonts.googleapis.com", "fonts.gstatic.com"]) {
+    for (const host of [
+      "unpkg.com",
+      "cdn.tailwindcss.com",
+      "hugeicons.com",
+      "fonts.googleapis.com",
+      "fonts.gstatic.com",
+    ]) {
       expect(html).not.toContain(host)
     }
     // The placeholders were all filled.

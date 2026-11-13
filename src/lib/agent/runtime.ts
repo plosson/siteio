@@ -1,7 +1,8 @@
 // src/lib/agent/runtime.ts
-import type { BuildConfig, ContainerRunConfig } from "./docker"
+
 import type { ContainerInspect } from "../../types"
 import type { ComposeSpec } from "./compose"
+import type { BuildConfig, ContainerRunConfig } from "./docker"
 
 export interface LogsOptions {
   tail: number
@@ -46,11 +47,7 @@ export interface Runtime {
   isRunning(appName: string): boolean
   containerExists(appName: string): boolean
   inspect(appName: string): Promise<ContainerInspect | null>
-  buildTraefikLabels(
-    appName: string,
-    domains: string[],
-    port: number
-  ): Record<string, string>
+  buildTraefikLabels(appName: string, domains: string[], port: number): Record<string, string>
   imageExists(tag: string): boolean
   imageInspect(tag: string): Promise<{ id: string; labels: Record<string, string> }>
 

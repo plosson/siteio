@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
+import { join } from "path"
 import { DockerManager } from "../../lib/agent/docker"
 import { MCP_ROUTER_PRIORITY } from "../../lib/agent/traefik"
 
@@ -191,12 +191,31 @@ describe("Unit: DockerManager", () => {
       const image = "siteio-volume-owner-test:latest"
       const probe = (hostPath: string) =>
         Bun.spawnSync({
-          cmd: ["docker", "run", "--rm", "--user", "0", "--entrypoint", "sh", "-v", `${hostPath}:/v`, image, "-c", "stat -c %u /v"],
+          cmd: [
+            "docker",
+            "run",
+            "--rm",
+            "--user",
+            "0",
+            "--entrypoint",
+            "sh",
+            "-v",
+            `${hostPath}:/v`,
+            image,
+            "-c",
+            "stat -c %u /v",
+          ],
           stdout: "pipe",
           stderr: "pipe",
-        }).stdout.toString().trim()
+        })
+          .stdout.toString()
+          .trim()
       const seed = (vol: { name: string; mountPath: string }) =>
-        Bun.spawnSync({ cmd: ["docker", ...docker.buildVolumeOwnershipArgs({ ...base, image }, vol)!], stdout: "pipe", stderr: "pipe" })
+        Bun.spawnSync({
+          cmd: ["docker", ...docker.buildVolumeOwnershipArgs({ ...base, image }, vol)!],
+          stdout: "pipe",
+          stderr: "pipe",
+        })
 
       const withImage = async (fn: () => void) => {
         if (!isDockerAvailable()) {
@@ -210,7 +229,7 @@ describe("Unit: DockerManager", () => {
           `FROM alpine:latest
 RUN adduser -D -u 10001 app && mkdir /data && chown app /data
 USER app
-`
+`,
         )
         await docker.build({ contextPath: contextDir, dockerfilePath: join(contextDir, "Dockerfile"), tag: image })
         try {
@@ -224,13 +243,39 @@ USER app
       // host, so ownership can only be observed where Docker runs natively.
       const hostHonoursChown = (hostPath: string) => {
         Bun.spawnSync({
-          cmd: ["docker", "run", "--rm", "--user", "0", "--entrypoint", "sh", "-v", `${hostPath}:/v`, image, "-c", "chown 12345 /v"],
+          cmd: [
+            "docker",
+            "run",
+            "--rm",
+            "--user",
+            "0",
+            "--entrypoint",
+            "sh",
+            "-v",
+            `${hostPath}:/v`,
+            image,
+            "-c",
+            "chown 12345 /v",
+          ],
           stdout: "pipe",
           stderr: "pipe",
         })
         const honoured = probe(hostPath) === "12345"
         Bun.spawnSync({
-          cmd: ["docker", "run", "--rm", "--user", "0", "--entrypoint", "sh", "-v", `${hostPath}:/v`, image, "-c", "chown 0:0 /v"],
+          cmd: [
+            "docker",
+            "run",
+            "--rm",
+            "--user",
+            "0",
+            "--entrypoint",
+            "sh",
+            "-v",
+            `${hostPath}:/v`,
+            image,
+            "-c",
+            "chown 0:0 /v",
+          ],
           stdout: "pipe",
           stderr: "pipe",
         })
@@ -314,7 +359,12 @@ USER app
       const ticker = setInterval(() => ticks++, 20)
       try {
         await expect(
-          docker.build({ contextPath: contextDir, dockerfilePath: join(contextDir, "Dockerfile"), tag: "siteio-slow-test:latest", noCache: true })
+          docker.build({
+            contextPath: contextDir,
+            dockerfilePath: join(contextDir, "Dockerfile"),
+            tag: "siteio-slow-test:latest",
+            noCache: true,
+          }),
         ).rejects.toThrow("Docker build failed:")
       } finally {
         clearInterval(ticker)
@@ -338,7 +388,7 @@ USER app
         join(contextDir, "Dockerfile"),
         `FROM alpine:latest
 CMD ["echo", "hello"]
-`
+`,
       )
 
       const tag = "siteio-build-test:latest"
@@ -374,7 +424,7 @@ CMD ["echo", "hello"]
         join(dockerDir, "Dockerfile.prod"),
         `FROM alpine:latest
 CMD ["echo", "production"]
-`
+`,
       )
 
       const tag = "siteio-nested-dockerfile-test:latest"
@@ -406,7 +456,7 @@ CMD ["echo", "production"]
           contextPath: contextDir,
           dockerfilePath: join(contextDir, "Dockerfile"),
           tag: "should-not-exist:latest",
-        })
+        }),
       ).rejects.toThrow()
     }, 30000)
 
@@ -423,7 +473,7 @@ CMD ["echo", "production"]
         join(contextDir, "Dockerfile"),
         `FROM alpine:latest
 CMD ["echo", "no-cache-test"]
-`
+`,
       )
 
       const tag = "siteio-nocache-test:latest"

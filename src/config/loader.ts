@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, renameSync } from "fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs"
 import { homedir, hostname, userInfo } from "os"
 import { join } from "path"
 import type { ClientConfig, ServerConfig } from "../types.ts"
@@ -220,7 +220,9 @@ export function getCliUser(): string {
   let user = "unknown"
   try {
     user = userInfo().username
-  } catch { /* no passwd entry, e.g. some containers */ }
+  } catch {
+    /* no passwd entry, e.g. some containers */
+  }
   return `${user}@${hostname()}`
 }
 
@@ -233,9 +235,10 @@ export function setUsername(username: string): void {
 export type ProviderTokenKey = "hetznerToken" | "cloudflareToken"
 
 export function getProviderToken(key: ProviderTokenKey): string | undefined {
-  const env = key === "hetznerToken"
-    ? process.env.HETZNER_TOKEN || process.env.HCLOUD_TOKEN
-    : process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_TOKEN
+  const env =
+    key === "hetznerToken"
+      ? process.env.HETZNER_TOKEN || process.env.HCLOUD_TOKEN
+      : process.env.CLOUDFLARE_API_TOKEN || process.env.CLOUDFLARE_TOKEN
   return env || loadRawConfig()[key]
 }
 

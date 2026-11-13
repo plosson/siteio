@@ -1,6 +1,14 @@
 // Pure: turn a chunk of access-log entries into one AnalyticsBatch.
 import type { AnalyticsBatch, AnalyticsKind, AnalyticsPageview, AnalyticsTraffic } from "../../../types.ts"
-import { cleanPath, cleanReferrer, isBot, isPageview, routerKeys, statusClass, type AccessLogEntry } from "./classify.ts"
+import {
+  type AccessLogEntry,
+  cleanPath,
+  cleanReferrer,
+  isBot,
+  isPageview,
+  routerKeys,
+  statusClass,
+} from "./classify.ts"
 import { clientIp } from "./client-ip.ts"
 
 export interface Resolved {

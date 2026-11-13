@@ -1,18 +1,23 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
+import { mkdtempSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
+import { ChatBusyError, ChatController, ChatUnavailableError } from "../../lib/agent/chat/controller.ts"
+import type { ChatExecutor, ExecutorResult, ExecutorRunInput } from "../../lib/agent/chat/executor.ts"
+import { ChatStore } from "../../lib/agent/chat-store.ts"
 import { SiteStorage } from "../../lib/agent/storage.ts"
 import { TenantRegistry } from "../../lib/agent/tenants.ts"
-import { ChatStore } from "../../lib/agent/chat-store.ts"
-import { ChatController, ChatBusyError, ChatUnavailableError } from "../../lib/agent/chat/controller.ts"
 import type { ChatConfig, ChatEvent, SiteInfo } from "../../types.ts"
-import type { ChatExecutor, ExecutorRunInput, ExecutorResult } from "../../lib/agent/chat/executor.ts"
 
 const CHAT: ChatConfig = {
-  provider: "anthropic", sandbox: false, sandboxImage: "x", sandboxNetwork: "n",
-  maxTurns: 5, timeoutMs: 5000, oauthToken: "test-token",
+  provider: "anthropic",
+  sandbox: false,
+  sandboxImage: "x",
+  sandboxNetwork: "n",
+  maxTurns: 5,
+  timeoutMs: 5000,
+  oauthToken: "test-token",
 }
 
 // Executor that simulates an agent: optionally writes a file into the workspace,
@@ -28,7 +33,7 @@ class FakeExecutor implements ChatExecutor {
       aborted?: boolean
       finalText?: string
       gate?: Promise<void>
-    } = {}
+    } = {},
   ) {}
   async run(input: ExecutorRunInput): Promise<ExecutorResult> {
     this.lastMessage = input.spec.userMessage
@@ -72,8 +77,13 @@ describe("Unit: ChatController", () => {
     deployCalls = 0
     // Seed a deployed site (v1) with a web root.
     sites.create({
-      name: SITE, domains: [], pocketbaseVersion: "1", status: "running", size: 0,
-      superuserEmail: "a@b.c", superuserPassword: "pw",
+      name: SITE,
+      domains: [],
+      pocketbaseVersion: "1",
+      status: "running",
+      size: 0,
+      superuserEmail: "a@b.c",
+      superuserPassword: "pw",
     })
     await sites.extractCode(SITE, zipSync({ "public/index.html": new TextEncoder().encode("<h1>Old</h1>") }))
     sites.update(SITE, { version: 1 })
@@ -165,13 +175,18 @@ describe("Unit: ChatController", () => {
 
   test("refuses a never-deployed site", async () => {
     sites.create({
-      name: "draft", domains: [], pocketbaseVersion: "1", status: "pending", size: 0,
-      superuserEmail: "a@b.c", superuserPassword: "pw",
+      name: "draft",
+      domains: [],
+      pocketbaseVersion: "1",
+      status: "pending",
+      size: 0,
+      superuserEmail: "a@b.c",
+      superuserPassword: "pw",
     })
     const ctl = make(new FakeExecutor({ write: "x" }))
     const { onEvent } = collect()
     await expect(ctl.runTurn({ siteName: "draft", userMessage: "hi", onEvent })).rejects.toBeInstanceOf(
-      ChatUnavailableError
+      ChatUnavailableError,
     )
   })
 
@@ -179,7 +194,7 @@ describe("Unit: ChatController", () => {
     const ctl = make(new FakeExecutor())
     const { onEvent } = collect()
     await expect(ctl.runTurn({ siteName: SITE, userMessage: "   ", onEvent })).rejects.toBeInstanceOf(
-      ChatUnavailableError
+      ChatUnavailableError,
     )
   })
 
@@ -266,7 +281,12 @@ describe("Unit: ChatController", () => {
     sites.update(SITE, { version: 1 })
 
     const structural = new FakeExecutor({ write: "<h1>B</h1>" })
-    await make(structural).runTurn({ siteName: SITE, userMessage: "move this above the nav", onEvent: () => {}, target })
+    await make(structural).runTurn({
+      siteName: SITE,
+      userMessage: "move this above the nav",
+      onEvent: () => {},
+      target,
+    })
     expect(structural.lastMessage).not.toContain("current styles")
   })
 })

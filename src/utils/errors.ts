@@ -3,7 +3,7 @@ import chalk from "chalk"
 export class SiteioError extends Error {
   constructor(
     message: string,
-    public code: "USER" | "SYSTEM" = "SYSTEM"
+    public code: "USER" | "SYSTEM" = "SYSTEM",
   ) {
     super(message)
     this.name = "SiteioError"
@@ -22,7 +22,7 @@ export class ApiError extends SiteioError {
     message: string,
     public statusCode?: number,
     // Machine-readable cause from the agent's error body (e.g. "version_conflict").
-    public reason?: string
+    public reason?: string,
   ) {
     super(message, statusCode && statusCode >= 400 && statusCode < 500 ? "USER" : "SYSTEM")
     this.name = "ApiError"

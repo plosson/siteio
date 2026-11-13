@@ -70,11 +70,7 @@ export function isValidToken(token: string): boolean {
 
 // Base64url encoding (URL-safe, no padding)
 function toBase64Url(buffer: Buffer): string {
-  return buffer
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "")
+  return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 }
 
 function fromBase64Url(str: string): Buffer {

@@ -309,8 +309,8 @@ export interface ChatConfigStatus {
 
 // Site config stored in .siteio/config.json (remembers site/app name and server)
 export interface SiteConfig {
-  site?: string   // for sites
-  app?: string    // for container apps
+  site?: string // for sites
+  app?: string // for container apps
   pocket?: string // legacy alias for `site` — read but never written
   domain: string
   version?: number // last deployed version (for optimistic concurrency)

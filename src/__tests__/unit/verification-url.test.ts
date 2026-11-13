@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { checkUrl, waitForUrl } from "../../lib/verification"
 
 const respond = (status: number, body = "") => (async () => new Response(body, { status })) as unknown as typeof fetch
@@ -37,7 +37,11 @@ describe("Unit: checkUrl", () => {
   })
 
   test("Traefik's default certificate is reported as a TLS problem", async () => {
-    const r = await checkUrl("https://x", 1000, fail("UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "unable to get local issuer certificate"))
+    const r = await checkUrl(
+      "https://x",
+      1000,
+      fail("UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "unable to get local issuer certificate"),
+    )
     expect(!r.ok && r.reason).toContain("TLS certificate not trusted yet")
   })
 
@@ -55,7 +59,13 @@ describe("Unit: checkUrl", () => {
 
   test("does not follow redirects (a redirect loop must not hang the check)", async () => {
     let init: RequestInit | undefined
-    await checkUrl("https://x", 1000, (async (_u: string, i: RequestInit) => ((init = i), new Response("", { status: 301 }))) as unknown as typeof fetch)
+    await checkUrl(
+      "https://x",
+      1000,
+      (async (_u: string, i: RequestInit) => (
+        (init = i), new Response("", { status: 301 })
+      )) as unknown as typeof fetch,
+    )
     expect(init?.redirect).toBe("manual")
   })
 })

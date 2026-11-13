@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { asRoot } from "../../commands/agent/sudo.ts"
 
 describe("Unit: asRoot", () => {
@@ -10,7 +10,12 @@ describe("Unit: asRoot", () => {
   })
   // No getuid (e.g. Windows): don't assume root.
   test("prefixes sudo when the uid is unknown", () => {
-    expect(asRoot(["systemctl", "stop", "siteio-agent"], undefined)).toEqual(["sudo", "systemctl", "stop", "siteio-agent"])
+    expect(asRoot(["systemctl", "stop", "siteio-agent"], undefined)).toEqual([
+      "sudo",
+      "systemctl",
+      "stop",
+      "siteio-agent",
+    ])
   })
   test("does not mutate the caller's array", () => {
     const cmd = ["systemctl", "restart", "siteio-agent"]

@@ -1,48 +1,77 @@
-import { existsSync, mkdirSync, realpathSync } from "fs"
-import { dirname, isAbsolute, join, resolve, sep } from "path"
 import { createHash } from "node:crypto"
 import { zipSync } from "fflate"
-import { checkZipDeclared, InvalidZipError, safeUnzip, ZipLimitError, zipLimitsFor, type ZipLimits } from "./zip-limits.ts"
-import type { AgentConfig, SiteInfo, App, AppInfo, AppServiceStatus, AppStatus, ContainerLogs, Site, ShareGrant, ChatConfigStatus, ChatEvent, ChatTarget, EditLinkCreated } from "../../types.ts"
-import { SiteStorage } from "./storage.ts"
-import { TraefikManager, accessLogPath } from "./traefik.ts"
-import { ThumbnailManager } from "./thumbnails.ts"
-import { AppStorage } from "./app-storage.ts"
-import { GrantStore, isEditKind, type CreateGrantInput } from "./grant-store.ts"
-import { StagingStore } from "./staging-store.ts"
-import { ChatStore } from "./chat-store.ts"
-import { ChatController, ChatBusyError, ChatUnavailableError } from "./chat/controller.ts"
-import { mergeScopedDeploy } from "./deploy-merge.ts"
-import { OAuthStore } from "./oauth-store.ts"
-import { OAuthProvider } from "./oauth-provider.ts"
-import { McpHandler } from "./mcp.ts"
-import { DockerManager } from "./docker.ts"
-import { Analytics, Pager, Ranking } from "./hooks.ts"
-import { AnalyticsPump } from "./analytics/pump.ts"
-import { AccessLogTailer } from "./analytics/tailer.ts"
-import type { Resolved } from "./analytics/batch.ts"
-import type { Runtime } from "./runtime.ts"
-import { GitManager } from "./git.ts"
-import { DockerfileStorage } from "./dockerfile-storage.ts"
-import { ComposeStorage } from "./compose-storage.ts"
-import { buildOverride } from "./compose-override.ts"
-import { composeWarnings, missingPrimaryService, type ComposeSpec } from "./compose.ts"
-import { ADMIN_UI_HTML, CHAT_CORE_JS, EDITOR_SHELL_HTML, PICKER_JS } from "./ui/assets.ts"
+import { existsSync, mkdirSync, realpathSync } from "fs"
+import { dirname, isAbsolute, join, resolve, sep } from "path"
+import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
+import type {
+  AgentConfig,
+  App,
+  AppInfo,
+  AppServiceStatus,
+  AppStatus,
+  ChatConfigStatus,
+  ChatEvent,
+  ChatTarget,
+  ContainerLogs,
+  EditLinkCreated,
+  ShareGrant,
+  Site,
+  SiteInfo,
+} from "../../types.ts"
+import { SiteioError, ValidationError } from "../../utils/errors.ts"
+import { assertSafePublicUrl } from "../../utils/ssrf.ts"
+import { encodeToken } from "../../utils/token.ts"
 import { POCKETBASE_VERSION, pocketbaseImage } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
-import { encodeToken } from "../../utils/token.ts"
-import { loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
-import { assertSafePublicUrl } from "../../utils/ssrf.ts"
-import { SiteioError, ValidationError } from "../../utils/errors.ts"
-import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
-import { assertValidSiteEnvKeys, publicEnv, sameEnv, type EnvUpdate } from "./env.ts"
+import type { Resolved } from "./analytics/batch.ts"
+import { AnalyticsPump } from "./analytics/pump.ts"
+import { AccessLogTailer } from "./analytics/tailer.ts"
+import { AppStorage } from "./app-storage.ts"
+import { type Auth, SESSION_COOKIE, userFitsHost } from "./auth.ts"
 import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
-import { UserStore } from "./user-store.ts"
-import { SESSION_COOKIE, userFitsHost, type Auth } from "./auth.ts"
+import { ChatBusyError, ChatController, ChatUnavailableError } from "./chat/controller.ts"
+import { ChatStore } from "./chat-store.ts"
+import { type ComposeSpec, composeWarnings, missingPrimaryService } from "./compose.ts"
+import { buildOverride } from "./compose-override.ts"
+import { ComposeStorage } from "./compose-storage.ts"
+import { mergeScopedDeploy } from "./deploy-merge.ts"
+import { DockerManager } from "./docker.ts"
+import { DockerfileStorage } from "./dockerfile-storage.ts"
+import { assertValidSiteEnvKeys, type EnvUpdate, publicEnv, sameEnv } from "./env.ts"
+import { GitManager } from "./git.ts"
+import { type CreateGrantInput, GrantStore, isEditKind } from "./grant-store.ts"
+import { Analytics, Pager, Ranking } from "./hooks.ts"
 import { errorResponse, jsonResponse } from "./http.ts"
-import { UserRoutes } from "./user-routes.ts"
+import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
+import { McpHandler } from "./mcp.ts"
+import { OAuthProvider } from "./oauth-provider.ts"
+import { OAuthStore } from "./oauth-store.ts"
 import { requestIp } from "./request-ip.ts"
-import { TenantRegistry, assertValidNewName, newTenant, normalizeDomains, tenantServices, type Scope, type Caller } from "./tenants.ts"
+import type { Runtime } from "./runtime.ts"
+import { StagingStore } from "./staging-store.ts"
+import { SiteStorage } from "./storage.ts"
+import {
+  assertValidNewName,
+  type Caller,
+  newTenant,
+  normalizeDomains,
+  type Scope,
+  TenantRegistry,
+  tenantServices,
+} from "./tenants.ts"
+import { ThumbnailManager } from "./thumbnails.ts"
+import { accessLogPath, TraefikManager } from "./traefik.ts"
+import { ADMIN_UI_HTML, CHAT_CORE_JS, EDITOR_SHELL_HTML, PICKER_JS } from "./ui/assets.ts"
+import { UserRoutes } from "./user-routes.ts"
+import { UserStore } from "./user-store.ts"
+import {
+  checkZipDeclared,
+  InvalidZipError,
+  safeUnzip,
+  ZipLimitError,
+  type ZipLimits,
+  zipLimitsFor,
+} from "./zip-limits.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
 // gets the same window (clamped to the code). The per-grant spend cap is a
@@ -107,10 +136,15 @@ function parseEnvUpdate(raw: unknown): EnvUpdate | null {
   const { env, secrets, unsetEnv, ...rest } = raw as Record<string, unknown>
   if (Object.keys(rest).length > 0) return null
   const isMap = (v: unknown) =>
-    v === undefined || (!!v && typeof v === "object" && !Array.isArray(v) && Object.values(v).every((x) => typeof x === "string"))
+    v === undefined ||
+    (!!v && typeof v === "object" && !Array.isArray(v) && Object.values(v).every((x) => typeof x === "string"))
   const isList = (v: unknown) => v === undefined || (Array.isArray(v) && v.every((x) => typeof x === "string"))
   if (!isMap(env) || !isMap(secrets) || !isList(unsetEnv)) return null
-  return { env: env as EnvUpdate["env"], secrets: secrets as EnvUpdate["secrets"], unsetEnv: unsetEnv as string[] | undefined }
+  return {
+    env: env as EnvUpdate["env"],
+    secrets: secrets as EnvUpdate["secrets"],
+    unsetEnv: unsetEnv as string[] | undefined,
+  }
 }
 
 // Coerce an untrusted picker `target` from the request body into a bounded,
@@ -169,7 +203,7 @@ function scrubApp(app: App | AppInfo): App | AppInfo {
 export class DeployError extends SiteioError {
   constructor(
     message: string,
-    public status: number
+    public status: number,
   ) {
     super(message, status < 500 ? "USER" : "SYSTEM")
     this.name = "DeployError"
@@ -215,7 +249,10 @@ export class AgentServer {
   constructor(
     config: AgentConfig,
     runtime?: Runtime,
-    hooks?: { fetchAsset?: (url: string) => Promise<Uint8Array>; chatExecutor?: import("./chat/executor.ts").ChatExecutor }
+    hooks?: {
+      fetchAsset?: (url: string) => Promise<Uint8Array>
+      chatExecutor?: import("./chat/executor.ts").ChatExecutor
+    },
   ) {
     this.config = config
     this.tenants = new TenantRegistry(config.domain, config.tenants ?? [])
@@ -246,7 +283,8 @@ export class AgentServer {
       sites: this.storage,
       oauth: this.oauth,
       hosts: this.tenants,
-      deploy: (siteName, zipData, deployedBy, message) => this.deploySiteViaGrant(siteName, zipData, deployedBy, message),
+      deploy: (siteName, zipData, deployedBy, message) =>
+        this.deploySiteViaGrant(siteName, zipData, deployedBy, message),
       fetchAsset: hooks?.fetchAsset ?? ((url) => this.fetchExternalAsset(url)),
     })
 
@@ -304,7 +342,8 @@ export class AgentServer {
         },
         lsRemote: (url, patterns, token) => this.git.lsRemote(url, patterns, token),
         deploy: async (name, ref) => {
-          if (this.appStorage.get(name)?.status === "stopped") throw new DeployError(this.stoppedMessage("app", name, null), 409)
+          if (this.appStorage.get(name)?.status === "stopped")
+            throw new DeployError(this.stoppedMessage("app", name, null), 409)
           await this.deployContainerApp(name, { ref })
         },
         isDeploying: (name) => this.isDeploying(name),
@@ -312,7 +351,7 @@ export class AgentServer {
         now: () => Date.now(),
         random: () => Math.random(),
       },
-      (config.autoDeployInterval ?? parseAutoDeployInterval(undefined)) * 1000
+      (config.autoDeployInterval ?? parseAutoDeployInterval(undefined)) * 1000,
     )
   }
 
@@ -385,9 +424,7 @@ export class AgentServer {
     // never under api.<domain> and never behind the god key. Traefik forwards
     // `/mcp/*` and the oauth `.well-known/*` here, so this runs BEFORE the
     // api-host gate. Authenticated by an OAuth bearer → grant for this site.
-    const isMcpSurface =
-      path === "/mcp" || path.startsWith("/mcp/") ||
-      path.startsWith("/.well-known/oauth-")
+    const isMcpSurface = path === "/mcp" || path.startsWith("/mcp/") || path.startsWith("/.well-known/oauth-")
     if (isMcpSurface) {
       const ctx = this.liveHostContext(host)
       if (!ctx) return this.error("Not found", 404)
@@ -462,9 +499,8 @@ export class AgentServer {
     // Check if this is an API request (api.domain)
     // API requests arrive on api.<base> of the primary domain or a tenant
     // (or localhost, for on-box CLI and tests, which act as the primary domain).
-    const apiScope = hostWithoutPort === "localhost" || hostWithoutPort === "127.0.0.1"
-      ? null
-      : this.tenants.apiScope(hostWithoutPort)
+    const apiScope =
+      hostWithoutPort === "localhost" || hostWithoutPort === "127.0.0.1" ? null : this.tenants.apiScope(hostWithoutPort)
 
     if (apiScope === undefined) {
       // Non-API requests are routed by Traefik straight to the containers.
@@ -518,9 +554,11 @@ export class AgentServer {
     if (userRoute) return userRoute
 
     const caller: Caller =
-      auth.kind === "tenant" ? { scope: auth.tenant, admin: false }
-      : auth.kind === "user" ? { scope: apiScope, admin: auth.user.role === "admin" }
-      : { scope: null, admin: true }
+      auth.kind === "tenant"
+        ? { scope: auth.tenant, admin: false }
+        : auth.kind === "user"
+          ? { scope: apiScope, admin: auth.user.role === "admin" }
+          : { scope: null, admin: true }
     const scope = caller.scope
     if (!caller.admin) {
       const isApps = path === "/apps" || path.startsWith("/apps/")
@@ -791,19 +829,26 @@ export class AgentServer {
       git?: { repoUrl?: string; context?: string; dockerfile?: string }
       env?: Record<string, string>
       secrets?: Record<string, string>
-    }
+    },
   ): string | null {
     if (caller.admin) return null
     if (fields.compose) return "Compose apps are not available to a tenant"
     // Any other scheme or a bare path clones from the agent's own disk or
     // network (file://, ssh with the agent's keys)
-    if (fields.git?.repoUrl !== undefined && (typeof fields.git.repoUrl !== "string" || !fields.git.repoUrl.startsWith("https://"))) {
+    if (
+      fields.git?.repoUrl !== undefined &&
+      (typeof fields.git.repoUrl !== "string" || !fields.git.repoUrl.startsWith("https://"))
+    ) {
       return "git.repoUrl must be an https:// URL"
     }
     for (const field of ["env", "secrets"] as const) {
       for (const key of Object.keys(fields[field] ?? {})) {
         const upper = key.toUpperCase()
-        if (!ENV_KEY_RE.test(key) || TENANT_DENIED_ENV.includes(upper) || TENANT_DENIED_ENV_PREFIXES.some((p) => upper.startsWith(p))) {
+        if (
+          !ENV_KEY_RE.test(key) ||
+          TENANT_DENIED_ENV.includes(upper) ||
+          TENANT_DENIED_ENV_PREFIXES.some((p) => upper.startsWith(p))
+        ) {
           return `${field === "env" ? "Env" : "Secret"} key '${key}' is not allowed for a tenant app`
         }
       }
@@ -817,7 +862,9 @@ export class AgentServer {
     }
     const volumes: unknown = fields.volumes ?? []
     const isMount = (v: unknown) =>
-      typeof v === "object" && v !== null && typeof (v as { name?: unknown }).name === "string" &&
+      typeof v === "object" &&
+      v !== null &&
+      typeof (v as { name?: unknown }).name === "string" &&
       typeof (v as { mountPath?: unknown }).mountPath === "string"
     if (!Array.isArray(volumes) || !volumes.every(isMount)) {
       return "'volumes' must be a list of { name, mountPath }"
@@ -840,7 +887,8 @@ export class AgentServer {
     const owner = this.tenants.ownerOf(key)
     const primary = this.tenants.primaryDomain
     for (const domain of domains) {
-      if (kind === "app" && caller.admin && !owner && domain.endsWith(`.${primary}`) && domain !== `api.${primary}`) continue
+      if (kind === "app" && caller.admin && !owner && domain.endsWith(`.${primary}`) && domain !== `api.${primary}`)
+        continue
       const conflict = this.tenants.customDomainConflict(domain, owner)
       if (conflict) return conflict
     }
@@ -872,11 +920,13 @@ export class AgentServer {
     // Get TLS status from Traefik if available
     const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
 
-    const appInfos: AppInfo[] = apps.map((app) => scrubApp({
-      ...this.appStorage.toInfo(app, this.tenants, caller.scope),
-      tls: tlsStatusMap.get(`siteio-${app.name}`) || "pending",
-      hasThumbnail: this.thumbnails?.has(app.name) ?? false,
-    }))
+    const appInfos: AppInfo[] = apps.map((app) =>
+      scrubApp({
+        ...this.appStorage.toInfo(app, this.tenants, caller.scope),
+        tls: tlsStatusMap.get(`siteio-${app.name}`) || "pending",
+        hasThumbnail: this.thumbnails?.has(app.name) ?? false,
+      }),
+    )
     return this.json(appInfos)
   }
 
@@ -985,10 +1035,7 @@ export class AgentServer {
       }
 
       // Determine image tag for locally-built or compose-tagged apps.
-      const image =
-        hasGit || hasInlineDockerfile || hasCompose
-          ? this.docker.imageTag(name)
-          : body.image!
+      const image = hasGit || hasInlineDockerfile || hasCompose ? this.docker.imageTag(name) : body.image!
 
       // Persist inline Dockerfile / compose file up-front; roll back on create failure.
       if (body.dockerfileContent) {
@@ -1081,7 +1128,12 @@ export class AgentServer {
         if (domainViolation) return this.error(domainViolation)
       }
 
-      const violation = this.tenantAppViolation(caller, { volumes: body.volumes, git: body.git, env: body.env, secrets: body.secrets })
+      const violation = this.tenantAppViolation(caller, {
+        volumes: body.volumes,
+        git: body.git,
+        env: body.env,
+        secrets: body.secrets,
+      })
       if (violation) return this.error(violation)
 
       // Compose sources: same fields as create, replaced in place so a stack
@@ -1258,7 +1310,11 @@ export class AgentServer {
         const { updated, warnings } = await this.deployComposeApp(app, deployedBy)
         return this.json({ ...this.appView(updated, scope), url: this.appStorage.url(updated, this.tenants), warnings })
       }
-      const updated = await this.deployContainerApp(name, { noCache, dockerfileContent: newDockerfileContent, deployedBy })
+      const updated = await this.deployContainerApp(name, {
+        noCache,
+        dockerfileContent: newDockerfileContent,
+        deployedBy,
+      })
       return this.json({ ...this.appView(updated, scope), url: this.appStorage.url(updated, this.tenants) })
     } catch (err) {
       const status = err instanceof DeployError ? err.status : 500
@@ -1318,7 +1374,11 @@ export class AgentServer {
   // domains. Returns the new container ID.
   private async runAppContainer(app: App, image: string): Promise<string> {
     if (this.docker.containerExists(app.name)) await this.docker.remove(app.name)
-    const labels = this.docker.buildTraefikLabels(app.name, this.appStorage.routedDomains(app, this.tenants), app.internalPort)
+    const labels = this.docker.buildTraefikLabels(
+      app.name,
+      this.appStorage.routedDomains(app, this.tenants),
+      app.internalPort,
+    )
     return this.docker.run({
       name: app.name,
       image,
@@ -1352,7 +1412,7 @@ export class AgentServer {
       if (!existsSync(basePath)) {
         throw new DeployError(
           compose.source === "git" ? `Compose file not found at '${compose.path}'` : "Compose file not found for app",
-          400
+          400,
         )
       }
 
@@ -1379,7 +1439,6 @@ export class AgentServer {
     }
   }
 
-
   /**
    * Deploy a single-container app: build or pull the new image while the old
    * container keeps running, then swap. `ref` overrides the git branch (a tag,
@@ -1387,7 +1446,7 @@ export class AgentServer {
    */
   async deployContainerApp(
     name: string,
-    opts: { ref?: string; noCache?: boolean; dockerfileContent?: string; deployedBy?: string } = {}
+    opts: { ref?: string; noCache?: boolean; dockerfileContent?: string; deployedBy?: string } = {},
   ): Promise<App> {
     const app = this.appStorage.get(name)
     if (!app) throw new DeployError("App not found", 404)
@@ -1412,7 +1471,8 @@ export class AgentServer {
         // docker -f, and never leave it: the build would read the agent's data.
         const contextPath = app.git.context ? join(repoPath, app.git.context) : repoPath
         const dockerfilePath = join(repoPath, app.git.dockerfile)
-        const inRepo = (path: string) => resolve(path) === resolve(repoPath) || resolve(path).startsWith(resolve(repoPath) + sep)
+        const inRepo = (path: string) =>
+          resolve(path) === resolve(repoPath) || resolve(path).startsWith(resolve(repoPath) + sep)
         if (!inRepo(contextPath) || !inRepo(dockerfilePath)) {
           throw new DeployError("Build context and Dockerfile can't be outside the repository", 400)
         }
@@ -1425,7 +1485,8 @@ export class AgentServer {
         // The repo is the app's: a committed symlink can still point out of
         // it, and Docker follows it.
         const realRepo = realpathSync(repoPath)
-        const realInRepo = (path: string) => realpathSync(path) === realRepo || realpathSync(path).startsWith(realRepo + sep)
+        const realInRepo = (path: string) =>
+          realpathSync(path) === realRepo || realpathSync(path).startsWith(realRepo + sep)
         if (!realInRepo(contextPath) || !realInRepo(dockerfilePath)) {
           throw new DeployError("Build context and Dockerfile can't be outside the repository", 400)
         }
@@ -1498,7 +1559,8 @@ export class AgentServer {
     if (!app) {
       return this.error("App not found", 404)
     }
-    if (app.status === "stopped") return this.error(`App '${this.tenants.displayName(name, scope)}' is already stopped`, 409)
+    if (app.status === "stopped")
+      return this.error(`App '${this.tenants.displayName(name, scope)}' is already stopped`, 409)
     if (this.isDeploying(name)) {
       return this.error("Deploy already in progress", 409)
     }
@@ -1536,7 +1598,8 @@ export class AgentServer {
     const name = app.name
     const image = app.git || app.dockerfile ? this.docker.imageTag(name) : app.image
     const hasContainer = !app.compose && this.docker.containerExists(name)
-    if (!app.compose && !hasContainer && !this.docker.imageExists(image)) return this.deployContainerApp(name, { deployedBy: by })
+    if (!app.compose && !hasContainer && !this.docker.imageExists(image))
+      return this.deployContainerApp(name, { deployedBy: by })
     try {
       let containerId = app.containerId
       if (app.compose) {
@@ -1545,10 +1608,16 @@ export class AgentServer {
         const project = `siteio-${name}`
         const files = this.composeFiles(app)
         for (const s of await this.docker.composePs(project, files, this.writeComposeEnvFile(app))) {
-          const svc = spec.services[s.service] as { restart?: string; deploy?: { restart_policy?: { condition?: string } } } | undefined
+          const svc = spec.services[s.service] as
+            | { restart?: string; deploy?: { restart_policy?: { condition?: string } } }
+            | undefined
           // Compose v2 maps deploy.restart_policy.condition to the container policy when `restart` is unset
           const restart =
-            svc?.restart ?? ({ any: "always", "on-failure": "on-failure" } as Record<string, string>)[svc?.deploy?.restart_policy?.condition ?? ""] ?? "no"
+            svc?.restart ??
+            ({ any: "always", "on-failure": "on-failure" } as Record<string, string>)[
+              svc?.deploy?.restart_policy?.condition ?? ""
+            ] ??
+            "no"
           await this.docker.setRestartPolicy(s.containerId, restart)
         }
       } else if (hasContainer) {
@@ -1571,7 +1640,8 @@ export class AgentServer {
   private async handleStartApp(name: string, req: Request, scope: Scope): Promise<Response> {
     const app = this.appStorage.get(name)
     if (!app) return this.error("App not found", 404)
-    if (app.status !== "stopped") return this.error(`App '${this.tenants.displayName(name, scope)}' is not stopped`, 409)
+    if (app.status !== "stopped")
+      return this.error(`App '${this.tenants.displayName(name, scope)}' is not stopped`, 409)
     if (this.isDeploying(name)) return this.error("Deploy already in progress", 409)
     try {
       const updated = await this.startApp(app, this.requestUser(req))
@@ -1785,11 +1855,13 @@ export class AgentServer {
     // Site containers register Traefik routers named `siteio-<name>` via
     // docker labels — same convention as apps.
     const tlsStatusMap = this.traefik ? await this.traefik.getAllRoutersTlsStatus() : new Map()
-    return this.json(sites.map((p) => ({
-      ...this.storage.toInfo(p, this.tenants, caller.scope),
-      tls: tlsStatusMap.get(`siteio-${p.name}`) || "pending",
-      hasThumbnail: this.thumbnails?.has(p.name) ?? false,
-    })))
+    return this.json(
+      sites.map((p) => ({
+        ...this.storage.toInfo(p, this.tenants, caller.scope),
+        tls: tlsStatusMap.get(`siteio-${p.name}`) || "pending",
+        hasThumbnail: this.thumbnails?.has(p.name) ?? false,
+      })),
+    )
   }
 
   // `owner` adds the site's env (secret values stripped); share codes get none.
@@ -1900,15 +1972,18 @@ export class AgentServer {
   }
 
   // `version` (optional) selects a past version, e.g. the base of a 3-way merge.
-  private async handleDownloadSite(name: string, version: string | null = null, scope: Scope = null): Promise<Response> {
+  private async handleDownloadSite(
+    name: string,
+    version: string | null = null,
+    scope: Scope = null,
+  ): Promise<Response> {
     if (!this.storage.exists(name)) return this.error("Site not found", 404)
     if (version !== null && !/^[1-9]\d*$/.test(version)) {
       return this.error("version must be a positive whole number", 400)
     }
     try {
-      const zipData = version === null
-        ? await this.storage.zipCode(name)
-        : await this.storage.zipVersion(name, parseInt(version, 10))
+      const zipData =
+        version === null ? await this.storage.zipCode(name) : await this.storage.zipVersion(name, parseInt(version, 10))
       if (!zipData) {
         return version === null
           ? this.error("Failed to create zip", 500)
@@ -2157,7 +2232,7 @@ export class AgentServer {
     zipData: Uint8Array,
     deployedBy?: string,
     message?: string,
-    scope: Scope = this.tenants.ownerOf(site.name)
+    scope: Scope = this.tenants.ownerOf(site.name),
   ): Promise<SiteInfo> {
     let updated: Site
     try {
@@ -2204,8 +2279,7 @@ export class AgentServer {
     // Path names are as seen from the host's scope; the grant holds a key.
     const isOwn = (name: string) => this.tenants.resolve(name, scope) === grant.site
     const shown = this.tenants.displayName(grant.site, scope)
-    const notAllowed = () =>
-      this.error(`This share code can only download or deploy the site '${shown}'`, 403)
+    const notAllowed = () => this.error(`This share code can only download or deploy the site '${shown}'`, 403)
 
     const siteMatch = path.match(/^\/sites\/([a-z0-9-]+)$/)
     if (siteMatch) {
@@ -2218,7 +2292,8 @@ export class AgentServer {
     const downloadMatch = path.match(/^\/sites\/([a-z0-9-]+)\/download$/)
     if (downloadMatch) {
       if (!isOwn(downloadMatch[1]!)) return this.error("This share code is not valid for that site", 403)
-      if (req.method === "GET") return this.handleDownloadSite(grant.site, new URL(req.url).searchParams.get("version"), scope)
+      if (req.method === "GET")
+        return this.handleDownloadSite(grant.site, new URL(req.url).searchParams.get("version"), scope)
       return notAllowed()
     }
 
@@ -2264,7 +2339,7 @@ export class AgentServer {
     return this.error(
       `Version conflict: expected v${expectedVersion} but server has v${site.version}. Someone else deployed since your last push.`,
       409,
-      "version_conflict"
+      "version_conflict",
     )
   }
 
@@ -2305,7 +2380,9 @@ export class AgentServer {
     if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
 
     let unzipped: Record<string, Uint8Array>
-    const zipProblem = this.zipError(() => { unzipped = safeUnzip(zipData, this.zipLimits) })
+    const zipProblem = this.zipError(() => {
+      unzipped = safeUnzip(zipData, this.zipLimits)
+    })
     if (zipProblem) return zipProblem
 
     try {
@@ -2336,11 +2413,12 @@ export class AgentServer {
     siteName: string,
     zipData: Uint8Array,
     deployedBy: string,
-    message: string
+    message: string,
   ): Promise<SiteInfo> {
     const site = this.storage.get(siteName)
     if (!site) throw new Error(`Site "${siteName}" no longer exists`)
-    if (site.status === "stopped") throw new Error(this.stoppedMessage("site", siteName, this.tenants.ownerOf(siteName)))
+    if (site.status === "stopped")
+      throw new Error(this.stoppedMessage("site", siteName, this.tenants.ownerOf(siteName)))
     if (!this.docker.isAvailable()) throw new Error("Docker is not available")
     try {
       return await this.runSiteDeploy(site, zipData, deployedBy, message)
@@ -2707,7 +2785,7 @@ export class AgentServer {
         const restoreReason = restoreErr instanceof Error ? restoreErr.message : String(restoreErr)
         return this.error(
           `Upgrade to ${to} failed (${reason}) AND restoring ${from} failed (${restoreReason}). pb_data snapshot: ${backup}`,
-          500
+          500,
         )
       }
       return this.error(`Upgrade to ${to} failed, site restored to ${from}: ${reason}\n${logs}`, 500)
@@ -2730,7 +2808,8 @@ export class AgentServer {
   private async handleStopSite(name: string, req: Request, scope: Scope): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
-    if (site.status === "stopped") return this.error(`Site '${this.tenants.displayName(name, scope)}' is already stopped`, 409)
+    if (site.status === "stopped")
+      return this.error(`Site '${this.tenants.displayName(name, scope)}' is already stopped`, 409)
     if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
     try {
       if (this.docker.containerExists(name)) await this.docker.remove(name)
@@ -2747,7 +2826,8 @@ export class AgentServer {
   private async handleStartSite(name: string, req: Request, scope: Scope): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
-    if (site.status !== "stopped") return this.error(`Site '${this.tenants.displayName(name, scope)}' is not stopped`, 409)
+    if (site.status !== "stopped")
+      return this.error(`Site '${this.tenants.displayName(name, scope)}' is not stopped`, 409)
     if (!this.docker.isAvailable()) return this.error("Docker is not available", 500)
     try {
       const containerId = await this.startSiteContainer(site)
@@ -2795,7 +2875,12 @@ export class AgentServer {
   }
 
   // Rollback core, shared by the god route and the edit-session undo route.
-  private async runRollback(name: string, version: number, deployedBy?: string, scope: Scope = null): Promise<Response> {
+  private async runRollback(
+    name: string,
+    version: number,
+    deployedBy?: string,
+    scope: Scope = null,
+  ): Promise<Response> {
     const site = this.storage.get(name)
     if (!site) return this.error("Site not found", 404)
     if (site.status === "stopped") return this.stoppedError("site", name, scope)
@@ -3046,7 +3131,11 @@ export class AgentServer {
     const url = this.appStorage.url(app, this.tenants)
     this.pager?.notify({
       title: `App '${app.name}' ${event}`,
-      message: [event === "deployed" && app.commitHash && `commit ${app.commitHash.slice(0, 7)}`, by && `by ${by}`, `on ${this.config.domain}`]
+      message: [
+        event === "deployed" && app.commitHash && `commit ${app.commitHash.slice(0, 7)}`,
+        by && `by ${by}`,
+        `on ${this.config.domain}`,
+      ]
         .filter(Boolean)
         .join(" · "),
       url,
@@ -3160,12 +3249,16 @@ export class AgentServer {
    * warnings; throws ValidationError otherwise.
    */
   private async resolveComposeBase(
-    app: Pick<App, "name" | "domains" | "compose">
+    app: Pick<App, "name" | "domains" | "compose">,
   ): Promise<{ spec: ComposeSpec; warnings: string[] }> {
     const { primaryService, source } = app.compose!
     let spec: ComposeSpec
     try {
-      spec = await this.docker.composeConfig(`siteio-${app.name}`, [this.composeBasePath(app)], this.writeComposeEnvFile(app))
+      spec = await this.docker.composeConfig(
+        `siteio-${app.name}`,
+        [this.composeBasePath(app)],
+        this.writeComposeEnvFile(app),
+      )
     } catch (err) {
       throw new ValidationError(err instanceof Error ? err.message : String(err))
     }
@@ -3202,10 +3295,9 @@ export class AgentServer {
     return this.compose.writeSiteioEnv(
       app.name,
       { SITEIO_APP: app.name, SITEIO_DOMAIN: domain!, SITEIO_URL: `https://${domain}` },
-      userEnv
+      userEnv,
     )
   }
-
 
   /**
    * Resolve the [base, override] compose file paths for a compose-based app.

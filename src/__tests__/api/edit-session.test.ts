@@ -1,26 +1,38 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
+import { mkdtempSync, rmSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ChatConfig, EditLinkCreated } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 const GOD = { "X-API-Key": "test-key" }
 const GOD_ZIP = { ...GOD, "Content-Type": "application/zip" }
 const GOD_JSON = { ...GOD, "Content-Type": "application/json" }
 
 const CHAT: ChatConfig = {
-  provider: "anthropic", model: "claude-sonnet-5", sandbox: false,
-  sandboxImage: "x", sandboxNetwork: "n", maxTurns: 5, timeoutMs: 5000, oauthToken: "tok",
+  provider: "anthropic",
+  model: "claude-sonnet-5",
+  sandbox: false,
+  sandboxImage: "x",
+  sandboxNetwork: "n",
+  maxTurns: 5,
+  timeoutMs: 5000,
+  oauthToken: "tok",
 }
 
 function makeServer(dataDir: string, opts: { chat?: ChatConfig } = {}): AgentServer {
   const config: AgentConfig = {
-    apiKey: "test-key", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443,
-    email: "ops@example.com", skipTraefik: true, chat: opts.chat,
+    apiKey: "test-key",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    email: "ops@example.com",
+    skipTraefik: true,
+    chat: opts.chat,
   }
   return new AgentServer(config, new FakeRuntime())
 }
@@ -28,16 +40,17 @@ function makeServer(dataDir: string, opts: { chat?: ChatConfig } = {}): AgentSer
 async function deploySite(server: AgentServer, name: string, html: string): Promise<void> {
   const res = await server.handleRequestForTest(
     new Request(`http://x/sites/${name}`, {
-      method: "POST", headers: GOD_ZIP,
+      method: "POST",
+      headers: GOD_ZIP,
       body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
-    })
+    }),
   )
   expect(res.status).toBe(200)
 }
 
 async function mintCode(server: AgentServer, name: string): Promise<string> {
   const res = await server.handleRequestForTest(
-    new Request(`http://x/sites/${name}/edit-link`, { method: "POST", headers: GOD_JSON, body: "{}" })
+    new Request(`http://x/sites/${name}/edit-link`, { method: "POST", headers: GOD_JSON, body: "{}" }),
   )
   const body = (await res.json()) as { data: EditLinkCreated }
   return body.data.code
@@ -65,10 +78,7 @@ describe("API: edit session (carve-outs + cookie exchange)", () => {
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
 
   test("the shell is served unauthenticated with anti-clickjacking headers", async () => {
-    const res = await server.handleRequestForTest(
-      new Request("https://x/_siteio/edit", { method: "GET" }),
-      SITE_HOST
-    )
+    const res = await server.handleRequestForTest(new Request("https://x/_siteio/edit", { method: "GET" }), SITE_HOST)
     expect(res.status).toBe(200)
     expect(res.headers.get("content-type")).toContain("text/html")
     expect(res.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
@@ -93,9 +103,11 @@ describe("API: edit session (carve-outs + cookie exchange)", () => {
     const code = await mintCode(server, "blog")
     const res = await server.handleRequestForTest(
       new Request("https://x/_siteio/edit/session", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
       }),
-      SITE_HOST
+      SITE_HOST,
     )
     expect(res.status).toBe(200)
     const setCookie = res.headers.get("set-cookie") || ""
@@ -112,24 +124,23 @@ describe("API: edit session (carve-outs + cookie exchange)", () => {
     const code = await mintCode(server, "blog")
     const ex = await server.handleRequestForTest(
       new Request("https://x/_siteio/edit/session", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
       }),
-      SITE_HOST
+      SITE_HOST,
     )
     const cookie = sessionCookie(ex)
 
     // With the cookie, a scoped GET resolves the site.
     const ok = await server.handleRequestForTest(
       new Request("https://x/_siteio/sites/blog", { headers: { cookie } }),
-      SITE_HOST
+      SITE_HOST,
     )
     expect(ok.status).toBe(200)
 
     // Without it, the same request is 401.
-    const no = await server.handleRequestForTest(
-      new Request("https://x/_siteio/sites/blog"),
-      SITE_HOST
-    )
+    const no = await server.handleRequestForTest(new Request("https://x/_siteio/sites/blog"), SITE_HOST)
     expect(no.status).toBe(401)
   })
 
@@ -137,17 +148,21 @@ describe("API: edit session (carve-outs + cookie exchange)", () => {
     const code = await mintCode(server, "blog")
     const first = await server.handleRequestForTest(
       new Request("https://x/_siteio/edit/session", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
       }),
-      SITE_HOST
+      SITE_HOST,
     )
     const firstCookie = sessionCookie(first)
 
     const second = await server.handleRequestForTest(
       new Request("https://x/_siteio/edit/session", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
       }),
-      SITE_HOST
+      SITE_HOST,
     )
     const secondCookie = sessionCookie(second)
     expect(secondCookie).not.toBe(firstCookie)
@@ -155,12 +170,12 @@ describe("API: edit session (carve-outs + cookie exchange)", () => {
     // The new session works; the old one is dead.
     const withNew = await server.handleRequestForTest(
       new Request("https://x/_siteio/sites/blog", { headers: { cookie: secondCookie } }),
-      SITE_HOST
+      SITE_HOST,
     )
     expect(withNew.status).toBe(200)
     const withOld = await server.handleRequestForTest(
       new Request("https://x/_siteio/sites/blog", { headers: { cookie: firstCookie } }),
-      SITE_HOST
+      SITE_HOST,
     )
     expect(withOld.status).toBe(401)
   })
@@ -168,9 +183,11 @@ describe("API: edit session (carve-outs + cookie exchange)", () => {
   test("an unknown code is rejected with a client reason", async () => {
     const res = await server.handleRequestForTest(
       new Request("https://x/_siteio/edit/session", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: "grt_bogusbogusbogusbogus" }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: "grt_bogusbogusbogusbogus" }),
       }),
-      SITE_HOST
+      SITE_HOST,
     )
     expect(res.status).toBe(401)
     const body = (await res.json()) as { success: boolean; reason: string }
@@ -183,9 +200,11 @@ describe("API: edit session (carve-outs + cookie exchange)", () => {
     const code = await mintCode(server, "blog")
     const res = await server.handleRequestForTest(
       new Request("https://x/_siteio/edit/session", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
       }),
-      "shop.example.com"
+      "shop.example.com",
     )
     expect(res.status).toBe(403)
   })
@@ -194,9 +213,11 @@ describe("API: edit session (carve-outs + cookie exchange)", () => {
     const code = await mintCode(server, "blog")
     const ex = await server.handleRequestForTest(
       new Request("https://x/_siteio/edit/session", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
       }),
-      SITE_HOST
+      SITE_HOST,
     )
     const cookie = sessionCookie(ex)
 
@@ -205,7 +226,7 @@ describe("API: edit session (carve-outs + cookie exchange)", () => {
 
     const after = await server.handleRequestForTest(
       new Request("https://x/_siteio/sites/blog", { headers: { cookie } }),
-      SITE_HOST
+      SITE_HOST,
     )
     expect(after.status).toBe(401)
   })

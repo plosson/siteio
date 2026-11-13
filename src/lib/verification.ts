@@ -24,7 +24,7 @@ type ProgressCallback = (attempt: number, maxAttempts: number) => void
  * Calculate exponential backoff delay
  */
 function getBackoffDelay(attempt: number, initialDelayMs: number, maxDelayMs: number): number {
-  const delay = initialDelayMs * Math.pow(2, attempt - 1)
+  const delay = initialDelayMs * 2 ** (attempt - 1)
   return Math.min(delay, maxDelayMs)
 }
 
@@ -57,7 +57,7 @@ export async function checkDNS(domain: string): Promise<boolean> {
  */
 export async function checkCertificate(
   domain: string,
-  timeoutMs: number = 5000
+  timeoutMs: number = 5000,
 ): Promise<"valid" | "pending" | "error"> {
   return new Promise((resolve) => {
     const socket = tls.connect(
@@ -90,7 +90,7 @@ export async function checkCertificate(
           socket.destroy()
           resolve("pending")
         }
-      }
+      },
     )
 
     socket.on("error", () => {
@@ -111,7 +111,7 @@ export async function checkCertificate(
 export async function waitForDNS(
   domain: string,
   options: VerificationOptions = {},
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
 ): Promise<VerificationResult> {
   const maxAttempts = options.maxAttempts ?? 5
   const initialDelayMs = options.initialDelayMs ?? 2000
@@ -140,7 +140,7 @@ export async function waitForDNS(
 export async function waitForCertificate(
   domain: string,
   options: VerificationOptions = {},
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
 ): Promise<VerificationResult> {
   const maxAttempts = options.maxAttempts ?? 5
   const initialDelayMs = options.initialDelayMs ?? 2000
@@ -172,7 +172,7 @@ export type UrlCheck = { ok: true; status: number } | { ok: false; reason: strin
 export async function checkUrl(
   url: string,
   timeoutMs: number = 10000,
-  fetchFn: typeof fetch = fetch
+  fetchFn: typeof fetch = fetch,
 ): Promise<UrlCheck> {
   let response: Response
   try {
@@ -212,8 +212,14 @@ export async function checkUrl(
  */
 export async function waitForUrl(
   url: string,
-  options: { timeoutMs?: number; intervalMs?: number; fetchFn?: typeof fetch; now?: () => number; sleepFn?: (ms: number) => Promise<void> } = {},
-  onProgress?: (attempt: number, check: UrlCheck) => void
+  options: {
+    timeoutMs?: number
+    intervalMs?: number
+    fetchFn?: typeof fetch
+    now?: () => number
+    sleepFn?: (ms: number) => Promise<void>
+  } = {},
+  onProgress?: (attempt: number, check: UrlCheck) => void,
 ): Promise<VerificationResult> {
   const timeoutMs = options.timeoutMs ?? 90000
   const intervalMs = options.intervalMs ?? 3000

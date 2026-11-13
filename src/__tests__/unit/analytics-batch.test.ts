@@ -35,11 +35,11 @@ describe("buildBatch", () => {
     const batch = buildBatch(
       "chuut.com",
       [
-        entry({ "request_Referer": "https://app.example/cb?token=SECRET&code=SECRET#SECRET" }),
-        entry({ "request_Referer": "https://u:SECRET@app.example/a" }),
-        entry({ "request_Referer": "javascript:SECRET" }),
+        entry({ request_Referer: "https://app.example/cb?token=SECRET&code=SECRET#SECRET" }),
+        entry({ request_Referer: "https://u:SECRET@app.example/a" }),
+        entry({ request_Referer: "javascript:SECRET" }),
       ],
-      resolve
+      resolve,
     )!
     expect(JSON.stringify(batch)).not.toContain("SECRET")
     expect(batch.pageviews![0]!.referrer).toBe("https://app.example/cb")
@@ -58,8 +58,14 @@ describe("buildBatch", () => {
   test("a pageview carries owner, cleaned path, referrer, ip and ms duration", () => {
     const batch = buildBatch(
       "chuut.com",
-      [entry({ RequestPath: "/p?code=SECRET&utm_source=hn", "request_Referer": "https://hn.example/", Duration: 12_400_000 })],
-      resolve
+      [
+        entry({
+          RequestPath: "/p?code=SECRET&utm_source=hn",
+          request_Referer: "https://hn.example/",
+          Duration: 12_400_000,
+        }),
+      ],
+      resolve,
     )!
     expect(batch.version).toBe(1)
     expect(batch.agent).toBe("chuut.com")
@@ -85,7 +91,7 @@ describe("buildBatch", () => {
     const batch = buildBatch(
       "chuut.com",
       [entry({ ClientHost: "172.70.1.2", "request_Cf-Connecting-Ip": "198.51.100.7" })],
-      resolve
+      resolve,
     )!
     expect(batch.pageviews[0]!.ip).toBe("198.51.100.7")
   })
@@ -99,7 +105,7 @@ describe("buildBatch", () => {
     const batch = buildBatch(
       "chuut.com",
       [entry({ RouterName: "siteio-blog--friend-com@docker" }), entry({ RouterName: "siteio-web@docker" })],
-      resolve
+      resolve,
     )!
     const byName = Object.fromEntries(batch.traffic.map((t) => [t.name, t]))
     expect(byName["blog--friend-com"]!.kind).toBe("site")
@@ -129,8 +135,12 @@ describe("buildBatch", () => {
   test("from/to span the batch even when lines are out of order", () => {
     const batch = buildBatch(
       "chuut.com",
-      [entry({ StartUTC: "2026-10-10T12:00:30Z" }), entry({ StartUTC: "2026-10-10T12:00:01Z" }), entry({ StartUTC: "2026-10-10T12:00:59Z" })],
-      resolve
+      [
+        entry({ StartUTC: "2026-10-10T12:00:30Z" }),
+        entry({ StartUTC: "2026-10-10T12:00:01Z" }),
+        entry({ StartUTC: "2026-10-10T12:00:59Z" }),
+      ],
+      resolve,
     )!
     expect(batch.from).toBe("2026-10-10T12:00:01.000Z")
     expect(batch.to).toBe("2026-10-10T12:00:59.000Z")
@@ -148,12 +158,16 @@ describe("buildBatch", () => {
       calls++
       return resolve(key)
     }
-    buildBatch("chuut.com", Array.from({ length: 500 }, () => entry()), counting)
+    buildBatch(
+      "chuut.com",
+      Array.from({ length: 500 }, () => entry()),
+      counting,
+    )
     expect(calls).toBe(1)
   })
 
   test("empty referrer and user agent are omitted, not sent as empty strings", () => {
-    const batch = buildBatch("chuut.com", [entry({ "request_Referer": "" })], resolve)!
+    const batch = buildBatch("chuut.com", [entry({ request_Referer: "" })], resolve)!
     expect("referrer" in batch.pageviews[0]!).toBe(false)
   })
 })

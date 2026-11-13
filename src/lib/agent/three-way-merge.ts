@@ -1,7 +1,7 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
 import { spawnSync } from "bun"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 
 // A file tree: relative path -> bytes.
 export type FileTree = Record<string, Uint8Array>
@@ -39,7 +39,9 @@ function mergeText(base: Uint8Array, theirs: Uint8Array, yours: Uint8Array): { b
     writeFileSync(b, base)
     writeFileSync(t, theirs)
     writeFileSync(y, yours)
-    const proc = spawnSync({ cmd: ["git", "merge-file", "-L", YOURS_LABEL, "-L", "start", "-L", THEIRS_LABEL, y, b, t] })
+    const proc = spawnSync({
+      cmd: ["git", "merge-file", "-L", YOURS_LABEL, "-L", "start", "-L", THEIRS_LABEL, y, b, t],
+    })
     // Exit code: 0 = clean, >0 = number of conflicts, <0 (255 here) = error.
     if (proc.exitCode === null || proc.exitCode >= 128) {
       throw new Error(`git merge-file failed: ${proc.stderr.toString().trim()}`)
@@ -57,17 +59,25 @@ function mergeText(base: Uint8Array, theirs: Uint8Array, yours: Uint8Array): { b
 // returned tree keeps the most useful content for resolving it.
 // A missing base (e.g. pruned from history) is an empty tree: deletions can
 // then no longer be told apart from additions, so nothing is deleted.
-export function mergeTrees(base: FileTree, theirs: FileTree, yours: FileTree): { files: FileTree; conflicts: MergeConflict[] } {
+export function mergeTrees(
+  base: FileTree,
+  theirs: FileTree,
+  yours: FileTree,
+): { files: FileTree; conflicts: MergeConflict[] } {
   const files: FileTree = {}
   const conflicts: MergeConflict[] = []
   const paths = new Set([...Object.keys(base), ...Object.keys(theirs), ...Object.keys(yours)])
 
   for (const path of [...paths].sort()) {
-    const b = base[path], t = theirs[path], y = yours[path]
+    const b = base[path],
+      t = theirs[path],
+      y = yours[path]
     let result: Uint8Array | undefined
 
-    if (same(y, b)) result = t // only they changed it (or nobody did)
-    else if (same(t, b) || same(t, y)) result = y // only you changed it, or both made the same change
+    if (same(y, b))
+      result = t // only they changed it (or nobody did)
+    else if (same(t, b) || same(t, y))
+      result = y // only you changed it, or both made the same change
     else if (y === undefined) {
       result = t
       conflicts.push({ path, reason: "deleted-by-you" })

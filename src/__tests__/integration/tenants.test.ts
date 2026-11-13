@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll, setDefaultTimeout } from "bun:test"
-import { AgentServer } from "../../lib/agent/server.ts"
-import { mkdirSync, rmSync, existsSync } from "fs"
-import { join } from "path"
+import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test"
 import { zipSync } from "fflate"
+import { existsSync, mkdirSync, rmSync } from "fs"
+import { join } from "path"
+import { AgentServer } from "../../lib/agent/server.ts"
 import type { ApiResponse, SiteInfo, Tenant } from "../../types.ts"
 
 // Traefik serves its self-signed default certificate locally.
@@ -63,7 +63,7 @@ async function waitFor(
   host: string,
   check: (res: Response, body: string) => boolean,
   timeoutMs = 30000,
-  path = "/"
+  path = "/",
 ): Promise<boolean> {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {

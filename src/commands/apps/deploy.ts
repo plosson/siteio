@@ -1,13 +1,13 @@
-import ora from "ora"
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
+import ora from "ora"
 import { getCurrentServer } from "../../config/loader.ts"
-import { watchServices, type ServiceProblem } from "../../lib/app-health.ts"
+import { type ServiceProblem, watchServices } from "../../lib/app-health.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { waitForUrl } from "../../lib/verification.ts"
-import { formatError, formatSuccess, printComposeWarnings } from "../../utils/output.ts"
 import { ApiError, handleError, ValidationError } from "../../utils/errors.ts"
-import { resolveAppName, saveProjectConfig } from "../../utils/site-config.ts"
 import { readFlagFile } from "../../utils/files.ts"
+import { formatError, formatSuccess, printComposeWarnings } from "../../utils/output.ts"
+import { resolveAppName, saveProjectConfig } from "../../utils/site-config.ts"
 
 export interface DeployAppOptions {
   noCache?: boolean
@@ -35,7 +35,7 @@ async function runDeployChecks(
   name: string,
   url: string | undefined,
   urlTimeoutMs: number,
-  spinner: ReturnType<typeof ora>
+  spinner: ReturnType<typeof ora>,
 ): Promise<DeployChecks> {
   spinner.start("Checking that the containers stay up")
   let services: ServiceProblem[] = []
@@ -49,7 +49,9 @@ async function runDeployChecks(
   } catch (err) {
     // Agents older than the status endpoint answer 404: skip, don't fail the deploy
     if (!(err instanceof ApiError && err.statusCode === 404)) throw err
-    spinner.warn("Container check skipped: the agent is too old (run 'siteio update' then 'siteio agent restart' on the server)")
+    spinner.warn(
+      "Container check skipped: the agent is too old (run 'siteio update' then 'siteio agent restart' on the server)",
+    )
   }
 
   if (!url) return { services }
@@ -66,17 +68,16 @@ async function runDeployChecks(
   return { services, url: { url, ok: result.success, status: result.status, error: result.error } }
 }
 
-export async function deployAppCommand(
-  name: string | undefined,
-  options: DeployAppOptions = {}
-): Promise<void> {
+export async function deployAppCommand(name: string | undefined, options: DeployAppOptions = {}): Promise<void> {
   const spinner = ora()
 
   try {
     const server = getCurrentServer()
     const resolved = resolveAppName(name, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("App name required. Provide as argument or run from a directory with .siteio/config.json")
+      throw new ValidationError(
+        "App name required. Provide as argument or run from a directory with .siteio/config.json",
+      )
     }
     if (!name) {
       console.error(chalk.dim(`Using app '${resolved}' from .siteio/config.json`))
@@ -107,7 +108,8 @@ export async function deployAppCommand(
       saveProjectConfig({ app: name, domain: server.domain })
     }
 
-    const checks = options.wait === false ? undefined : await runDeployChecks(client, name, app.url, waitTimeout * 1000, spinner)
+    const checks =
+      options.wait === false ? undefined : await runDeployChecks(client, name, app.url, waitTimeout * 1000, spinner)
     const ok = !checks || checksPassed(checks)
 
     if (options.json) {

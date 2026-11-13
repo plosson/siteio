@@ -9,9 +9,7 @@ import type { AgentRunner, AgentTurnSpec, ParsedLine } from "./agent-runner.ts"
 // The credential is a Claude subscription OAuth token (CLAUDE_CODE_OAUTH_TOKEN,
 // preferred) or an Anthropic API key (ANTHROPIC_API_KEY).
 export class ClaudeRunner implements AgentRunner {
-  constructor(
-    private cred: { oauthToken?: string; apiKey?: string }
-  ) {}
+  constructor(private cred: { oauthToken?: string; apiKey?: string }) {}
 
   buildArgv(spec: AgentTurnSpec): string[] {
     const argv = [

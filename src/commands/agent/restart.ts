@@ -1,6 +1,6 @@
-import chalk from "chalk"
 import { spawnSync } from "bun"
-import { formatSuccess, formatError } from "../../utils/output.ts"
+import chalk from "chalk"
+import { formatError, formatSuccess } from "../../utils/output.ts"
 import { asRoot } from "./sudo.ts"
 
 const SERVICE_NAME = "siteio-agent"

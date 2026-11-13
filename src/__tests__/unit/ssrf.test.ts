@@ -1,9 +1,19 @@
-import { describe, test, expect } from "bun:test"
-import { isPrivateAddress, assertSafePublicUrl } from "../../utils/ssrf.ts"
+import { describe, expect, test } from "bun:test"
+import { assertSafePublicUrl, isPrivateAddress } from "../../utils/ssrf.ts"
 
 describe("Unit: SSRF guard", () => {
   test("private / reserved IPv4 ranges are blocked", () => {
-    for (const ip of ["127.0.0.1", "10.0.0.5", "172.16.0.1", "172.31.255.1", "192.168.1.1", "169.254.169.254", "100.64.0.1", "0.0.0.0", "224.0.0.1"]) {
+    for (const ip of [
+      "127.0.0.1",
+      "10.0.0.5",
+      "172.16.0.1",
+      "172.31.255.1",
+      "192.168.1.1",
+      "169.254.169.254",
+      "100.64.0.1",
+      "0.0.0.0",
+      "224.0.0.1",
+    ]) {
       expect(isPrivateAddress(ip)).toBe(true)
     }
   })

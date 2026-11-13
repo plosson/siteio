@@ -1,5 +1,5 @@
 import chalk from "chalk"
-import { getUsername, setUsername, getProviderToken, setProviderToken } from "../config/loader.ts"
+import { getProviderToken, getUsername, setProviderToken, setUsername } from "../config/loader.ts"
 import { handleError, ValidationError } from "../utils/errors.ts"
 
 const VALID_CONFIG_KEYS = ["username", "hetznerToken", "cloudflareToken"] as const
@@ -11,11 +11,7 @@ function validateConfigKey(key: string): asserts key is ConfigKey {
   }
 }
 
-export async function configSetCommand(
-  key: string,
-  value: string,
-  options: { json?: boolean }
-): Promise<void> {
+export async function configSetCommand(key: string, value: string, options: { json?: boolean }): Promise<void> {
   try {
     validateConfigKey(key)
     if (key === "username") setUsername(value)
@@ -32,10 +28,7 @@ export async function configSetCommand(
   }
 }
 
-export async function configGetCommand(
-  key: string,
-  options: { json?: boolean }
-): Promise<void> {
+export async function configGetCommand(key: string, options: { json?: boolean }): Promise<void> {
   try {
     validateConfigKey(key)
     const rawValue = key === "username" ? getUsername() : getProviderToken(key)

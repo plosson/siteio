@@ -1,6 +1,6 @@
 import chalk from "chalk"
 import { getAgentDataDir, loadAgentConfig } from "../../config/agent.ts"
-import { UserStore, generatePassword } from "../../lib/agent/user-store.ts"
+import { generatePassword, UserStore } from "../../lib/agent/user-store.ts"
 import { formatError, formatSuccess } from "../../utils/output.ts"
 
 // On-box: set or reset the admin's password (creates the admin on first run).

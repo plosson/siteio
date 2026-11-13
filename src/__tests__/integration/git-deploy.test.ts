@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll, setDefaultTimeout } from "bun:test"
-import { AgentServer } from "../../lib/agent/server.ts"
-import { mkdirSync, rmSync, existsSync, writeFileSync } from "fs"
+import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test"
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
+import { AgentServer } from "../../lib/agent/server.ts"
 import type { ApiResponse, App } from "../../types.ts"
 
 // Disable TLS certificate verification for self-signed certs

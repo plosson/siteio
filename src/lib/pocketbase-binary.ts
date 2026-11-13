@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, chmodSync } from "fs"
-import { join, dirname } from "path"
-import { homedir, platform as osPlatform, arch as osArch } from "os"
 import { unzipSync } from "fflate"
+import { chmodSync, existsSync, mkdirSync } from "fs"
+import { homedir, arch as osArch, platform as osPlatform } from "os"
+import { dirname, join } from "path"
 import { SiteioError } from "../utils/errors.ts"
 import { POCKETBASE_VERSION } from "./pocketbase-version.ts"
 
@@ -18,7 +18,7 @@ function archToken(architecture: string): string {
 export function pocketbaseAssetName(
   version: string,
   plat: NodeJS.Platform = osPlatform(),
-  architecture: string = osArch()
+  architecture: string = osArch(),
 ): string {
   return `pocketbase_${version}_${osToken(plat)}_${archToken(architecture)}.zip`
 }
@@ -26,7 +26,7 @@ export function pocketbaseAssetName(
 export function pocketbaseDownloadUrl(
   version: string,
   plat: NodeJS.Platform = osPlatform(),
-  architecture: string = osArch()
+  architecture: string = osArch(),
 ): string {
   return `https://github.com/pocketbase/pocketbase/releases/download/v${version}/${pocketbaseAssetName(version, plat, architecture)}`
 }

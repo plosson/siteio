@@ -1,7 +1,7 @@
 import * as p from "@clack/prompts"
 import chalk from "chalk"
-import { removeServer, listServers } from "../config/loader.ts"
-import { formatSuccess, formatError } from "../utils/output.ts"
+import { listServers, removeServer } from "../config/loader.ts"
+import { formatError, formatSuccess } from "../utils/output.ts"
 
 export async function logoutCommand(domain?: string): Promise<void> {
   p.intro(chalk.bgCyan(" siteio logout "))

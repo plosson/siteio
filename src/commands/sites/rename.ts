@@ -1,15 +1,15 @@
-import ora from "ora"
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
+import ora from "ora"
 import { getCurrentServer } from "../../config/loader.ts"
-import { formatSuccess } from "../../utils/output.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
-import { resolveSiteName, loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts"
+import { formatSuccess } from "../../utils/output.ts"
+import { loadProjectConfig, resolveSiteName, saveProjectConfig } from "../../utils/site-config.ts"
 
 export async function sitesRenameCommand(
   name: string | undefined,
   newName: string,
-  options: { json?: boolean } = {}
+  options: { json?: boolean } = {},
 ): Promise<void> {
   const spinner = ora()
 
@@ -17,7 +17,9 @@ export async function sitesRenameCommand(
     const server = getCurrentServer()
     const resolved = resolveSiteName(name, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("Site name required. Pass it as an argument or run from a directory with .siteio/config.json")
+      throw new ValidationError(
+        "Site name required. Pass it as an argument or run from a directory with .siteio/config.json",
+      )
     }
     if (!name) {
       console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))

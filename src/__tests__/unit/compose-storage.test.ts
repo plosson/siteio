@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, existsSync, readFileSync, statSync, utimesSync, writeFileSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
+import { join } from "path"
 import { ComposeStorage } from "../../lib/agent/compose-storage"
 
 describe("Unit: ComposeStorage", () => {
@@ -25,15 +25,11 @@ describe("Unit: ComposeStorage", () => {
   })
 
   test("baseInlinePath returns the expected location", () => {
-    expect(storage.baseInlinePath("myapp")).toBe(
-      join(testDir, "compose", "myapp", "docker-compose.yml")
-    )
+    expect(storage.baseInlinePath("myapp")).toBe(join(testDir, "compose", "myapp", "docker-compose.yml"))
   })
 
   test("overridePath returns the expected location", () => {
-    expect(storage.overridePath("myapp")).toBe(
-      join(testDir, "compose", "myapp", "docker-compose.siteio.yml")
-    )
+    expect(storage.overridePath("myapp")).toBe(join(testDir, "compose", "myapp", "docker-compose.siteio.yml"))
   })
 
   test("writeOverride persists override alongside the base file", () => {
@@ -68,9 +64,7 @@ describe("Unit: ComposeStorage", () => {
   })
 
   test("baseEnvPath returns the expected location", () => {
-    expect(storage.baseEnvPath("myapp")).toBe(
-      join(testDir, "compose", "myapp", ".env")
-    )
+    expect(storage.baseEnvPath("myapp")).toBe(join(testDir, "compose", "myapp", ".env"))
   })
 
   test("envFileExists is false before write, true after", () => {
@@ -94,7 +88,9 @@ describe("Unit: ComposeStorage", () => {
       const path = storage.writeSiteioEnv("myapp", vars, storage.baseEnvPath("myapp"))
       expect(path).toBe(join(testDir, "compose", "myapp", "siteio.env"))
       const lines = readFileSync(path, "utf-8").split("\n")
-      expect(lines.indexOf("SITEIO_URL=https://myapp.example.com")).toBeLessThan(lines.indexOf("SITEIO_URL=https://mine.test"))
+      expect(lines.indexOf("SITEIO_URL=https://myapp.example.com")).toBeLessThan(
+        lines.indexOf("SITEIO_URL=https://mine.test"),
+      )
       expect(lines).toContain("DB=x")
     })
 

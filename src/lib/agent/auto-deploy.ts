@@ -102,7 +102,7 @@ export function resolveTarget(mode: "commit" | "tag", branch: string, refs: Remo
 export function shouldDeploy(
   mode: "commit" | "tag",
   app: Pick<App, "commitHash" | "autoDeployRef">,
-  target: DeployTarget
+  target: DeployTarget,
 ): boolean {
   if (target.ref === app.autoDeployRef) return false
   if (mode === "commit") return target.sha !== app.commitHash
@@ -126,7 +126,8 @@ const DEPLOY_FAILED_PREFIX = "deploy failed for "
 /** SITEIO_AUTODEPLOY_INTERVAL / autoDeployInterval, in whole seconds. */
 export function parseAutoDeployInterval(value: unknown): number {
   if (value === undefined || value === "") return DEFAULT_INTERVAL_SECONDS
-  const seconds = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : NaN
+  const seconds =
+    typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : NaN
   if (!Number.isSafeInteger(seconds) || seconds <= 0) {
     throw new Error(`SITEIO_AUTODEPLOY_INTERVAL must be a whole number of seconds, got: ${String(value)}`)
   }
@@ -166,7 +167,7 @@ export class AutoDeployer {
 
   constructor(
     private deps: AutoDeployDeps,
-    private intervalMs: number
+    private intervalMs: number,
   ) {}
 
   start(): void {
@@ -233,7 +234,7 @@ export class AutoDeployer {
     } catch (err) {
       schedule.backoffMs = Math.min(
         schedule.backoffMs ? schedule.backoffMs * 2 : this.intervalMs * 2,
-        Math.max(MAX_BACKOFF_MS, this.intervalMs)
+        Math.max(MAX_BACKOFF_MS, this.intervalMs),
       )
       schedule.nextAt = this.deps.now() + schedule.backoffMs
       const message = `check failed: ${messageOf(err)}`

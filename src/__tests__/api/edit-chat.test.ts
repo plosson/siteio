@@ -1,12 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
+import { mkdtempSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
+import type { ChatExecutor, ExecutorResult, ExecutorRunInput } from "../../lib/agent/chat/executor.ts"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ChatConfig, ChatEvent, EditLinkCreated, ShareGrantCreated } from "../../types.ts"
-import type { ChatExecutor, ExecutorRunInput, ExecutorResult } from "../../lib/agent/chat/executor.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 const GOD = { "X-API-Key": "test-key" }
 const GOD_ZIP = { ...GOD, "Content-Type": "application/zip" }
@@ -14,8 +14,14 @@ const GOD_JSON = { ...GOD, "Content-Type": "application/json" }
 const SITE_HOST = "blog.example.com"
 
 const CHAT: ChatConfig = {
-  provider: "anthropic", model: "claude-sonnet-5", sandbox: false,
-  sandboxImage: "x", sandboxNetwork: "n", maxTurns: 5, timeoutMs: 5000, oauthToken: "tok",
+  provider: "anthropic",
+  model: "claude-sonnet-5",
+  sandbox: false,
+  sandboxImage: "x",
+  sandboxNetwork: "n",
+  maxTurns: 5,
+  timeoutMs: 5000,
+  oauthToken: "tok",
 }
 
 class FakeExecutor implements ChatExecutor {
@@ -32,9 +38,15 @@ class FakeExecutor implements ChatExecutor {
 
 function makeServer(dataDir: string, executor: FakeExecutor = new FakeExecutor("<h1>New</h1>")): AgentServer {
   const config: AgentConfig = {
-    apiKey: "test-key", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443,
-    email: "ops@example.com", skipTraefik: true, chat: CHAT,
+    apiKey: "test-key",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    email: "ops@example.com",
+    skipTraefik: true,
+    chat: CHAT,
   }
   return new AgentServer(config, new FakeRuntime(), { chatExecutor: executor })
 }
@@ -54,23 +66,26 @@ function parseSse(text: string): ChatEvent[] {
 async function deploySite(server: AgentServer, name: string, html: string): Promise<void> {
   const res = await server.handleRequestForTest(
     new Request(`http://x/sites/${name}`, {
-      method: "POST", headers: GOD_ZIP,
+      method: "POST",
+      headers: GOD_ZIP,
       body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
-    })
+    }),
   )
   expect(res.status).toBe(200)
 }
 
 async function editCookie(server: AgentServer, name: string): Promise<string> {
   const mint = await server.handleRequestForTest(
-    new Request(`http://x/sites/${name}/edit-link`, { method: "POST", headers: GOD_JSON, body: "{}" })
+    new Request(`http://x/sites/${name}/edit-link`, { method: "POST", headers: GOD_JSON, body: "{}" }),
   )
   const code = ((await mint.json()) as { data: EditLinkCreated }).data.code
   const ex = await server.handleRequestForTest(
     new Request("https://x/_siteio/edit/session", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
     }),
-    `${name}.example.com`
+    `${name}.example.com`,
   )
   const m = (ex.headers.get("set-cookie") || "").match(/siteio_edit=([^;]+)/)!
   return `siteio_edit=${m[1]}`
@@ -93,16 +108,18 @@ describe("API: edit-session chat (scoped, kind-gated)", () => {
     // History GET works over the cookie.
     const hist = await server.handleRequestForTest(
       new Request("https://x/_siteio/sites/blog/chat", { headers: { cookie } }),
-      SITE_HOST
+      SITE_HOST,
     )
     expect(hist.status).toBe(200)
 
     // Run a turn.
     const res = await server.handleRequestForTest(
       new Request("https://x/_siteio/sites/blog/chat", {
-        method: "POST", headers: { cookie, "Content-Type": "application/json" }, body: JSON.stringify({ message: "make it new" }),
+        method: "POST",
+        headers: { cookie, "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "make it new" }),
       }),
-      SITE_HOST
+      SITE_HOST,
     )
     expect(res.headers.get("content-type")).toContain("text/event-stream")
     const events = parseSse(await res.text())
@@ -112,7 +129,9 @@ describe("API: edit-session chat (scoped, kind-gated)", () => {
     expect(done!.message.versionAfter).toBe(2)
 
     // Site version bumped.
-    const site = (await (await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))).json()) as { data: { version: number } }
+    const site = (await (
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))
+    ).json()) as { data: { version: number } }
     expect(site.data.version).toBe(2)
   })
 
@@ -121,14 +140,16 @@ describe("API: edit-session chat (scoped, kind-gated)", () => {
     const s = makeServer(dataDir, executor)
     await deploySite(s, "shop", "<h1>Old</h1>")
     const mint = await s.handleRequestForTest(
-      new Request(`http://x/sites/shop/edit-link`, { method: "POST", headers: GOD_JSON, body: "{}" })
+      new Request(`http://x/sites/shop/edit-link`, { method: "POST", headers: GOD_JSON, body: "{}" }),
     )
     const code = ((await mint.json()) as { data: EditLinkCreated }).data.code
     const ex = await s.handleRequestForTest(
       new Request("https://x/_siteio/edit/session", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
       }),
-      "shop.example.com"
+      "shop.example.com",
     )
     const cookie = `siteio_edit=${(ex.headers.get("set-cookie") || "").match(/siteio_edit=([^;]+)/)![1]}`
 
@@ -138,10 +159,16 @@ describe("API: edit-session chat (scoped, kind-gated)", () => {
         headers: { cookie, "Content-Type": "application/json" },
         body: JSON.stringify({
           message: "make this dark blue",
-          target: { kind: "element", selector: ".hero h1", tag: "h1", text: "Welcome", styles: { color: "rgb(0,0,0)" } },
+          target: {
+            kind: "element",
+            selector: ".hero h1",
+            tag: "h1",
+            text: "Welcome",
+            styles: { color: "rgb(0,0,0)" },
+          },
         }),
       }),
-      "shop.example.com"
+      "shop.example.com",
     )
     const done = parseSse(await res.text()).find((e) => e.kind === "done") as Extract<ChatEvent, { kind: "done" }>
     expect(done.message.deployed).toBe(true)
@@ -156,25 +183,28 @@ describe("API: edit-session chat (scoped, kind-gated)", () => {
   test("a classic share grant cannot reach the chat surface", async () => {
     // Mint a classic share (login token → X-API-Key).
     const g = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/grants", { method: "POST", headers: GOD_JSON, body: "{}" })
+      new Request("http://x/sites/blog/grants", { method: "POST", headers: GOD_JSON, body: "{}" }),
     )
     const share = ((await g.json()) as { data: ShareGrantCreated }).data
 
     const res = await server.handleRequestForTest(
       new Request("https://x/_siteio/sites/blog/chat", {
-        method: "POST", headers: { "X-API-Key": share.code, "Content-Type": "application/json" }, body: JSON.stringify({ message: "hi" }),
+        method: "POST",
+        headers: { "X-API-Key": share.code, "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "hi" }),
       }),
-      SITE_HOST
+      SITE_HOST,
     )
     expect(res.status).toBe(403)
 
     // …but the classic share's normal scoped deploy still works.
     const dep = await server.handleRequestForTest(
       new Request("https://x/_siteio/sites/blog", {
-        method: "POST", headers: { "X-API-Key": share.code, "Content-Type": "application/zip" },
+        method: "POST",
+        headers: { "X-API-Key": share.code, "Content-Type": "application/zip" },
         body: zipSync({ "public/index.html": new TextEncoder().encode("<h1>Shared</h1>") }),
       }),
-      SITE_HOST
+      SITE_HOST,
     )
     expect(dep.status).toBe(200)
   })
@@ -183,7 +213,7 @@ describe("API: edit-session chat (scoped, kind-gated)", () => {
     const cookie = await editCookie(server, "blog")
     const res = await server.handleRequestForTest(
       new Request("https://x/_siteio/sites/blog/chat", { method: "DELETE", headers: { cookie } }),
-      SITE_HOST
+      SITE_HOST,
     )
     expect(res.status).toBe(403)
   })

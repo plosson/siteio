@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
+import { spawn } from "bun"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { spawn } from "bun"
 import type { AppServiceStatus } from "../../types"
 
 /**
@@ -42,7 +42,10 @@ beforeAll(() => {
       paths.push(url.pathname + url.search)
       if (url.pathname === "/apps" && req.method === "POST") {
         if (createStatus !== 200) return json({ success: false, error: "App 'testapp' already exists" }, createStatus)
-        return json({ success: true, data: { name: "testapp", image: "nginx", status: "pending", internalPort: 80, domains: [] } })
+        return json({
+          success: true,
+          data: { name: "testapp", image: "nginx", status: "pending", internalPort: 80, domains: [] },
+        })
       }
       if (url.pathname === "/apps/testapp/deploy") {
         return json({
@@ -77,7 +80,7 @@ beforeAll(() => {
   mkdirSync(cfgDir, { recursive: true })
   writeFileSync(
     join(cfgDir, "config.json"),
-    JSON.stringify({ current: "test", servers: { test: { apiUrl: `http://127.0.0.1:${port}`, apiKey: "k" } } })
+    JSON.stringify({ current: "test", servers: { test: { apiUrl: `http://127.0.0.1:${port}`, apiKey: "k" } } }),
   )
 })
 
@@ -165,7 +168,10 @@ describe("CLI: apps deploy checks", () => {
     expect(r.exitCode).toBe(0)
     const parsed = JSON.parse(r.stdout)
     expect(parsed.success).toBe(true)
-    expect(parsed.checks).toEqual({ services: [], url: { url: `http://127.0.0.1:${port}/public`, ok: true, status: 200 } })
+    expect(parsed.checks).toEqual({
+      services: [],
+      url: { url: `http://127.0.0.1:${port}/public`, ok: true, status: 200 },
+    })
     expect(paths.filter((p) => p === "/apps/testapp/status").length).toBeGreaterThan(1)
   }, 30000)
 })

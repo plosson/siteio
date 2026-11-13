@@ -1,12 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { UserStore } from "../../lib/agent/user-store.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ApiResponse, MeInfo, Tenant, UserKeyInfo } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 const FRIEND: Tenant = { domain: "friend.com", apiKey: "key-friend", createdAt: "2026-10-19T00:00:00.000Z" }
 
@@ -18,11 +18,15 @@ describe("API: password login and sessions", () => {
   const call = (path: string, init: RequestInit = {}, host = "localhost", peer = "127.0.0.1") =>
     server.handleRequestForTest(new Request(`http://x${path}`, init), host, peer)
   const login = (username: string, password: string, host = "localhost", ip = "1.1.1.1") =>
-    call("/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Siteio-UI": "1", "X-Forwarded-For": ip },
-      body: JSON.stringify({ username, password }),
-    }, host)
+    call(
+      "/auth/login",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Siteio-UI": "1", "X-Forwarded-For": ip },
+        body: JSON.stringify({ username, password }),
+      },
+      host,
+    )
   const cookieOf = (res: Response) => res.headers.get("set-cookie")!.split(";")[0]!
   const ui = (cookie: string, extra: Record<string, string> = {}) => ({ Cookie: cookie, "X-Siteio-UI": "1", ...extra })
 
@@ -33,8 +37,13 @@ describe("API: password login and sessions", () => {
     await users.create({ username: "alice", role: "member", password: "alice password" })
     await users.create({ username: "tom", role: "member", tenant: "friend.com", password: "tom password" })
     const config: AgentConfig = {
-      apiKey: "god-key", dataDir, domain: "example.com",
-      maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+      apiKey: "god-key",
+      dataDir,
+      domain: "example.com",
+      maxUploadSize: 50 * 1024 * 1024,
+      httpPort: 8080,
+      httpsPort: 8443,
+      skipTraefik: true,
       tenants: [FRIEND],
     }
     server = new AgentServer(config, new FakeRuntime())
@@ -46,7 +55,8 @@ describe("API: password login and sessions", () => {
     expect(res.status).toBe(200)
     const cookie = res.headers.get("set-cookie")!
     expect(cookie).toStartWith("siteio_session=usr_")
-    for (const attr of ["Path=/", "HttpOnly", "Secure", "SameSite=Strict", "Max-Age=604800"]) expect(cookie).toContain(attr)
+    for (const attr of ["Path=/", "HttpOnly", "Secure", "SameSite=Strict", "Max-Age=604800"])
+      expect(cookie).toContain(attr)
     expect(cookie).not.toContain("Domain=")
   })
 
@@ -59,7 +69,9 @@ describe("API: password login and sessions", () => {
   test("X-API-Key wins over a session cookie", async () => {
     const cookie = cookieOf(await login("alice", "alice password"))
     expect((await call("/sites", { headers: ui(cookie, { "X-API-Key": "wrong" }) })).status).toBe(401)
-    const info = (await (await call("/agent", { headers: ui(cookie, { "X-API-Key": "god-key" }) })).json()) as ApiResponse<{ dataDir?: string }>
+    const info = (await (
+      await call("/agent", { headers: ui(cookie, { "X-API-Key": "god-key" }) })
+    ).json()) as ApiResponse<{ dataDir?: string }>
     expect(info.data!.dataDir).toBe(dataDir)
   })
 
@@ -102,13 +114,16 @@ describe("API: password login and sessions", () => {
   })
 
   test("10 failures from one IP answer 429; another IP still logs in", async () => {
-    for (let i = 0; i < 10; i++) expect((await login("alice", "wrong password", "localhost", "6.6.6.6")).status).toBe(401)
+    for (let i = 0; i < 10; i++)
+      expect((await login("alice", "wrong password", "localhost", "6.6.6.6")).status).toBe(401)
     expect((await login("alice", "alice password", "localhost", "6.6.6.6")).status).toBe(429)
     expect((await login("alice", "alice password", "localhost", "7.7.7.7")).status).toBe(200)
   })
 
   test("a burst of parallel wrong logins from one IP is capped at 10 attempts", async () => {
-    const answers = await Promise.all(Array.from({ length: 20 }, () => login("alice", "wrong password", "localhost", "8.8.8.8")))
+    const answers = await Promise.all(
+      Array.from({ length: 20 }, () => login("alice", "wrong password", "localhost", "8.8.8.8")),
+    )
     const statuses = answers.map((r) => r.status)
     expect(statuses.filter((s) => s === 401).length).toBeLessThanOrEqual(10)
     expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(10)
@@ -118,26 +133,40 @@ describe("API: password login and sessions", () => {
   test("a burst of parallel wrong current passwords on /me/password is capped too", async () => {
     const cookie = cookieOf(await login("alice", "alice password"))
     const change = () =>
-      call("/me/password", {
-        method: "POST",
-        headers: ui(cookie, { "Content-Type": "application/json", "X-Forwarded-For": "8.8.4.4" }),
-        body: JSON.stringify({ current: "wrong password", new: "new password!" }),
-      }, "localhost", "10.0.0.1")
+      call(
+        "/me/password",
+        {
+          method: "POST",
+          headers: ui(cookie, { "Content-Type": "application/json", "X-Forwarded-For": "8.8.4.4" }),
+          body: JSON.stringify({ current: "wrong password", new: "new password!" }),
+        },
+        "localhost",
+        "10.0.0.1",
+      )
     const statuses = (await Promise.all(Array.from({ length: 20 }, change))).map((r) => r.status)
     expect(statuses.filter((s) => s === 403).length).toBeLessThanOrEqual(10)
     expect(statuses.filter((s) => s === 429).length).toBeGreaterThanOrEqual(10)
   })
 
   test("successful logins don't use up the failure budget", async () => {
-    for (let i = 0; i < 15; i++) expect((await login("alice", "alice password", "localhost", "5.5.5.5")).status).toBe(200)
+    for (let i = 0; i < 15; i++)
+      expect((await login("alice", "alice password", "localhost", "5.5.5.5")).status).toBe(200)
   })
 
   test("a malformed percent-encoded session cookie is just unauthenticated", async () => {
     expect((await call("/sites", { headers: ui("siteio_session=%E0") })).status).toBe(401)
     const zip = zipSync({ "public/index.html": new TextEncoder().encode("hi") })
-    const deployed = await call("/sites/blog", { method: "POST", headers: { "X-API-Key": "god-key", "Content-Type": "application/zip" }, body: zip })
+    const deployed = await call("/sites/blog", {
+      method: "POST",
+      headers: { "X-API-Key": "god-key", "Content-Type": "application/zip" },
+      body: zip,
+    })
     expect(deployed.status).toBe(200)
-    const res = await call("/_siteio/sites/blog/download", { headers: ui("siteio_session=%E0; siteio_edit=%E0") }, "blog.example.com")
+    const res = await call(
+      "/_siteio/sites/blog/download",
+      { headers: ui("siteio_session=%E0; siteio_edit=%E0") },
+      "blog.example.com",
+    )
     expect(res.status).toBeGreaterThanOrEqual(400)
     expect(res.status).toBeLessThan(500)
   })
@@ -190,9 +219,14 @@ describe("API: password login and sessions", () => {
     const me = ((await (await call("/me", { headers: ui(cookie) })).json()) as ApiResponse<MeInfo>).data!
     expect(me).toMatchObject({ username: "alice", role: "member", tenant: null })
     expect(me.currentKeyId).toMatch(/^key_/)
-    const god = ((await (await call("/me", { headers: { "X-API-Key": "god-key" } })).json()) as ApiResponse<MeInfo>).data!
+    const god = ((await (await call("/me", { headers: { "X-API-Key": "god-key" } })).json()) as ApiResponse<MeInfo>)
+      .data!
     expect(god).toEqual({ username: null, role: "admin", tenant: null, currentKeyId: null })
-    const ten = ((await (await call("/me", { headers: { "X-API-Key": "key-friend" } }, "api.friend.com")).json()) as ApiResponse<MeInfo>).data!
+    const ten = (
+      (await (
+        await call("/me", { headers: { "X-API-Key": "key-friend" } }, "api.friend.com")
+      ).json()) as ApiResponse<MeInfo>
+    ).data!
     expect(ten).toEqual({ username: null, role: "owner", tenant: "friend.com", currentKeyId: null })
   })
 
@@ -201,7 +235,11 @@ describe("API: password login and sessions", () => {
     const other = cookieOf(await login("alice", "alice password"))
     const { secret: machine } = users.addKey("alice", "machine", "m")
     const change = (current: string, next: string) =>
-      call("/me/password", { method: "POST", headers: ui(mine, { "Content-Type": "application/json" }), body: JSON.stringify({ current, new: next }) })
+      call("/me/password", {
+        method: "POST",
+        headers: ui(mine, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ current, new: next }),
+      })
     expect((await change("wrong password", "new password!")).status).toBe(403)
     expect((await change("alice password", "short")).status).toBe(400)
     expect((await change("alice password", "new password!")).status).toBe(200)
@@ -211,7 +249,11 @@ describe("API: password login and sessions", () => {
   })
 
   test("the god key has no password to change", async () => {
-    const res = await call("/me/password", { method: "POST", headers: { "X-API-Key": "god-key" }, body: JSON.stringify({ current: "x", new: "new password!" }) })
+    const res = await call("/me/password", {
+      method: "POST",
+      headers: { "X-API-Key": "god-key" },
+      body: JSON.stringify({ current: "x", new: "new password!" }),
+    })
     expect(res.status).toBe(400)
   })
 

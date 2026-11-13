@@ -1,8 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { spawn } from "bun"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { UserStore } from "../../lib/agent/user-store.ts"
 
 // `siteio agent tenant` edits <dataDir>/agent-config.json on the box.
@@ -60,7 +60,10 @@ describe("CLI: agent tenant", () => {
   test("remove refuses while the tenant still has sites", async () => {
     await runCli(["agent", "tenant", "add", "friend.com"])
     mkdirSync(join(dataDir, "pockets"), { recursive: true })
-    writeFileSync(join(dataDir, "pockets", "blog--friend-com.json"), JSON.stringify({ name: "blog--friend-com", domains: [] }))
+    writeFileSync(
+      join(dataDir, "pockets", "blog--friend-com.json"),
+      JSON.stringify({ name: "blog--friend-com", domains: [] }),
+    )
     const res = await runCli(["agent", "tenant", "remove", "friend.com"])
     expect(res.exitCode).toBe(1)
     expect(config().tenants).toHaveLength(1)
@@ -93,8 +96,14 @@ describe("CLI: agent tenant", () => {
     const tenants = config().tenants as { domain: string; platformPaths?: boolean }[]
     expect(tenants.find((t) => t.domain === "b.app")!.platformPaths).toBe(false)
     expect("platformPaths" in tenants.find((t) => t.domain === "friend.com")!).toBe(false)
-    const list = JSON.parse((await runCli(["--json", "agent", "tenant", "list"])).stdout) as { domain: string; platformPaths: boolean }[]
-    expect(list.map((t) => [t.domain, t.platformPaths])).toEqual([["friend.com", true], ["b.app", false]])
+    const list = JSON.parse((await runCli(["--json", "agent", "tenant", "list"])).stdout) as {
+      domain: string
+      platformPaths: boolean
+    }[]
+    expect(list.map((t) => [t.domain, t.platformPaths])).toEqual([
+      ["friend.com", true],
+      ["b.app", false],
+    ])
   })
 
   test("add refuses a value given to --no-platform-paths", async () => {
@@ -105,7 +114,10 @@ describe("CLI: agent tenant", () => {
   test("remove refuses while the tenant still has apps", async () => {
     await runCli(["agent", "tenant", "add", "vaults.net", "--apps"])
     mkdirSync(join(dataDir, "apps"), { recursive: true })
-    writeFileSync(join(dataDir, "apps", "vault--vaults-net.json"), JSON.stringify({ name: "vault--vaults-net", domains: [] }))
+    writeFileSync(
+      join(dataDir, "apps", "vault--vaults-net.json"),
+      JSON.stringify({ name: "vault--vaults-net", domains: [] }),
+    )
     const res = await runCli(["agent", "tenant", "remove", "vaults.net"])
     expect(res.exitCode).toBe(1)
     expect(res.stderr).toContain("vault--vaults-net")
@@ -123,7 +135,10 @@ describe("CLI: agent tenant", () => {
 
   test("add refuses when an existing site key already ends with the tenant slug", async () => {
     mkdirSync(join(dataDir, "pockets"), { recursive: true })
-    writeFileSync(join(dataDir, "pockets", "blog--friend-com.json"), JSON.stringify({ name: "blog--friend-com", domains: [] }))
+    writeFileSync(
+      join(dataDir, "pockets", "blog--friend-com.json"),
+      JSON.stringify({ name: "blog--friend-com", domains: [] }),
+    )
     const res = await runCli(["agent", "tenant", "add", "friend.com"])
     expect(res.exitCode).toBe(1)
     expect(res.stderr).toContain("blog--friend-com")

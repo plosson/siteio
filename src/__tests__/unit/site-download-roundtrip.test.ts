@@ -1,11 +1,11 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { unzipSync, zipSync } from "fflate"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
-import { zipSync, unzipSync } from "fflate"
+import { join } from "path"
 import { collectSiteFiles } from "../../commands/sites/deploy.ts"
-import { toLocalPath } from "../../lib/site-layout.ts"
 import { SiteStorage } from "../../lib/agent/storage.ts"
+import { toLocalPath } from "../../lib/site-layout.ts"
 import type { Site } from "../../types.ts"
 
 // Full layout round-trip: local project -> deploy artifact -> server code store
@@ -43,7 +43,11 @@ describe("Unit: pocket download round-trip", () => {
   })
 
   const base = (name: string): Omit<Site, "createdAt" | "updatedAt"> => ({
-    name, domains: [`${name}.example.com`], pocketbaseVersion: "0.23.4", status: "pending", size: 0,
+    name,
+    domains: [`${name}.example.com`],
+    pocketbaseVersion: "0.23.4",
+    status: "pending",
+    size: 0,
   })
 
   test("reconstructs the original project layout", async () => {

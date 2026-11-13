@@ -3,7 +3,7 @@
 // owns only the fiddly SSE transport — a POST that returns a `text/event-stream`
 // body, read incrementally and split into `ChatEvent`s — and knows nothing about
 // how either UI renders them. Attaches to `window.SiteioChat`.
-;(function (global) {
+;((global) => {
   // Parse one raw SSE frame (the text between blank lines) into ChatEvent
   // objects. `: ping` heartbeat comment lines carry no `data:` and are skipped.
   function parseFrame(frame) {

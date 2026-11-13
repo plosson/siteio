@@ -2,7 +2,7 @@
 // send it. Best-effort: a failed batch is logged and dropped. Ticks never overlap.
 import type { AnalyticsBatch } from "../../../types.ts"
 import { buildBatch, type Resolve } from "./batch.ts"
-import { parseEntry, type AccessLogEntry } from "./classify.ts"
+import { type AccessLogEntry, parseEntry } from "./classify.ts"
 import type { AccessLogTailer } from "./tailer.ts"
 
 export interface PumpDeps {
@@ -23,7 +23,7 @@ export class AnalyticsPump {
 
   constructor(
     private deps: PumpDeps,
-    private intervalMs: number = INTERVAL_MS
+    private intervalMs: number = INTERVAL_MS,
   ) {}
 
   start(): void {

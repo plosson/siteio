@@ -1,9 +1,9 @@
 // src/__tests__/helpers/fake-runtime.ts
-import type { BuildConfig, ContainerRunConfig } from "../../lib/agent/docker"
-import type { ContainerInspect } from "../../types"
-import type { Runtime } from "../../lib/agent/runtime"
+
 import type { ComposeSpec } from "../../lib/agent/compose"
-import type { ComposeLogsOptions, ComposeServiceState } from "../../lib/agent/runtime"
+import type { BuildConfig, ContainerRunConfig } from "../../lib/agent/docker"
+import type { ComposeLogsOptions, ComposeServiceState, Runtime } from "../../lib/agent/runtime"
+import type { ContainerInspect } from "../../types"
 
 export interface RecordedCall {
   method: string
@@ -37,9 +37,7 @@ export class FakeRuntime implements Runtime {
   // Compose fixtures
   composeConfigReturn: ComposeSpec = { services: { web: {} } }
   composeConfigError: Error | null = null
-  composePsReturn: ComposeServiceState[] = [
-    { service: "web", containerId: "fake-web-id", state: "running" },
-  ]
+  composePsReturn: ComposeServiceState[] = [{ service: "web", containerId: "fake-web-id", state: "running" }]
   composeLogsReturn = ""
 
   private record(method: string, args: unknown[]): void {
@@ -127,11 +125,7 @@ export class FakeRuntime implements Runtime {
     return this.inspectReturn
   }
 
-  buildTraefikLabels(
-    appName: string,
-    domains: string[],
-    port: number
-  ): Record<string, string> {
+  buildTraefikLabels(appName: string, domains: string[], port: number): Record<string, string> {
     this.record("buildTraefikLabels", [appName, domains, port])
     const containerName = `siteio-${appName}`
     return {
@@ -178,7 +172,7 @@ export class FakeRuntime implements Runtime {
     project: string,
     files: string[],
     envFile: string | undefined,
-    opts: ComposeLogsOptions
+    opts: ComposeLogsOptions,
   ): Promise<string> {
     this.record("composeLogs", [project, files, envFile, opts])
     return this.composeLogsReturn

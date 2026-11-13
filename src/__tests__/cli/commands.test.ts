@@ -1,11 +1,11 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { spawn } from "bun"
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 const TEST_PORT = 4568
 const TEST_API_KEY = "integration-test-key"
@@ -34,7 +34,7 @@ describe("CLI: Commands", () => {
       JSON.stringify({
         apiUrl: `http://localhost:${TEST_PORT}`,
         apiKey: TEST_API_KEY,
-      })
+      }),
     )
 
     // Start server
@@ -60,7 +60,10 @@ describe("CLI: Commands", () => {
     if (existsSync(configDir)) rmSync(configDir, { recursive: true })
   })
 
-  async function runCli(args: string[], env: Record<string, string> = {}): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  async function runCli(
+    args: string[],
+    env: Record<string, string> = {},
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     const proc = spawn({
       cmd: ["bun", "run", "src/cli.ts", ...args],
       cwd: process.cwd(),
@@ -74,10 +77,7 @@ describe("CLI: Commands", () => {
       stderr: "pipe",
     })
 
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ])
+    const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
 
     const exitCode = await proc.exited
 
@@ -111,7 +111,7 @@ describe("CLI: Commands", () => {
       JSON.stringify({
         apiUrl: `http://localhost:${TEST_PORT}`,
         apiKey: TEST_API_KEY,
-      })
+      }),
     )
 
     const result = await runCli(["--json", "sites", "list"])
@@ -179,7 +179,7 @@ describe("CLI: Commands", () => {
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain("_siteio")
     expect(result.stdout).toContain("complete -F _siteio siteio")
-    expect(result.stdout).toContain("rm domain stop start\"")
+    expect(result.stdout).toContain('rm domain stop start"')
     expect(result.stdout).toContain("deploy stop start restart")
   })
 
@@ -197,9 +197,9 @@ describe("CLI: Commands", () => {
     const result = await runCli(["completion", "fish"])
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain("complete -c siteio")
-    expect(result.stdout).toContain("from sites\" -a start")
-    expect(result.stdout).toContain("from sites\" -a stop")
-    expect(result.stdout).toContain("from apps\" -a start")
+    expect(result.stdout).toContain('from sites" -a start')
+    expect(result.stdout).toContain('from sites" -a stop')
+    expect(result.stdout).toContain('from apps" -a start')
   })
 
   test("should reject invalid shell for completion", async () => {

@@ -1,18 +1,18 @@
 import * as p from "@clack/prompts"
 import chalk from "chalk"
+import { getAgentDataDir, loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
+import { parseAutoDeployInterval } from "../../lib/agent/auto-deploy.ts"
 import { AgentServer } from "../../lib/agent/server.ts"
+import type { AcmeConfig, AgentConfig, ChatConfig } from "../../types.ts"
 import { formatError } from "../../utils/output.ts"
 import { encodeToken, generateApiKey } from "../../utils/token.ts"
-import { parseAutoDeployInterval } from "../../lib/agent/auto-deploy.ts"
-import { getAgentDataDir, loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
-import type { AgentConfig, AcmeConfig, ChatConfig } from "../../types.ts"
 
 // Assemble the AI site-chat config from env (wins) then persisted config. The
 // feature is only attached when a credential is present, so an unconfigured
 // agent transparently hides the chat surface. Token/key are never logged.
 function buildChatConfig(
   env: NodeJS.ProcessEnv,
-  persisted: { llmProvider?: string; llmModel?: string; llmOauthToken?: string; llmApiKey?: string }
+  persisted: { llmProvider?: string; llmModel?: string; llmOauthToken?: string; llmApiKey?: string },
 ): ChatConfig | undefined {
   const oauthToken = env.SITEIO_LLM_OAUTH_TOKEN || env.CLAUDE_CODE_OAUTH_TOKEN || persisted.llmOauthToken
   const apiKey = env.SITEIO_LLM_API_KEY || persisted.llmApiKey
@@ -100,7 +100,9 @@ export async function startAgentCommand(): Promise<void> {
   const apiKey = process.env.SITEIO_API_KEY || persistedConfig.apiKey
   const maxUploadSize = parseSize(process.env.SITEIO_MAX_UPLOAD_SIZE || "50MB")
   // Zip-bomb bounds for uploaded site code; unset falls back to the defaults in zip-limits.ts.
-  const maxUnzippedSize = process.env.SITEIO_MAX_UNZIPPED_SIZE ? parseSize(process.env.SITEIO_MAX_UNZIPPED_SIZE) : undefined
+  const maxUnzippedSize = process.env.SITEIO_MAX_UNZIPPED_SIZE
+    ? parseSize(process.env.SITEIO_MAX_UNZIPPED_SIZE)
+    : undefined
   const zipEntriesEnv = parseInt(process.env.SITEIO_MAX_ZIP_ENTRIES || "", 10)
   const maxZipEntries = Number.isFinite(zipEntriesEnv) && zipEntriesEnv > 0 ? zipEntriesEnv : undefined
   const httpPort = parseInt(process.env.SITEIO_HTTP_PORT || "80", 10)
@@ -109,16 +111,15 @@ export async function startAgentCommand(): Promise<void> {
 
   // Apps default to enabled; disable on hosts that should only allow sites.
   // Env var wins over persisted config; both fall back to enabled.
-  const appsEnabled = parseBool(
-    process.env.SITEIO_APPS_ENABLED ?? persistedConfig.appsEnabled,
-    true
-  )
+  const appsEnabled = parseBool(process.env.SITEIO_APPS_ENABLED ?? persistedConfig.appsEnabled, true)
 
   // Seconds between auto-deploy checks. Env var wins over persisted config.
   let autoDeployInterval: number
   try {
     // An empty env var counts as unset
-    autoDeployInterval = parseAutoDeployInterval(process.env.SITEIO_AUTODEPLOY_INTERVAL || persistedConfig.autoDeployInterval)
+    autoDeployInterval = parseAutoDeployInterval(
+      process.env.SITEIO_AUTODEPLOY_INTERVAL || persistedConfig.autoDeployInterval,
+    )
   } catch (err) {
     console.error(formatError((err as Error).message))
     process.exit(1)
@@ -196,7 +197,7 @@ export async function startAgentCommand(): Promise<void> {
   console.log(`  Apps:       ${appsEnabled ? "enabled" : "disabled"}`)
   console.log(`  Auto-deploy: every ${autoDeployInterval}s`)
   console.log(
-    `  Chat:       ${chat ? `enabled (${chat.provider}${chat.model ? "/" + chat.model : ""}, ${chat.sandbox ? "sandboxed" : "host"})` : "disabled (no LLM credential)"}`
+    `  Chat:       ${chat ? `enabled (${chat.provider}${chat.model ? "/" + chat.model : ""}, ${chat.sandbox ? "sandboxed" : "host"})` : "disabled (no LLM credential)"}`,
   )
   console.log(`  Pager:      ${pagerUrl ? "enabled" : "disabled (set PAGERIO_URL or pagerUrl)"}`)
   console.log(`  Ranking:    ${rankingUrl ? "enabled" : "disabled (set RANKING_URL or rankingUrl)"}`)

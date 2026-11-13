@@ -1,17 +1,22 @@
-import { describe, test, expect } from "bun:test"
-import { zipSync, unzipSync, strToU8 } from "fflate"
+import { describe, expect, test } from "bun:test"
+import { strToU8, unzipSync, zipSync } from "fflate"
 import {
   checkZipDeclared,
+  DEFAULT_MAX_ZIP_ENTRIES,
   InvalidZipError,
   safeUnzip,
   ZipLimitError,
-  zipLimitsFor,
-  DEFAULT_MAX_ZIP_ENTRIES,
   type ZipLimits,
+  zipLimitsFor,
 } from "../../lib/agent/zip-limits.ts"
 
 const MB = 1024 * 1024
-const limits = (over: Partial<ZipLimits> = {}): ZipLimits => ({ maxUnzippedSize: 4 * MB, maxEntries: 100, timeoutMs: 30_000, ...over })
+const limits = (over: Partial<ZipLimits> = {}): ZipLimits => ({
+  maxUnzippedSize: 4 * MB,
+  maxEntries: 100,
+  timeoutMs: 30_000,
+  ...over,
+})
 
 // Rewrite the uncompressed size of every entry, in the local headers and the
 // central directory, so the archive lies about how big it expands.
@@ -33,8 +38,14 @@ const DATA_DESCRIPTOR_ZIP =
 
 describe("Unit: zip limits", () => {
   test("defaults: 10x the upload limit and a fixed entry cap, overridable", () => {
-    expect(zipLimitsFor({ maxUploadSize: 50 * MB })).toMatchObject({ maxUnzippedSize: 500 * MB, maxEntries: DEFAULT_MAX_ZIP_ENTRIES })
-    expect(zipLimitsFor({ maxUploadSize: 50 * MB, maxUnzippedSize: 7, maxZipEntries: 3 })).toMatchObject({ maxUnzippedSize: 7, maxEntries: 3 })
+    expect(zipLimitsFor({ maxUploadSize: 50 * MB })).toMatchObject({
+      maxUnzippedSize: 500 * MB,
+      maxEntries: DEFAULT_MAX_ZIP_ENTRIES,
+    })
+    expect(zipLimitsFor({ maxUploadSize: 50 * MB, maxUnzippedSize: 7, maxZipEntries: 3 })).toMatchObject({
+      maxUnzippedSize: 7,
+      maxEntries: 3,
+    })
   })
 
   test("a normal zip extracts exactly as unzipSync does (dirs, empty and stored files)", () => {

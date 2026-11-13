@@ -18,7 +18,11 @@ export const DEFAULT_UNZIP_TIMEOUT_MS = 30_000
 // MB (deflate tops out near 1032:1) and the deadline is checked often.
 const PUSH_CHUNK = 16 * 1024
 
-export function zipLimitsFor(config: { maxUploadSize: number; maxUnzippedSize?: number; maxZipEntries?: number }): ZipLimits {
+export function zipLimitsFor(config: {
+  maxUploadSize: number
+  maxUnzippedSize?: number
+  maxZipEntries?: number
+}): ZipLimits {
   return {
     maxUnzippedSize: config.maxUnzippedSize ?? config.maxUploadSize * UNZIPPED_SIZE_RATIO,
     maxEntries: config.maxZipEntries ?? DEFAULT_MAX_ZIP_ENTRIES,
@@ -77,7 +81,11 @@ export function checkZipDeclared(data: Uint8Array, limits: ZipLimits): void {
  * produced are counted, since a header's size can lie. Directory entries are
  * returned as empty buffers with a trailing "/" (as fflate's unzipSync does).
  */
-export function safeUnzip(data: Uint8Array, limits: ZipLimits, now: () => number = () => performance.now()): Record<string, Uint8Array> {
+export function safeUnzip(
+  data: Uint8Array,
+  limits: ZipLimits,
+  now: () => number = () => performance.now(),
+): Record<string, Uint8Array> {
   checkZipDeclared(data, limits)
 
   const deadline = now() + limits.timeoutMs

@@ -2,17 +2,17 @@ import * as p from "@clack/prompts"
 import chalk from "chalk"
 import {
   addServer,
-  switchServer,
-  listServers,
   extractDomain,
   getCliUser,
   getUsername,
+  listServers,
   setUsername,
+  switchServer,
 } from "../config/loader.ts"
-import { formatSuccess, formatError } from "../utils/output.ts"
-import { decodeToken } from "../utils/token.ts"
-import type { LoginOptions } from "../types.ts"
 import { apiHeaders } from "../lib/client.ts"
+import type { LoginOptions } from "../types.ts"
+import { formatError, formatSuccess } from "../utils/output.ts"
+import { decodeToken } from "../utils/token.ts"
 
 export async function loginCommand(options: LoginOptions, behavior: { exit?: boolean } = {}): Promise<void> {
   p.intro(chalk.bgCyan(" siteio login "))
@@ -140,7 +140,7 @@ export async function loginCommand(options: LoginOptions, behavior: { exit?: boo
           p.cancel("Login cancelled")
           process.exit(0)
         },
-      }
+      },
     )
 
     apiUrl = answers.apiUrl as string

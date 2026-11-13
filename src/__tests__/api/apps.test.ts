@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
-import { mkdtempSync, rmSync, existsSync } from "fs"
-import { join } from "path"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, rmSync } from "fs"
 import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server"
 import type { AgentConfig, ApiResponse, App, AppInfo, ContainerLogs } from "../../types"
 

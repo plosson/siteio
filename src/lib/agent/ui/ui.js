@@ -8,7 +8,7 @@ if (window.siteioCompanion?.present === true) document.documentElement.classList
 // The app's web view ignores app-region: pressing an empty part of the
 // sidebar, a pane header, or the sign-in background asks the app to move its
 // window. Controls keep their clicks.
-const WINDOW_CONTROLS = "a, button, input, select, textarea, label, summary, [role=\"button\"]"
+const WINDOW_CONTROLS = 'a, button, input, select, textarea, label, summary, [role="button"]'
 document.addEventListener("mousedown", (ev) => {
   if (!document.documentElement.classList.contains("app") || ev.button !== 0 || ev.detail > 1) return
   const target = ev.target
@@ -32,7 +32,11 @@ function siteioAdmin() {
 
     // account + users
     myKeys: null,
-    pwCurrent: "", pwNew: "", pwConfirm: "", pwError: "", pwPending: false,
+    pwCurrent: "",
+    pwNew: "",
+    pwConfirm: "",
+    pwError: "",
+    pwPending: false,
     users: null,
     usersForbidden: false, // GET /users answered 404 (member)
     showAddUser: false,
@@ -47,16 +51,23 @@ function siteioAdmin() {
     route: { view: "services", param: null, subtab: null },
 
     // data
-    services: null, agentInfo: null,
+    services: null,
+    agentInfo: null,
     // Card previews: "<kind>:<name>" -> object URL (blob-fetched with the API key).
     thumbs: {},
     serviceFilter: "all", // all | sites | apps
-    selectedSite: null, selectedApp: null,
+    selectedSite: null,
+    selectedApp: null,
     siteHistory: null,
 
     // chat (AI editor)
-    chatMessages: null, chatStatus: null, chatInput: "",
-    chatStreaming: false, chatLiveText: "", chatLiveTools: [], chatLiveStatus: "",
+    chatMessages: null,
+    chatStatus: null,
+    chatInput: "",
+    chatStreaming: false,
+    chatLiveText: "",
+    chatLiveTools: [],
+    chatLiveStatus: "",
     chatPollTimer: null,
     chatExamples: [
       "Change the main headline to something more welcoming",
@@ -172,8 +183,14 @@ function siteioAdmin() {
           headers: { "Content-Type": "application/json", "X-Siteio-UI": "1" },
           body: JSON.stringify({ username, password: this.passwordInput }),
         })
-        if (res.status === 409) { this.loginError = "No users on this server yet. Use the API key."; return }
-        if (res.status === 429) { this.loginError = "Too many failed attempts. Try again in a minute."; return }
+        if (res.status === 409) {
+          this.loginError = "No users on this server yet. Use the API key."
+          return
+        }
+        if (res.status === 429) {
+          this.loginError = "Too many failed attempts. Try again in a minute."
+          return
+        }
         if (!res.ok) {
           let hint = ""
           if (res.status === 401) {
@@ -246,21 +263,34 @@ function siteioAdmin() {
       this.resetFor = null
       this.showAddUser = false
       this.resetNewUser()
-      this.pwCurrent = ""; this.pwNew = ""; this.pwConfirm = ""; this.pwError = ""
+      this.pwCurrent = ""
+      this.pwNew = ""
+      this.pwConfirm = ""
+      this.pwError = ""
       this.shownPassword = null
     },
 
     onEscape() {
       // If the user is on a logs view (app or site), toggle auto-refresh off.
-      if ((this.route.view === "apps" || this.route.view === "sites") && this.route.subtab === "logs" && this.logsAuto) {
+      if (
+        (this.route.view === "apps" || this.route.view === "sites") &&
+        this.route.subtab === "logs" &&
+        this.logsAuto
+      ) {
         this.logsAuto = false
         this.stopLogsPoll()
       }
     },
 
     // Force Alpine reactivity by reassigning the Set after every mutation.
-    _pendAdd(key) { this.pending.add(key); this.pending = new Set(this.pending) },
-    _pendDel(key) { this.pending.delete(key); this.pending = new Set(this.pending) },
+    _pendAdd(key) {
+      this.pending.add(key)
+      this.pending = new Set(this.pending)
+    },
+    _pendDel(key) {
+      this.pending.delete(key)
+      this.pending = new Set(this.pending)
+    },
 
     logout() {
       this.stopLogsPoll()
@@ -289,14 +319,18 @@ function siteioAdmin() {
         this.me = (await res.json()).data
         this.authed = true
         this.onRouteEnter()
-      } catch { /* stay on the login screen */ }
+      } catch {
+        /* stay on the login screen */
+      }
     },
 
     async loadMe() {
       try {
         const res = await this.apiFetch("/me")
         if (res.ok) this.me = (await res.json()).data
-      } catch { /* 401 is handled by apiFetch */ }
+      } catch {
+        /* 401 is handled by apiFetch */
+      }
     },
 
     canManageUsers() {
@@ -318,8 +352,14 @@ function siteioAdmin() {
 
     async changePassword() {
       this.pwError = ""
-      if (this.pwNew.length < 8) { this.pwError = "The new password must be at least 8 characters."; return }
-      if (this.pwNew !== this.pwConfirm) { this.pwError = "The new passwords do not match."; return }
+      if (this.pwNew.length < 8) {
+        this.pwError = "The new password must be at least 8 characters."
+        return
+      }
+      if (this.pwNew !== this.pwConfirm) {
+        this.pwError = "The new passwords do not match."
+        return
+      }
       this.pwPending = true
       try {
         const res = await this.apiFetch("/me/password", {
@@ -328,7 +368,9 @@ function siteioAdmin() {
           body: JSON.stringify({ current: this.pwCurrent, new: this.pwNew }),
         }).catch(() => null)
         if (res && res.ok) {
-          this.pwCurrent = ""; this.pwNew = ""; this.pwConfirm = ""
+          this.pwCurrent = ""
+          this.pwNew = ""
+          this.pwConfirm = ""
           this.toast("success", "Password changed. Your other browser sessions were signed out.")
           this.loadMyKeys()
           return
@@ -340,17 +382,30 @@ function siteioAdmin() {
       }
     },
 
-    keyKindLabel(k) { return k.kind === "session" ? "Browser session" : "CLI login" },
-    shortDate(iso) { return iso ? String(iso).slice(0, 10) : "" },
+    keyKindLabel(k) {
+      return k.kind === "session" ? "Browser session" : "CLI login"
+    },
+    shortDate(iso) {
+      return iso ? String(iso).slice(0, 10) : ""
+    },
 
     // --- Users (admin and tenant owners) ---
-    isAdmin() { return !!this.me && this.me.role === "admin" },
+    isAdmin() {
+      return !!this.me && this.me.role === "admin"
+    },
 
     async loadUsers() {
       this.usersForbidden = false
       const res = await this.apiFetch("/users").catch(() => null)
-      if (res && res.status === 404) { this.usersForbidden = true; this.users = []; return }
-      if (res && res.ok) { this.users = (await res.json()).data; return }
+      if (res && res.status === 404) {
+        this.usersForbidden = true
+        this.users = []
+        return
+      }
+      if (res && res.ok) {
+        this.users = (await res.json()).data
+        return
+      }
       const data = res ? await res.json().catch(() => ({})) : {}
       this.users = []
       this.toast("error", data.error || "Could not load users")
@@ -371,19 +426,32 @@ function siteioAdmin() {
       if (this.newUser.role === "owner" && !this.newUser.tenant) this.newUser.tenant = this.tenantList()[0] || ""
     },
 
-    tenantList() { return (this.agentInfo && this.agentInfo.tenants) || [] },
+    tenantList() {
+      return (this.agentInfo && this.agentInfo.tenants) || []
+    },
 
     // An owner needs a tenant to belong to.
-    ownerWithoutTenant() { return this.isAdmin() && this.newUser.role === "owner" && this.tenantList().length === 0 },
+    ownerWithoutTenant() {
+      return this.isAdmin() && this.newUser.role === "owner" && this.tenantList().length === 0
+    },
 
     async addUser() {
       this.addUserError = ""
       const u = this.newUser
       const username = u.username.trim().toLowerCase()
       const role = this.isAdmin() ? u.role : "member"
-      if (!username) { this.addUserError = "Username is required."; return }
-      if (role === "owner" && !u.tenant) { this.addUserError = "An owner needs a tenant domain. Choose a scope other than the main domain."; return }
-      if (u.passwordMode === "set" && u.password.length < 8) { this.addUserError = "The password must be at least 8 characters."; return }
+      if (!username) {
+        this.addUserError = "Username is required."
+        return
+      }
+      if (role === "owner" && !u.tenant) {
+        this.addUserError = "An owner needs a tenant domain. Choose a scope other than the main domain."
+        return
+      }
+      if (u.passwordMode === "set" && u.password.length < 8) {
+        this.addUserError = "The password must be at least 8 characters."
+        return
+      }
       const body = { username, role }
       if (this.isAdmin() && role !== "admin" && u.tenant) body.tenant = u.tenant
       if (u.passwordMode === "set") body.password = u.password
@@ -395,7 +463,10 @@ function siteioAdmin() {
           body: JSON.stringify(body),
         }).catch(() => null)
         const data = res ? await res.json().catch(() => ({})) : {}
-        if (!res || !res.ok) { this.addUserError = data.error || "Could not add the user"; return }
+        if (!res || !res.ok) {
+          this.addUserError = data.error || "Could not add the user"
+          return
+        }
         const out = data.data
         if (out.generated && out.password) this.shownPassword = { username: out.user.username, password: out.password }
         else this.toast("success", `User ${out.user.username} created`)
@@ -425,7 +496,10 @@ function siteioAdmin() {
 
     async resetUserPassword(username) {
       this.reset.error = ""
-      if (this.reset.mode === "set" && this.reset.password.length < 8) { this.reset.error = "The password must be at least 8 characters."; return }
+      if (this.reset.mode === "set" && this.reset.password.length < 8) {
+        this.reset.error = "The password must be at least 8 characters."
+        return
+      }
       this.reset.pending = true
       try {
         const res = await this.apiFetch(`/users/${encodeURIComponent(username)}/password`, {
@@ -434,9 +508,13 @@ function siteioAdmin() {
           body: JSON.stringify(this.reset.mode === "set" ? { password: this.reset.password } : {}),
         }).catch(() => null)
         const data = res ? await res.json().catch(() => ({})) : {}
-        if (!res || !res.ok) { this.reset.error = data.error || "Could not set the password"; return }
+        if (!res || !res.ok) {
+          this.reset.error = data.error || "Could not set the password"
+          return
+        }
         this.resetFor = null
-        if (data.data.generated && data.data.password) this.shownPassword = { username: data.data.username, password: data.data.password }
+        if (data.data.generated && data.data.password)
+          this.shownPassword = { username: data.data.username, password: data.data.password }
         else this.toast("success", "Password updated")
       } finally {
         this.reset.pending = false
@@ -486,10 +564,7 @@ function siteioAdmin() {
     async loadServices() {
       this._pendAdd("services-list")
       try {
-        const [sites, apps] = await Promise.all([
-          this._fetchList("/sites"),
-          this._fetchList("/apps"),
-        ])
+        const [sites, apps] = await Promise.all([this._fetchList("/sites"), this._fetchList("/apps")])
         if (sites === null && apps === null) {
           this.services = []
           this.toast("error", "Could not reach server")
@@ -547,7 +622,10 @@ function siteioAdmin() {
         const res = await this.apiFetch(this.thumbEndpoint(item), { method: "POST" })
         if (!res.ok) {
           let reason = "Could not refresh preview"
-          try { const b = await res.json(); if (b && b.error) reason = b.error } catch (_) {}
+          try {
+            const b = await res.json()
+            if (b && b.error) reason = b.error
+          } catch (_) {}
           this.toast("error", reason)
           return
         }
@@ -669,7 +747,13 @@ function siteioAdmin() {
     },
 
     async restartApp(name) {
-      await this._runAction(name, "restart", "POST", `/apps/${encodeURIComponent(name)}/restart`, `App ${name} restarted`)
+      await this._runAction(
+        name,
+        "restart",
+        "POST",
+        `/apps/${encodeURIComponent(name)}/restart`,
+        `App ${name} restarted`,
+      )
       await this.loadApp(name)
     },
 
@@ -686,11 +770,13 @@ function siteioAdmin() {
     },
 
     anyAppActionPending() {
-      return this.pending.has("deploy")
-          || this.pending.has("stop")
-          || this.pending.has("restart")
-          || this.pending.has("start")
-          || this.pending.has("remove")
+      return (
+        this.pending.has("deploy") ||
+        this.pending.has("stop") ||
+        this.pending.has("restart") ||
+        this.pending.has("start") ||
+        this.pending.has("remove")
+      )
     },
 
     // --- Sites ---
@@ -699,7 +785,10 @@ function siteioAdmin() {
       this.selectedSite = null
       try {
         const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}`)
-        if (res.status === 404) { this.selectedSite = "not-found"; return }
+        if (res.status === 404) {
+          this.selectedSite = "not-found"
+          return
+        }
         const body = await res.json()
         this.selectedSite = body.success ? body.data : "not-found"
       } catch (err) {
@@ -714,7 +803,10 @@ function siteioAdmin() {
       this.siteHistory = null
       try {
         const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}/history`)
-        if (res.status === 404) { this.siteHistory = []; return }
+        if (res.status === 404) {
+          this.siteHistory = []
+          return
+        }
         const body = await res.json()
         this.siteHistory = body.success ? body.data : []
       } catch (err) {
@@ -727,12 +819,24 @@ function siteioAdmin() {
 
     async stopSite(name) {
       if (!confirm(`Stop site '${name}'? It answers 404 until you start it again. Nothing is deleted.`)) return
-      await this._runAction(name, "site-stop", "POST", `/sites/${encodeURIComponent(name)}/stop`, `Site ${name} stopped`)
+      await this._runAction(
+        name,
+        "site-stop",
+        "POST",
+        `/sites/${encodeURIComponent(name)}/stop`,
+        `Site ${name} stopped`,
+      )
       await this.loadSite(name)
     },
 
     async startSite(name) {
-      await this._runAction(name, "site-start", "POST", `/sites/${encodeURIComponent(name)}/start`, `Site ${name} started`)
+      await this._runAction(
+        name,
+        "site-start",
+        "POST",
+        `/sites/${encodeURIComponent(name)}/start`,
+        `Site ${name} started`,
+      )
       await this.loadSite(name)
     },
 
@@ -783,10 +887,16 @@ function siteioAdmin() {
     // Load transcript + status. `quiet` avoids the loading flicker during
     // in-place refreshes (after a turn, or while polling another client's turn).
     async loadChat(name, quiet = false) {
-      if (!quiet) { this.chatMessages = null; this.chatStatus = null }
+      if (!quiet) {
+        this.chatMessages = null
+        this.chatStatus = null
+      }
       try {
         const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}/chat`)
-        if (res.status === 404) { this.chatMessages = []; return }
+        if (res.status === 404) {
+          this.chatMessages = []
+          return
+        }
         const body = await res.json()
         if (body.success) {
           this.chatMessages = body.data.messages || []
@@ -807,11 +917,19 @@ function siteioAdmin() {
       if (!message || this.chatStreaming) return
       this.chatInput = ""
       // Optimistic user bubble; the authoritative transcript is reloaded on done.
-      this.chatMessages = [...(this.chatMessages || []), {
-        id: "tmp-" + Date.now(), role: "user", text: message, at: new Date().toISOString(),
-      }]
+      this.chatMessages = [
+        ...(this.chatMessages || []),
+        {
+          id: "tmp-" + Date.now(),
+          role: "user",
+          text: message,
+          at: new Date().toISOString(),
+        },
+      ]
       this.chatStreaming = true
-      this.chatLiveText = ""; this.chatLiveTools = []; this.chatLiveStatus = ""
+      this.chatLiveText = ""
+      this.chatLiveTools = []
+      this.chatLiveStatus = ""
       this._chatScrollBottom()
       try {
         // Transport is shared with the in-site editor widget (chat-core.js).
@@ -835,7 +953,9 @@ function siteioAdmin() {
         await this.loadChat(name, true)
       } finally {
         this.chatStreaming = false
-        this.chatLiveText = ""; this.chatLiveTools = []; this.chatLiveStatus = ""
+        this.chatLiveText = ""
+        this.chatLiveTools = []
+        this.chatLiveStatus = ""
       }
     },
 
@@ -871,8 +991,10 @@ function siteioAdmin() {
       try {
         const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}/chat`, { method: "DELETE" })
         const body = await res.json()
-        if (body.success) { this.chatMessages = []; this.toast("success", "History cleared") }
-        else this.toast("error", body.error || "Could not clear history")
+        if (body.success) {
+          this.chatMessages = []
+          this.toast("success", "History cleared")
+        } else this.toast("error", body.error || "Could not clear history")
       } catch (err) {
         if (err && err.message !== "Unauthenticated") this.toast("error", "Could not clear history")
       }
@@ -884,7 +1006,9 @@ function siteioAdmin() {
       this._pendAdd("editlink-" + name)
       try {
         const res = await this.apiFetch(`/sites/${encodeURIComponent(name)}/edit-link`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
         })
         const body = await res.json()
         if (body.success && body.data && body.data.url) {
@@ -923,7 +1047,10 @@ function siteioAdmin() {
     },
 
     stopChatPoll() {
-      if (this.chatPollTimer) { clearInterval(this.chatPollTimer); this.chatPollTimer = null }
+      if (this.chatPollTimer) {
+        clearInterval(this.chatPollTimer)
+        this.chatPollTimer = null
+      }
     },
 
     chatBubbleClass(m) {
@@ -1057,18 +1184,24 @@ function siteioAdmin() {
 
     statusBadgeClass(status) {
       switch (status) {
-        case "running": return "chip ok"
-        case "stopped": return "chip"
-        case "failed":  return "chip bad"
+        case "running":
+          return "chip ok"
+        case "stopped":
+          return "chip"
+        case "failed":
+          return "chip bad"
         case "pending":
-        default:        return "chip warn"
+        default:
+          return "chip warn"
       }
     },
 
     toast(type, message) {
       const id = Date.now() + Math.random()
       this.toasts.push({ id, type, message })
-      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id) }, 4000)
+      setTimeout(() => {
+        this.toasts = this.toasts.filter((t) => t.id !== id)
+      }, 4000)
     },
   }
 }

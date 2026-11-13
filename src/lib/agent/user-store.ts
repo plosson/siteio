@@ -1,6 +1,6 @@
+import { randomBytes } from "crypto"
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
-import { randomBytes } from "crypto"
 import type { User, UserInfo, UserKey, UserKeyInfo, UserRole } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
 import { generateUserKey, hashGrantToken } from "../../utils/grant-token.ts"
@@ -74,7 +74,10 @@ const placeholder = () => (placeholderHash ??= Bun.password.hash(randomBytes(16)
 export class UserStore {
   private dir: string
 
-  constructor(dataDir: string, private now: () => number = Date.now) {
+  constructor(
+    dataDir: string,
+    private now: () => number = Date.now,
+  ) {
     this.dir = join(dataDir, "users")
     if (!existsSync(this.dir)) mkdirSync(this.dir, { recursive: true, mode: 0o700 })
   }
@@ -121,11 +124,13 @@ export class UserStore {
   // overwritten by a stale copy.
   async create(input: { username: string; role: UserRole; tenant?: string; password: string }): Promise<User> {
     const username = normalize(input.username)
-    if (!this.path(username)) throw new ValidationError("Username must contain only lowercase letters, numbers, and hyphens")
+    if (!this.path(username))
+      throw new ValidationError("Username must contain only lowercase letters, numbers, and hyphens")
     if (username === "admin") throw new ValidationError("'admin' is reserved for the server's admin")
     if (!ROLES.includes(input.role)) throw new ValidationError("Role must be 'admin', 'owner' or 'member'")
     if (input.role === "admin" && input.tenant) throw new ValidationError("An admin has no tenant")
-    if (input.role === "owner" && !input.tenant) throw new ValidationError("An owner belongs to a tenant: give its domain")
+    if (input.role === "owner" && !input.tenant)
+      throw new ValidationError("An owner belongs to a tenant: give its domain")
     const passwordHash = await hashPassword(input.password)
     if (this.get(username)) throw new ValidationError(`User '${username}' already exists`)
     const user: User = {
@@ -144,8 +149,15 @@ export class UserStore {
   async setAdminPassword(password: string): Promise<User> {
     const passwordHash = await hashPassword(password)
     const existing = this.get("admin")
-    if (existing && existing.role !== "admin") throw new ValidationError("A user named 'admin' exists and is not the admin")
-    const user: User = existing ?? { username: "admin", role: "admin", passwordHash: "", createdAt: new Date(this.now()).toISOString(), keys: [] }
+    if (existing && existing.role !== "admin")
+      throw new ValidationError("A user named 'admin' exists and is not the admin")
+    const user: User = existing ?? {
+      username: "admin",
+      role: "admin",
+      passwordHash: "",
+      createdAt: new Date(this.now()).toISOString(),
+      keys: [],
+    }
     user.passwordHash = passwordHash
     user.keys = user.keys.filter((k) => k.kind === "machine")
     this.write(user)
@@ -219,7 +231,9 @@ export class UserStore {
   }
 
   deleteTenantUsers(domain: string): string[] {
-    const gone = this.list().filter((u) => u.tenant === domain).map((u) => u.username)
+    const gone = this.list()
+      .filter((u) => u.tenant === domain)
+      .map((u) => u.username)
     for (const name of gone) this.delete(name)
     return gone
   }
@@ -229,6 +243,12 @@ export class UserStore {
   }
 
   keyInfo(key: UserKey): UserKeyInfo {
-    return { id: key.id, kind: key.kind, name: key.name, createdAt: key.createdAt, ...(key.expiresAt && { expiresAt: key.expiresAt }) }
+    return {
+      id: key.id,
+      kind: key.kind,
+      name: key.name,
+      createdAt: key.createdAt,
+      ...(key.expiresAt && { expiresAt: key.expiresAt }),
+    }
   }
 }

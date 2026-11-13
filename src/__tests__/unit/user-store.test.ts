@@ -1,8 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync, statSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
-import { UserStore, SESSION_TTL_MS, generatePassword } from "../../lib/agent/user-store.ts"
+import { join } from "path"
+import { generatePassword, SESSION_TTL_MS, UserStore } from "../../lib/agent/user-store.ts"
 
 describe("Unit: UserStore", () => {
   let dataDir: string
@@ -46,7 +46,9 @@ describe("Unit: UserStore", () => {
   })
 
   test("create refuses the admin role, the name admin, an owner without tenant and duplicates", async () => {
-    await expect(store.create({ username: "bob", role: "admin", tenant: "x.com", password: "correct horse" })).rejects.toThrow()
+    await expect(
+      store.create({ username: "bob", role: "admin", tenant: "x.com", password: "correct horse" }),
+    ).rejects.toThrow()
     await expect(store.create({ username: "admin", role: "member", password: "correct horse" })).rejects.toThrow()
     await expect(store.create({ username: "bob", role: "owner", password: "correct horse" })).rejects.toThrow()
     await member()

@@ -1,17 +1,22 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
-import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
+import { join } from "path"
 import { hasLegacySites } from "../../lib/agent/legacy-migration.ts"
+import { AgentServer } from "../../lib/agent/server.ts"
 import { pocketbaseImage } from "../../lib/pocketbase-version.ts"
 import type { AgentConfig, ApiResponse, SiteInfo, SiteVersion } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
   const config: AgentConfig = {
-    apiKey: "test-key", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+    apiKey: "test-key",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    skipTraefik: true,
   }
   return new AgentServer(config, runtime)
 }
@@ -20,7 +25,13 @@ function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
 function writeLegacySite(
   dataDir: string,
   name: string,
-  opts: { domains?: string[]; oauth?: object; persistentStorage?: boolean; version?: number; history?: Record<number, string> } = {}
+  opts: {
+    domains?: string[]
+    oauth?: object
+    persistentStorage?: boolean
+    version?: number
+    history?: Record<number, string>
+  } = {},
 ): void {
   mkdirSync(join(dataDir, "sites", name), { recursive: true })
   writeFileSync(join(dataDir, "sites", name, "index.html"), `<h1>${name}</h1>`)
@@ -37,7 +48,7 @@ function writeLegacySite(
       files: ["index.html"],
       oauth: opts.oauth,
       persistentStorage: opts.persistentStorage,
-    })
+    }),
   )
   for (const [v, content] of Object.entries(opts.history ?? {})) {
     const vDir = join(dataDir, "history", name, `v${v}`)
@@ -45,7 +56,11 @@ function writeLegacySite(
     writeFileSync(join(vDir, "index.html"), content)
     writeFileSync(
       join(dataDir, "history", name, `v${v}.json`),
-      JSON.stringify({ version: Number(v), deployedAt: "2025-12-01T00:00:00.000Z", size: content.length } satisfies SiteVersion)
+      JSON.stringify({
+        version: Number(v),
+        deployedAt: "2025-12-01T00:00:00.000Z",
+        size: content.length,
+      } satisfies SiteVersion),
     )
   }
 }
@@ -87,14 +102,18 @@ describe("Legacy static-site migration", () => {
     expect(readFileSync(join(dataDir, "legacy-backup", "sites", "blog", "index.html"), "utf-8")).toBe("<h1>blog</h1>")
 
     // The site is fully live via the API, custom domains intact
-    const res = await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog", { method: "GET", headers: { "X-API-Key": "test-key" } }),
+    )
     const body = (await res.json()) as ApiResponse<SiteInfo>
     expect(body.data!.status).toBe("running")
     expect(body.data!.domains).toEqual(["blog.custom.org"])
     expect(body.data!.url).toBe("https://blog.example.com")
 
     // History is queryable through the new endpoint
-    const hist = await server.handleRequestForTest(new Request("http://x/sites/blog/history", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const hist = await server.handleRequestForTest(
+      new Request("http://x/sites/blog/history", { method: "GET", headers: { "X-API-Key": "test-key" } }),
+    )
     const histBody = (await hist.json()) as ApiResponse<SiteVersion[]>
     expect(histBody.data!.map((v) => v.version)).toEqual([2, 1])
   })
@@ -117,7 +136,7 @@ describe("Legacy static-site migration", () => {
         method: "POST",
         headers: { "X-API-Key": "test-key", "Content-Type": "application/zip" },
         body: zipSync({ "public/index.html": new TextEncoder().encode("new") }),
-      })
+      }),
     )
     writeLegacySite(dataDir, "blog")
     writeLegacySite(dataDir, "shop")
@@ -158,7 +177,9 @@ describe("Legacy static-site migration", () => {
     expect(existsSync(join(dataDir, "pocket-code", "blog", "public", "index.html"))).toBe(true)
     expect(runtime.callsOf("run")).toHaveLength(0)
     // Metadata exists with pending status; next deploy will start it
-    const res = await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog", { method: "GET", headers: { "X-API-Key": "test-key" } }),
+    )
     const body = (await res.json()) as ApiResponse<SiteInfo>
     expect(body.data!.status).toBe("pending")
   })

@@ -1,8 +1,22 @@
 import { getCliUser, loadConfig } from "../config/loader.ts"
-import { ApiError, ConfigError } from "../utils/errors.ts"
 import type {
-  ApiResponse, SiteInfo, SiteUpgradeResult, SiteVersion, App, AppInfo, AppStatus, ContainerLogs, WithComposeWarnings, ShareGrantInfo, ShareGrantCreated, EditLinkCreated, AutoDeployMode, UserInfo, UserKeyInfo,
+  ApiResponse,
+  App,
+  AppInfo,
+  AppStatus,
+  AutoDeployMode,
+  ContainerLogs,
+  EditLinkCreated,
+  ShareGrantCreated,
+  ShareGrantInfo,
+  SiteInfo,
+  SiteUpgradeResult,
+  SiteVersion,
+  UserInfo,
+  UserKeyInfo,
+  WithComposeWarnings,
 } from "../types.ts"
+import { ApiError, ConfigError } from "../utils/errors.ts"
 
 // Build an ApiError from a failed response, keeping the agent's message and
 // machine-readable reason when the body is a JSON ApiResponse.
@@ -49,7 +63,7 @@ export class SiteioClient {
     method: string,
     path: string,
     body?: Uint8Array | string | null,
-    headers?: Record<string, string>
+    headers?: Record<string, string>,
   ): Promise<T> {
     const url = `${this.apiUrl}${path}`
     const response = await fetch(url, {
@@ -80,11 +94,7 @@ export class SiteioClient {
 
   // Sites API
 
-  async deploySite(
-    name: string,
-    zipData: Uint8Array,
-    opts?: { expectedVersion?: number }
-  ): Promise<SiteInfo> {
+  async deploySite(name: string, zipData: Uint8Array, opts?: { expectedVersion?: number }): Promise<SiteInfo> {
     const headers: Record<string, string> = {
       "Content-Type": "application/zip",
       "Content-Length": String(zipData.length),
@@ -124,7 +134,10 @@ export class SiteioClient {
   }
 
   async getSiteAdmin(name: string): Promise<{ email: string; password: string; adminUrl: string }> {
-    const response = await this.request<ApiResponse<{ email: string; password: string; adminUrl: string }>>("GET", `/sites/${name}/admin`)
+    const response = await this.request<ApiResponse<{ email: string; password: string; adminUrl: string }>>(
+      "GET",
+      `/sites/${name}/admin`,
+    )
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
   }
@@ -139,7 +152,7 @@ export class SiteioClient {
       "POST",
       `/sites/${name}/rollback`,
       JSON.stringify({ version }),
-      { "Content-Type": "application/json" }
+      { "Content-Type": "application/json" },
     )
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
@@ -168,7 +181,7 @@ export class SiteioClient {
       "PATCH",
       `/sites/${name}/domains`,
       JSON.stringify({ domains }),
-      { "Content-Type": "application/json" }
+      { "Content-Type": "application/json" },
     )
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
@@ -176,14 +189,11 @@ export class SiteioClient {
 
   async updateSiteEnv(
     name: string,
-    update: { env?: Record<string, string>; secrets?: Record<string, string>; unsetEnv?: string[] }
+    update: { env?: Record<string, string>; secrets?: Record<string, string>; unsetEnv?: string[] },
   ): Promise<SiteInfo> {
-    const response = await this.request<ApiResponse<SiteInfo>>(
-      "PATCH",
-      `/sites/${name}/env`,
-      JSON.stringify(update),
-      { "Content-Type": "application/json" }
-    )
+    const response = await this.request<ApiResponse<SiteInfo>>("PATCH", `/sites/${name}/env`, JSON.stringify(update), {
+      "Content-Type": "application/json",
+    })
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
   }
@@ -193,7 +203,7 @@ export class SiteioClient {
       "PATCH",
       `/sites/${name}/rename`,
       JSON.stringify({ newSubdomain: newName }),
-      { "Content-Type": "application/json" }
+      { "Content-Type": "application/json" },
     )
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
@@ -201,15 +211,12 @@ export class SiteioClient {
 
   // Share links (MCP grants)
 
-  async createGrant(
-    site: string,
-    opts: { allowBackend?: boolean; label?: string } = {}
-  ): Promise<ShareGrantCreated> {
+  async createGrant(site: string, opts: { allowBackend?: boolean; label?: string } = {}): Promise<ShareGrantCreated> {
     const response = await this.request<ApiResponse<ShareGrantCreated>>(
       "POST",
       `/sites/${site}/grants`,
       JSON.stringify(opts),
-      { "Content-Type": "application/json" }
+      { "Content-Type": "application/json" },
     )
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
@@ -230,9 +237,17 @@ export class SiteioClient {
     return response.data || []
   }
 
-  async createUser(input: { username: string; role?: string; tenant?: string; password?: string }): Promise<{ user: UserInfo; password?: string; generated: boolean }> {
+  async createUser(input: {
+    username: string
+    role?: string
+    tenant?: string
+    password?: string
+  }): Promise<{ user: UserInfo; password?: string; generated: boolean }> {
     const response = await this.request<ApiResponse<{ user: UserInfo; password?: string; generated: boolean }>>(
-      "POST", "/users", JSON.stringify(input), { "Content-Type": "application/json" }
+      "POST",
+      "/users",
+      JSON.stringify(input),
+      { "Content-Type": "application/json" },
     )
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
@@ -242,10 +257,15 @@ export class SiteioClient {
     await this.request<ApiResponse<{ deleted: string }>>("DELETE", `/users/${encodeURIComponent(username)}`)
   }
 
-  async resetUserPassword(username: string, password?: string): Promise<{ username: string; password?: string; generated: boolean }> {
+  async resetUserPassword(
+    username: string,
+    password?: string,
+  ): Promise<{ username: string; password?: string; generated: boolean }> {
     const response = await this.request<ApiResponse<{ username: string; password?: string; generated: boolean }>>(
-      "POST", `/users/${encodeURIComponent(username)}/password`,
-      JSON.stringify(password === undefined ? {} : { password }), { "Content-Type": "application/json" }
+      "POST",
+      `/users/${encodeURIComponent(username)}/password`,
+      JSON.stringify(password === undefined ? {} : { password }),
+      { "Content-Type": "application/json" },
     )
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
@@ -266,7 +286,7 @@ export class SiteioClient {
       "POST",
       `/sites/${site}/edit-link`,
       JSON.stringify(opts),
-      { "Content-Type": "application/json" }
+      { "Content-Type": "application/json" },
     )
     if (!response.data) throw new ApiError("Invalid response from server")
     return response.data
@@ -327,7 +347,7 @@ export class SiteioClient {
       "POST",
       "/apps",
       JSON.stringify(config),
-      { "Content-Type": "application/json" }
+      { "Content-Type": "application/json" },
     )
     if (!response.data) {
       throw new ApiError("Invalid response from server")
@@ -359,17 +379,24 @@ export class SiteioClient {
       internalPort?: number
       restartPolicy?: string
       image?: string
-      git?: { repoUrl?: string; branch?: string; dockerfile?: string; context?: string; token?: string; autoDeploy?: AutoDeployMode }
+      git?: {
+        repoUrl?: string
+        branch?: string
+        dockerfile?: string
+        context?: string
+        token?: string
+        autoDeploy?: AutoDeployMode
+      }
       composeContent?: string
       envFileContent?: string
       primaryService?: string
-    }
+    },
   ): Promise<App & WithComposeWarnings> {
     const response = await this.request<ApiResponse<App & WithComposeWarnings>>(
       "PATCH",
       `/apps/${name}`,
       JSON.stringify(updates),
-      { "Content-Type": "application/json" }
+      { "Content-Type": "application/json" },
     )
     if (!response.data) {
       throw new ApiError("Invalid response from server")
@@ -383,7 +410,7 @@ export class SiteioClient {
 
   async deployApp(
     name: string,
-    options?: { noCache?: boolean; dockerfileContent?: string }
+    options?: { noCache?: boolean; dockerfileContent?: string },
   ): Promise<AppInfo & WithComposeWarnings> {
     const queryParams = options?.noCache ? "?noCache=true" : ""
     const hasBody = options?.dockerfileContent !== undefined
@@ -391,7 +418,7 @@ export class SiteioClient {
       "POST",
       `/apps/${name}/deploy${queryParams}`,
       hasBody ? JSON.stringify({ dockerfileContent: options!.dockerfileContent }) : undefined,
-      hasBody ? { "Content-Type": "application/json" } : undefined
+      hasBody ? { "Content-Type": "application/json" } : undefined,
     )
     if (!response.data) {
       throw new ApiError("Invalid response from server")
@@ -433,20 +460,16 @@ export class SiteioClient {
 
   async getAppLogs(
     name: string,
-    opts: { tail?: number; service?: string; all?: boolean } = {}
+    opts: { tail?: number; service?: string; all?: boolean } = {},
   ): Promise<ContainerLogs> {
     const params = new URLSearchParams()
     params.set("tail", String(opts.tail ?? 100))
     if (opts.service) params.set("service", opts.service)
     if (opts.all) params.set("all", "true")
-    const response = await this.request<ApiResponse<ContainerLogs>>(
-      "GET",
-      `/apps/${name}/logs?${params.toString()}`
-    )
+    const response = await this.request<ApiResponse<ContainerLogs>>("GET", `/apps/${name}/logs?${params.toString()}`)
     if (!response.data) {
       throw new ApiError("Invalid response from server")
     }
     return response.data
   }
-
 }

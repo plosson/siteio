@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { AutoDeployer, parseAutoDeployInterval, type AutoDeployDeps, type RemoteRef } from "../../lib/agent/auto-deploy"
+import { type AutoDeployDeps, AutoDeployer, parseAutoDeployInterval, type RemoteRef } from "../../lib/agent/auto-deploy"
 import type { App, AutoDeployMode } from "../../types"
 
 const INTERVAL = 300_000
@@ -12,7 +12,12 @@ function makeApp(mode: AutoDeployMode | undefined, extra: Partial<App> = {}): Ap
     name: "web",
     type: "container",
     image: "siteio-web:latest",
-    git: { repoUrl: "https://x.test/r.git", branch: "main", dockerfile: "Dockerfile", ...(mode && { autoDeploy: mode }) },
+    git: {
+      repoUrl: "https://x.test/r.git",
+      branch: "main",
+      dockerfile: "Dockerfile",
+      ...(mode && { autoDeploy: mode }),
+    },
     env: {},
     volumes: [],
     internalPort: 3000,
@@ -174,7 +179,9 @@ describe("failed checks", () => {
     const { state, deployer, app } = harness([makeApp("tag")])
     state.lsError = new Error("Repository not found (or token lacks access): https://x.test/r.git")
     await deployer.tick()
-    expect(app().autoDeployError).toBe("check failed: Repository not found (or token lacks access): https://x.test/r.git")
+    expect(app().autoDeployError).toBe(
+      "check failed: Repository not found (or token lacks access): https://x.test/r.git",
+    )
 
     state.now += INTERVAL // backoff is 2 intervals: not due yet
     await deployer.tick()
@@ -207,7 +214,9 @@ describe("failed checks", () => {
 
 describe("stale errors", () => {
   test("a fresh deployer clears a stored check error on a healthy check", async () => {
-    const { state, deployer, app } = harness([makeApp("tag", { autoDeployRef: "v1.0.0", autoDeployError: "check failed: x" })])
+    const { state, deployer, app } = harness([
+      makeApp("tag", { autoDeployRef: "v1.0.0", autoDeployError: "check failed: x" }),
+    ])
     state.refs = tagRefs("v1.0.0")
     await deployer.tick()
     expect(app().autoDeployError).toBeUndefined()
@@ -324,7 +333,9 @@ describe("races and skips", () => {
   test("the token never reaches logs or stored errors", async () => {
     const token = "ghp_SECRET_TOKEN_123"
     const { state, deployer, app } = harness([
-      makeApp("tag", { git: { repoUrl: "https://x.test/r.git", branch: "main", dockerfile: "Dockerfile", token, autoDeploy: "tag" } }),
+      makeApp("tag", {
+        git: { repoUrl: "https://x.test/r.git", branch: "main", dockerfile: "Dockerfile", token, autoDeploy: "tag" },
+      }),
     ])
     state.lsError = new Error("Authentication failed for repository — check the git token")
     await deployer.tick()
@@ -445,6 +456,6 @@ describe("parseAutoDeployInterval", () => {
     "rejects %p",
     (value) => {
       expect(() => parseAutoDeployInterval(value)).toThrow("SITEIO_AUTODEPLOY_INTERVAL")
-    }
+    },
   )
 })

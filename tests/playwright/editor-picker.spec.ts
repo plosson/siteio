@@ -1,12 +1,12 @@
-import { test, expect, type Frame, type Page } from "@playwright/test"
+import { expect, type Frame, type Page, test } from "@playwright/test"
+import { strToU8, zipSync } from "fflate"
 import { mkdtempSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { zipSync, strToU8 } from "fflate"
-import { AgentServer } from "../../src/lib/agent/server"
 import { FakeRuntime } from "../../src/__tests__/helpers/fake-runtime"
+import type { ChatExecutor, ExecutorResult, ExecutorRunInput } from "../../src/lib/agent/chat/executor"
+import { AgentServer } from "../../src/lib/agent/server"
 import type { AgentConfig, ChatConfig, EditLinkCreated } from "../../src/types"
-import type { ChatExecutor, ExecutorRunInput, ExecutorResult } from "../../src/lib/agent/chat/executor"
 
 // Records the message the agent actually receives (target preamble folded in
 // server-side) and edits index.html so the controller deploys a new version.
@@ -24,8 +24,14 @@ class RecordingExecutor implements ChatExecutor {
 }
 
 const CHAT: ChatConfig = {
-  provider: "anthropic", model: "claude-sonnet-5", sandbox: false,
-  sandboxImage: "x", sandboxNetwork: "n", maxTurns: 5, timeoutMs: 5000, oauthToken: "tok",
+  provider: "anthropic",
+  model: "claude-sonnet-5",
+  sandbox: false,
+  sandboxImage: "x",
+  sandboxNetwork: "n",
+  maxTurns: 5,
+  timeoutMs: 5000,
+  oauthToken: "tok",
 }
 
 const PORT = 4714
@@ -50,13 +56,21 @@ test.beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "siteio-editor-picker-"))
   executor = new RecordingExecutor()
   const config: AgentConfig = {
-    domain: DOMAIN, apiKey: "god-key", dataDir, port: PORT, skipTraefik: true,
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 80, httpsPort: 443, chat: CHAT,
+    domain: DOMAIN,
+    apiKey: "god-key",
+    dataDir,
+    port: PORT,
+    skipTraefik: true,
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 80,
+    httpsPort: 443,
+    chat: CHAT,
   }
   server = new AgentServer(config, new FakeRuntime(), { chatExecutor: executor })
   await server.start()
   const res = await fetch(`${API}/sites/demo`, {
-    method: "POST", headers: { "X-API-Key": "god-key", "Content-Type": "application/zip" },
+    method: "POST",
+    headers: { "X-API-Key": "god-key", "Content-Type": "application/zip" },
     body: zipSync({ "public/index.html": strToU8(FIXTURE) }),
   })
   if (!res.ok) throw new Error(`deploy failed: ${res.status}`)
@@ -64,12 +78,18 @@ test.beforeAll(async () => {
 
 test.afterAll(() => {
   server.stop()
-  try { rmSync(dataDir, { recursive: true, force: true }) } catch { /* ignore */ }
+  try {
+    rmSync(dataDir, { recursive: true, force: true })
+  } catch {
+    /* ignore */
+  }
 })
 
 async function mintCode(): Promise<string> {
   const res = await fetch(`${API}/sites/demo/edit-link`, {
-    method: "POST", headers: { "X-API-Key": "god-key", "Content-Type": "application/json" }, body: "{}",
+    method: "POST",
+    headers: { "X-API-Key": "god-key", "Content-Type": "application/json" },
+    body: "{}",
   })
   return ((await res.json()) as { data: EditLinkCreated }).data.code
 }
@@ -94,11 +114,13 @@ async function enterEditor(page: Page): Promise<Frame> {
   // the host, at /_siteio/edit).
   let frame: Frame | null = null
   await expect
-    .poll(() => {
-      frame =
-        page.frames().find((f) => f !== page.mainFrame() && f.url().includes(`demo.${DOMAIN}`)) || null
-      return !!frame
-    }, { timeout: 5000 })
+    .poll(
+      () => {
+        frame = page.frames().find((f) => f !== page.mainFrame() && f.url().includes(`demo.${DOMAIN}`)) || null
+        return !!frame
+      },
+      { timeout: 5000 },
+    )
     .toBe(true)
   // Picker.js is injected on frame load; wait for its test hook to appear.
   await frame!.waitForFunction(() => !!(globalThis as any).__siteioPicker, null, { timeout: 5000 })
@@ -113,7 +135,11 @@ test("capture: selector resolves back to the node; text matches; long text is tr
     const g = globalThis as any
     const d = g.document
     const t = g.__siteioPicker.captureElement(d.querySelector("#headline"))
-    return { t, resolves: d.querySelectorAll(t.selector).length, isNode: d.querySelector(t.selector) === d.querySelector("#headline") }
+    return {
+      t,
+      resolves: d.querySelectorAll(t.selector).length,
+      isNode: d.querySelector(t.selector) === d.querySelector("#headline"),
+    }
   })
   expect(headline.t.selector).toBe("#headline")
   expect(headline.t.tag).toBe("h1")
@@ -126,7 +152,11 @@ test("capture: selector resolves back to the node; text matches; long text is tr
     const g = globalThis as any
     const d = g.document
     const t = g.__siteioPicker.captureElement(d.querySelector(".tagline"))
-    return { selector: t.selector, resolves: d.querySelectorAll(t.selector).length, isNode: d.querySelector(t.selector) === d.querySelector(".tagline") }
+    return {
+      selector: t.selector,
+      resolves: d.querySelectorAll(t.selector).length,
+      isNode: d.querySelector(t.selector) === d.querySelector(".tagline"),
+    }
   })
   expect(tagline.resolves).toBe(1)
   expect(tagline.isNode).toBe(true)
@@ -137,7 +167,12 @@ test("capture: selector resolves back to the node; text matches; long text is tr
     const d = g.document
     const node = d.querySelectorAll("li")[2]
     const t = g.__siteioPicker.captureElement(node)
-    return { selector: t.selector, text: t.text, resolves: d.querySelectorAll(t.selector).length, isNode: d.querySelector(t.selector) === node }
+    return {
+      selector: t.selector,
+      text: t.text,
+      resolves: d.querySelectorAll(t.selector).length,
+      isNode: d.querySelector(t.selector) === node,
+    }
   })
   expect(li.text).toBe("Charlie")
   expect(li.resolves).toBe(1)
@@ -230,7 +265,7 @@ test("protocol isolation: a target message not from the framed iframe is ignored
   await page.evaluate(() => {
     ;(globalThis as any).postMessage(
       { source: "siteio-picker", type: "target", target: { kind: "element", selector: "#evil", text: "spoofed" } },
-      "*"
+      "*",
     )
   })
   await page.waitForTimeout(200)

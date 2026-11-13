@@ -70,11 +70,12 @@ export async function getRecord(
   token: string,
   zoneId: string,
   name: string,
-  type: string = "A"
+  type: string = "A",
 ): Promise<CloudflareDNSRecord | null> {
   const params = new URLSearchParams({ name, type })
   const records = await cloudflareList<CloudflareDNSRecord>(token, `/zones/${zoneId}/dns_records?${params}`)
-  if (records.length > 1) throw new CloudflareError(`Multiple ${type} records exist for ${name}; resolve them before provisioning`)
+  if (records.length > 1)
+    throw new CloudflareError(`Multiple ${type} records exist for ${name}; resolve them before provisioning`)
   return records[0] ?? null
 }
 
@@ -86,21 +87,22 @@ export async function createARecord(
   zoneId: string,
   name: string,
   ip: string,
-  comment?: string
+  comment?: string,
 ): Promise<CloudflareDNSRecord> {
   return cloudflareRequest<CloudflareDNSRecord>(token, `/zones/${zoneId}/dns_records`, "POST", {
-    type: "A", name, content: ip, ttl: 1, proxied: false, ...(comment ? { comment } : {}),
+    type: "A",
+    name,
+    content: ip,
+    ttl: 1,
+    proxied: false,
+    ...(comment ? { comment } : {}),
   })
 }
 
 /**
  * Delete a DNS record by ID
  */
-export async function deleteRecord(
-  token: string,
-  zoneId: string,
-  recordId: string
-): Promise<void> {
+export async function deleteRecord(token: string, zoneId: string, recordId: string): Promise<void> {
   try {
     await cloudflareRequest(token, `/zones/${zoneId}/dns_records/${recordId}`, "DELETE")
   } catch (error) {
@@ -115,10 +117,17 @@ export async function deleteRecord(
 export async function setupWildcardDNS(
   token: string,
   domain: string,
-  options: { ip?: string; owner?: string; zoneId?: string } = {}
-): Promise<{ success: boolean; message: string; skipped?: boolean; zoneId?: string; recordId?: string; owned?: boolean }> {
+  options: { ip?: string; owner?: string; zoneId?: string } = {},
+): Promise<{
+  success: boolean
+  message: string
+  skipped?: boolean
+  zoneId?: string
+  recordId?: string
+  owned?: boolean
+}> {
   // Get public IP
-  const publicIP = options.ip || await getPublicIP()
+  const publicIP = options.ip || (await getPublicIP())
 
   // List zones
   const zones = await listZones(token)
@@ -127,12 +136,12 @@ export async function setupWildcardDNS(
   }
 
   // Find matching zone
-  const zone = options.zoneId ? zones.find(z => z.id === options.zoneId && (domain === z.name || domain.endsWith(`.${z.name}`))) : findMatchingZone(domain, zones)
+  const zone = options.zoneId
+    ? zones.find((z) => z.id === options.zoneId && (domain === z.name || domain.endsWith(`.${z.name}`)))
+    : findMatchingZone(domain, zones)
   if (!zone) {
     const availableZones = zones.map((z) => z.name).join(", ")
-    throw new CloudflareError(
-      `No zone found for domain "${domain}". Available zones: ${availableZones}`
-    )
+    throw new CloudflareError(`No zone found for domain "${domain}". Available zones: ${availableZones}`)
   }
 
   // Check if wildcard record already exists
@@ -141,10 +150,13 @@ export async function setupWildcardDNS(
 
   if (existingRecord) {
     if (options.ip && (existingRecord.content !== publicIP || existingRecord.proxied)) {
-      throw new CloudflareError(`DNS record ${wildcardName} already exists with different settings; refusing to overwrite it`)
+      throw new CloudflareError(
+        `DNS record ${wildcardName} already exists with different settings; refusing to overwrite it`,
+      )
     }
     return {
-      zoneId: zone.id, recordId: existingRecord.id,
+      zoneId: zone.id,
+      recordId: existingRecord.id,
       owned: Boolean(options.owner && existingRecord.comment === options.owner),
       success: true,
       skipped: true,
@@ -158,7 +170,9 @@ export async function setupWildcardDNS(
   return {
     success: true,
     message: `Created DNS record ${wildcardName} → ${publicIP}`,
-    zoneId: zone.id, recordId: record.id, owned: true,
+    zoneId: zone.id,
+    recordId: record.id,
+    owned: true,
   }
 }
 
@@ -168,7 +182,7 @@ export async function setupWildcardDNS(
  */
 export async function removeWildcardDNS(
   token: string,
-  domain: string
+  domain: string,
 ): Promise<{ success: boolean; message: string; skipped?: boolean }> {
   // List zones
   const zones = await listZones(token)
@@ -242,9 +256,13 @@ export function buildCloudflareTokenUrl(tokenName: string = "siteio DNS Token"):
   return `https://dash.cloudflare.com/profile/api-tokens?${params}`
 }
 
-
 export class CloudflareAPIError extends CloudflareError {
-  constructor(message: string, public status: number) { super(message) }
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message)
+  }
 }
 
 interface CloudflareResponse<T> {
@@ -254,16 +272,24 @@ interface CloudflareResponse<T> {
   result_info?: { total_pages: number }
 }
 
-async function cloudflareResponse<T>(token: string, path: string, method = "GET", body?: unknown): Promise<CloudflareResponse<T>> {
+async function cloudflareResponse<T>(
+  token: string,
+  path: string,
+  method = "GET",
+  body?: unknown,
+): Promise<CloudflareResponse<T>> {
   const response = await fetch(`${CLOUDFLARE_API}${path}`, {
     method,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(30_000),
   })
-  const data = await response.json() as CloudflareResponse<T>
+  const data = (await response.json()) as CloudflareResponse<T>
   if (!response.ok || !data.success) {
-    throw new CloudflareAPIError(`Cloudflare: ${data.errors?.map(e => e.message).join("; ") || response.statusText}`, response.status)
+    throw new CloudflareAPIError(
+      `Cloudflare: ${data.errors?.map((e) => e.message).join("; ") || response.statusText}`,
+      response.status,
+    )
   }
   return data
 }
@@ -275,7 +301,10 @@ export async function cloudflareRequest<T>(token: string, path: string, method =
 async function cloudflareList<T>(token: string, path: string): Promise<T[]> {
   const results: T[] = []
   for (let page = 1; ; page++) {
-    const data = await cloudflareResponse<T[]>(token, `${path}${path.includes("?") ? "&" : "?"}per_page=50&page=${page}`)
+    const data = await cloudflareResponse<T[]>(
+      token,
+      `${path}${path.includes("?") ? "&" : "?"}per_page=50&page=${page}`,
+    )
     results.push(...data.result)
     if (page >= (data.result_info?.total_pages ?? 1)) return results
   }
@@ -299,17 +328,30 @@ export interface RegistrationStatus {
 }
 
 export async function checkDomain(token: string, account: string, domain: string): Promise<DomainAvailability> {
-  const result = await cloudflareRequest<{ domains: DomainAvailability[] }>(token,
-    `/accounts/${encodeURIComponent(account)}/registrar/domain-check`, "POST", { domains: [domain] })
-  const match = result.domains.find(d => d.name === domain)
+  const result = await cloudflareRequest<{ domains: DomainAvailability[] }>(
+    token,
+    `/accounts/${encodeURIComponent(account)}/registrar/domain-check`,
+    "POST",
+    { domains: [domain] },
+  )
+  const match = result.domains.find((d) => d.name === domain)
   if (!match) throw new CloudflareError("Cloudflare returned no availability result for this domain")
   return match
 }
 
 export async function registerDomain(token: string, account: string, domain: string): Promise<RegistrationStatus> {
-  return cloudflareRequest(token, `/accounts/${encodeURIComponent(account)}/registrar/registrations`, "POST", { domain_name: domain })
+  return cloudflareRequest(token, `/accounts/${encodeURIComponent(account)}/registrar/registrations`, "POST", {
+    domain_name: domain,
+  })
 }
 
-export async function getRegistrationStatus(token: string, account: string, domain: string): Promise<RegistrationStatus> {
-  return cloudflareRequest(token, `/accounts/${encodeURIComponent(account)}/registrar/registrations/${encodeURIComponent(domain)}/registration-status`)
+export async function getRegistrationStatus(
+  token: string,
+  account: string,
+  domain: string,
+): Promise<RegistrationStatus> {
+  return cloudflareRequest(
+    token,
+    `/accounts/${encodeURIComponent(account)}/registrar/registrations/${encodeURIComponent(domain)}/registration-status`,
+  )
 }

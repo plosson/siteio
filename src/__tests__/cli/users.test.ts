@@ -1,12 +1,12 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { spawn } from "bun"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { UserStore } from "../../lib/agent/user-store.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 const PORT = 4583
 
@@ -22,7 +22,7 @@ describe("CLI: siteio users", () => {
     mkdirSync(join(home, ".config", "siteio"), { recursive: true })
     writeFileSync(
       join(home, ".config", "siteio", "config.json"),
-      JSON.stringify({ current: "test", servers: { test: { apiUrl: `http://localhost:${PORT}`, apiKey } } })
+      JSON.stringify({ current: "test", servers: { test: { apiUrl: `http://localhost:${PORT}`, apiKey } } }),
     )
     return home
   }
@@ -49,8 +49,14 @@ describe("CLI: siteio users", () => {
     homes.mia = homeFor("mia", users.addKey("mia", "machine", "t").secret)
     homes.god = homeFor("god", "god-key")
     const config: AgentConfig = {
-      apiKey: "god-key", dataDir, domain: "example.com", port: PORT,
-      maxUploadSize: 50 * 1024 * 1024, httpPort: 80, httpsPort: 443, skipTraefik: true,
+      apiKey: "god-key",
+      dataDir,
+      domain: "example.com",
+      port: PORT,
+      maxUploadSize: 50 * 1024 * 1024,
+      httpPort: 80,
+      httpsPort: 443,
+      skipTraefik: true,
     }
     server = new AgentServer(config, new FakeRuntime())
     await server.start()

@@ -1,13 +1,13 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
+import { mkdtempSync, rmSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { SiteStorage } from "../../lib/agent/storage.ts"
 import { UserStore } from "../../lib/agent/user-store.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ApiResponse, SiteInfo, Tenant } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 const FRIEND: Tenant = { domain: "friend.com", apiKey: "key-friend", createdAt: "2026-10-19T00:00:00.000Z" }
 const VAULTS: Tenant = { domain: "vaults.net", apiKey: "key-vaults", createdAt: "2026-10-19T00:00:00.000Z", apps: true }
@@ -22,19 +22,32 @@ describe("API: user keys", () => {
 
   const makeServer = (tenants: Tenant[]) => {
     const config: AgentConfig = {
-      apiKey: "god-key", dataDir, domain: "example.com",
-      maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+      apiKey: "god-key",
+      dataDir,
+      domain: "example.com",
+      maxUploadSize: 50 * 1024 * 1024,
+      httpPort: 8080,
+      httpsPort: 8443,
+      skipTraefik: true,
       tenants,
     }
     return new AgentServer(config, new FakeRuntime())
   }
   const req = (path: string, key: string, init: RequestInit = {}, host = "localhost") =>
     server.handleRequestForTest(
-      new Request(`http://x${path}`, { ...init, headers: { "X-API-Key": key, ...(init.headers as Record<string, string>) } }),
-      host
+      new Request(`http://x${path}`, {
+        ...init,
+        headers: { "X-API-Key": key, ...(init.headers as Record<string, string>) },
+      }),
+      host,
     )
   const deploy = (name: string, key: string, host = "localhost", extra: Record<string, string> = {}) =>
-    req(`/sites/${name}`, key, { method: "POST", headers: { "Content-Type": "application/zip", ...extra }, body: zip() }, host)
+    req(
+      `/sites/${name}`,
+      key,
+      { method: "POST", headers: { "Content-Type": "application/zip", ...extra }, body: zip() },
+      host,
+    )
   const createApp = (key: string, body: Record<string, unknown>) =>
     req("/apps", key, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
 
@@ -45,7 +58,8 @@ describe("API: user keys", () => {
     await users.create({ username: "mia", role: "member", password: "member password" })
     await users.create({ username: "olga", role: "owner", tenant: "friend.com", password: "owner password" })
     await users.create({ username: "tom", role: "member", tenant: "friend.com", password: "member password" })
-    for (const name of ["admin", "mia", "olga", "tom"]) keys[name] = users.addKey(name, "machine", `${name}@test`).secret
+    for (const name of ["admin", "mia", "olga", "tom"])
+      keys[name] = users.addKey(name, "machine", `${name}@test`).secret
     server = makeServer([FRIEND, VAULTS])
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
@@ -57,7 +71,9 @@ describe("API: user keys", () => {
       const list = (await (await req("/sites", keys.admin!)).json()) as ApiResponse<SiteInfo[]>
       expect(list.data!.map((s) => s.name).sort()).toEqual(["blog", "blog--friend-com"])
       expect((await req("/agent", keys.admin!)).status).toBe(200)
-      expect(((await (await req("/agent", keys.admin!)).json()) as ApiResponse<{ dataDir?: string }>).data!.dataDir).toBe(dataDir)
+      expect(
+        ((await (await req("/agent", keys.admin!)).json()) as ApiResponse<{ dataDir?: string }>).data!.dataDir,
+      ).toBe(dataDir)
     })
 
     test("is refused on a tenant host", async () => {
@@ -89,9 +105,13 @@ describe("API: user keys", () => {
 
     test("gets the tenant app restrictions", async () => {
       const base = { name: "web", image: "nginx", internalPort: 80 }
-      expect((await createApp(keys.mia!, { ...base, composeContent: "services: {}", primaryService: "web" })).status).toBe(400)
+      expect(
+        (await createApp(keys.mia!, { ...base, composeContent: "services: {}", primaryService: "web" })).status,
+      ).toBe(400)
       expect((await createApp(keys.mia!, { ...base, volumes: [{ name: "/etc", mountPath: "/x" }] })).status).toBe(400)
-      expect((await createApp(keys.mia!, { name: "web", git: { repoUrl: "file:///root" }, internalPort: 80 })).status).toBe(400)
+      expect(
+        (await createApp(keys.mia!, { name: "web", git: { repoUrl: "file:///root" }, internalPort: 80 })).status,
+      ).toBe(400)
       expect((await createApp(keys.mia!, { ...base, env: { DOCKER_HOST: "tcp://x" } })).status).toBe(400)
       expect((await createApp(keys.mia!, { ...base, domains: ["anything.example.com"] })).status).toBe(400)
       expect((await createApp(keys.mia!, base)).status).toBe(200)

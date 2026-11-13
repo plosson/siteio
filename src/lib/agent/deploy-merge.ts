@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs"
 import { join } from "path"
-import { PUBLIC_PREFIX, BACKEND_DIRS } from "../site-layout.ts"
+import { BACKEND_DIRS, PUBLIC_PREFIX } from "../site-layout.ts"
 
 // The deploy surface a scoped (share-grant) deploy is allowed to change. A
 // grant deploy — whether from the MCP file tools or a scoped CLI upload — is

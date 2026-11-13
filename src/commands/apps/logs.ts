@@ -1,7 +1,7 @@
-import ora from "ora"
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
+import ora from "ora"
 import { getCurrentServer } from "../../config/loader.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { resolveAppName } from "../../utils/site-config.ts"
 
@@ -12,17 +12,16 @@ export interface LogsAppOptions {
   json?: boolean
 }
 
-export async function logsAppCommand(
-  name: string | undefined,
-  options: LogsAppOptions = {}
-): Promise<void> {
+export async function logsAppCommand(name: string | undefined, options: LogsAppOptions = {}): Promise<void> {
   const spinner = ora()
 
   try {
     const server = getCurrentServer()
     const resolved = resolveAppName(name, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("App name required. Provide as argument or run from a directory with .siteio/config.json")
+      throw new ValidationError(
+        "App name required. Provide as argument or run from a directory with .siteio/config.json",
+      )
     }
     if (!name) {
       console.error(chalk.dim(`Using app '${resolved}' from .siteio/config.json`))

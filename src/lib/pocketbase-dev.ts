@@ -1,6 +1,6 @@
-import { join } from "path"
-import { mkdirSync } from "fs"
 import { spawnSync } from "bun"
+import { mkdirSync } from "fs"
+import { join } from "path"
 import { ensurePocketbaseBinary } from "./pocketbase-binary.ts"
 
 // Fixed local dev superuser. `pocket dev` provisions it so the admin dashboard

@@ -40,7 +40,11 @@ export async function startTestServer(opts: { apiKey?: string } = {}): Promise<T
     server,
     cleanup: () => {
       server.stop()
-      try { rmSync(dataDir, { recursive: true, force: true }) } catch { /* ignore */ }
+      try {
+        rmSync(dataDir, { recursive: true, force: true })
+      } catch {
+        /* ignore */
+      }
     },
   }
 }

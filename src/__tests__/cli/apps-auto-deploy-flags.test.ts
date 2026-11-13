@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { validateCreateOptions } from "../../commands/apps/create"
-import { buildGitPatch } from "../../commands/apps/set"
 import { formatAutoDeploy } from "../../commands/apps/info"
-import { ValidationError } from "../../utils/errors"
+import { buildGitPatch } from "../../commands/apps/set"
 import type { GitSource } from "../../types"
+import { ValidationError } from "../../utils/errors"
 
 const GIT: GitSource = { repoUrl: "https://x.test/r.git", branch: "main", dockerfile: "Dockerfile" }
 const NOW = Date.parse("2026-10-02T12:00:00.000Z")
@@ -15,7 +15,7 @@ describe("create --auto-deploy", () => {
 
   test("rejects an unknown value", () => {
     expect(() => validateCreateOptions({ git: GIT.repoUrl, autoDeploy: "weekly" })).toThrow(
-      "Invalid --auto-deploy value: weekly. Valid values: off, commit, tag"
+      "Invalid --auto-deploy value: weekly. Valid values: off, commit, tag",
     )
   })
 
@@ -56,13 +56,16 @@ describe("set --auto-deploy", () => {
 
   test("rejects a compose app", () => {
     expect(() =>
-      buildGitPatch({ git: GIT, compose: { source: "git", path: "dc.yml", primaryService: "web" } }, { autoDeploy: "tag" })
+      buildGitPatch(
+        { git: GIT, compose: { source: "git", path: "dc.yml", primaryService: "web" } },
+        { autoDeploy: "tag" },
+      ),
     ).toThrow("not supported for compose apps")
   })
 
   test("a compose app can still change its git token", () => {
     expect(
-      buildGitPatch({ git: GIT, compose: { source: "git", path: "dc.yml", primaryService: "web" } }, { gitToken: "t" })
+      buildGitPatch({ git: GIT, compose: { source: "git", path: "dc.yml", primaryService: "web" } }, { gitToken: "t" }),
     ).toEqual({ token: "t" })
   })
 
@@ -75,15 +78,19 @@ describe("formatAutoDeploy", () => {
   test("tag mode shows the tag and the age of the last check", () => {
     const text = formatAutoDeploy(
       { git: { ...GIT, autoDeploy: "tag" }, autoDeployRef: "v3.8.2", autoDeployCheckedAt: "2026-10-02T11:58:00.000Z" },
-      NOW
+      NOW,
     )
     expect(text).toBe("tag (last v3.8.2, checked 2 min ago)")
   })
 
   test("commit mode shortens the SHA", () => {
     const text = formatAutoDeploy(
-      { git: { ...GIT, autoDeploy: "commit" }, autoDeployRef: "f4a8df3" + "0".repeat(33), autoDeployCheckedAt: "2026-10-02T11:59:50.000Z" },
-      NOW
+      {
+        git: { ...GIT, autoDeploy: "commit" },
+        autoDeployRef: "f4a8df3" + "0".repeat(33),
+        autoDeployCheckedAt: "2026-10-02T11:59:50.000Z",
+      },
+      NOW,
     )
     expect(text).toBe("commit (last f4a8df3, checked just now)")
   })

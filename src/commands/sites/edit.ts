@@ -1,10 +1,10 @@
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
-import { resolveSiteName } from "../../utils/site-config.ts"
-import { formatSuccess, formatDim } from "../../utils/output.ts"
-import { handleError, ValidationError } from "../../utils/errors.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { openBrowser } from "../../utils/browser.ts"
+import { handleError, ValidationError } from "../../utils/errors.ts"
+import { formatDim, formatSuccess } from "../../utils/output.ts"
+import { resolveSiteName } from "../../utils/site-config.ts"
 
 interface EditOptions {
   json?: boolean
@@ -46,9 +46,13 @@ export async function sitesEditCommand(name: string | undefined, options: EditOp
       console.error(`    ${chalk.cyan(created.url)}`)
       console.error("")
       console.error(formatDim(`  Open it to chat with an AI editor on the site itself — changes go live immediately.`))
-      console.error(formatDim(`  One-time link · expires in ~${mins} min · revoke anytime with 'siteio sites edit --revoke'.`))
+      console.error(
+        formatDim(`  One-time link · expires in ~${mins} min · revoke anytime with 'siteio sites edit --revoke'.`),
+      )
       console.error("")
-      console.error(chalk.yellow("  ! Shown only once. In Phase 1 this is for the site owner — do not hand it to a client yet."))
+      console.error(
+        chalk.yellow("  ! Shown only once. In Phase 1 this is for the site owner — do not hand it to a client yet."),
+      )
     }
     process.exit(0)
   } catch (err) {

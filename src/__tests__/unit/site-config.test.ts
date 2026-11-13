@@ -1,8 +1,8 @@
-import { describe, test, expect, beforeEach, afterAll } from "bun:test"
-import { mkdtempSync, rmSync, readFileSync, existsSync } from "fs"
-import { join } from "path"
+import { afterAll, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs"
 import { tmpdir } from "os"
-import { loadProjectConfig, saveProjectConfig, resolveSiteName, resolveAppName } from "../../utils/site-config.ts"
+import { join } from "path"
+import { loadProjectConfig, resolveAppName, resolveSiteName, saveProjectConfig } from "../../utils/site-config.ts"
 
 describe("Unit: Site Config", () => {
   let testDir: string
@@ -97,7 +97,7 @@ describe("Unit: Site Config", () => {
     test("throws when config has app but not site", () => {
       saveProjectConfig({ app: "myapp", domain: "example.com" }, testDir)
       expect(() => resolveSiteName(undefined, "example.com", testDir)).toThrow(
-        "This directory is configured as an app ('myapp'), not a site"
+        "This directory is configured as an app ('myapp'), not a site",
       )
     })
   })
@@ -134,7 +134,7 @@ describe("Unit: Site Config", () => {
     test("throws when config has site but not app", () => {
       saveProjectConfig({ site: "mysite", domain: "example.com" }, testDir)
       expect(() => resolveAppName(undefined, "example.com", testDir)).toThrow(
-        "This directory is configured as a site ('mysite'), not an app"
+        "This directory is configured as a site ('mysite'), not an app",
       )
     })
   })
@@ -145,7 +145,7 @@ describe("Unit: Site Config", () => {
       mkdirSync(join(testDir, ".siteio"), { recursive: true })
       writeFileSync(
         join(testDir, ".siteio", "config.json"),
-        JSON.stringify({ pocket: "legacy", domain: "example.com", pocketbaseVersion: "0.23.4" })
+        JSON.stringify({ pocket: "legacy", domain: "example.com", pocketbaseVersion: "0.23.4" }),
       )
       const config = loadProjectConfig(testDir)
       expect(config!.site).toBe("legacy")
@@ -157,7 +157,7 @@ describe("Unit: Site Config", () => {
       mkdirSync(join(testDir, ".siteio"), { recursive: true })
       writeFileSync(
         join(testDir, ".siteio", "config.json"),
-        JSON.stringify({ pocket: "legacy", domain: "example.com" })
+        JSON.stringify({ pocket: "legacy", domain: "example.com" }),
       )
       expect(resolveSiteName(undefined, "example.com", testDir)).toBe("legacy")
     })

@@ -1,8 +1,8 @@
 import chalk from "chalk"
 import * as fs from "fs"
-import * as path from "path"
 import * as os from "os"
-import { formatSuccess, formatError } from "../utils/output.ts"
+import * as path from "path"
+import { formatError, formatSuccess } from "../utils/output.ts"
 
 // BUILD_VERSION is injected at compile time via --define
 declare const BUILD_VERSION: string | undefined
@@ -117,7 +117,7 @@ async function fetchLatestRelease(): Promise<GitHubRelease> {
       throw new Error(
         `GitHub API rate limit exceeded${minutes ? ` (resets in ~${minutes} min)` : ""}. ` +
           "Set GITHUB_TOKEN (or GH_TOKEN) to raise the limit, or install manually with: " +
-          "curl -LsSf https://houlahop.com/siteio/install | sh"
+          "curl -LsSf https://houlahop.com/siteio/install | sh",
       )
     }
     throw new Error(`Failed to fetch release info: ${response.statusText}`)
@@ -143,7 +143,7 @@ export async function resolveDownloadUrl(release: LatestRelease, assetName: stri
     const asset = release.assets.find((a) => a.name === assetName)
     if (!asset) {
       throw new Error(
-        `No binary found for ${platform}. Available assets: ${release.assets.map((a) => a.name).join(", ")}`
+        `No binary found for ${platform}. Available assets: ${release.assets.map((a) => a.name).join(", ")}`,
       )
     }
     return asset.browser_download_url
@@ -158,11 +158,7 @@ export async function resolveDownloadUrl(release: LatestRelease, assetName: stri
 }
 
 export function compareVersions(current: string, latest: string): number {
-  const parseVersion = (v: string) =>
-    v
-      .replace(/^v/, "")
-      .split(".")
-      .map(Number)
+  const parseVersion = (v: string) => v.replace(/^v/, "").split(".").map(Number)
   const currentParts = parseVersion(current)
   const latestParts = parseVersion(latest)
 

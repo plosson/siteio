@@ -1,11 +1,11 @@
 import chalk from "chalk"
 import { getAgentDataDir, loadAgentConfig, updateAgentConfig } from "../../config/agent.ts"
-import { SiteStorage } from "../../lib/agent/storage.ts"
 import { AppStorage } from "../../lib/agent/app-storage.ts"
+import { SiteStorage } from "../../lib/agent/storage.ts"
+import { newTenant, TenantRegistry, tenantServices } from "../../lib/agent/tenants.ts"
 import { UserStore } from "../../lib/agent/user-store.ts"
-import { TenantRegistry, newTenant, tenantServices } from "../../lib/agent/tenants.ts"
-import { encodeToken } from "../../utils/token.ts"
 import { formatError, formatSuccess } from "../../utils/output.ts"
+import { encodeToken } from "../../utils/token.ts"
 
 // On-box management of tenants: extra base domains, each with its own API key
 // that sees only its own sites. The running agent picks changes up on restart.
@@ -42,11 +42,18 @@ export async function addTenantCommand(
   const token = encodeToken(apiUrl, tenant.apiKey)
   if (options.json) {
     const platformPaths = tenant.platformPaths !== false
-    console.log(JSON.stringify({ domain, apiUrl, apiKey: tenant.apiKey, token, apps: options.apps === true, platformPaths }, null, 2))
+    console.log(
+      JSON.stringify(
+        { domain, apiUrl, apiKey: tenant.apiKey, token, apps: options.apps === true, platformPaths },
+        null,
+        2,
+      ),
+    )
     return
   }
   console.error(formatSuccess(`Tenant '${domain}' added${options.apps ? " (sites and apps)" : " (sites only)"}`))
-  if (tenant.platformPaths === false) console.error(chalk.gray("  Platform paths (/mcp, /_siteio, OAuth) are off on its sites"))
+  if (tenant.platformPaths === false)
+    console.error(chalk.gray("  Platform paths (/mcp, /_siteio, OAuth) are off on its sites"))
   console.error("")
   console.error(`  1. Point DNS: *.${domain} → this server's IP`)
   console.error("  2. Restart the agent: siteio agent restart")

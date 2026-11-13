@@ -1,9 +1,9 @@
 // src/__tests__/unit/auto-update.test.ts
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, utimesSync, chmodSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
-import { maybeAutoUpdate, type AutoUpdateDeps } from "../../commands/auto-update.ts"
+import { join } from "path"
+import { type AutoUpdateDeps, maybeAutoUpdate } from "../../commands/auto-update.ts"
 import { getVersion } from "../../lib/version.ts"
 
 const DAY = 24 * 60 * 60 * 1000
@@ -28,7 +28,10 @@ describe("Unit: automatic update", () => {
       const url = String(input)
       fetchCalls++
       if (url.endsWith("/releases/latest")) {
-        return new Response(null, { status: 302, headers: { location: `https://github.com/plosson/siteio/releases/tag/${tag}` } })
+        return new Response(null, {
+          status: 302,
+          headers: { location: `https://github.com/plosson/siteio/releases/tag/${tag}` },
+        })
       }
       if (url.includes("/releases/download/")) return new Response(null, { status: 200 })
       throw new Error(`unexpected fetch: ${url}`)
@@ -178,7 +181,14 @@ describe("Unit: automatic update", () => {
 
   test("a failed install runs the command on the current binary, without relaunching", async () => {
     releaseIs(nextMinor)
-    await maybeAutoUpdate(["sites", "list"], deps({ install: async () => { throw new Error("disk full") } }))
+    await maybeAutoUpdate(
+      ["sites", "list"],
+      deps({
+        install: async () => {
+          throw new Error("disk full")
+        },
+      }),
+    )
     expect(relaunches).toBe(0)
     expect(exitCode).toBeNull()
     expect(existsSync(lockFile())).toBe(false)
@@ -187,7 +197,10 @@ describe("Unit: automatic update", () => {
   test("a release with no binary for this platform installs nothing", async () => {
     globalThis.fetch = (async (input: string | URL | Request) => {
       if (String(input).endsWith("/releases/latest")) {
-        return new Response(null, { status: 302, headers: { location: `https://github.com/plosson/siteio/releases/tag/${nextMinor}` } })
+        return new Response(null, {
+          status: 302,
+          headers: { location: `https://github.com/plosson/siteio/releases/tag/${nextMinor}` },
+        })
       }
       return new Response(null, { status: 404 })
     }) as typeof fetch

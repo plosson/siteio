@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { spawn } from "bun"
+import { unzipSync, zipSync } from "fflate"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { spawn } from "bun"
-import { zipSync, unzipSync } from "fflate"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 /**
  * `siteio sites deploy` against a real AgentServer (fake container runtime):
@@ -23,8 +23,13 @@ let folder = ""
 beforeEach(() => {
   dataDir = mkdtempSync(join(tmpdir(), "siteio-conflict-data-"))
   const config: AgentConfig = {
-    apiKey: "k", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+    apiKey: "k",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    skipTraefik: true,
   }
   agent = new AgentServer(config, new FakeRuntime())
   http = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: (req) => agent.handleRequestForTest(req) })
@@ -34,7 +39,10 @@ beforeEach(() => {
   mkdirSync(cfgDir, { recursive: true })
   writeFileSync(
     join(cfgDir, "config.json"),
-    JSON.stringify({ current: "test", servers: { test: { apiUrl: `http://127.0.0.1:${http.port}`, apiKey: "k", domain: "example.com" } } })
+    JSON.stringify({
+      current: "test",
+      servers: { test: { apiUrl: `http://127.0.0.1:${http.port}`, apiKey: "k", domain: "example.com" } },
+    }),
   )
   folder = join(homeDir, "blog")
   mkdirSync(folder)
@@ -64,17 +72,19 @@ const localVersion = () => JSON.parse(readFileSync(join(folder, ".siteio", "conf
 
 // Someone else deploys straight to the agent, bypassing this folder.
 async function deployElsewhere(html: string): Promise<void> {
-  const res = await agent.handleRequestForTest(new Request("http://x/sites/blog", {
-    method: "POST",
-    headers: { "X-API-Key": "k", "Content-Type": "application/zip" },
-    body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
-  }))
+  const res = await agent.handleRequestForTest(
+    new Request("http://x/sites/blog", {
+      method: "POST",
+      headers: { "X-API-Key": "k", "Content-Type": "application/zip" },
+      body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
+    }),
+  )
   expect(res.status).toBe(200)
 }
 
 async function liveIndex(): Promise<string> {
   const res = await agent.handleRequestForTest(
-    new Request("http://x/sites/blog/download", { headers: { "X-API-Key": "k" } })
+    new Request("http://x/sites/blog/download", { headers: { "X-API-Key": "k" } }),
   )
   return new TextDecoder().decode(unzipSync(new Uint8Array(await res.arrayBuffer()))["public/index.html"]!)
 }
@@ -165,7 +175,8 @@ describe("CLI: sites deploy version conflicts", () => {
 })
 
 describe("CLI: sites download --version and the full merge", () => {
-  const page = (title: string, footer: string) => `<h1>${title}</h1>\n<p>body</p>\n<p>body</p>\n<p>body</p>\n<footer>${footer}</footer>\n`
+  const page = (title: string, footer: string) =>
+    `<h1>${title}</h1>\n<p>body</p>\n<p>body</p>\n<p>body</p>\n<footer>${footer}</footer>\n`
 
   test("following the printed steps merges both changes without losing either", async () => {
     writeIndex(page("Hello", "2025"))
@@ -189,7 +200,15 @@ describe("CLI: sites download --version and the full merge", () => {
       expect(readFileSync(join(theirsDir, "index.html"), "utf-8")).toBe(page("Bonjour", "2025"))
 
       // Step 3: 3-way merge of the one changed file.
-      const merge = spawn({ cmd: ["git", "merge-file", join(folder, "index.html"), join(baseDir, "index.html"), join(theirsDir, "index.html")] })
+      const merge = spawn({
+        cmd: [
+          "git",
+          "merge-file",
+          join(folder, "index.html"),
+          join(baseDir, "index.html"),
+          join(theirsDir, "index.html"),
+        ],
+      })
       expect(await merge.exited).toBe(0) // 0 = merged cleanly
       expect(readFileSync(join(folder, "index.html"), "utf-8")).toBe(page("Bonjour", "2026"))
 

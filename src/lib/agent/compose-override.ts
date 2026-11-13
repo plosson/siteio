@@ -41,12 +41,7 @@ export function buildOverride(app: App, options: OverrideOptions): string {
 
   const envLines =
     Object.keys(app.env).length > 0
-      ? [
-          "    environment:",
-          ...Object.entries(app.env).map(
-            ([k, v]) => `      ${k}: ${yamlQuote(v)}`
-          ),
-        ]
+      ? ["    environment:", ...Object.entries(app.env).map(([k, v]) => `      ${k}: ${yamlQuote(v)}`)]
       : []
 
   const volumesDir = join(dataDir, "volumes", app.name)
@@ -55,21 +50,14 @@ export function buildOverride(app: App, options: OverrideOptions): string {
       ? [
           "    volumes:",
           ...app.volumes.map((vol) => {
-            const hostPath = vol.name.startsWith("/")
-              ? vol.name
-              : join(volumesDir, vol.name)
+            const hostPath = vol.name.startsWith("/") ? vol.name : join(volumesDir, vol.name)
             const ro = vol.readonly ? ":ro" : ""
             return `      - ${yamlQuote(`${hostPath}:${vol.mountPath}${ro}`)}`
           }),
         ]
       : []
 
-  const labelLines = [
-    "    labels:",
-    ...Object.entries(labels).map(
-      ([k, v]) => `      ${k}: ${yamlQuote(v)}`
-    ),
-  ]
+  const labelLines = ["    labels:", ...Object.entries(labels).map(([k, v]) => `      ${k}: ${yamlQuote(v)}`)]
 
   const lines = [
     "services:",

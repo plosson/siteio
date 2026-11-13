@@ -1,14 +1,14 @@
-import indexHtml from "./index.html" with { type: "text" }
-import appJs from "./ui.js" with { type: "text" }
-import familyCss from "./family.css" with { type: "text" }
-import brandCss from "./brand.css" with { type: "text" }
-import appCss from "./ui.css" with { type: "text" }
-import iconsCss from "./icons.css" with { type: "text" }
-import iconSvg from "./icon.svg" with { type: "text" }
 import alpineJs from "./alpine.min.js" with { type: "text" }
+import brandCss from "./brand.css" with { type: "text" }
 import chatCoreJs from "./chat-core.js" with { type: "text" }
 import editorHtml from "./editor.html" with { type: "text" }
+import familyCss from "./family.css" with { type: "text" }
+import iconSvg from "./icon.svg" with { type: "text" }
+import iconsCss from "./icons.css" with { type: "text" }
+import indexHtml from "./index.html" with { type: "text" }
 import pickerJs from "./picker.js" with { type: "text" }
+import appCss from "./ui.css" with { type: "text" }
+import appJs from "./ui.js" with { type: "text" }
 
 // Bun's `with { type: "text" }` import attribute yields the file contents as a
 // string at runtime, but TypeScript's built-in module types (and bun-types'

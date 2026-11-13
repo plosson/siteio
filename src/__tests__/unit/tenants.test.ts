@@ -1,5 +1,11 @@
-import { describe, test, expect } from "bun:test"
-import { TenantRegistry, tenantSlug, assertValidNewName, normalizeDomains, type Caller } from "../../lib/agent/tenants.ts"
+import { describe, expect, test } from "bun:test"
+import {
+  assertValidNewName,
+  type Caller,
+  normalizeDomains,
+  TenantRegistry,
+  tenantSlug,
+} from "../../lib/agent/tenants.ts"
 import type { Tenant } from "../../types.ts"
 
 const A: Tenant = { domain: "friend.com", apiKey: "key-a", createdAt: "2026-10-08T00:00:00.000Z" }
@@ -126,7 +132,7 @@ describe("TenantRegistry custom domains", () => {
   test("a tenant can't claim a parent of any base domain; the primary can", () => {
     const r = new TenantRegistry("siteio.example.com", [A])
     expect(r.customDomainConflict("example.com", A)).toBe(
-      "Cannot use 'example.com' as a custom domain — it contains another domain on this server"
+      "Cannot use 'example.com' as a custom domain — it contains another domain on this server",
     )
     expect(r.customDomainConflict("example.com", null)).toBeNull()
     expect(r.customDomainConflict("www.unrelated.net", A)).toBeNull()
@@ -146,7 +152,17 @@ describe("TenantRegistry.checkNewTenant", () => {
   })
 
   test("refuses invalid, equal and nested domains", () => {
-    for (const d of ["", "Friend.com", "nodot", "example.com", "friend.com", "x.example.com", "sub.other.org", "org", "com"]) {
+    for (const d of [
+      "",
+      "Friend.com",
+      "nodot",
+      "example.com",
+      "friend.com",
+      "x.example.com",
+      "sub.other.org",
+      "org",
+      "com",
+    ]) {
       expect(reg.checkNewTenant(d)).not.toBeNull()
     }
   })
@@ -159,18 +175,20 @@ describe("TenantRegistry.checkNewTenant", () => {
   test("refuses a domain a site or app already uses, at the apex or below", () => {
     for (const domains of [["third.net"], ["www.third.net"], ["ok.io", "a.b.third.net"]]) {
       expect(reg.checkNewTenant("third.net", [{ kind: "App", name: "x", domains }])).toBe(
-        `App 'x' already uses a domain under 'third.net'`
+        `App 'x' already uses a domain under 'third.net'`,
       )
     }
   })
 
   test("a lookalike custom domain is not under the tenant", () => {
-    expect(reg.checkNewTenant("third.net", [{ kind: "Site", name: "x", domains: ["notthird.net", "third.net.evil.com"] }])).toBeNull()
+    expect(
+      reg.checkNewTenant("third.net", [{ kind: "Site", name: "x", domains: ["notthird.net", "third.net.evil.com"] }]),
+    ).toBeNull()
   })
 
   test("refuses a domain whose slug would capture an existing key", () => {
     expect(reg.checkNewTenant("third.net", [{ kind: "Site", name: "blog--third-net", domains: [] }])).toBe(
-      `Site 'blog--third-net' would be captured by tenant 'third.net'`
+      `Site 'blog--third-net' would be captured by tenant 'third.net'`,
     )
   })
 })
@@ -199,7 +217,19 @@ describe("normalizeDomains", () => {
   })
 
   test("refuses anything that is not an array of domain names", () => {
-    for (const raw of ["hub.acme.io", null, undefined, {}, [42], [null], ["not a domain"], ["-x.io"], ["*.acme.io"], ["acme"], ["a/b.io"]]) {
+    for (const raw of [
+      "hub.acme.io",
+      null,
+      undefined,
+      {},
+      [42],
+      [null],
+      ["not a domain"],
+      ["-x.io"],
+      ["*.acme.io"],
+      ["acme"],
+      ["a/b.io"],
+    ]) {
       expect(() => normalizeDomains(raw)).toThrow()
     }
   })

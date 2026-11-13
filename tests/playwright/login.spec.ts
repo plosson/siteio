@@ -1,9 +1,11 @@
-import { test, expect } from "@playwright/test"
+import { expect, test } from "@playwright/test"
 import { startTestServer, type TestServerHandle } from "./helpers/server"
 
 let srv: TestServerHandle
 
-test.beforeAll(async () => { srv = await startTestServer({ apiKey: "right-key" }) })
+test.beforeAll(async () => {
+  srv = await startTestServer({ apiKey: "right-key" })
+})
 test.afterAll(() => srv.cleanup())
 
 test("invalid API key shows inline error", async ({ page }) => {

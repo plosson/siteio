@@ -1,9 +1,5 @@
-import { describe, test, expect } from "bun:test"
-import {
-  pocketbaseAssetName,
-  pocketbaseDownloadUrl,
-  pocketbaseCachePath,
-} from "../../lib/pocketbase-binary.ts"
+import { describe, expect, test } from "bun:test"
+import { pocketbaseAssetName, pocketbaseCachePath, pocketbaseDownloadUrl } from "../../lib/pocketbase-binary.ts"
 
 describe("Unit: pocketbase binary resolution", () => {
   test("asset name maps macOS arm64", () => {
@@ -17,7 +13,7 @@ describe("Unit: pocketbase binary resolution", () => {
   })
   test("download url points at the pinned github release", () => {
     expect(pocketbaseDownloadUrl("0.23.4", "linux", "arm64")).toBe(
-      "https://github.com/pocketbase/pocketbase/releases/download/v0.23.4/pocketbase_0.23.4_linux_arm64.zip"
+      "https://github.com/pocketbase/pocketbase/releases/download/v0.23.4/pocketbase_0.23.4_linux_arm64.zip",
     )
   })
   test("cache path is versioned and uses .exe on windows", () => {

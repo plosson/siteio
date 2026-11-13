@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
 import { zipSync } from "fflate"
-import { AgentServer } from "../../lib/agent/server"
+import { mkdtempSync, rmSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { Pager, Ranking } from "../../lib/agent/hooks"
-import { FakeRuntime } from "../helpers/fake-runtime"
+import { AgentServer } from "../../lib/agent/server"
 import type { AgentConfig } from "../../types"
+import { FakeRuntime } from "../helpers/fake-runtime"
 
 const API_KEY = "pager-test-key"
 
@@ -73,7 +73,7 @@ async function call(
   method: string,
   path: string,
   body?: object | Uint8Array,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
 ): Promise<number> {
   const isZip = body instanceof Uint8Array
   const res = await server.handleRequestForTest(
@@ -85,7 +85,7 @@ async function call(
         ...headers,
       },
       body: body ? (isZip ? body : JSON.stringify(body)) : undefined,
-    })
+    }),
   )
   return res.status
 }
@@ -158,7 +158,12 @@ describe("pager", () => {
   test("a compose deploy pages on success and on failure", async () => {
     const server = makeServer(pagerUrl())
     const compose = "services:\n  web:\n    image: nginx\n"
-    await call(server, "POST", "/apps", { name: "stack", composeContent: compose, primaryService: "web", internalPort: 80 })
+    await call(server, "POST", "/apps", {
+      name: "stack",
+      composeContent: compose,
+      primaryService: "web",
+      internalPort: 80,
+    })
     runtime.composeConfigReturn = { services: { web: {} } }
     expect(await call(server, "POST", "/apps/stack/deploy")).toBe(200)
 
@@ -174,7 +179,12 @@ describe("pager", () => {
   test("a compose deploy whose primary service is missing pages the failure", async () => {
     const server = makeServer(pagerUrl())
     const compose = "services:\n  web:\n    image: nginx\n"
-    await call(server, "POST", "/apps", { name: "stack", composeContent: compose, primaryService: "web", internalPort: 80 })
+    await call(server, "POST", "/apps", {
+      name: "stack",
+      composeContent: compose,
+      primaryService: "web",
+      internalPort: 80,
+    })
     runtime.composeConfigReturn = { services: { other: {} } }
     expect(await call(server, "POST", "/apps/stack/deploy")).toBe(400)
     await settle()
@@ -271,7 +281,7 @@ describe("who made the change (X-Siteio-User)", () => {
   async function liveDeployedBy(server: AgentServer): Promise<string | undefined> {
     expect(await call(server, "POST", "/sites/blog", siteZip(), as("archiver"))).toBe(200)
     const res = await server.handleRequestForTest(
-      new Request("http://localhost/sites/blog/history", { headers: { "X-API-Key": API_KEY } })
+      new Request("http://localhost/sites/blog/history", { headers: { "X-API-Key": API_KEY } }),
     )
     const history = ((await res.json()) as { data: { version: number; deployedBy?: string }[] }).data
     return history.reduce((a, b) => (b.version > a.version ? b : a)).deployedBy
@@ -298,7 +308,12 @@ describe("who made the change (X-Siteio-User)", () => {
   test("a compose deploy names the caller too", async () => {
     const server = makeServer(pagerUrl())
     const compose = "services:\n  web:\n    image: nginx\n"
-    await call(server, "POST", "/apps", { name: "stack", composeContent: compose, primaryService: "web", internalPort: 80 })
+    await call(server, "POST", "/apps", {
+      name: "stack",
+      composeContent: compose,
+      primaryService: "web",
+      internalPort: 80,
+    })
     runtime.composeConfigReturn = { services: { web: {} } }
     expect(await call(server, "POST", "/apps/stack/deploy", undefined, as("ada"))).toBe(200)
     await settle()
@@ -327,7 +342,9 @@ describe("who made the change (X-Siteio-User)", () => {
 
   test("X-Siteio-User wins over X-Deployed-By when both are sent", async () => {
     const server = makeServer(pagerUrl())
-    expect(await call(server, "POST", "/sites/blog", siteZip(), { "X-Deployed-By": "old-cli", ...as("new-cli") })).toBe(200)
+    expect(await call(server, "POST", "/sites/blog", siteZip(), { "X-Deployed-By": "old-cli", ...as("new-cli") })).toBe(
+      200,
+    )
     expect(await liveDeployedBy(server)).toBe("new-cli")
   })
 

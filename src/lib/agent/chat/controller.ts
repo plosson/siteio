@@ -1,14 +1,14 @@
-import { existsSync, mkdirSync, rmSync, readdirSync } from "fs"
-import { join } from "path"
 import { randomBytes } from "node:crypto"
+import { existsSync, mkdirSync, readdirSync, rmSync } from "fs"
+import { join } from "path"
 import type { ChatConfig, ChatEvent, ChatMessage, ChatTarget, ChatToolCall, SiteInfo } from "../../../types.ts"
-import type { SiteStorage } from "../storage.ts"
 import type { ChatStore } from "../chat-store.ts"
+import type { SiteStorage } from "../storage.ts"
+import { ClaudeRunner } from "./claude-runner.ts"
 import type { ChatExecutor } from "./executor.ts"
 import { LocalChatExecutor } from "./local-executor.ts"
 import { SandboxChatExecutor } from "./sandbox-executor.ts"
-import { ClaudeRunner } from "./claude-runner.ts"
-import { prepareWorkspace, buildDeployZip, hasWebChanges } from "./workspace.ts"
+import { buildDeployZip, hasWebChanges, prepareWorkspace } from "./workspace.ts"
 
 // A turn couldn't start because another is already running for this site.
 export class ChatBusyError extends Error {
@@ -125,7 +125,7 @@ export class ChatController {
     }
     if (this.sandbox && !this.sandbox.imageAvailable()) {
       throw new ChatUnavailableError(
-        `Chat sandbox image '${this.deps.chat.sandboxImage}' is not built. Run: docker build -t ${this.deps.chat.sandboxImage} docker/chat-sandbox`
+        `Chat sandbox image '${this.deps.chat.sandboxImage}' is not built. Run: docker build -t ${this.deps.chat.sandboxImage} docker/chat-sandbox`,
       )
     }
 
@@ -192,7 +192,7 @@ export class ChatController {
           siteName,
           result.finalText || "The agent encountered an error.",
           versionBefore,
-          toolCalls
+          toolCalls,
         )
       }
 
@@ -225,7 +225,13 @@ export class ChatController {
         })
       } catch (err) {
         const message = err instanceof Error ? err.message : "Deploy failed"
-        return this.finishError(siteName, `Changes were made but the deploy failed: ${message}`, versionBefore, toolCalls, changedFiles)
+        return this.finishError(
+          siteName,
+          `Changes were made but the deploy failed: ${message}`,
+          versionBefore,
+          toolCalls,
+          changedFiles,
+        )
       }
     } finally {
       this.active.delete(siteName)
@@ -268,7 +274,7 @@ export class ChatController {
       versionBefore?: number
       versionAfter?: number
       deployed: boolean
-    }
+    },
   ): ChatMessage {
     const msg: ChatMessage = {
       id: randomBytes(8).toString("hex"),
@@ -291,7 +297,7 @@ export class ChatController {
     error: string,
     versionBefore: number | undefined,
     toolCalls: ChatToolCall[],
-    changedFiles?: string[]
+    changedFiles?: string[],
   ): ChatMessage {
     return this.finish(siteName, {
       text: error,

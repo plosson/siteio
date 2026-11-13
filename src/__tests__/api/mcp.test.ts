@@ -1,21 +1,26 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { createHash, randomBytes } from "crypto"
+import { unzipSync, zipSync } from "fflate"
 import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
 import { tmpdir } from "os"
-import { zipSync, unzipSync } from "fflate"
-import { randomBytes, createHash } from "crypto"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ApiResponse, ShareGrantCreated } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 function makeServer(
   dataDir: string,
   runtime: FakeRuntime,
-  hooks?: { fetchAsset?: (url: string) => Promise<Uint8Array> }
+  hooks?: { fetchAsset?: (url: string) => Promise<Uint8Array> },
 ): AgentServer {
   const config: AgentConfig = {
-    apiKey: "test-key", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+    apiKey: "test-key",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    skipTraefik: true,
   }
   return new AgentServer(config, runtime, hooks)
 }
@@ -46,14 +51,15 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
   const deploySite = (name: string, files: Record<string, string>) =>
     server.handleRequestForTest(
       new Request(`http://x/sites/${name}`, {
-        method: "POST", headers: ZIPH,
+        method: "POST",
+        headers: ZIPH,
         body: zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, new TextEncoder().encode(v)]))),
-      })
+      }),
     )
 
   const mintCode = async (name: string, body: Record<string, unknown> = {}): Promise<string> => {
     const res = await server.handleRequestForTest(
-      new Request(`http://x/sites/${name}/grants`, { method: "POST", headers: JSONH, body: JSON.stringify(body) })
+      new Request(`http://x/sites/${name}/grants`, { method: "POST", headers: JSONH, body: JSON.stringify(body) }),
     )
     return ((await res.json()) as ApiResponse<ShareGrantCreated>).data!.code
   }
@@ -64,33 +70,43 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
     const code = await mintCode(name, grantBody)
     const reg = await on(
       new Request("http://x/mcp/oauth/register", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ redirect_uris: [REDIRECT] }),
       }),
-      host
+      host,
     )
     const clientId = ((await reg.json()) as { client_id: string }).client_id
     const { verifier, challenge } = pkce()
     const authRes = await on(
       new Request("http://x/mcp/oauth/authorize", {
-        method: "POST", headers: FORMH,
+        method: "POST",
+        headers: FORMH,
         body: new URLSearchParams({
-          response_type: "code", client_id: clientId, redirect_uri: REDIRECT,
-          code_challenge: challenge, code_challenge_method: "S256", code,
+          response_type: "code",
+          client_id: clientId,
+          redirect_uri: REDIRECT,
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+          code,
         }).toString(),
       }),
-      host
+      host,
     )
     const authCode = new URL(authRes.headers.get("Location")!).searchParams.get("code")!
     const tokRes = await on(
       new Request("http://x/mcp/oauth/token", {
-        method: "POST", headers: FORMH,
+        method: "POST",
+        headers: FORMH,
         body: new URLSearchParams({
-          grant_type: "authorization_code", code: authCode, redirect_uri: REDIRECT,
-          client_id: clientId, code_verifier: verifier,
+          grant_type: "authorization_code",
+          code: authCode,
+          redirect_uri: REDIRECT,
+          client_id: clientId,
+          code_verifier: verifier,
         }).toString(),
       }),
-      host
+      host,
     )
     return ((await tokRes.json()) as { access_token: string }).access_token
   }
@@ -102,11 +118,25 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${bearer}` },
         body: JSON.stringify(message),
       }),
-      host
+      host,
     )
-  const call = async (endpoint: "/mcp", bearer: string, name: string, args: Record<string, unknown> = {}, host = HOST) => {
-    const res = await rpc(endpoint, bearer, { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, host)
-    return { status: res.status, body: (await res.json()) as { result?: { content?: { text: string }[]; isError?: boolean } } }
+  const call = async (
+    endpoint: "/mcp",
+    bearer: string,
+    name: string,
+    args: Record<string, unknown> = {},
+    host = HOST,
+  ) => {
+    const res = await rpc(
+      endpoint,
+      bearer,
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
+      host,
+    )
+    return {
+      status: res.status,
+      body: (await res.json()) as { result?: { content?: { text: string }[]; isError?: boolean } },
+    }
   }
   const listTools = async (endpoint: "/mcp", bearer: string) => {
     const res = await rpc(endpoint, bearer, { jsonrpc: "2.0", id: 2, method: "tools/list" })
@@ -124,14 +154,19 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
   // --- Auth ---
 
   test("unauthenticated /mcp 401s to its protected-resource metadata", async () => {
-    const mcp = await on(new Request("http://x/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }))
+    const mcp = await on(
+      new Request("http://x/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }),
+    )
     expect(mcp.status).toBe(401)
     expect(mcp.headers.get("WWW-Authenticate")).toContain("/.well-known/oauth-protected-resource/mcp")
   })
 
   test("protected-resource metadata (bare path and /mcp) names the site's auth server", async () => {
     for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"]) {
-      const meta = (await (await on(new Request(`http://x${path}`, { method: "GET" }))).json()) as { resource: string; authorization_servers: string[] }
+      const meta = (await (await on(new Request(`http://x${path}`, { method: "GET" }))).json()) as {
+        resource: string
+        authorization_servers: string[]
+      }
       expect(meta.resource).toBe("https://blog.example.com/mcp")
       expect(meta.authorization_servers).toEqual(["https://blog.example.com"])
     }
@@ -146,9 +181,18 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
 
   test("/mcp exposes the editing tools", async () => {
     const bearer = await connect("blog")
-    expect(await listTools("/mcp", bearer)).toEqual(
-      ["create_asset_upload", "delete_file", "deploy_site", "edit_file", "list_files", "list_history", "read_file", "site_info", "write_file", "write_url"]
-    )
+    expect(await listTools("/mcp", bearer)).toEqual([
+      "create_asset_upload",
+      "delete_file",
+      "deploy_site",
+      "edit_file",
+      "list_files",
+      "list_history",
+      "read_file",
+      "site_info",
+      "write_file",
+      "write_url",
+    ])
   })
 
   test("/mcp rejects an unknown tool", async () => {
@@ -167,7 +211,9 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
     expect(deploy.body.result!.isError).toBeFalsy()
     expect(toolText(deploy.body)).toContain("https://blog.example.com")
 
-    const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }))
+    const dl = await server.handleRequestForTest(
+      new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }),
+    )
     const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
     const dec = (k: string) => new TextDecoder().decode(files[k]!)
     expect(dec("public/index.html")).toBe("<h1>edited</h1>")
@@ -175,25 +221,39 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
   })
 
   describe("deploy_site when the owner deployed mid-session", () => {
-    const page = (title: string, footer: string) => `<h1>${title}</h1>\n<p>a</p>\n<p>b</p>\n<p>c</p>\n<footer>${footer}</footer>\n`
+    const page = (title: string, footer: string) =>
+      `<h1>${title}</h1>\n<p>a</p>\n<p>b</p>\n<p>c</p>\n<footer>${footer}</footer>\n`
     const live = async () => {
-      const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }))
+      const dl = await server.handleRequestForTest(
+        new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }),
+      )
       const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
       return Object.fromEntries(Object.entries(files).map(([k, v]) => [k, new TextDecoder().decode(v)]))
     }
     const versionCount = async () => {
-      const res = await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "GET", headers: AUTH }))
+      const res = await server.handleRequestForTest(
+        new Request("http://x/sites/blog", { method: "GET", headers: AUTH }),
+      )
       return ((await res.json()) as ApiResponse<{ version: number }>).data!.version
     }
 
     beforeEach(async () => {
-      await deploySite("blog", { "public/index.html": page("Hello", "2025"), "public/about.html": "about", "pb_migrations/1_init.js": "// schema" })
+      await deploySite("blog", {
+        "public/index.html": page("Hello", "2025"),
+        "public/about.html": "about",
+        "pb_migrations/1_init.js": "// schema",
+      })
     })
 
     test("non-overlapping edits are merged: both the owner's and the invitee's changes go live", async () => {
       const bearer = await connect("blog")
       await call("/mcp", bearer, "read_file", { path: "index.html" }) // staging taken now
-      await deploySite("blog", { "public/index.html": page("Bonjour", "2025"), "public/about.html": "about", "public/new.html": "owner new", "pb_migrations/1_init.js": "// schema v2" })
+      await deploySite("blog", {
+        "public/index.html": page("Bonjour", "2025"),
+        "public/about.html": "about",
+        "public/new.html": "owner new",
+        "pb_migrations/1_init.js": "// schema v2",
+      })
 
       await call("/mcp", bearer, "edit_file", { path: "index.html", old_string: "2025", new_string: "2026" })
       const deploy = await call("/mcp", bearer, "deploy_site", { message: "Footer year" })
@@ -273,7 +333,9 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
     expect(toolText(res.body)).toContain("1 replacement")
     await call("/mcp", bearer, "deploy_site", { message: "Swap heading via edit_file" })
 
-    const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }))
+    const dl = await server.handleRequestForTest(
+      new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }),
+    )
     const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
     expect(new TextDecoder().decode(files["public/index.html"]!)).toBe("<h1>edited via edit_file</h1>")
   })
@@ -305,7 +367,12 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
     expect(ambiguous.body.result!.isError).toBe(true)
     expect(toolText(ambiguous.body)).toContain("occurs 2 times")
     // replace_all resolves the ambiguity.
-    const all = await call("/mcp", bearer, "edit_file", { path: "dup.html", old_string: "x", new_string: "y", replace_all: true })
+    const all = await call("/mcp", bearer, "edit_file", {
+      path: "dup.html",
+      old_string: "x",
+      new_string: "y",
+      replace_all: true,
+    })
     expect(all.body.result!.isError).toBeFalsy()
     expect(toolText(all.body)).toContain("2 replacements")
   })
@@ -320,15 +387,23 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
     expect(list.result.resources.every((r) => r.text === undefined)).toBe(true)
 
     const readRes = await rpc("/mcp", bearer, {
-      jsonrpc: "2.0", id: 2, method: "resources/read", params: { uri: "siteio://guide/editing" },
+      jsonrpc: "2.0",
+      id: 2,
+      method: "resources/read",
+      params: { uri: "siteio://guide/editing" },
     })
     const read = (await readRes.json()) as { result: { contents: { uri: string; mimeType: string; text: string }[] } }
     expect(read.result.contents[0]!.mimeType).toBe("text/markdown")
     expect(read.result.contents[0]!.text).toContain("deploy_site")
 
-    const missing = (await (await rpc("/mcp", bearer, {
-      jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: "siteio://nope" },
-    })).json()) as { error?: { code: number } }
+    const missing = (await (
+      await rpc("/mcp", bearer, {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "resources/read",
+        params: { uri: "siteio://nope" },
+      })
+    ).json()) as { error?: { code: number } }
     expect(missing.error!.code).toBe(-32602)
   })
 
@@ -379,12 +454,17 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
 
     test("fetches a URL server-side and stages it, published on deploy", async () => {
       const bearer = await connect("blog")
-      const res = await call("/mcp", bearer, "write_url", { path: "img/logo.png", url: "https://cdn.example.com/logo.png" })
+      const res = await call("/mcp", bearer, "write_url", {
+        path: "img/logo.png",
+        url: "https://cdn.example.com/logo.png",
+      })
       expect(res.body.result!.isError).toBeFalsy()
       expect(toolText(res.body)).toContain("img/logo.png")
 
       await call("/mcp", bearer, "deploy_site", { message: "Add logo image" })
-      const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }))
+      const dl = await server.handleRequestForTest(
+        new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }),
+      )
       const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
       expect(files["public/img/logo.png"]).toEqual(PNG)
     })
@@ -395,14 +475,17 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
       expect(res.body.result!.isError).toBe(true)
       expect(toolText(res.body)).toMatch(/unsafe path/i)
     })
-
   })
 
   describe("write_url SSRF guard (real fetcher)", () => {
     // No stub — exercises the server's real SSRF-guarded fetch.
     test("refuses internal/private and non-http targets before fetching", async () => {
       const bearer = await connect("blog")
-      for (const url of ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8080/api", "file:///etc/passwd"]) {
+      for (const url of [
+        "http://169.254.169.254/latest/meta-data/",
+        "http://127.0.0.1:8080/api",
+        "file:///etc/passwd",
+      ]) {
         const res = await call("/mcp", bearer, "write_url", { path: "x", url })
         expect(res.body.result!.isError).toBe(true)
       }
@@ -447,7 +530,9 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
       expect(toolText(read.body)).toContain("[base64-encoded binary file]")
 
       await call("/mcp", bearer, "deploy_site", { message: "Add hero image" })
-      const dl = await server.handleRequestForTest(new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }))
+      const dl = await server.handleRequestForTest(
+        new Request("http://x/sites/blog/download", { method: "GET", headers: AUTH }),
+      )
       const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
       expect(files["public/img/hero.png"]).toEqual(IMG)
       // Backend is preserved through the upload+deploy path too.
@@ -505,7 +590,7 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
         await server.handleRequestForTest(new Request("http://x/sites/blog/grants", { method: "GET", headers: AUTH }))
       ).json()) as ApiResponse<{ id: string }[]>
       await server.handleRequestForTest(
-        new Request(`http://x/sites/blog/grants/${list.data![0]!.id}`, { method: "DELETE", headers: AUTH })
+        new Request(`http://x/sites/blog/grants/${list.data![0]!.id}`, { method: "DELETE", headers: AUTH }),
       )
       expect((await putUpload(token!, IMG)).status).toBe(403)
     })
@@ -527,8 +612,10 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
     beforeEach(async () => {
       const res = await server.handleRequestForTest(
         new Request("http://x/sites/blog/domains", {
-          method: "PATCH", headers: JSONH, body: JSON.stringify({ domains: [CUSTOM] }),
-        })
+          method: "PATCH",
+          headers: JSONH,
+          body: JSON.stringify({ domains: [CUSTOM] }),
+        }),
       )
       expect(res.status).toBe(200)
     })
@@ -563,7 +650,7 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
     test("an unknown host (not a site or custom domain) is 404", async () => {
       const res = await on(
         new Request("http://x/.well-known/oauth-protected-resource/mcp", { method: "GET" }),
-        "nobody.example.net"
+        "nobody.example.net",
       )
       expect(res.status).toBe(404)
     })
@@ -579,7 +666,7 @@ describe("API: MCP surface — /mcp (editing) over per-site OAuth", () => {
       await server.handleRequestForTest(new Request("http://x/sites/blog/grants", { method: "GET", headers: AUTH }))
     ).json()) as ApiResponse<{ id: string }[]>
     await server.handleRequestForTest(
-      new Request(`http://x/sites/blog/grants/${list.data![0]!.id}`, { method: "DELETE", headers: AUTH })
+      new Request(`http://x/sites/blog/grants/${list.data![0]!.id}`, { method: "DELETE", headers: AUTH }),
     )
     expect((await rpc("/mcp", bearer, { jsonrpc: "2.0", id: 2, method: "ping" })).status).toBe(401)
   })

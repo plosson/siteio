@@ -1,14 +1,18 @@
 // src/__tests__/unit/app-scaffold.test.ts
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
+import { join } from "path"
 import { scaffoldApp } from "../../lib/app-scaffold.ts"
 
 describe("Unit: scaffoldApp", () => {
   let dir: string
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "siteio-app-")) })
-  afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "siteio-app-"))
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
 
   test("creates a starter Dockerfile", () => {
     scaffoldApp(dir)

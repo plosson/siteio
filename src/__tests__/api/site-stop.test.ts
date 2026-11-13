@@ -1,12 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
+import { mkdtempSync, rmSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { SiteStorage } from "../../lib/agent/storage.ts"
+import type { AgentConfig, ApiResponse, ShareGrantCreated, SiteInfo } from "../../types.ts"
 import { FakeRuntime } from "../helpers/fake-runtime.ts"
-import type { AgentConfig, ApiResponse, SiteInfo, ShareGrantCreated } from "../../types.ts"
 
 const GOD = { "X-API-Key": "test-key" }
 const GOD_ZIP = { ...GOD, "Content-Type": "application/zip" }
@@ -20,7 +20,11 @@ describe("API: site stop / start", () => {
   const req = (path: string, init: RequestInit = {}, host = "localhost") =>
     server.handleRequestForTest(new Request(`http://x${path}`, init), host)
   const deploy = (name = "blog") =>
-    req(`/sites/${name}`, { method: "POST", headers: GOD_ZIP, body: zipSync({ "public/index.html": new TextEncoder().encode("<h1>hi</h1>") }) })
+    req(`/sites/${name}`, {
+      method: "POST",
+      headers: GOD_ZIP,
+      body: zipSync({ "public/index.html": new TextEncoder().encode("<h1>hi</h1>") }),
+    })
   const stop = (name = "blog") => req(`/sites/${name}/stop`, { method: "POST", headers: GOD })
   const start = (name = "blog") => req(`/sites/${name}/start`, { method: "POST", headers: GOD })
   const stored = (name = "blog") => new SiteStorage(join(dataDir, "data")).get(name)!
@@ -29,8 +33,16 @@ describe("API: site stop / start", () => {
     dataDir = mkdtempSync(join(tmpdir(), "siteio-site-stop-"))
     runtime = new FakeRuntime()
     server = new AgentServer(
-      { apiKey: "test-key", dataDir: join(dataDir, "data"), domain: "example.com", maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true } as AgentConfig,
-      runtime
+      {
+        apiKey: "test-key",
+        dataDir: join(dataDir, "data"),
+        domain: "example.com",
+        maxUploadSize: 50 * 1024 * 1024,
+        httpPort: 8080,
+        httpsPort: 8443,
+        skipTraefik: true,
+      } as AgentConfig,
+      runtime,
     )
     expect((await deploy()).status).toBe(200)
     runtime.containerExistsReturn = true
@@ -67,9 +79,17 @@ describe("API: site stop / start", () => {
   test("start recreates the container with domains and env changed while stopped", async () => {
     await stop()
     runtime.containerExistsReturn = false
-    const dom = await req("/sites/blog/domains", { method: "PATCH", headers: GOD_JSON, body: JSON.stringify({ domains: ["blog.acme.test"] }) })
+    const dom = await req("/sites/blog/domains", {
+      method: "PATCH",
+      headers: GOD_JSON,
+      body: JSON.stringify({ domains: ["blog.acme.test"] }),
+    })
     expect(dom.status).toBe(200)
-    const env = await req("/sites/blog/env", { method: "PATCH", headers: GOD_JSON, body: JSON.stringify({ env: { PLAN: "pro" } }) })
+    const env = await req("/sites/blog/env", {
+      method: "PATCH",
+      headers: GOD_JSON,
+      body: JSON.stringify({ env: { PLAN: "pro" } }),
+    })
     expect(env.status).toBe(200)
     expect(runtime.callsOf("run")).toHaveLength(0) // config changes leave it offline
     expect(stored().status).toBe("stopped")
@@ -77,7 +97,10 @@ describe("API: site stop / start", () => {
     const res = await start()
     expect(res.status).toBe(200)
     expect(stored().status).toBe("running")
-    const run = runtime.callsOf("run").at(-1)!.args[0] as { env: Record<string, string>; labels: Record<string, string> }
+    const run = runtime.callsOf("run").at(-1)!.args[0] as {
+      env: Record<string, string>
+      labels: Record<string, string>
+    }
     expect(run.env.PLAN).toBe("pro")
     expect(JSON.stringify(run.labels)).toContain("blog.acme.test")
   })
@@ -85,7 +108,11 @@ describe("API: site stop / start", () => {
   test("rename while stopped keeps it offline and stopped", async () => {
     await stop()
     runtime.containerExistsReturn = false
-    const res = await req("/sites/blog/rename", { method: "PATCH", headers: GOD_JSON, body: JSON.stringify({ newSubdomain: "journal" }) })
+    const res = await req("/sites/blog/rename", {
+      method: "PATCH",
+      headers: GOD_JSON,
+      body: JSON.stringify({ newSubdomain: "journal" }),
+    })
     expect(res.status).toBe(200)
     expect(runtime.callsOf("run")).toHaveLength(0)
     expect(stored("journal").status).toBe("stopped")
@@ -123,7 +150,9 @@ describe("API: site stop / start", () => {
     ]
     for (const res of attempts) {
       expect(res.status).toBe(409)
-      expect(((await res.json()) as ApiResponse<null>).error).toBe("Site 'blog' is stopped; run 'siteio sites start blog' first")
+      expect(((await res.json()) as ApiResponse<null>).error).toBe(
+        "Site 'blog' is stopped; run 'siteio sites start blog' first",
+      )
     }
     expect(runtime.callsOf("run")).toHaveLength(0)
     expect(runtime.callsOf("pull")).toHaveLength(0)

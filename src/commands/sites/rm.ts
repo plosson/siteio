@@ -1,12 +1,15 @@
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
-import { resolveSiteName } from "../../utils/site-config.ts"
-import { confirm } from "../../utils/prompt.ts"
-import { formatSuccess } from "../../utils/output.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
+import { formatSuccess } from "../../utils/output.ts"
+import { confirm } from "../../utils/prompt.ts"
+import { resolveSiteName } from "../../utils/site-config.ts"
 
-export async function sitesRmCommand(name: string | undefined, options: { yes?: boolean; json?: boolean } = {}): Promise<void> {
+export async function sitesRmCommand(
+  name: string | undefined,
+  options: { yes?: boolean; json?: boolean } = {},
+): Promise<void> {
   try {
     const server = getCurrentServer()
     const resolved = resolveSiteName(name, server?.domain ?? "")
@@ -22,5 +25,7 @@ export async function sitesRmCommand(name: string | undefined, options: { yes?: 
       console.error(formatSuccess(`Removed site ${chalk.bold(resolved)}`))
     }
     process.exit(0)
-  } catch (err) { handleError(err) }
+  } catch (err) {
+    handleError(err)
+  }
 }

@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "fs"
 import chalk from "chalk"
+import { existsSync, readFileSync } from "fs"
 import { ValidationError } from "./errors.ts"
 
 // CLI env flags shared by `apps set` and `sites set`.
@@ -71,11 +71,16 @@ export function parseSecretFiles(args: string[]): Record<string, string> {
   return secrets
 }
 
-export interface EnvFlagOptions { env?: string[]; secret?: string[]; secretFile?: string[]; secretStdin?: string }
+export interface EnvFlagOptions {
+  env?: string[]
+  secret?: string[]
+  secretFile?: string[]
+  secretStdin?: string
+}
 
 // -e / --secret / --secret-file / --secret-stdin → the agent's { env, secrets }.
 export async function collectEnvUpdate(
-  options: EnvFlagOptions
+  options: EnvFlagOptions,
 ): Promise<{ env?: Record<string, string>; secrets?: Record<string, string> }> {
   const env = options.env?.length ? parseEnvVars(options.env, "--env") : undefined
   const secrets: Record<string, string> = {

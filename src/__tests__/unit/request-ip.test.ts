@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { requestIp } from "../../lib/agent/request-ip.ts"
 
 const r = (headers: Record<string, string>) => new Request("http://x/", { headers })

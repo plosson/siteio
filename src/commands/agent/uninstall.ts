@@ -1,11 +1,11 @@
 import * as p from "@clack/prompts"
+import { spawnSync } from "bun"
 import chalk from "chalk"
 import { existsSync } from "fs"
-import { spawnSync } from "bun"
-import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts"
 import { loadAgentConfig } from "../../config/agent.ts"
+import { CloudflareError, isSslipDomain, removeWildcardDNS } from "../../lib/cloudflare.ts"
+import { formatError, formatSuccess, formatWarning } from "../../utils/output.ts"
 import { isRemoteTarget, sshExec, sshExecStream } from "../../utils/ssh.ts"
-import { removeWildcardDNS, CloudflareError, isSslipDomain } from "../../lib/cloudflare.ts"
 
 const SERVICE_NAME = "siteio-agent"
 const SERVICE_FILE = `/etc/systemd/system/${SERVICE_NAME}.service`
@@ -45,18 +45,14 @@ function stopAndRemoveContainers(containers: string[], isRoot: boolean): { stopp
   for (const container of containers) {
     // Stop container
     const stopResult = spawnSync({
-      cmd: isRoot
-        ? ["docker", "stop", container]
-        : ["sudo", "docker", "stop", container],
+      cmd: isRoot ? ["docker", "stop", container] : ["sudo", "docker", "stop", container],
       stdout: "pipe",
       stderr: "pipe",
     })
 
     // Remove container (even if stop failed - might already be stopped)
     const rmResult = spawnSync({
-      cmd: isRoot
-        ? ["docker", "rm", "-f", container]
-        : ["sudo", "docker", "rm", "-f", container],
+      cmd: isRoot ? ["docker", "rm", "-f", container] : ["sudo", "docker", "rm", "-f", container],
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -91,7 +87,7 @@ async function uninstallRemote(target: string, options: UninstallOptions): Promi
   const checkResult = await sshExec(
     target,
     "which siteio 2>/dev/null || (test -f $HOME/.local/bin/siteio && echo $HOME/.local/bin/siteio) || echo 'not-found'",
-    options.identity
+    options.identity,
   )
   const siteioPath = checkResult.stdout.trim()
   if (siteioPath === "not-found") {
@@ -251,9 +247,7 @@ async function uninstallLocal(options: UninstallOptions): Promise<void> {
   // Stop the service
   s.start("Stopping service")
   const stopResult = spawnSync({
-    cmd: isRoot
-      ? ["systemctl", "stop", SERVICE_NAME]
-      : ["sudo", "systemctl", "stop", SERVICE_NAME],
+    cmd: isRoot ? ["systemctl", "stop", SERVICE_NAME] : ["sudo", "systemctl", "stop", SERVICE_NAME],
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -263,9 +257,7 @@ async function uninstallLocal(options: UninstallOptions): Promise<void> {
   // Disable the service
   s.start("Disabling service")
   const disableResult = spawnSync({
-    cmd: isRoot
-      ? ["systemctl", "disable", SERVICE_NAME]
-      : ["sudo", "systemctl", "disable", SERVICE_NAME],
+    cmd: isRoot ? ["systemctl", "disable", SERVICE_NAME] : ["sudo", "systemctl", "disable", SERVICE_NAME],
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -274,9 +266,7 @@ async function uninstallLocal(options: UninstallOptions): Promise<void> {
   // Remove service file
   s.start("Removing service file")
   const rmResult = spawnSync({
-    cmd: isRoot
-      ? ["rm", "-f", SERVICE_FILE]
-      : ["sudo", "rm", "-f", SERVICE_FILE],
+    cmd: isRoot ? ["rm", "-f", SERVICE_FILE] : ["sudo", "rm", "-f", SERVICE_FILE],
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -291,9 +281,7 @@ async function uninstallLocal(options: UninstallOptions): Promise<void> {
   // Reload systemd
   s.start("Reloading systemd")
   spawnSync({
-    cmd: isRoot
-      ? ["systemctl", "daemon-reload"]
-      : ["sudo", "systemctl", "daemon-reload"],
+    cmd: isRoot ? ["systemctl", "daemon-reload"] : ["sudo", "systemctl", "daemon-reload"],
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -303,9 +291,7 @@ async function uninstallLocal(options: UninstallOptions): Promise<void> {
   if (options.removeData) {
     s.start(`Removing data directory (${DEFAULT_DATA_DIR})`)
     const rmDataResult = spawnSync({
-      cmd: isRoot
-        ? ["rm", "-rf", DEFAULT_DATA_DIR]
-        : ["sudo", "rm", "-rf", DEFAULT_DATA_DIR],
+      cmd: isRoot ? ["rm", "-rf", DEFAULT_DATA_DIR] : ["sudo", "rm", "-rf", DEFAULT_DATA_DIR],
       stdout: "pipe",
       stderr: "pipe",
     })
@@ -326,9 +312,7 @@ async function uninstallLocal(options: UninstallOptions): Promise<void> {
     if (removeData && !p.isCancel(removeData)) {
       s.start(`Removing data directory (${DEFAULT_DATA_DIR})`)
       const rmDataResult = spawnSync({
-        cmd: isRoot
-          ? ["rm", "-rf", DEFAULT_DATA_DIR]
-          : ["sudo", "rm", "-rf", DEFAULT_DATA_DIR],
+        cmd: isRoot ? ["rm", "-rf", DEFAULT_DATA_DIR] : ["sudo", "rm", "-rf", DEFAULT_DATA_DIR],
         stdout: "pipe",
         stderr: "pipe",
       })

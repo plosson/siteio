@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { spawn } from "bun"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { spawn } from "bun"
 
 /**
  * CLI flag tests for `siteio apps set`, against a mock agent.
@@ -59,7 +59,7 @@ beforeAll(async () => {
             ...(bodyJson?.composeContent !== undefined && { warnings: ["Service 'db' publishes ports"] }),
           },
         }),
-        { status: 200, headers: { "content-type": "application/json" } }
+        { status: 200, headers: { "content-type": "application/json" } },
       )
     },
   })
@@ -78,7 +78,7 @@ beforeAll(async () => {
       servers: {
         test: { apiUrl: `http://127.0.0.1:${port}`, apiKey: TEST_API_KEY },
       },
-    })
+    }),
   )
 })
 
@@ -87,10 +87,7 @@ afterAll(() => {
   if (homeDir) rmSync(homeDir, { recursive: true, force: true })
 })
 
-async function runCli(
-  args: string[],
-  stdin?: string
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+async function runCli(args: string[], stdin?: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   recorded = []
   const proc = spawn({
     cmd: ["bun", "run", "src/cli.ts", ...args],
@@ -104,10 +101,7 @@ async function runCli(
     stdout: "pipe",
     stderr: "pipe",
   })
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ])
+  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
   const exitCode = await proc.exited
   return { stdout, stderr, exitCode }
 }
@@ -202,7 +196,17 @@ describe("CLI: apps set compose flags", () => {
     writeFileSync(composePath, compose)
     writeFileSync(envPath, "TAG=2\n")
 
-    const result = await runCli(["apps", "set", "testapp", "--compose-file", composePath, "--env-file", envPath, "--service", "web"])
+    const result = await runCli([
+      "apps",
+      "set",
+      "testapp",
+      "--compose-file",
+      composePath,
+      "--env-file",
+      envPath,
+      "--service",
+      "web",
+    ])
     expect(result.exitCode).toBe(0)
     expect(patchBody()).toEqual({ composeContent: compose, envFileContent: "TAG=2\n", primaryService: "web" })
   })

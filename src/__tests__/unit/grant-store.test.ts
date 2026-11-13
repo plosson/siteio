@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, readFileSync, existsSync, readdirSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "fs"
 import { tmpdir } from "os"
+import { join } from "path"
 import { GrantStore } from "../../lib/agent/grant-store.ts"
 
 describe("Unit: GrantStore", () => {

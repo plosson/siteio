@@ -4,43 +4,41 @@ import { ValidationError } from "../../utils/errors"
 
 describe("CLI: validateCreateOptions", () => {
   test("--compose-file without --service throws", () => {
-    expect(() => validateCreateOptions({ composeFile: "/tmp/x.yml" }))
-      .toThrow(/--service is required/)
+    expect(() => validateCreateOptions({ composeFile: "/tmp/x.yml" })).toThrow(/--service is required/)
   })
 
   test("--service without any compose source throws", () => {
-    expect(() => validateCreateOptions({ image: "nginx", service: "web" }))
-      .toThrow(/--service is only valid/)
+    expect(() => validateCreateOptions({ image: "nginx", service: "web" })).toThrow(/--service is only valid/)
   })
 
   test("--compose without --git throws", () => {
-    expect(() => validateCreateOptions({ compose: "docker-compose.yml", service: "web" }))
-      .toThrow(/--compose requires --git/)
+    expect(() => validateCreateOptions({ compose: "docker-compose.yml", service: "web" })).toThrow(
+      /--compose requires --git/,
+    )
   })
 
   test("--compose-file + --image throws", () => {
-    expect(() => validateCreateOptions({ image: "nginx", composeFile: "/tmp/c.yml", service: "web" }))
-      .toThrow(/cannot be combined/)
+    expect(() => validateCreateOptions({ image: "nginx", composeFile: "/tmp/c.yml", service: "web" })).toThrow(
+      /cannot be combined/,
+    )
   })
 
   test("--compose-file + --service passes", () => {
-    expect(() => validateCreateOptions({ composeFile: "/tmp/c.yml", service: "web" }))
-      .not.toThrow()
+    expect(() => validateCreateOptions({ composeFile: "/tmp/c.yml", service: "web" })).not.toThrow()
   })
 
   test("--git + --compose + --service passes", () => {
-    expect(() => validateCreateOptions({ git: "https://x.test/r.git", compose: "dc.yml", service: "web" }))
-      .not.toThrow()
+    expect(() =>
+      validateCreateOptions({ git: "https://x.test/r.git", compose: "dc.yml", service: "web" }),
+    ).not.toThrow()
   })
 
   test("--git-token without --git throws", () => {
-    expect(() => validateCreateOptions({ image: "nginx", gitToken: "ghp_x" }))
-      .toThrow(/--git-token requires --git/)
+    expect(() => validateCreateOptions({ image: "nginx", gitToken: "ghp_x" })).toThrow(/--git-token requires --git/)
   })
 
   test("--git + --git-token passes", () => {
-    expect(() => validateCreateOptions({ git: "https://x.test/r.git", gitToken: "ghp_x" }))
-      .not.toThrow()
+    expect(() => validateCreateOptions({ git: "https://x.test/r.git", gitToken: "ghp_x" })).not.toThrow()
   })
 
   test("errors are ValidationError instances", () => {
@@ -53,13 +51,12 @@ describe("CLI: validateCreateOptions", () => {
   })
 
   test("--env-file without compose throws", () => {
-    expect(() => validateCreateOptions({ image: "nginx", envFile: "/tmp/.env" }))
-      .toThrow(/--env-file is only valid/)
+    expect(() => validateCreateOptions({ image: "nginx", envFile: "/tmp/.env" })).toThrow(/--env-file is only valid/)
   })
 
   test("--env-file with --compose-file + --service passes", () => {
     expect(() =>
-      validateCreateOptions({ composeFile: "/tmp/c.yml", service: "web", envFile: "/tmp/.env" })
+      validateCreateOptions({ composeFile: "/tmp/c.yml", service: "web", envFile: "/tmp/.env" }),
     ).not.toThrow()
   })
 
@@ -70,7 +67,7 @@ describe("CLI: validateCreateOptions", () => {
         compose: "dc.yml",
         service: "web",
         envFile: "/tmp/.env",
-      })
+      }),
     ).not.toThrow()
   })
 })

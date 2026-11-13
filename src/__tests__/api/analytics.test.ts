@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "fs"
-import { dirname, join } from "path"
-import { tmpdir } from "os"
 import { zipSync } from "fflate"
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "fs"
+import { tmpdir } from "os"
+import { dirname, join } from "path"
 import { AgentServer } from "../../lib/agent/server"
 import { accessLogPath } from "../../lib/agent/traefik"
-import { FakeRuntime } from "../helpers/fake-runtime"
 import type { AgentConfig, AnalyticsBatch } from "../../types"
+import { FakeRuntime } from "../helpers/fake-runtime"
 
 const API_KEY = "analytics-test-key"
 
@@ -59,7 +59,7 @@ async function deploySite(server: AgentServer, name: string): Promise<void> {
       method: "POST",
       headers: { "X-API-Key": API_KEY, "Content-Type": "application/zip", "X-Siteio-User": "pierre" },
       body: zip,
-    })
+    }),
   )
   expect(res.status).toBe(200)
 }
@@ -113,7 +113,7 @@ describe("analytics", () => {
     await deploySite(server, "blog")
     // Captured verbatim; only the router and host are rewritten to a deployed site.
     const real = JSON.parse(
-      String.raw`{"ClientAddr":"192.168.215.1:38902","ClientHost":"192.168.215.1","ClientPort":"38902","DownstreamContentSize":11,"DownstreamStatus":200,"Duration":2004838,"OriginContentSize":11,"OriginDuration":1896502,"OriginStatus":200,"Overhead":108336,"RequestAddr":"localhost:18930","RequestContentSize":0,"RequestCount":1,"RequestHost":"localhost","RequestMethod":"GET","RequestPath":"/x?y=1","RequestPort":"18930","RequestProtocol":"HTTP/1.1","RequestScheme":"http","RetryAttempts":0,"RouterName":"r1@file","ServiceAddr":"host.docker.internal:18931","ServiceName":"s1@file","ServiceURL":"http://host.docker.internal:18931","StartLocal":"2026-10-10T09:44:06.996895028Z","StartUTC":"2026-10-10T09:44:06.996895028Z","downstream_Content-Type":"text/html","entryPointName":"web","level":"info","msg":"","origin_Content-Type":"text/html","request_Cf-Connecting-Ip":"198.51.100.7","request_Referer":"https://ref.example/","request_User-Agent":"Mozilla/5.0 test","time":"2026-10-10T09:44:06Z"}`
+      String.raw`{"ClientAddr":"192.168.215.1:38902","ClientHost":"192.168.215.1","ClientPort":"38902","DownstreamContentSize":11,"DownstreamStatus":200,"Duration":2004838,"OriginContentSize":11,"OriginDuration":1896502,"OriginStatus":200,"Overhead":108336,"RequestAddr":"localhost:18930","RequestContentSize":0,"RequestCount":1,"RequestHost":"localhost","RequestMethod":"GET","RequestPath":"/x?y=1","RequestPort":"18930","RequestProtocol":"HTTP/1.1","RequestScheme":"http","RetryAttempts":0,"RouterName":"r1@file","ServiceAddr":"host.docker.internal:18931","ServiceName":"s1@file","ServiceURL":"http://host.docker.internal:18931","StartLocal":"2026-10-10T09:44:06.996895028Z","StartUTC":"2026-10-10T09:44:06.996895028Z","downstream_Content-Type":"text/html","entryPointName":"web","level":"info","msg":"","origin_Content-Type":"text/html","request_Cf-Connecting-Ip":"198.51.100.7","request_Referer":"https://ref.example/","request_User-Agent":"Mozilla/5.0 test","time":"2026-10-10T09:44:06Z"}`,
     )
     real.RouterName = "siteio-blog@docker"
     real.RequestHost = "blog.analytics.test"
@@ -163,7 +163,7 @@ describe("analytics", () => {
     writeLog(hit())
     void server.analyticsTickForTest()
     const res = await server.handleRequestForTest(
-      new Request("http://localhost/sites", { headers: { "X-API-Key": API_KEY } })
+      new Request("http://localhost/sites", { headers: { "X-API-Key": API_KEY } }),
     )
     expect(res.status).toBe(200)
   })

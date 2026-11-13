@@ -59,25 +59,13 @@ function padEndVisual(str: string, targetWidth: number): string {
 }
 
 // Table formatting for sites list
-export function formatTable(
-  headers: string[],
-  rows: string[][],
-  columnWidths?: number[]
-): string {
-  const widths =
-    columnWidths ||
-    headers.map((h, i) =>
-      Math.max(h.length, ...rows.map((r) => visualWidth(r[i] || "")))
-    )
+export function formatTable(headers: string[], rows: string[][], columnWidths?: number[]): string {
+  const widths = columnWidths || headers.map((h, i) => Math.max(h.length, ...rows.map((r) => visualWidth(r[i] || ""))))
 
-  const headerRow = headers
-    .map((h, i) => h.padEnd(widths[i] || h.length))
-    .join("  ")
+  const headerRow = headers.map((h, i) => h.padEnd(widths[i] || h.length)).join("  ")
   const separator = widths.map((w) => "-".repeat(w)).join("  ")
   const dataRows = rows
-    .map((row) =>
-      row.map((cell, i) => padEndVisual(cell || "", widths[i] || visualWidth(cell || ""))).join("  ")
-    )
+    .map((row) => row.map((cell, i) => padEndVisual(cell || "", widths[i] || visualWidth(cell || ""))).join("  "))
     .join("\n")
 
   return `${chalk.bold(headerRow)}\n${chalk.gray(separator)}\n${dataRows}`

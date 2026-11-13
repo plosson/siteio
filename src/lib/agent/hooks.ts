@@ -34,7 +34,7 @@ export interface Page {
 export class Pager {
   constructor(
     private pagerUrl: string,
-    private log: Log = defaultLog
+    private log: Log = defaultLog,
   ) {}
 
   async notify(page: Page): Promise<void> {
@@ -51,7 +51,7 @@ export interface RankedDeploy {
 export class Ranking {
   constructor(
     private rankingUrl: string,
-    private log: Log = defaultLog
+    private log: Log = defaultLog,
   ) {}
 
   // The endpoint requires `user`: anonymous deploys are not ranked.
@@ -64,7 +64,7 @@ export class Ranking {
 export class Analytics {
   constructor(
     private analyticsUrl: string,
-    private log: Log = defaultLog
+    private log: Log = defaultLog,
   ) {}
 
   async send(batch: AnalyticsBatch): Promise<void> {

@@ -1,8 +1,15 @@
-import ora from "ora"
 import chalk from "chalk"
+import ora from "ora"
 import { SiteioClient } from "../../lib/client.ts"
-import { formatTable, formatBytes, formatInfo, formatStatus, formatTls, formatDeployedDate } from "../../utils/output.ts"
 import { handleError } from "../../utils/errors.ts"
+import {
+  formatBytes,
+  formatDeployedDate,
+  formatInfo,
+  formatStatus,
+  formatTable,
+  formatTls,
+} from "../../utils/output.ts"
 
 export async function sitesListCommand(options: { json?: boolean } = {}): Promise<void> {
   const spinner = ora("Fetching sites").start()

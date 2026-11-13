@@ -1,12 +1,12 @@
-import { test, expect } from "@playwright/test"
+import { expect, test } from "@playwright/test"
+import { strToU8, zipSync } from "fflate"
 import { mkdtempSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { zipSync, strToU8 } from "fflate"
-import { AgentServer } from "../../src/lib/agent/server"
 import { FakeRuntime } from "../../src/__tests__/helpers/fake-runtime"
+import type { ChatExecutor, ExecutorResult, ExecutorRunInput } from "../../src/lib/agent/chat/executor"
+import { AgentServer } from "../../src/lib/agent/server"
 import type { AgentConfig, ChatConfig, EditLinkCreated } from "../../src/types"
-import type { ChatExecutor, ExecutorRunInput, ExecutorResult } from "../../src/lib/agent/chat/executor"
 
 // Deterministic stand-in agent: streams a step and edits index.html so the
 // controller detects a change and (fake-)deploys a new version.
@@ -20,8 +20,14 @@ class FakeExecutor implements ChatExecutor {
 }
 
 const CHAT: ChatConfig = {
-  provider: "anthropic", model: "claude-sonnet-5", sandbox: false,
-  sandboxImage: "x", sandboxNetwork: "n", maxTurns: 5, timeoutMs: 5000, oauthToken: "tok",
+  provider: "anthropic",
+  model: "claude-sonnet-5",
+  sandbox: false,
+  sandboxImage: "x",
+  sandboxNetwork: "n",
+  maxTurns: 5,
+  timeoutMs: 5000,
+  oauthToken: "tok",
 }
 
 const PORT = 4713
@@ -35,13 +41,21 @@ let dataDir: string
 test.beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "siteio-editor-shell-"))
   const config: AgentConfig = {
-    domain: DOMAIN, apiKey: "god-key", dataDir, port: PORT, skipTraefik: true,
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 80, httpsPort: 443, chat: CHAT,
+    domain: DOMAIN,
+    apiKey: "god-key",
+    dataDir,
+    port: PORT,
+    skipTraefik: true,
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 80,
+    httpsPort: 443,
+    chat: CHAT,
   }
   server = new AgentServer(config, new FakeRuntime(), { chatExecutor: new FakeExecutor() })
   await server.start()
   const res = await fetch(`${API}/sites/demo`, {
-    method: "POST", headers: { "X-API-Key": "god-key", "Content-Type": "application/zip" },
+    method: "POST",
+    headers: { "X-API-Key": "god-key", "Content-Type": "application/zip" },
     body: zipSync({ "public/index.html": strToU8("<h1>Old</h1>") }),
   })
   if (!res.ok) throw new Error(`deploy failed: ${res.status}`)
@@ -49,12 +63,18 @@ test.beforeAll(async () => {
 
 test.afterAll(() => {
   server.stop()
-  try { rmSync(dataDir, { recursive: true, force: true }) } catch { /* ignore */ }
+  try {
+    rmSync(dataDir, { recursive: true, force: true })
+  } catch {
+    /* ignore */
+  }
 })
 
 async function mintCode(): Promise<string> {
   const res = await fetch(`${API}/sites/demo/edit-link`, {
-    method: "POST", headers: { "X-API-Key": "god-key", "Content-Type": "application/json" }, body: "{}",
+    method: "POST",
+    headers: { "X-API-Key": "god-key", "Content-Type": "application/json" },
+    body: "{}",
   })
   const body = (await res.json()) as { data: EditLinkCreated }
   return body.data.code
@@ -116,14 +136,18 @@ test("undo rolls the change back", async ({ page }) => {
   const undo = page.getByRole("button", { name: "Undo this change" }).last()
   await expect(undo).toBeVisible()
 
-  const versionBefore = ((await (await fetch(`${API}/sites/demo`, { headers: { "X-API-Key": "god-key" } })).json()) as any).data.version
+  const versionBefore = (
+    (await (await fetch(`${API}/sites/demo`, { headers: { "X-API-Key": "god-key" } })).json()) as any
+  ).data.version
   await undo.click()
 
   // Version changes as the rollback deploys.
-  await expect.poll(async () => {
-    const s = (await (await fetch(`${API}/sites/demo`, { headers: { "X-API-Key": "god-key" } })).json()) as any
-    return s.data.version
-  }).not.toBe(versionBefore)
+  await expect
+    .poll(async () => {
+      const s = (await (await fetch(`${API}/sites/demo`, { headers: { "X-API-Key": "god-key" } })).json()) as any
+      return s.data.version
+    })
+    .not.toBe(versionBefore)
 })
 
 test("an already-expired/invalid code lands on a client terminal state, not a login", async ({ page }) => {

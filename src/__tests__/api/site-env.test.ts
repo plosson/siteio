@@ -1,12 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
-import { SiteStorage } from "../../lib/agent/storage.ts"
+import { mkdtempSync, rmSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
+import { SiteStorage } from "../../lib/agent/storage.ts"
 import type { AgentConfig, Tenant } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 const T: Tenant = { domain: "friend.com", apiKey: "key-t", createdAt: "2026-10-08T00:00:00.000Z" }
 const U: Tenant = { domain: "other.org", apiKey: "key-u", createdAt: "2026-10-08T00:00:00.000Z" }
@@ -22,21 +22,35 @@ describe("Site env", () => {
   const as = (key: string, extra: Record<string, string> = {}) => ({ "X-API-Key": key, ...extra })
   const zip = () => zipSync({ "public/index.html": new TextEncoder().encode("<h1>hi</h1>") })
   const deploy = (name: string, key = "god-key", host = "localhost") =>
-    req(`/sites/${name}`, { method: "POST", headers: as(key, { "Content-Type": "application/zip" }), body: zip() }, host)
+    req(
+      `/sites/${name}`,
+      { method: "POST", headers: as(key, { "Content-Type": "application/zip" }), body: zip() },
+      host,
+    )
   const setEnv = (name: string, body: unknown, key = "god-key", host = "localhost") =>
-    req(`/sites/${name}/env`, {
-      method: "PATCH",
-      headers: as(key, { "Content-Type": "application/json" }),
-      body: typeof body === "string" ? body : JSON.stringify(body),
-    }, host)
+    req(
+      `/sites/${name}/env`,
+      {
+        method: "PATCH",
+        headers: as(key, { "Content-Type": "application/json" }),
+        body: typeof body === "string" ? body : JSON.stringify(body),
+      },
+      host,
+    )
   const lastRunEnv = () => (runtime.callsOf("run").at(-1)!.args[0] as { env: Record<string, string> }).env
 
   beforeEach(() => {
     dataDir = mkdtempSync(join(tmpdir(), "siteio-site-env-"))
     runtime = new FakeRuntime()
     const config: AgentConfig = {
-      apiKey: "god-key", dataDir, domain: "example.com",
-      maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true, tenants: [T, U],
+      apiKey: "god-key",
+      dataDir,
+      domain: "example.com",
+      maxUploadSize: 50 * 1024 * 1024,
+      httpPort: 8080,
+      httpsPort: 8443,
+      skipTraefik: true,
+      tenants: [T, U],
     }
     server = new AgentServer(config, runtime)
   })
@@ -78,18 +92,22 @@ describe("Site env", () => {
       runtime.containerExistsReturn = true
 
       await req("/sites/blog/domains", {
-        method: "PATCH", headers: as("god-key", { "Content-Type": "application/json" }),
+        method: "PATCH",
+        headers: as("god-key", { "Content-Type": "application/json" }),
         body: JSON.stringify({ domains: ["www.blog.org"] }),
       })
       expect(lastRunEnv().S).toBe(SECRET)
 
       await req("/sites/blog/rollback", {
-        method: "POST", headers: as("god-key", { "Content-Type": "application/json" }), body: JSON.stringify({ version: 1 }),
+        method: "POST",
+        headers: as("god-key", { "Content-Type": "application/json" }),
+        body: JSON.stringify({ version: 1 }),
       })
       expect(lastRunEnv().S).toBe(SECRET)
 
       await req("/sites/blog/rename", {
-        method: "PATCH", headers: as("god-key", { "Content-Type": "application/json" }),
+        method: "PATCH",
+        headers: as("god-key", { "Content-Type": "application/json" }),
         body: JSON.stringify({ newSubdomain: "journal" }),
       })
       expect(lastRunEnv().S).toBe(SECRET)
@@ -141,8 +159,11 @@ describe("Site env", () => {
 
     test("a refused update on a site that doesn't exist yet creates nothing", async () => {
       for (const [name, b] of [
-        ["fresh", { env: { "A-B": "1" } }], ["fresh", { secrets: { POCKET_X: "1" } }], ["fresh", "not json"],
-        ["api", { env: { A: "1" } }], ["a--b", { env: { A: "1" } }],
+        ["fresh", { env: { "A-B": "1" } }],
+        ["fresh", { secrets: { POCKET_X: "1" } }],
+        ["fresh", "not json"],
+        ["api", { env: { A: "1" } }],
+        ["a--b", { env: { A: "1" } }],
       ] as const) {
         expect((await setEnv(name, b)).status).toBe(400)
         expect(new SiteStorage(dataDir).exists(name)).toBe(false)
@@ -182,7 +203,8 @@ describe("Site env", () => {
       runtime.containerExistsReturn = true
       runtime.runError = new Error("docker run failed")
       const res = await req("/sites/blog/domains", {
-        method: "PATCH", headers: as("god-key", { "Content-Type": "application/json" }),
+        method: "PATCH",
+        headers: as("god-key", { "Content-Type": "application/json" }),
         body: JSON.stringify({ domains: ["www.blog.org"] }),
       })
       expect(res.status).toBe(500)
@@ -213,8 +235,16 @@ describe("Site env", () => {
     test("refuses malformed bodies and stores nothing", async () => {
       await deploy("blog")
       for (const b of [
-        "not json", "null", "[]", { env: "A=1" }, { env: { A: 1 } }, { env: { A: null } }, { secrets: ["S"] },
-        { unsetEnv: "S" }, { unsetEnv: [1] }, { secretKeys: ["A"] },
+        "not json",
+        "null",
+        "[]",
+        { env: "A=1" },
+        { env: { A: 1 } },
+        { env: { A: null } },
+        { secrets: ["S"] },
+        { unsetEnv: "S" },
+        { unsetEnv: [1] },
+        { secretKeys: ["A"] },
       ]) {
         const res = await setEnv("blog", b)
         expect(res.status).toBe(400)
@@ -224,7 +254,11 @@ describe("Site env", () => {
 
     test("refuses invalid and reserved keys", async () => {
       await deploy("blog")
-      for (const b of [{ env: { "A-B": "1" } }, { secrets: { POCKET_SUPERUSER_PASSWORD: "x" } }, { unsetEnv: ["POCKET_X"] }]) {
+      for (const b of [
+        { env: { "A-B": "1" } },
+        { secrets: { POCKET_SUPERUSER_PASSWORD: "x" } },
+        { unsetEnv: ["POCKET_X"] },
+      ]) {
         expect((await setEnv("blog", b)).status).toBe(400)
       }
     })
@@ -266,7 +300,9 @@ describe("Site env", () => {
       await deploy("blog")
       await setEnv("blog", { secrets: { S: SECRET } })
       const minted = await req("/sites/blog/grants", {
-        method: "POST", headers: as("god-key", { "Content-Type": "application/json" }), body: JSON.stringify({}),
+        method: "POST",
+        headers: as("god-key", { "Content-Type": "application/json" }),
+        body: JSON.stringify({}),
       })
       const { code } = ((await minted.json()) as { data: { code: string } }).data
       expect((await setEnv("blog", { env: { A: "1" } }, code)).status).toBe(403)

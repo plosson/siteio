@@ -1,11 +1,11 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs"
-import { join } from "path"
-import { homedir } from "os"
-import ora from "ora"
 import chalk from "chalk"
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs"
+import ora from "ora"
+import { homedir } from "os"
+import { join } from "path"
 import { APPS_SKILL, SITES_SKILL, SKILL_CONTENT } from "../lib/skill-content.ts"
-import { formatSuccess } from "../utils/output.ts"
 import { handleError, ValidationError } from "../utils/errors.ts"
+import { formatSuccess } from "../utils/output.ts"
 import { select } from "../utils/prompt.ts"
 
 type SkillScope = "user" | "project"
@@ -134,7 +134,9 @@ export async function installSkillCommand(options: { json?: boolean; scope?: str
         console.log("")
       }
       console.log(chalk.dim("Agents will load the skill on their next start."))
-      console.log(chalk.dim("Any agent can also read it now with: siteio skill (then siteio sites skill / siteio apps skill)"))
+      console.log(
+        chalk.dim("Any agent can also read it now with: siteio skill (then siteio sites skill / siteio apps skill)"),
+      )
       console.log("")
     }
 
@@ -162,9 +164,7 @@ export async function uninstallSkillCommand(options: { json?: boolean; scope?: s
 
     spinner.start("Uninstalling siteio skill")
 
-    const removed = scopes.flatMap((scope) =>
-      removeSkillFrom(scopeBase(scope)).map((path) => ({ scope, path }))
-    )
+    const removed = scopes.flatMap((scope) => removeSkillFrom(scopeBase(scope)).map((path) => ({ scope, path })))
 
     if (removed.length === 0) {
       spinner.stop()

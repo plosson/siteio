@@ -1,22 +1,21 @@
-import { existsSync, mkdirSync, rmSync, readdirSync } from "fs"
-import { join, resolve } from "path"
-import { tmpdir } from "os"
-import ora from "ora"
 import chalk from "chalk"
 import { unzipSync } from "fflate"
+import { existsSync, mkdirSync, readdirSync, rmSync } from "fs"
+import ora from "ora"
+import { tmpdir } from "os"
+import { join, resolve } from "path"
 import syncDirectory from "sync-directory"
-import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
-import { saveProjectConfig } from "../../utils/site-config.ts"
-import { formatSuccess, formatBytes } from "../../utils/output.ts"
-import { handleError, ValidationError } from "../../utils/errors.ts"
-import { resolveSiteName } from "../../utils/site-config.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
 import { toLocalPath } from "../../lib/site-layout.ts"
+import { handleError, ValidationError } from "../../utils/errors.ts"
+import { formatBytes, formatSuccess } from "../../utils/output.ts"
+import { resolveSiteName, saveProjectConfig } from "../../utils/site-config.ts"
 
 export async function sitesDownloadCommand(
   outputFolder: string | undefined,
-  options: { name?: string; yes?: boolean; version?: number; json?: boolean }
+  options: { name?: string; yes?: boolean; version?: number; json?: boolean },
 ): Promise<void> {
   const spinner = ora()
   const tempDir = join(tmpdir(), `siteio-site-download-${Date.now()}`)
@@ -80,22 +79,39 @@ export async function sitesDownloadCommand(
 
     // Regenerate the local-only .siteio/config.json (never shipped to the server).
     // Records the downloaded version so a later deploy can detect conflicts.
-    saveProjectConfig({
-      site: name,
-      domain: server?.domain ?? "",
-      pocketbaseVersion: siteInfo?.pocketbaseVersion ?? POCKETBASE_VERSION,
-      version: options.version ?? siteInfo?.version,
-    }, tempDir)
+    saveProjectConfig(
+      {
+        site: name,
+        domain: server?.domain ?? "",
+        pocketbaseVersion: siteInfo?.pocketbaseVersion ?? POCKETBASE_VERSION,
+        version: options.version ?? siteInfo?.version,
+      },
+      tempDir,
+    )
 
     // Sync to the output directory. Preserve any local .siteio/pb_data (dev DB)
     // that the download never carries, so refreshing a project can't wipe it.
     spinner.start("Syncing to output folder")
     mkdirSync(outputPath, { recursive: true })
-    syncDirectory(tempDir, outputPath, { deleteOrphaned: true, exclude: [/(^|[\/\\])\.siteio[\/\\]pb_data([\/\\]|$)/] })
+    syncDirectory(tempDir, outputPath, { deleteOrphaned: true, exclude: [/(^|[/\\])\.siteio[/\\]pb_data([/\\]|$)/] })
     spinner.succeed("Synced to output folder")
 
     if (options.json) {
-      console.log(JSON.stringify({ success: true, data: { site: name, version: options.version ?? siteInfo?.version ?? null, path: outputPath, files: fileCount } }, null, 2))
+      console.log(
+        JSON.stringify(
+          {
+            success: true,
+            data: {
+              site: name,
+              version: options.version ?? siteInfo?.version ?? null,
+              path: outputPath,
+              files: fileCount,
+            },
+          },
+          null,
+          2,
+        ),
+      )
     } else {
       console.log("")
       console.log(formatSuccess("Site downloaded successfully!"))

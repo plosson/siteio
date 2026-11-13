@@ -1,26 +1,38 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
+import { mkdtempSync, rmSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ChatConfig, EditLinkCreated } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 const GOD = { "X-API-Key": "test-key" }
 const GOD_ZIP = { ...GOD, "Content-Type": "application/zip" }
 const GOD_JSON = { ...GOD, "Content-Type": "application/json" }
 
 const CHAT: ChatConfig = {
-  provider: "anthropic", model: "claude-sonnet-5", sandbox: false,
-  sandboxImage: "x", sandboxNetwork: "n", maxTurns: 5, timeoutMs: 5000, oauthToken: "tok",
+  provider: "anthropic",
+  model: "claude-sonnet-5",
+  sandbox: false,
+  sandboxImage: "x",
+  sandboxNetwork: "n",
+  maxTurns: 5,
+  timeoutMs: 5000,
+  oauthToken: "tok",
 }
 
 function makeServer(dataDir: string, opts: { chat?: ChatConfig } = {}): AgentServer {
   const config: AgentConfig = {
-    apiKey: "test-key", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443,
-    email: "ops@example.com", skipTraefik: true, chat: opts.chat,
+    apiKey: "test-key",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    email: "ops@example.com",
+    skipTraefik: true,
+    chat: opts.chat,
   }
   return new AgentServer(config, new FakeRuntime())
 }
@@ -31,14 +43,14 @@ async function deploySite(server: AgentServer, name: string, html: string): Prom
       method: "POST",
       headers: GOD_ZIP,
       body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
-    })
+    }),
   )
   expect(res.status).toBe(200)
 }
 
 async function mint(server: AgentServer, name: string, body: object = {}): Promise<Response> {
   return server.handleRequestForTest(
-    new Request(`http://x/sites/${name}/edit-link`, { method: "POST", headers: GOD_JSON, body: JSON.stringify(body) })
+    new Request(`http://x/sites/${name}/edit-link`, { method: "POST", headers: GOD_JSON, body: JSON.stringify(body) }),
   )
 }
 
@@ -86,8 +98,10 @@ describe("API: sites edit-link", () => {
     // Attach a custom domain.
     const dom = await server.handleRequestForTest(
       new Request("http://x/sites/srilanka/domains", {
-        method: "PATCH", headers: GOD_JSON, body: JSON.stringify({ domains: ["trip.example.org"] }),
-      })
+        method: "PATCH",
+        headers: GOD_JSON,
+        body: JSON.stringify({ domains: ["trip.example.org"] }),
+      }),
     )
     expect(dom.status).toBe(200)
 
@@ -104,14 +118,14 @@ describe("API: sites edit-link", () => {
     await mint(server, "blog")
 
     const del = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/edit-link", { method: "DELETE", headers: GOD })
+      new Request("http://x/sites/blog/edit-link", { method: "DELETE", headers: GOD }),
     )
     const body = (await del.json()) as { data: { revoked: number } }
     expect(body.data.revoked).toBe(2)
 
     // A second revoke finds nothing left.
     const del2 = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/edit-link", { method: "DELETE", headers: GOD })
+      new Request("http://x/sites/blog/edit-link", { method: "DELETE", headers: GOD }),
     )
     expect(((await del2.json()) as { data: { revoked: number } }).data.revoked).toBe(0)
   })

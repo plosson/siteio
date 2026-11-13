@@ -1,16 +1,21 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
 import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ApiResponse } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
   const config: AgentConfig = {
-    apiKey: "test-key", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443,
-    email: "ops@example.com", skipTraefik: true,
+    apiKey: "test-key",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    email: "ops@example.com",
+    skipTraefik: true,
   }
   return new AgentServer(config, runtime)
 }
@@ -32,7 +37,7 @@ describe("API: GET /agent", () => {
 
   test("returns sanitized settings without secrets", async () => {
     const res = await server.handleRequestForTest(
-      new Request("http://x/agent", { headers: { "X-API-Key": "test-key" } })
+      new Request("http://x/agent", { headers: { "X-API-Key": "test-key" } }),
     )
     expect(res.status).toBe(200)
     const body = (await res.json()) as ApiResponse<Record<string, unknown>>
@@ -53,13 +58,17 @@ describe("API: GET /agent", () => {
 
   test("reflects appsEnabled=false", async () => {
     const config: AgentConfig = {
-      apiKey: "test-key", dataDir, domain: "example.com",
-      maxUploadSize: 1, httpPort: 80, httpsPort: 443, appsEnabled: false, skipTraefik: true,
+      apiKey: "test-key",
+      dataDir,
+      domain: "example.com",
+      maxUploadSize: 1,
+      httpPort: 80,
+      httpsPort: 443,
+      appsEnabled: false,
+      skipTraefik: true,
     }
     const s = new AgentServer(config, new FakeRuntime())
-    const res = await s.handleRequestForTest(
-      new Request("http://x/agent", { headers: { "X-API-Key": "test-key" } })
-    )
+    const res = await s.handleRequestForTest(new Request("http://x/agent", { headers: { "X-API-Key": "test-key" } }))
     const body = (await res.json()) as ApiResponse<Record<string, unknown>>
     expect(body.data!.appsEnabled).toBe(false)
   })

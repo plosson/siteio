@@ -1,4 +1,4 @@
-import { test, expect, type Route } from "@playwright/test"
+import { expect, type Route, test } from "@playwright/test"
 import { startTestServer, type TestServerHandle } from "./helpers/server"
 
 let srv: TestServerHandle
@@ -40,7 +40,7 @@ test("deploy button calls POST /apps/:name/deploy", async ({ page, context }) =>
   await interceptActionEndpoints(page, capture)
   await page.goto(`${srv.url}/ui#/apps/actionable`)
   await page.click('button:has-text("Deploy")')
-  await expect.poll(() => capture.find(c => c.path === "/apps/actionable/deploy" && c.method === "POST")).toBeTruthy()
+  await expect.poll(() => capture.find((c) => c.path === "/apps/actionable/deploy" && c.method === "POST")).toBeTruthy()
 })
 
 test("stop button calls POST /apps/:name/stop", async ({ page, context }) => {
@@ -49,7 +49,7 @@ test("stop button calls POST /apps/:name/stop", async ({ page, context }) => {
   await interceptActionEndpoints(page, capture)
   await page.goto(`${srv.url}/ui#/apps/actionable`)
   await page.click('button:has-text("Stop")')
-  await expect.poll(() => capture.find(c => c.path === "/apps/actionable/stop" && c.method === "POST")).toBeTruthy()
+  await expect.poll(() => capture.find((c) => c.path === "/apps/actionable/stop" && c.method === "POST")).toBeTruthy()
 })
 
 test("restart button calls POST /apps/:name/restart", async ({ page, context }) => {
@@ -58,7 +58,9 @@ test("restart button calls POST /apps/:name/restart", async ({ page, context }) 
   await interceptActionEndpoints(page, capture)
   await page.goto(`${srv.url}/ui#/apps/actionable`)
   await page.click('button:has-text("Restart")')
-  await expect.poll(() => capture.find(c => c.path === "/apps/actionable/restart" && c.method === "POST")).toBeTruthy()
+  await expect
+    .poll(() => capture.find((c) => c.path === "/apps/actionable/restart" && c.method === "POST"))
+    .toBeTruthy()
 })
 
 test("remove button confirms then calls DELETE /apps/:name and returns to list", async ({ page, context }) => {
@@ -68,7 +70,7 @@ test("remove button confirms then calls DELETE /apps/:name and returns to list",
   page.on("dialog", (d) => d.accept())
   await page.goto(`${srv.url}/ui#/apps/actionable`)
   await page.click('button:has-text("Remove")')
-  await expect.poll(() => capture.find(c => c.path === "/apps/actionable" && c.method === "DELETE")).toBeTruthy()
+  await expect.poll(() => capture.find((c) => c.path === "/apps/actionable" && c.method === "DELETE")).toBeTruthy()
   // Redirected to the unified services grid
   await expect.poll(() => new URL(page.url()).hash).toBe("#/services")
 })

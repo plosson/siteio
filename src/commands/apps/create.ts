@@ -1,14 +1,14 @@
-import ora from "ora"
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
+import ora from "ora"
 import { getCurrentServer } from "../../config/loader.ts"
-import { formatSuccess, printComposeWarnings } from "../../utils/output.ts"
-import { handleError, ValidationError } from "../../utils/errors.ts"
-import { saveProjectConfig } from "../../utils/site-config.ts"
-import { readFlagFile } from "../../utils/files.ts"
-import { deployAppCommand } from "./deploy.ts"
 import { parseAutoDeployFlag } from "../../lib/agent/auto-deploy.ts"
-import type { AutoDeployMode, AppInfo } from "../../types.ts"
+import { SiteioClient } from "../../lib/client.ts"
+import type { AppInfo, AutoDeployMode } from "../../types.ts"
+import { handleError, ValidationError } from "../../utils/errors.ts"
+import { readFlagFile } from "../../utils/files.ts"
+import { formatSuccess, printComposeWarnings } from "../../utils/output.ts"
+import { saveProjectConfig } from "../../utils/site-config.ts"
+import { deployAppCommand } from "./deploy.ts"
 
 export interface CreateAppOptions {
   image?: string
@@ -113,10 +113,7 @@ function printCreatedApp(app: AppInfo, options: CreateAppOptions): void {
   console.log("")
 }
 
-export async function createAppCommand(
-  name: string,
-  options: CreateAppOptions
-): Promise<void> {
+export async function createAppCommand(name: string, options: CreateAppOptions): Promise<void> {
   const spinner = ora()
 
   try {
@@ -126,7 +123,7 @@ export async function createAppCommand(
 
     if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(name)) {
       throw new ValidationError(
-        "App name must contain only lowercase letters, numbers, and hyphens, and cannot start or end with a hyphen"
+        "App name must contain only lowercase letters, numbers, and hyphens, and cannot start or end with a hyphen",
       )
     }
 

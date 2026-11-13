@@ -1,8 +1,8 @@
+import { verifyPkceS256 } from "../../utils/oauth.ts"
 import type { GrantStore } from "./grant-store.ts"
 import type { OAuthStore } from "./oauth-store.ts"
 import type { SiteStorage } from "./storage.ts"
 import type { Scope, TenantRegistry } from "./tenants.ts"
-import { verifyPkceS256 } from "../../utils/oauth.ts"
 
 // Access tokens are leases on a grant, re-checked (for revocation) on every MCP
 // call — so they're long-lived and there are no refresh tokens. Revoking the
@@ -129,7 +129,7 @@ export class OAuthProvider {
         response_types: ["code"],
         ...(client.clientName ? { client_name: client.clientName } : {}),
       },
-      201
+      201,
     )
   }
 
@@ -169,7 +169,7 @@ export class OAuthProvider {
     if (!grant || grant.site !== ctx.site) {
       return new Response(
         this.renderPage(ctx, form, "That code is invalid, expired, or used up. Ask the site owner for a fresh one."),
-        { status: 401, headers: this.cors({ "Content-Type": "text/html; charset=utf-8" }) }
+        { status: 401, headers: this.cors({ "Content-Type": "text/html; charset=utf-8" }) },
       )
     }
 
@@ -189,10 +189,7 @@ export class OAuthProvider {
 
   // Shared param validation for GET/POST authorize. Returns the validated
   // redirect_uri or an error message.
-  private validateAuthorizeParams(
-    p: URLSearchParams,
-    _ctx: HostCtx
-  ): { redirectUri: string } | { error: string } {
+  private validateAuthorizeParams(p: URLSearchParams, _ctx: HostCtx): { redirectUri: string } | { error: string } {
     if (p.get("response_type") !== "code") return { error: "Unsupported response_type (only 'code')." }
     const clientId = p.get("client_id") || ""
     const client = this.deps.oauth.getClient(clientId)
@@ -254,7 +251,16 @@ export class OAuthProvider {
   private renderPage(ctx: HostCtx, p: URLSearchParams, error: string | null): string {
     // Invitees see the owner-scope name, never the internal tenant key.
     const shown = this.deps.hosts.displayName(ctx.site)
-    const carry = ["response_type", "client_id", "redirect_uri", "code_challenge", "code_challenge_method", "state", "scope", "resource"]
+    const carry = [
+      "response_type",
+      "client_id",
+      "redirect_uri",
+      "code_challenge",
+      "code_challenge_method",
+      "state",
+      "scope",
+      "resource",
+    ]
     const hidden = carry
       .map((k) => (p.get(k) ? `<input type="hidden" name="${k}" value="${escapeHtml(p.get(k)!)}">` : ""))
       .join("\n")

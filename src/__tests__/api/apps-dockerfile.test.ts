@@ -1,9 +1,9 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
-import { AgentServer } from "../../lib/agent/server"
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "fs"
-import { join } from "path"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs"
 import { tmpdir } from "os"
-import type { ApiResponse, App, AgentConfig } from "../../types"
+import { join } from "path"
+import { AgentServer } from "../../lib/agent/server"
+import type { AgentConfig, ApiResponse, App } from "../../types"
 
 describe("Apps API - Inline Dockerfile Source", () => {
   let server: AgentServer

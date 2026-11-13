@@ -1,8 +1,8 @@
-import ora from "ora"
 import chalk from "chalk"
+import ora from "ora"
 import { SiteioClient } from "../../lib/client.ts"
-import { formatTable, formatInfo, formatStatus, formatTls, formatDeployedDate } from "../../utils/output.ts"
 import { handleError } from "../../utils/errors.ts"
+import { formatDeployedDate, formatInfo, formatStatus, formatTable, formatTls } from "../../utils/output.ts"
 
 export async function listAppsCommand(options: { json?: boolean } = {}): Promise<void> {
   const spinner = ora("Fetching apps").start()
@@ -25,9 +25,7 @@ export async function listAppsCommand(options: { json?: boolean } = {}): Promise
     // Format the table
     const headers = ["NAME", "URL", "SOURCE", "STATUS", "TLS", "PORT", "DOMAINS", "DEPLOYED"]
     const rows = apps.map((app) => {
-      const domainsStr = app.domains && app.domains.length > 0
-        ? chalk.cyan(`${app.domains.length}`)
-        : chalk.dim("-")
+      const domainsStr = app.domains && app.domains.length > 0 ? chalk.cyan(`${app.domains.length}`) : chalk.dim("-")
 
       // Format source: show shortened git URL or image name
       let sourceStr: string

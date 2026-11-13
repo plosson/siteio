@@ -48,10 +48,7 @@ function accessErrorMessage(stderr: string, opts: { url: string; hasToken: boole
 // real "remote branch missing" messages and must run AFTER the auth and
 // repository-not-found checks — otherwise an auth/access failure is mislabeled
 // as "Branch '<branch>' not found".
-export function cloneErrorMessage(
-  stderr: string,
-  opts: { branch: string; url: string; hasToken: boolean },
-): string {
+export function cloneErrorMessage(stderr: string, opts: { branch: string; url: string; hasToken: boolean }): string {
   const access = accessErrorMessage(stderr, opts)
   if (access) return access
   if (
@@ -79,7 +76,7 @@ const SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInt
  */
 async function runGit(
   args: string[],
-  opts: { env: Record<string, string>; timeoutMs: number; timeoutMessage: string }
+  opts: { env: Record<string, string>; timeoutMs: number; timeoutMessage: string },
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const lowSpeedTime = String(Math.max(1, Math.ceil(opts.timeoutMs / 1000)))
   const proc = Bun.spawn({

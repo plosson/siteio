@@ -47,7 +47,7 @@ export interface WatchOptions {
  */
 export async function watchServices(
   getStatus: () => Promise<AppStatus>,
-  options: WatchOptions = {}
+  options: WatchOptions = {},
 ): Promise<ServiceProblem[]> {
   const windowMs = options.windowMs ?? 10000
   const intervalMs = options.intervalMs ?? 2000

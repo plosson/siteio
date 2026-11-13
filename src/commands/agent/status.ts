@@ -1,5 +1,5 @@
-import chalk from "chalk"
 import { spawnSync } from "bun"
+import chalk from "chalk"
 import { formatError } from "../../utils/output.ts"
 
 const SERVICE_NAME = "siteio-agent"
@@ -59,7 +59,14 @@ export async function statusAgentCommand(): Promise<void> {
     })
     const logs = logsResult.stdout.toString().trim()
     if (logs) {
-      console.log(chalk.gray(logs.split("\n").map(l => `  ${l}`).join("\n")))
+      console.log(
+        chalk.gray(
+          logs
+            .split("\n")
+            .map((l) => `  ${l}`)
+            .join("\n"),
+        ),
+      )
     }
   }
 

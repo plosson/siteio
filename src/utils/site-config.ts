@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
 import { join } from "path"
 import type { SiteConfig } from "../types.ts"
 import { ValidationError } from "./errors.ts"
@@ -27,10 +27,7 @@ export function saveProjectConfig(config: SiteConfig, dir: string = process.cwd(
   const configDir = join(dir, SITEIO_CONFIG_DIR)
   if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true })
   const { pocket: _legacy, ...canonical } = config
-  writeFileSync(
-    join(configDir, SITEIO_CONFIG_FILE),
-    JSON.stringify(canonical, null, 2) + "\n"
-  )
+  writeFileSync(join(configDir, SITEIO_CONFIG_FILE), JSON.stringify(canonical, null, 2) + "\n")
 }
 
 /**
@@ -42,7 +39,9 @@ export function resolveSiteName(explicit: string | undefined, serverDomain: stri
   const config = loadProjectConfig(dir)
   if (config) {
     if (config.app && !config.site) {
-      throw new ValidationError(`This directory is configured as an app ('${config.app}'), not a site. Use 'siteio apps' commands instead.`)
+      throw new ValidationError(
+        `This directory is configured as an app ('${config.app}'), not a site. Use 'siteio apps' commands instead.`,
+      )
     }
     if (config.site && config.domain === serverDomain) {
       return config.site
@@ -60,7 +59,9 @@ export function resolveAppName(explicit: string | undefined, serverDomain: strin
   const config = loadProjectConfig(dir)
   if (config) {
     if (config.site && !config.app) {
-      throw new ValidationError(`This directory is configured as a site ('${config.site}'), not an app. Use 'siteio sites' commands instead.`)
+      throw new ValidationError(
+        `This directory is configured as a site ('${config.site}'), not an app. Use 'siteio sites' commands instead.`,
+      )
     }
     if (config.app && config.domain === serverDomain) {
       return config.app

@@ -1,17 +1,17 @@
-import type { ShareGrant, Site, SiteInfo } from "../../types.ts"
-import type { GrantStore } from "./grant-store.ts"
-import type { StagingStore } from "./staging-store.ts"
-import type { SiteStorage } from "./storage.ts"
-import type { OAuthStore } from "./oauth-store.ts"
-import { MAX_STAGING_FILE_SIZE, MAX_STAGING_TOTAL_SIZE } from "./staging-store.ts"
-import { ValidationError } from "../../utils/errors.ts"
-import { readTree } from "../../utils/files.ts"
-import { getVersion } from "../version.ts"
-import { PUBLIC_DIR } from "../site-layout.ts"
-import { mergeTrees, hasConflictMarkers, YOURS_LABEL, THEIRS_LABEL, type MergeConflict } from "./three-way-merge.ts"
 import { randomBytes } from "crypto"
 import { join } from "path"
+import type { ShareGrant, Site, SiteInfo } from "../../types.ts"
+import { ValidationError } from "../../utils/errors.ts"
+import { readTree } from "../../utils/files.ts"
+import { PUBLIC_DIR } from "../site-layout.ts"
+import { getVersion } from "../version.ts"
+import type { GrantStore } from "./grant-store.ts"
+import type { OAuthStore } from "./oauth-store.ts"
+import type { StagingStore } from "./staging-store.ts"
+import { MAX_STAGING_FILE_SIZE, MAX_STAGING_TOTAL_SIZE } from "./staging-store.ts"
+import type { SiteStorage } from "./storage.ts"
 import type { TenantRegistry } from "./tenants.ts"
+import { hasConflictMarkers, type MergeConflict, mergeTrees, THEIRS_LABEL, YOURS_LABEL } from "./three-way-merge.ts"
 
 const MCP_PROTOCOL_VERSION = "2024-11-05"
 
@@ -146,11 +146,7 @@ export class McpHandler {
         const info = site ? this.siteInfo(site) : null
         // Report the custom domain(s) once set — that becomes the canonical
         // public URL; otherwise fall back to the default <name>.<domain>.
-        const liveUrls = info
-          ? info.domains.length
-            ? info.domains.map((d) => `https://${d}`)
-            : [info.url]
-          : []
+        const liveUrls = info ? (info.domains.length ? info.domains.map((d) => `https://${d}`) : [info.url]) : []
         const liveAt = liveUrls.length ? ` It is live at ${liveUrls.join(", ")}.` : ""
         const instructions =
           `You can edit and publish the website "${this.shownName(grant)}".${liveAt} Use list_files/read_file to inspect it, ` +
@@ -175,7 +171,8 @@ export class McpHandler {
       case "resources/read": {
         const uri = String((msg.params as { uri?: string } | undefined)?.uri ?? "")
         const found = MCP_RESOURCES.find((r) => r.uri === uri)
-        if (!found) return { jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: `Resource not found: ${uri}` } }
+        if (!found)
+          return { jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: `Resource not found: ${uri}` } }
         return this.ok(msg.id, { contents: [{ uri: found.uri, mimeType: found.mimeType, text: found.text }] })
       }
       default:
@@ -261,9 +258,13 @@ export class McpHandler {
             path,
             String(args.old_string ?? ""),
             String(args.new_string ?? ""),
-            args.replace_all === true
+            args.replace_all === true,
           )
-          return this.toolText(msg.id, grant, `Edited ${path} (${n} replacement${n === 1 ? "" : "s"}). Run deploy_site to publish.`)
+          return this.toolText(
+            msg.id,
+            grant,
+            `Edited ${path} (${n} replacement${n === 1 ? "" : "s"}). Run deploy_site to publish.`,
+          )
         }
         case "write_url": {
           this.ensureSeeded(grant)
@@ -272,7 +273,11 @@ export class McpHandler {
           if (!url) return this.toolText(msg.id, grant, "url is required", true)
           const bytes = await this.deps.fetchAsset(url)
           this.deps.staging.writeBytes(grant.id, path, bytes)
-          return this.toolText(msg.id, grant, `Fetched ${url} → ${path} (${bytes.length} bytes). Run deploy_site to publish.`)
+          return this.toolText(
+            msg.id,
+            grant,
+            `Fetched ${url} → ${path} (${bytes.length} bytes). Run deploy_site to publish.`,
+          )
         }
         case "create_asset_upload": {
           this.ensureSeeded(grant)
@@ -295,7 +300,12 @@ export class McpHandler {
         case "delete_file": {
           this.ensureSeeded(grant)
           const removed = this.deps.staging.deleteFile(grant.id, String(args.path ?? ""))
-          return this.toolText(msg.id, grant, removed ? `Deleted ${args.path}.` : `File not found: ${args.path}`, !removed)
+          return this.toolText(
+            msg.id,
+            grant,
+            removed ? `Deleted ${args.path}.` : `File not found: ${args.path}`,
+            !removed,
+          )
         }
         case "deploy_site":
           return this.handleDeployTool(msg, grant, args)
@@ -318,9 +328,7 @@ export class McpHandler {
     const lines = [
       `Site: ${this.shownName(grant)}`,
       `Live at: ${canonical.join(", ")}`,
-      info.domains.length
-        ? `Custom domains: ${info.domains.join(", ")}`
-        : `Default subdomain: ${info.url}`,
+      info.domains.length ? `Custom domains: ${info.domains.join(", ")}` : `Default subdomain: ${info.url}`,
       `Current published version: ${info.version ?? "not yet published"}`,
     ]
     return lines.join("\n")
@@ -337,8 +345,10 @@ export class McpHandler {
       return `  v${v ?? "?"}  ${at ? new Date(at).toISOString() : "unknown"}  by ${by || "unknown"}${note}${suffix}`
     }
     const lines: string[] = []
-    if (site.version !== undefined) lines.push(fmt(site.version, site.deployedAt, site.deployedBy, site.message, "  (current)"))
-    for (const v of this.deps.sites.getHistory(grant.site)) lines.push(fmt(v.version, v.deployedAt, v.deployedBy, v.message))
+    if (site.version !== undefined)
+      lines.push(fmt(site.version, site.deployedAt, site.deployedBy, site.message, "  (current)"))
+    for (const v of this.deps.sites.getHistory(grant.site))
+      lines.push(fmt(v.version, v.deployedAt, v.deployedBy, v.message))
     if (lines.length === 0) return `No deployments yet for "${this.shownName(grant)}".`
     return `Deployment history for "${this.shownName(grant)}" (newest first):\n${lines.join("\n")}`
   }
@@ -346,13 +356,18 @@ export class McpHandler {
   private async handleDeployTool(
     msg: JsonRpcRequest,
     grant: ShareGrant,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
   ): Promise<unknown> {
     // A change description is mandatory: it's what shows up in list_history so
     // the owner can see what each shared-link deploy changed.
     const message = String(args.message ?? "").trim()
     if (!message) {
-      return this.toolText(msg.id, grant, "message is required: describe what you changed (it's recorded in the site history).", true)
+      return this.toolText(
+        msg.id,
+        grant,
+        "message is required: describe what you changed (it's recorded in the site history).",
+        true,
+      )
     }
     if (message.length > MAX_DEPLOY_MESSAGE_LENGTH) {
       return this.toolText(msg.id, grant, `message is too long (max ${MAX_DEPLOY_MESSAGE_LENGTH} characters).`, true)
@@ -366,9 +381,13 @@ export class McpHandler {
       .filter(([, bytes]) => hasConflictMarkers(bytes))
       .map(([path]) => path)
     if (unresolved.length > 0) {
-      return this.toolText(msg.id, grant,
+      return this.toolText(
+        msg.id,
+        grant,
         `Not published: these files still contain conflict markers (\`<<<<<<< ${YOURS_LABEL}\` / \`>>>>>>> ${THEIRS_LABEL}\`): ` +
-        `${unresolved.join(", ")}. Resolve them, then call deploy_site again.`, true)
+          `${unresolved.join(", ")}. Resolve them, then call deploy_site again.`,
+        true,
+      )
     }
 
     // The owner (or another link) deployed since this copy was taken: merge
@@ -398,7 +417,8 @@ export class McpHandler {
 
     let text = `Published to ${info.url} (version ${info.version}).`
     if (rebased) {
-      text += `\n\nNote: the site had changed since you started editing (v${seeded} → v${current}). ` +
+      text +=
+        `\n\nNote: the site had changed since you started editing (v${seeded} → v${current}). ` +
         `Those changes were merged with yours, so both are now live.`
     }
     return this.toolText(msg.id, grant, text)
@@ -533,7 +553,10 @@ const MCP_TOOLS = [
       type: "object",
       properties: {
         path: { type: "string", description: "File path relative to the web root, e.g. index.html" },
-        old_string: { type: "string", description: "Exact text to replace (must match verbatim, including indentation)" },
+        old_string: {
+          type: "string",
+          description: "Exact text to replace (must match verbatim, including indentation)",
+        },
         new_string: { type: "string", description: "Replacement text" },
         replace_all: {
           type: "boolean",
@@ -590,7 +613,8 @@ const MCP_TOOLS = [
       properties: {
         message: {
           type: "string",
-          description: "Short summary of what this deploy changes, e.g. \"Update hero copy and swap logo\". Shown in list_history.",
+          description:
+            'Short summary of what this deploy changes, e.g. "Update hero copy and swap logo". Shown in list_history.',
         },
       },
       required: ["message"],
@@ -601,9 +625,12 @@ const MCP_TOOLS = [
 
 const CONFLICT_HELP: Record<MergeConflict["reason"], string> = {
   "both-edited": `you and the site changed the same lines. Edit the file: keep the right content between \`<<<<<<< ${YOURS_LABEL}\` and \`>>>>>>> ${THEIRS_LABEL}\`, and remove the marker lines`,
-  "binary": "you and the site both replaced this binary file. Your version was kept; re-upload the site's version if that one should win",
-  "deleted-by-you": "you deleted it, but the site changed it. It was restored; delete it again with delete_file if it should go",
-  "deleted-on-site": "the site deleted it, but you changed it. Your version was kept; delete it with delete_file if it should go",
+  binary:
+    "you and the site both replaced this binary file. Your version was kept; re-upload the site's version if that one should win",
+  "deleted-by-you":
+    "you deleted it, but the site changed it. It was restored; delete it again with delete_file if it should go",
+  "deleted-on-site":
+    "the site deleted it, but you changed it. Your version was kept; delete it with delete_file if it should go",
 }
 
 // Tool result for a deploy that merged in newer site changes but hit conflicts.

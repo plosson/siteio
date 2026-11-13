@@ -1,12 +1,12 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
-import { join, sep } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join, sep } from "path"
+import type { EnvUpdate } from "../../lib/agent/env.ts"
 import { SiteStorage } from "../../lib/agent/storage.ts"
 import { TenantRegistry } from "../../lib/agent/tenants.ts"
 import type { Site } from "../../types.ts"
-import type { EnvUpdate } from "../../lib/agent/env.ts"
 
 describe("Unit: SiteStorage", () => {
   let dir: string
@@ -231,8 +231,13 @@ describe("Unit: SiteStorage", () => {
 
     test("refuses invalid and reserved keys, storing nothing", () => {
       const updates: EnvUpdate[] = [
-        { env: { "": "x" } }, { env: { "1A": "x" } }, { env: { "A-B": "x" } }, { env: { "A B": "x" } },
-        { env: { "A=B": "x" } }, { secrets: { POCKET_SUPERUSER_PASSWORD: "x" } }, { env: { POCKET_ANYTHING: "x" } },
+        { env: { "": "x" } },
+        { env: { "1A": "x" } },
+        { env: { "A-B": "x" } },
+        { env: { "A B": "x" } },
+        { env: { "A=B": "x" } },
+        { secrets: { POCKET_SUPERUSER_PASSWORD: "x" } },
+        { env: { POCKET_ANYTHING: "x" } },
         { unsetEnv: ["POCKET_SUPERUSER_EMAIL"] },
       ]
       for (const update of updates) {

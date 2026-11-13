@@ -1,14 +1,16 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, existsSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, rmSync } from "fs"
 import { tmpdir } from "os"
+import { join } from "path"
 import { scaffoldSite } from "../../lib/site-scaffold.ts"
 
 // sitesInitCommand calls process.exit; test the scaffold contract it relies on
 // plus that the command module imports cleanly.
 describe("CLI: pocket init contract", () => {
   let dir: string
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "siteio-init-")) })
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "siteio-init-"))
+  })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
   test("scaffold produces a deployable layout", () => {

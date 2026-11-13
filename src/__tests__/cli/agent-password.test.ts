@@ -1,8 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { spawn } from "bun"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { UserStore } from "../../lib/agent/user-store.ts"
 
 describe("CLI: agent password", () => {
@@ -52,7 +52,10 @@ describe("CLI: agent password", () => {
 
   test("refuses when a non-admin user is named admin", async () => {
     mkdirSync(join(dataDir, "users"), { recursive: true })
-    writeFileSync(join(dataDir, "users", "admin.json"), JSON.stringify({ username: "admin", role: "member", passwordHash: "", createdAt: "", keys: [] }))
+    writeFileSync(
+      join(dataDir, "users", "admin.json"),
+      JSON.stringify({ username: "admin", role: "member", passwordHash: "", createdAt: "", keys: [] }),
+    )
     expect((await runCli(["agent", "password"])).exitCode).toBe(1)
   })
 })

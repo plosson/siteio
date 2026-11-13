@@ -1,8 +1,8 @@
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
-import { resolveSiteName } from "../../utils/site-config.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
+import { resolveSiteName } from "../../utils/site-config.ts"
 
 export async function sitesAdminCommand(name: string | undefined, options: { json?: boolean } = {}): Promise<void> {
   try {
@@ -18,5 +18,7 @@ export async function sitesAdminCommand(name: string | undefined, options: { jso
       console.error(`  Password: ${chalk.bold(admin.password)}`)
     }
     process.exit(0)
-  } catch (err) { handleError(err) }
+  } catch (err) {
+    handleError(err)
+  }
 }

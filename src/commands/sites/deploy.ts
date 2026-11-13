@@ -1,16 +1,16 @@
-import { existsSync, readdirSync, statSync } from "fs"
-import { join, resolve, basename } from "path"
-import { tmpdir } from "os"
-import ora from "ora"
 import chalk from "chalk"
 import { zipSync } from "fflate"
-import { SiteioClient } from "../../lib/client.ts"
+import { existsSync, readdirSync, statSync } from "fs"
+import ora from "ora"
+import { tmpdir } from "os"
+import { basename, join, resolve } from "path"
 import { getCurrentServer } from "../../config/loader.ts"
-import { loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts"
-import { formatSuccess, formatBytes } from "../../utils/output.ts"
-import { handleError, ApiError, ValidationError } from "../../utils/errors.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
-import { PUBLIC_DIR, SITEIO_DIR, BACKEND_DIRS } from "../../lib/site-layout.ts"
+import { BACKEND_DIRS, PUBLIC_DIR, SITEIO_DIR } from "../../lib/site-layout.ts"
+import { ApiError, handleError, ValidationError } from "../../utils/errors.ts"
+import { formatBytes, formatSuccess } from "../../utils/output.ts"
+import { loadProjectConfig, saveProjectConfig } from "../../utils/site-config.ts"
 
 // Recursively collect files from `dir` into the zip map under `prefix`.
 async function addTree(dir: string, prefix: string, out: Record<string, Uint8Array>): Promise<void> {
@@ -105,18 +105,24 @@ async function reportVersionConflict(err: ApiError, ctx: ConflictContext, json?:
   ]
 
   if (json) {
-    console.log(JSON.stringify({
-      success: false,
-      error: {
-        code: "version_conflict",
-        message: err.message,
-        site: name,
-        expectedVersion,
-        currentVersion: currentVersion ?? null,
-        deployedAt: site?.deployedAt ?? null,
-        nextSteps: steps,
-      },
-    }, null, 2))
+    console.log(
+      JSON.stringify(
+        {
+          success: false,
+          error: {
+            code: "version_conflict",
+            message: err.message,
+            site: name,
+            expectedVersion,
+            currentVersion: currentVersion ?? null,
+            deployedAt: site?.deployedAt ?? null,
+            nextSteps: steps,
+          },
+        },
+        null,
+        2,
+      ),
+    )
   }
 
   console.error(chalk.red("Deploy rejected: version conflict"))
@@ -126,7 +132,9 @@ async function reportVersionConflict(err: ApiError, ctx: ConflictContext, json?:
   console.error("  Merge the server changes into your folder before deploying again:")
   steps.forEach((step, i) => console.error(`    ${i + 1}. ${step}`))
   console.error("")
-  console.error(chalk.dim("  Only use --force to discard the server changes on purpose (they stay in 'siteio sites history')."))
+  console.error(
+    chalk.dim("  Only use --force to discard the server changes on purpose (they stay in 'siteio sites history')."),
+  )
 }
 
 export interface SitesDeployOptions {
@@ -146,7 +154,10 @@ export async function sitesDeployCommand(folder: string | undefined, options: Si
     if (options.force && options.expectedVersion !== undefined) {
       throw new ValidationError("--force and --expected-version cannot be used together")
     }
-    if (options.expectedVersion !== undefined && !(Number.isInteger(options.expectedVersion) && options.expectedVersion > 0)) {
+    if (
+      options.expectedVersion !== undefined &&
+      !(Number.isInteger(options.expectedVersion) && options.expectedVersion > 0)
+    ) {
       throw new ValidationError("--expected-version must be a positive whole number")
     }
 
@@ -193,12 +204,20 @@ export async function sitesDeployCommand(folder: string | undefined, options: Si
     if (serverVersion === null) {
       throw new ValidationError(
         "The agent on this server is older than this CLI and does not understand the current deploy format.\n" +
-        "Update it first: ssh into the server and run 'siteio update -y && siteio agent restart'."
+          "Update it first: ssh into the server and run 'siteio update -y && siteio agent restart'.",
       )
     }
 
     if (folderPath) {
-      saveProjectConfig({ site: name, domain: server.domain, pocketbaseVersion: config?.pocketbaseVersion || POCKETBASE_VERSION, version: config?.version }, folderPath)
+      saveProjectConfig(
+        {
+          site: name,
+          domain: server.domain,
+          pocketbaseVersion: config?.pocketbaseVersion || POCKETBASE_VERSION,
+          version: config?.version,
+        },
+        folderPath,
+      )
     }
 
     spinner.start("Uploading")
@@ -206,9 +225,7 @@ export async function sitesDeployCommand(folder: string | undefined, options: Si
     // Determine expected version for optimistic concurrency control.
     // --expected-version overrides the folder's recorded version (used after
     // merging a newer server version into the folder).
-    const expectedVersion = options.force || options.test
-      ? undefined
-      : options.expectedVersion ?? config?.version
+    const expectedVersion = options.force || options.test ? undefined : (options.expectedVersion ?? config?.version)
     if (expectedVersion !== undefined) {
       conflict = { client, name, folder: folderPath ?? ".", expectedVersion }
     }
@@ -218,7 +235,15 @@ export async function sitesDeployCommand(folder: string | undefined, options: Si
 
     // Save version to local config for future concurrency checks
     if (folderPath) {
-      saveProjectConfig({ site: name, domain: server.domain, pocketbaseVersion: config?.pocketbaseVersion || POCKETBASE_VERSION, version: info.version }, folderPath)
+      saveProjectConfig(
+        {
+          site: name,
+          domain: server.domain,
+          pocketbaseVersion: config?.pocketbaseVersion || POCKETBASE_VERSION,
+          version: info.version,
+        },
+        folderPath,
+      )
     }
 
     if (options.json) {

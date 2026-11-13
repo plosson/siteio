@@ -1,5 +1,5 @@
 // src/__tests__/unit/env.test.ts
-import { describe, test, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { applyEnvUpdate, publicEnv, sameEnv } from "../../lib/agent/env.ts"
 
 describe("applyEnvUpdate", () => {
@@ -16,9 +16,11 @@ describe("applyEnvUpdate", () => {
 
   test("refuses to turn a secret back into a plain var, naming the right command", () => {
     expect(() => applyEnvUpdate({ env: { S: "x" }, secretKeys: ["S"] }, { env: { S: "y" } }, "sites")).toThrow(
-      "'S' is a secret. Set it with --secret S=<value>, or remove it first with 'sites unset -e S'"
+      "'S' is a secret. Set it with --secret S=<value>, or remove it first with 'sites unset -e S'",
     )
-    expect(() => applyEnvUpdate({ env: { S: "x" }, secretKeys: ["S"] }, { env: { S: "y" } }, "apps")).toThrow("'apps unset -e S'")
+    expect(() => applyEnvUpdate({ env: { S: "x" }, secretKeys: ["S"] }, { env: { S: "y" } }, "apps")).toThrow(
+      "'apps unset -e S'",
+    )
   })
 
   test("the refusal never echoes the attempted value", () => {

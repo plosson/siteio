@@ -1,6 +1,6 @@
+import { spawn, spawnSync } from "bun"
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
-import { spawn, spawnSync } from "bun"
 
 // Site card previews are produced by a headless-Chromium container
 // (browserless) rather than bundling a browser into the CLI. The container is
@@ -128,22 +128,33 @@ export class ThumbnailManager {
 
     const run = spawnSync({
       cmd: [
-        "docker", "run", "-d",
-        "--name", CONTAINER_NAME,
-        "--network", NETWORK,
+        "docker",
+        "run",
+        "-d",
+        "--name",
+        CONTAINER_NAME,
+        "--network",
+        NETWORK,
         // Not managed by systemd — the idle timer owns its lifecycle.
-        "--restart", "no",
+        "--restart",
+        "no",
         // Full Chromium spikes during rasterization on heavy pages (measured
         // peak ~670MB on a 217KB DOM); 512m OOM-killed the raster child and
         // surfaced as a ProtocolError. The container is on-demand + idle-stops,
         // so this ceiling is only used transiently during a capture.
-        "--memory", "1500m",
-        "-p", `127.0.0.1:${HOST_PORT}:3000`,
-        "-e", `TOKEN=${this.token}`,
-        "-e", "CONCURRENT=1",
+        "--memory",
+        "1500m",
+        "-p",
+        `127.0.0.1:${HOST_PORT}:3000`,
+        "-e",
+        `TOKEN=${this.token}`,
+        "-e",
+        "CONCURRENT=1",
         // Queue bursts (deploy storms, a page of cards) instead of 429-ing.
-        "-e", "QUEUED=8",
-        "-e", "TIMEOUT=15000",
+        "-e",
+        "QUEUED=8",
+        "-e",
+        "TIMEOUT=15000",
         IMAGE,
       ],
       stdout: "pipe",

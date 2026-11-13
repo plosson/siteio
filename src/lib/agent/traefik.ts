@@ -1,7 +1,7 @@
-import { existsSync, writeFileSync, mkdirSync, renameSync, rmSync } from "fs"
-import { join } from "path"
 import { spawnSync } from "bun"
-import { connect as tlsConnect, type PeerCertificate } from "tls"
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "fs"
+import { join } from "path"
+import { type PeerCertificate, connect as tlsConnect } from "tls"
 import type { AcmeConfig } from "../../types.ts"
 
 const TRAEFIK_CONTAINER_NAME = "siteio-traefik"
@@ -246,7 +246,7 @@ log:
   // primary's own: no second list to keep in step with setApiHosts.
   // In Traefik v3 a router with tls.domains requests ONLY those domains, so the
   // primary's `api.<domain>` must be listed explicitly once any entry exists.
-  private wildcardDomains(): { domains?: ({ main: string; sans?: string[] })[] } {
+  private wildcardDomains(): { domains?: { main: string; sans?: string[] }[] } {
     const { domain, acme, apiHosts = [] } = this.config
     if (acme?.challenge !== "dns") return {}
     const primaryApi = `api.${domain}`
@@ -471,10 +471,7 @@ log:
     }
 
     // Traefik image and config
-    args.push(
-      TRAEFIK_IMAGE,
-      "--configFile=/etc/traefik/traefik.yml",
-    )
+    args.push(TRAEFIK_IMAGE, "--configFile=/etc/traefik/traefik.yml")
 
     const result = spawnSync({ cmd: args, stdout: "pipe", stderr: "pipe" })
 
@@ -560,7 +557,7 @@ log:
             // Still serving default/self-signed cert
             resolve("pending")
           }
-        }
+        },
       )
 
       socket.on("error", () => {
@@ -618,7 +615,7 @@ log:
           domainsToVerify.map(async ({ baseName, domain }) => {
             const status = await this.verifyActualCert(domain)
             return { baseName, status }
-          })
+          }),
         )
 
         for (const { baseName, status } of results) {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "fs"
-import { join } from "path"
 import { tmpdir } from "os"
+import { join } from "path"
 import { AccessLogTailer, type TailerOptions } from "../../lib/agent/analytics/tailer"
 
 let dir: string

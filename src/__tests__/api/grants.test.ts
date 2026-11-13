@@ -1,16 +1,21 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
+import { mkdtempSync, rmSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
+import type { AgentConfig, ApiResponse, ShareGrantCreated, ShareGrantInfo } from "../../types.ts"
 import { FakeRuntime } from "../helpers/fake-runtime.ts"
-import type { AgentConfig, ApiResponse, ShareGrantInfo, ShareGrantCreated } from "../../types.ts"
 
 function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
   const config: AgentConfig = {
-    apiKey: "test-key", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+    apiKey: "test-key",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    skipTraefik: true,
   }
   return new AgentServer(config, runtime)
 }
@@ -31,16 +36,17 @@ describe("API: share grants", () => {
     // Deploy a site so grants have something to attach to.
     await server.handleRequestForTest(
       new Request("http://x/sites/blog", {
-        method: "POST", headers: ZIPH,
+        method: "POST",
+        headers: ZIPH,
         body: zipSync({ "public/index.html": new TextEncoder().encode("<h1>hi</h1>") }),
-      })
+      }),
     )
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
 
   const createGrant = (body: Record<string, unknown> = {}, name = "blog") =>
     server.handleRequestForTest(
-      new Request(`http://x/sites/${name}/grants`, { method: "POST", headers: JSONH, body: JSON.stringify(body) })
+      new Request(`http://x/sites/${name}/grants`, { method: "POST", headers: JSONH, body: JSON.stringify(body) }),
     )
 
   test("POST /sites/:name/grants returns a one-time code and the shared connector url", async () => {
@@ -63,8 +69,10 @@ describe("API: share grants", () => {
   test("when the site has a custom domain, that is the primary connector URL (subdomain is fallback)", async () => {
     await server.handleRequestForTest(
       new Request("http://x/sites/blog/domains", {
-        method: "PATCH", headers: JSONH, body: JSON.stringify({ domains: ["beatrice.example.org"] }),
-      })
+        method: "PATCH",
+        headers: JSONH,
+        body: JSON.stringify({ domains: ["beatrice.example.org"] }),
+      }),
     )
     const res = await createGrant()
     const body = (await res.json()) as ApiResponse<ShareGrantCreated>
@@ -91,7 +99,7 @@ describe("API: share grants", () => {
     await createGrant()
     await createGrant()
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/grants", { method: "GET", headers: AUTH })
+      new Request("http://x/sites/blog/grants", { method: "GET", headers: AUTH }),
     )
     const body = (await res.json()) as ApiResponse<ShareGrantInfo[]>
     expect(body.data).toHaveLength(2)
@@ -102,7 +110,7 @@ describe("API: share grants", () => {
     const created = (await (await createGrant()).json()) as ApiResponse<ShareGrantCreated>
     const id = created.data!.grant.id
     const del = await server.handleRequestForTest(
-      new Request(`http://x/sites/blog/grants/${id}`, { method: "DELETE", headers: AUTH })
+      new Request(`http://x/sites/blog/grants/${id}`, { method: "DELETE", headers: AUTH }),
     )
     expect(del.status).toBe(200)
     const list = (await (
@@ -115,13 +123,14 @@ describe("API: share grants", () => {
   test("cannot revoke a grant belonging to another site", async () => {
     await server.handleRequestForTest(
       new Request("http://x/sites/shop", {
-        method: "POST", headers: ZIPH,
+        method: "POST",
+        headers: ZIPH,
         body: zipSync({ "public/index.html": new TextEncoder().encode("<h1>shop</h1>") }),
-      })
+      }),
     )
     const created = (await (await createGrant({}, "blog")).json()) as ApiResponse<ShareGrantCreated>
     const res = await server.handleRequestForTest(
-      new Request(`http://x/sites/shop/grants/${created.data!.grant.id}`, { method: "DELETE", headers: AUTH })
+      new Request(`http://x/sites/shop/grants/${created.data!.grant.id}`, { method: "DELETE", headers: AUTH }),
     )
     expect(res.status).toBe(404)
   })
@@ -132,9 +141,7 @@ describe("API: share grants", () => {
   })
 
   test("grant routes require the god API key", async () => {
-    const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/grants", { method: "GET" })
-    )
+    const res = await server.handleRequestForTest(new Request("http://x/sites/blog/grants", { method: "GET" }))
     expect(res.status).toBe(401)
   })
 })

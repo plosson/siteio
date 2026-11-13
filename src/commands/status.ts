@@ -1,7 +1,7 @@
 import chalk from "chalk"
-import { loadConfig, listServers, getCurrentServer } from "../config/loader.ts"
-import { formatSuccess, formatError } from "../utils/output.ts"
+import { getCurrentServer, listServers, loadConfig } from "../config/loader.ts"
 import { apiHeaders } from "../lib/client.ts"
+import { formatError, formatSuccess } from "../utils/output.ts"
 
 export async function statusCommand(): Promise<void> {
   const config = loadConfig()

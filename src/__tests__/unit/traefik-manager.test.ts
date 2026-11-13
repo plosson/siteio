@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test"
-import { TraefikManager, accessLogPath } from "../../lib/agent/traefik.ts"
-import { mkdirSync, rmSync, existsSync, readFileSync, readdirSync, statSync } from "fs"
+import { afterEach, beforeEach, describe, expect, it } from "bun:test"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "fs"
 import { join } from "path"
+import { accessLogPath, TraefikManager } from "../../lib/agent/traefik.ts"
 
 describe("Unit: TraefikManager", () => {
   const TEST_DATA_DIR = join(import.meta.dir, ".test-data-traefik")
@@ -198,8 +198,15 @@ describe("Unit: TraefikManager", () => {
       }
       // A dot left unescaped would match `k7f2Xmynino.app`; a missing anchor would match the rest.
       for (const host of [
-        "bbq.mynino.app", "k7f2xmynino.app", "bbq.k7f2xmynino.app", "xk7f2.mynino.app",
-        "k7f2.mynino.app.evil.com", "k7f2.mynino.apps", "mynino.app", "api.test.siteio.me", "",
+        "bbq.mynino.app",
+        "k7f2xmynino.app",
+        "bbq.k7f2xmynino.app",
+        "xk7f2.mynino.app",
+        "k7f2.mynino.app.evil.com",
+        "k7f2.mynino.apps",
+        "mynino.app",
+        "api.test.siteio.me",
+        "",
       ]) {
         expect(isExcluded(rule, host)).toBe(false)
       }
@@ -212,7 +219,9 @@ describe("Unit: TraefikManager", () => {
     })
 
     it("escapes every regex metacharacter, and hyphens stay literal", () => {
-      const rule = mcpRule(makeTraefik({ platformOffDomains: ["my-site.co.uk", "a+b(c)[d]{e}|f^g$h*i?j\\k.app"] }).generateDynamicConfig())
+      const rule = mcpRule(
+        makeTraefik({ platformOffDomains: ["my-site.co.uk", "a+b(c)[d]{e}|f^g$h*i?j\\k.app"] }).generateDynamicConfig(),
+      )
       expect(isExcluded(rule, "blog.my-site.co.uk")).toBe(true)
       expect(isExcluded(rule, "blog.mysite.co.uk")).toBe(false)
       expect(isExcluded(rule, "blog.my-sitexcoxuk")).toBe(false)
@@ -238,7 +247,11 @@ describe("Unit: TraefikManager", () => {
 
     it("the opted-out list leaves the api router and the other api hosts untouched", () => {
       const traefik = makeTraefik({ apiHosts: ["api.test.siteio.me", "api.b.app"], platformOffDomains: ["b.app"] })
-      const routers = (Bun.YAML.parse(traefik.generateDynamicConfig()) as { http: { routers: Record<string, { rule: string; priority?: number }> } }).http.routers
+      const routers = (
+        Bun.YAML.parse(traefik.generateDynamicConfig()) as {
+          http: { routers: Record<string, { rule: string; priority?: number }> }
+        }
+      ).http.routers
       expect(routers["api-router"]!.rule).toBe("Host(`api.test.siteio.me`) || Host(`api.b.app`)")
       expect(routers["mcp-router"]!.priority).toBe(1000)
     })
@@ -285,7 +298,10 @@ describe("Unit: TraefikManager", () => {
   describe("wildcard tls.domains per tenant (DNS-01)", () => {
     type Parsed = {
       http: {
-        routers: Record<string, { entryPoints: string[]; tls: { certResolver: string; domains?: { main: string; sans?: string[] }[] } }>
+        routers: Record<
+          string,
+          { entryPoints: string[]; tls: { certResolver: string; domains?: { main: string; sans?: string[] }[] } }
+        >
       }
     }
     const parse = (yml: string) => Bun.YAML.parse(yml) as Parsed

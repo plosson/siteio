@@ -1,14 +1,21 @@
 import * as p from "@clack/prompts"
+import { spawnSync } from "bun"
 import chalk from "chalk"
 import { existsSync, writeFileSync } from "fs"
 import { join } from "path"
-import { spawnSync } from "bun"
-import { formatSuccess, formatError, formatWarning } from "../../utils/output.ts"
-import { encodeToken, generateApiKey } from "../../utils/token.ts"
-import { isRemoteTarget, sshExec, sshExecStream, shellQuote } from "../../utils/ssh.ts"
+import {
+  buildCloudflareTokenUrl,
+  buildSslipDomain,
+  CloudflareError,
+  getPublicIP,
+  isSslipDomain,
+  setupWildcardDNS,
+} from "../../lib/cloudflare.ts"
+import { waitForCertificate, waitForDNS } from "../../lib/verification.ts"
 import { openBrowser } from "../../utils/browser.ts"
-import { setupWildcardDNS, CloudflareError, getPublicIP, buildSslipDomain, isSslipDomain, buildCloudflareTokenUrl } from "../../lib/cloudflare.ts"
-import { waitForDNS, waitForCertificate } from "../../lib/verification.ts"
+import { formatError, formatSuccess, formatWarning } from "../../utils/output.ts"
+import { isRemoteTarget, shellQuote, sshExec, sshExecStream } from "../../utils/ssh.ts"
+import { encodeToken, generateApiKey } from "../../utils/token.ts"
 
 const SERVICE_NAME = "siteio-agent"
 const SERVICE_FILE = `/etc/systemd/system/${SERVICE_NAME}.service`
@@ -39,11 +46,7 @@ export function parseAdminPassword(stdout: string): string | null {
 }
 
 function findBinaryPath(): string {
-  const candidates = [
-    "/usr/local/bin/siteio",
-    join(process.env.HOME || "", ".local/bin/siteio"),
-    process.argv[1],
-  ]
+  const candidates = ["/usr/local/bin/siteio", join(process.env.HOME || "", ".local/bin/siteio"), process.argv[1]]
 
   for (const path of candidates) {
     if (path && existsSync(path)) {
@@ -58,7 +61,13 @@ function findBinaryPath(): string {
   throw new Error("Could not find siteio binary")
 }
 
-function generateServiceFile(binaryPath: string, dataDir: string, domain: string, apiKey: string, email?: string): string {
+function generateServiceFile(
+  binaryPath: string,
+  dataDir: string,
+  domain: string,
+  apiKey: string,
+  email?: string,
+): string {
   const envLines = [
     `Environment=SITEIO_DOMAIN=${domain}`,
     `Environment=SITEIO_API_KEY=${apiKey}`,
@@ -86,7 +95,10 @@ WantedBy=multi-user.target
 `
 }
 
-async function gatherInstallConfig(defaultDataDir: string, remoteIP?: string): Promise<{
+async function gatherInstallConfig(
+  defaultDataDir: string,
+  remoteIP?: string,
+): Promise<{
   domain: string
   dataDir: string
   email: string | undefined
@@ -314,11 +326,7 @@ async function installRemote(target: string, options: InstallOptions): Promise<v
   // Install siteio if needed
   if (!siteioInstalled) {
     console.log(chalk.cyan("\nInstalling siteio on remote server..."))
-    const installCode = await sshExecStream(
-      target,
-      `curl -LsSf ${INSTALL_SCRIPT_URL} | sh`,
-      options.identity
-    )
+    const installCode = await sshExecStream(target, `curl -LsSf ${INSTALL_SCRIPT_URL} | sh`, options.identity)
     if (installCode !== 0) {
       console.error(formatError("Failed to install siteio on remote server"))
       process.exit(1)
@@ -434,9 +442,7 @@ async function installLocal(options: InstallOptions): Promise<void> {
   s.start("Creating data directory")
 
   const mkdirResult = spawnSync({
-    cmd: isRoot
-      ? ["mkdir", "-p", dataDir]
-      : ["sudo", "mkdir", "-p", dataDir],
+    cmd: isRoot ? ["mkdir", "-p", dataDir] : ["sudo", "mkdir", "-p", dataDir],
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -478,15 +484,21 @@ async function installLocal(options: InstallOptions): Promise<void> {
   s.start("Setting the admin password")
   const passwordCmd = [
     ...(isRoot ? [] : ["sudo"]),
-    "env", `SITEIO_DATA_DIR=${dataDir}`,
-    binaryPath, "--json", "agent", "password",
+    "env",
+    `SITEIO_DATA_DIR=${dataDir}`,
+    binaryPath,
+    "--json",
+    "agent",
+    "password",
     ...(options.adminPassword ? ["--password", options.adminPassword] : []),
   ]
   const passwordResult = spawnSync({ cmd: passwordCmd, stdout: "pipe", stderr: "pipe" })
-  const adminPassword = passwordResult.exitCode === 0
-    ? parseAdminPassword(passwordResult.stdout.toString())
-    : null
-  s.stop(adminPassword ? chalk.green("Admin password set") : chalk.yellow("Could not set the admin password — run `siteio agent password` later"))
+  const adminPassword = passwordResult.exitCode === 0 ? parseAdminPassword(passwordResult.stdout.toString()) : null
+  s.stop(
+    adminPassword
+      ? chalk.green("Admin password set")
+      : chalk.yellow("Could not set the admin password — run `siteio agent password` later"),
+  )
 
   // Generate and write service file
   s.start("Creating systemd service")
@@ -496,9 +508,7 @@ async function installLocal(options: InstallOptions): Promise<void> {
   writeFileSync(tempFile, serviceContent)
 
   const copyResult = spawnSync({
-    cmd: isRoot
-      ? ["cp", tempFile, SERVICE_FILE]
-      : ["sudo", "cp", tempFile, SERVICE_FILE],
+    cmd: isRoot ? ["cp", tempFile, SERVICE_FILE] : ["sudo", "cp", tempFile, SERVICE_FILE],
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -534,9 +544,7 @@ async function installLocal(options: InstallOptions): Promise<void> {
   // Start the service
   s.start("Starting agent")
   const startResult = spawnSync({
-    cmd: isRoot
-      ? ["systemctl", "start", SERVICE_NAME]
-      : ["sudo", "systemctl", "start", SERVICE_NAME],
+    cmd: isRoot ? ["systemctl", "start", SERVICE_NAME] : ["sudo", "systemctl", "start", SERVICE_NAME],
     stdout: "pipe",
     stderr: "pipe",
   })

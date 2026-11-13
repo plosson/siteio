@@ -1,4 +1,4 @@
-import { randomBytes, createHash, timingSafeEqual } from "crypto"
+import { createHash, randomBytes, timingSafeEqual } from "crypto"
 
 // Helpers for the agent's minimal OAuth 2.0 authorization server (the flow that
 // lets a share link work as a claude.ai / Claude Desktop custom connector).

@@ -1,8 +1,8 @@
 import type { Tenant } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
 import { generateApiKey } from "../../utils/token.ts"
-import type { SiteStorage } from "./storage.ts"
 import type { AppStorage } from "./app-storage.ts"
+import type { SiteStorage } from "./storage.ts"
 
 // Multi-tenant base domains. The agent's own domain is the primary scope
 // (`null`); each tenant adds a base domain whose sites live at
@@ -76,7 +76,10 @@ export function assertValidNewName(name: string, kind: "Site" | "App" = "Site"):
 export class TenantRegistry {
   private bySlug = new Map<string, Tenant>()
 
-  constructor(readonly primaryDomain: string, readonly tenants: Tenant[] = []) {
+  constructor(
+    readonly primaryDomain: string,
+    readonly tenants: Tenant[] = [],
+  ) {
     for (const t of tenants) this.bySlug.set(tenantSlug(t.domain), t)
   }
 
@@ -106,7 +109,7 @@ export class TenantRegistry {
   // The tenant owning a key, or null for the primary domain.
   ownerOf(key: string): Scope {
     const i = key.indexOf(KEY_SEP)
-    return i < 0 ? null : this.bySlug.get(key.slice(i + KEY_SEP.length)) ?? null
+    return i < 0 ? null : (this.bySlug.get(key.slice(i + KEY_SEP.length)) ?? null)
   }
 
   // How `scope` sees a key: a tenant sees its own keys as bare names and no

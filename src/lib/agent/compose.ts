@@ -69,18 +69,18 @@ export function composeWarnings(spec: ComposeSpec, primaryService: string, uploa
       warnings.push(
         name === primaryService
           ? `Primary service '${name}' publishes ports (${formatPorts(svc.ports)}). Traefik handles external access; host port bindings are redundant and may conflict with other apps on the same server.`
-          : `Service '${name}' publishes ports (${formatPorts(svc.ports)}). They are reachable on the server outside HTTPS; remove them unless you need direct access.`
+          : `Service '${name}' publishes ports (${formatPorts(svc.ports)}). They are reachable on the server outside HTTPS; remove them unless you need direct access.`,
       )
     }
     if (svc.container_name) {
       warnings.push(
-        `Service '${name}' sets container_name='${svc.container_name}'. Fixed container names prevent deploying multiple instances of this app.`
+        `Service '${name}' sets container_name='${svc.container_name}'. Fixed container names prevent deploying multiple instances of this app.`,
       )
     }
     for (const vol of Array.isArray(svc.volumes) ? svc.volumes : []) {
       if (root && vol.type === "bind" && vol.source?.startsWith(root)) {
         warnings.push(
-          `Service '${name}' bind-mounts a relative path to '${vol.target}'. Only the compose file is uploaded, so that folder is empty on the server; use a named volume instead.`
+          `Service '${name}' bind-mounts a relative path to '${vol.target}'. Only the compose file is uploaded, so that folder is empty on the server; use a named volume instead.`,
         )
       }
     }

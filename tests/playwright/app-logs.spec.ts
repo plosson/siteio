@@ -1,4 +1,4 @@
-import { test, expect, type Route } from "@playwright/test"
+import { expect, type Route, test } from "@playwright/test"
 import { startTestServer, type TestServerHandle } from "./helpers/server"
 
 let srv: TestServerHandle
@@ -22,7 +22,10 @@ test("logs pane fetches and renders tail", async ({ page, context }) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ success: true, data: { name: "logsapp", logs: `line from server #${hitCount}\n`, lines: 200 } }),
+      body: JSON.stringify({
+        success: true,
+        data: { name: "logsapp", logs: `line from server #${hitCount}\n`, lines: 200 },
+      }),
     })
   })
 

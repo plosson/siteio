@@ -1,8 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
-import { join } from "path"
 import { tmpdir } from "os"
-import { GitManager, cloneArgs, cloneErrorMessage, lsRemoteErrorMessage } from "../../lib/agent/git"
+import { join } from "path"
+import { cloneArgs, cloneErrorMessage, GitManager, lsRemoteErrorMessage } from "../../lib/agent/git"
 import { makeRepo } from "../helpers/git-repo"
 
 describe("cloneErrorMessage", () => {
@@ -83,13 +83,13 @@ describe("GitManager", () => {
 
     test("throws error for non-existent repository", async () => {
       await expect(
-        git.clone("test-fail", "https://github.com/nonexistent/repo-that-does-not-exist-12345.git", "main")
+        git.clone("test-fail", "https://github.com/nonexistent/repo-that-does-not-exist-12345.git", "main"),
       ).rejects.toThrow()
     }, 15000)
 
     test("throws error for non-existent branch", async () => {
       await expect(
-        git.clone("test-branch-fail", "https://github.com/octocat/Hello-World.git", "nonexistent-branch-xyz")
+        git.clone("test-branch-fail", "https://github.com/octocat/Hello-World.git", "nonexistent-branch-xyz"),
       ).rejects.toThrow("Branch")
     }, 15000)
 
@@ -143,7 +143,9 @@ describe("lsRemoteErrorMessage", () => {
   const opts = { url: "https://github.com/u/private.git", hasToken: true }
 
   test("auth failure uses the clone wording", () => {
-    expect(lsRemoteErrorMessage("fatal: Authentication failed for 'https://...'", opts)).toContain("Authentication failed")
+    expect(lsRemoteErrorMessage("fatal: Authentication failed for 'https://...'", opts)).toContain(
+      "Authentication failed",
+    )
   })
 
   test("repository not found uses the clone wording", () => {
@@ -195,7 +197,7 @@ describe("GitManager.lsRemote", () => {
 
   test("a missing repository maps to the repository error", async () => {
     await expect(git.lsRemote(`file://${join(root, "nope.git")}`, ["refs/heads/main"])).rejects.toThrow(
-      /Repository not found|not appear to be a git repository|Failed to list remote refs/
+      /Repository not found|not appear to be a git repository|Failed to list remote refs/,
     )
   })
 
@@ -204,7 +206,7 @@ describe("GitManager.lsRemote", () => {
     try {
       const started = Date.now()
       await expect(
-        git.lsRemote(`http://127.0.0.1:${server.port}/repo.git`, ["refs/heads/main"], undefined, 500)
+        git.lsRemote(`http://127.0.0.1:${server.port}/repo.git`, ["refs/heads/main"], undefined, 500),
       ).rejects.toThrow(/Timed out/)
       expect(Date.now() - started).toBeLessThan(5_000)
     } finally {
@@ -220,9 +222,10 @@ describe("GitManager.lsRemote", () => {
       fetch: () => new Response("no", { status: 401, headers: { "WWW-Authenticate": 'Basic realm="x"' } }),
     })
     try {
-      const err = await git
-        .lsRemote(`http://127.0.0.1:${server.port}/repo.git`, ["refs/heads/main"], token)
-        .then(() => null, (e: Error) => e)
+      const err = await git.lsRemote(`http://127.0.0.1:${server.port}/repo.git`, ["refs/heads/main"], token).then(
+        () => null,
+        (e: Error) => e,
+      )
       expect(err).not.toBeNull()
       expect(err!.message).toContain("Authentication failed")
       expect(err!.message).not.toContain(token)
@@ -275,9 +278,9 @@ describe("GitManager.clone without blocking", () => {
     const ticker = setInterval(() => ticks++, 20)
     try {
       const started = Date.now()
-      await expect(git.clone("app", `http://127.0.0.1:${server.port}/repo.git`, "main", undefined, 500)).rejects.toThrow(
-        "Timed out cloning repository after 1s"
-      )
+      await expect(
+        git.clone("app", `http://127.0.0.1:${server.port}/repo.git`, "main", undefined, 500),
+      ).rejects.toThrow("Timed out cloning repository after 1s")
       expect(Date.now() - started).toBeLessThan(5_000)
       expect(ticks).toBeGreaterThan(5)
     } finally {
@@ -294,9 +297,10 @@ describe("GitManager.clone without blocking", () => {
       fetch: () => new Response("no", { status: 401, headers: { "WWW-Authenticate": 'Basic realm="x"' } }),
     })
     try {
-      const err = await git
-        .clone("app", `http://127.0.0.1:${server.port}/repo.git`, "main", token)
-        .then(() => null, (e: Error) => e)
+      const err = await git.clone("app", `http://127.0.0.1:${server.port}/repo.git`, "main", token).then(
+        () => null,
+        (e: Error) => e,
+      )
       expect(err).not.toBeNull()
       expect(err!.message).toContain("Authentication failed")
       expect(err!.message).not.toContain(token)

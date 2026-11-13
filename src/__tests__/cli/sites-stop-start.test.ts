@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { spawn } from "bun"
+import { zipSync } from "fflate"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { spawn } from "bun"
-import { zipSync } from "fflate"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 /** `siteio sites stop|start|upgrade --all` against a real AgentServer (fake runtime). */
 
@@ -18,8 +18,13 @@ let homeDir = ""
 beforeEach(() => {
   dataDir = mkdtempSync(join(tmpdir(), "siteio-stopstart-data-"))
   const config: AgentConfig = {
-    apiKey: "k", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+    apiKey: "k",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    skipTraefik: true,
   }
   agent = new AgentServer(config, new FakeRuntime())
   http = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: (req) => agent.handleRequestForTest(req) })
@@ -28,7 +33,10 @@ beforeEach(() => {
   mkdirSync(cfgDir, { recursive: true })
   writeFileSync(
     join(cfgDir, "config.json"),
-    JSON.stringify({ current: "test", servers: { test: { apiUrl: `http://127.0.0.1:${http.port}`, apiKey: "k", domain: "example.com" } } })
+    JSON.stringify({
+      current: "test",
+      servers: { test: { apiUrl: `http://127.0.0.1:${http.port}`, apiKey: "k", domain: "example.com" } },
+    }),
   )
 })
 
@@ -51,11 +59,13 @@ async function runCli(args: string[]) {
 }
 
 async function deploySite(name: string) {
-  const res = await agent.handleRequestForTest(new Request(`http://x/sites/${name}`, {
-    method: "POST",
-    headers: { "X-API-Key": "k", "Content-Type": "application/zip" },
-    body: zipSync({ "public/index.html": new TextEncoder().encode(name) }),
-  }))
+  const res = await agent.handleRequestForTest(
+    new Request(`http://x/sites/${name}`, {
+      method: "POST",
+      headers: { "X-API-Key": "k", "Content-Type": "application/zip" },
+      body: zipSync({ "public/index.html": new TextEncoder().encode(name) }),
+    }),
+  )
   expect(res.status).toBe(200)
 }
 

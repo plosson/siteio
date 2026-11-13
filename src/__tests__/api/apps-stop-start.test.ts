@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
 import { tmpdir } from "os"
-import { AgentServer } from "../../lib/agent/server"
+import { join } from "path"
 import { AppStorage } from "../../lib/agent/app-storage"
-import { FakeRuntime } from "../helpers/fake-runtime"
+import { AgentServer } from "../../lib/agent/server"
 import type { AgentConfig, ApiResponse, App } from "../../types"
+import { FakeRuntime } from "../helpers/fake-runtime"
 
 const API_KEY = "stop-start-test-key"
 let dir: string
@@ -16,8 +16,13 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "siteio-stop-start-"))
   runtime = new FakeRuntime()
   const config: AgentConfig = {
-    apiKey: API_KEY, dataDir: join(dir, "data"), domain: "stop.test",
-    maxUploadSize: 1024 * 1024, httpPort: 80, httpsPort: 443, skipTraefik: true,
+    apiKey: API_KEY,
+    dataDir: join(dir, "data"),
+    domain: "stop.test",
+    maxUploadSize: 1024 * 1024,
+    httpPort: 80,
+    httpsPort: 443,
+    skipTraefik: true,
   }
   server = new AgentServer(config, runtime)
 })
@@ -29,7 +34,7 @@ async function call<T>(method: string, path: string, body?: object): Promise<{ s
       method,
       headers: { "X-API-Key": API_KEY, ...(body && { "Content-Type": "application/json" }) },
       body: body ? JSON.stringify(body) : undefined,
-    })
+    }),
   )
   return { status: res.status, body: (await res.json()) as ApiResponse<T> }
 }
@@ -67,7 +72,10 @@ describe("apps stop", () => {
 
 describe("apps start", () => {
   test("starts the same container and puts its restart policy back", async () => {
-    expect((await call("POST", "/apps", { name: "web", image: "nginx:alpine", internalPort: 80, restartPolicy: "always" })).status).toBe(200)
+    expect(
+      (await call("POST", "/apps", { name: "web", image: "nginx:alpine", internalPort: 80, restartPolicy: "always" }))
+        .status,
+    ).toBe(200)
     expect((await call("POST", "/apps/web/deploy")).status).toBe(200)
     runtime.containerExistsReturn = true
     runtime.imageExistsReturn = true

@@ -1,11 +1,11 @@
 // src/__tests__/unit/skill.test.ts
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
-import { APPS_SKILL, SITES_SKILL, SKILL_CONTENT } from "../../lib/skill-content.ts"
+import { join } from "path"
+import { removeSkillFrom, writeSkillTo } from "../../commands/skill.ts"
 import { POCKETBASE_JS_SDK_VERSION, POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
-import { writeSkillTo, removeSkillFrom } from "../../commands/skill.ts"
+import { APPS_SKILL, SITES_SKILL, SKILL_CONTENT } from "../../lib/skill-content.ts"
 
 const AGENTS_SKILL = join(".agents", "skills", "siteio", "SKILL.md")
 const CLAUDE_SKILL = join(".claude", "skills", "siteio", "SKILL.md")
@@ -95,8 +95,12 @@ describe("Unit: agent skill", () => {
 
     test("versioned doc links are pinned to this build's tags, not a branch", () => {
       const links = SITES_SKILL.match(/https:\/\/raw\.githubusercontent\.com\/\S+/g) ?? []
-      expect(links).toContain(`https://raw.githubusercontent.com/pocketbase/js-sdk/v${POCKETBASE_JS_SDK_VERSION}/README.md`)
-      expect(links).toContain(`https://raw.githubusercontent.com/pocketbase/pocketbase/v${POCKETBASE_VERSION}/CHANGELOG.md`)
+      expect(links).toContain(
+        `https://raw.githubusercontent.com/pocketbase/js-sdk/v${POCKETBASE_JS_SDK_VERSION}/README.md`,
+      )
+      expect(links).toContain(
+        `https://raw.githubusercontent.com/pocketbase/pocketbase/v${POCKETBASE_VERSION}/CHANGELOG.md`,
+      )
       for (const link of links) expect(link).not.toMatch(/\/(master|main|HEAD)\//)
     })
 
@@ -110,7 +114,11 @@ describe("Unit: agent skill", () => {
   // the matching guide — a typo here would strand every agent at the overview.
   describe("print commands", () => {
     const cli = (...args: string[]) => {
-      const r = Bun.spawnSync({ cmd: ["bun", "run", join(import.meta.dir, "../../cli.ts"), ...args], stdout: "pipe", stderr: "pipe" })
+      const r = Bun.spawnSync({
+        cmd: ["bun", "run", join(import.meta.dir, "../../cli.ts"), ...args],
+        stdout: "pipe",
+        stderr: "pipe",
+      })
       return { code: r.exitCode, out: r.stdout.toString() }
     }
     // Every flag the apps guide shows must exist on that command, or agents

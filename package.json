@@ -11,10 +11,13 @@
     "dev": "bun run --watch src/cli.ts",
     "start": "bun run src/cli.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "biome check src docker playground tests",
+    "format": "biome check --write src docker playground tests",
     "test": "bun test --path-ignore-patterns='**/tests/playwright/**'",
     "test:e2e": "bun run node_modules/@playwright/test/cli.js test"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.6.7",
     "@playwright/test": "^1.59.1",
     "@types/bun": "latest"
   },

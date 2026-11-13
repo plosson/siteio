@@ -80,12 +80,7 @@ export class OAuthStore {
 
   // --- Authorization codes ---
 
-  createAuthCode(input: {
-    grantId: string
-    clientId: string
-    redirectUri: string
-    codeChallenge: string
-  }): string {
+  createAuthCode(input: { grantId: string; clientId: string; redirectUri: string; codeChallenge: string }): string {
     const code = generateAuthCode()
     const record: AuthCodeRecord = {
       code,

@@ -1,8 +1,6 @@
-import {
-  existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync,
-} from "fs"
-import { join, resolve, sep, dirname } from "path"
 import { zipSync } from "fflate"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs"
+import { dirname, join, resolve, sep } from "path"
 import { ValidationError } from "../../utils/errors.ts"
 import { readTree } from "../../utils/files.ts"
 import { PUBLIC_DIR } from "../site-layout.ts"
@@ -180,7 +178,7 @@ export class StagingStore {
     if (count === 0) throw new ValidationError(`old_string not found in ${relPath}`)
     if (count > 1 && !replaceAll) {
       throw new ValidationError(
-        `old_string occurs ${count} times in ${relPath} — include more surrounding context to make it unique, or set replace_all.`
+        `old_string occurs ${count} times in ${relPath} — include more surrounding context to make it unique, or set replace_all.`,
       )
     }
     const updated = replaceAll ? text.split(oldString).join(newString) : text.replace(oldString, newString)

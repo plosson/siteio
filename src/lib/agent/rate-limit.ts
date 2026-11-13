@@ -6,7 +6,7 @@ export class RateLimiter {
   constructor(
     private limit: number,
     private windowMs: number,
-    private now: () => number = Date.now
+    private now: () => number = Date.now,
   ) {}
 
   // Whether `key` has used up this window. Doesn't count.

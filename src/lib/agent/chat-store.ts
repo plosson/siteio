@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, cpSync } from "fs"
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { join } from "path"
 import type { ChatMessage } from "../../types.ts"
 

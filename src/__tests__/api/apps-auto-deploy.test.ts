@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
 import { tmpdir } from "os"
-import { AgentServer } from "../../lib/agent/server"
+import { join } from "path"
 import { AppStorage } from "../../lib/agent/app-storage"
-import { FakeRuntime } from "../helpers/fake-runtime"
+import { AgentServer } from "../../lib/agent/server"
 import type { AgentConfig, ApiResponse, App, AppInfo } from "../../types"
+import { FakeRuntime } from "../helpers/fake-runtime"
 
 const API_KEY = "auto-deploy-api-test-key"
 const GIT = { repoUrl: "https://x.test/r.git", branch: "main" }
@@ -37,14 +37,18 @@ async function call<T>(method: string, path: string, body?: object): Promise<{ s
       method,
       headers: { "X-API-Key": API_KEY, ...(body && { "Content-Type": "application/json" }) },
       body: body ? JSON.stringify(body) : undefined,
-    })
+    }),
   )
   return { status: res.status, body: (await res.json()) as ApiResponse<T> }
 }
 
 describe("create", () => {
   test("stores the mode", async () => {
-    const res = await call<App>("POST", "/apps", { name: "web", git: { ...GIT, autoDeploy: "tag" }, internalPort: 3000 })
+    const res = await call<App>("POST", "/apps", {
+      name: "web",
+      git: { ...GIT, autoDeploy: "tag" },
+      internalPort: 3000,
+    })
     expect(res.status).toBe(200)
     expect(res.body.data?.git?.autoDeploy).toBe("tag")
   })

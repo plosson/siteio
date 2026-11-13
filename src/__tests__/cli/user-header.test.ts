@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { spawn } from "bun"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
 import { hostname, tmpdir, userInfo } from "os"
 import { join } from "path"
-import { spawn } from "bun"
 
 /**
  * Every CLI call to the agent says who is calling (X-Siteio-User): the
@@ -18,7 +18,11 @@ function writeConfig(extra: Record<string, unknown>): void {
   mkdirSync(cfgDir, { recursive: true })
   writeFileSync(
     join(cfgDir, "config.json"),
-    JSON.stringify({ current: "test", servers: { test: { apiUrl: `http://127.0.0.1:${server!.port}`, apiKey: "k" } }, ...extra })
+    JSON.stringify({
+      current: "test",
+      servers: { test: { apiUrl: `http://127.0.0.1:${server!.port}`, apiKey: "k" } },
+      ...extra,
+    }),
   )
 }
 
@@ -28,10 +32,17 @@ beforeEach(() => {
     port: 0,
     hostname: "127.0.0.1",
     fetch: (req) => {
-      seen.push({ path: new URL(req.url).pathname, user: req.headers.get("X-Siteio-User"), legacy: req.headers.get("X-Deployed-By") })
+      seen.push({
+        path: new URL(req.url).pathname,
+        user: req.headers.get("X-Siteio-User"),
+        legacy: req.headers.get("X-Deployed-By"),
+      })
       const path = new URL(req.url).pathname
       if (path === "/sites") return Response.json({ success: true, data: [] })
-      return Response.json({ success: true, data: { name: "testapp", status: "running", env: {}, secretKeys: [], domains: [], volumes: [] } })
+      return Response.json({
+        success: true,
+        data: { name: "testapp", status: "running", env: {}, secretKeys: [], domains: [], volumes: [] },
+      })
     },
   })
   homeDir = mkdtempSync(join(tmpdir(), "siteio-user-header-"))

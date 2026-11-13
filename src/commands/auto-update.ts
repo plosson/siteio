@@ -82,7 +82,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
       (error) => {
         clearTimeout(timer)
         reject(error)
-      }
+      },
     )
   })
 }

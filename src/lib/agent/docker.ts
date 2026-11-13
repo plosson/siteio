@@ -2,9 +2,8 @@ import { spawnSync } from "bun"
 import { join } from "path"
 import type { ContainerInspect, RestartPolicy, VolumeMount } from "../../types"
 import { SiteioError } from "../../utils/errors"
-import type { Runtime } from "./runtime"
-import { ComposeManager, dockerAsync, type ComposeSpec } from "./compose"
-import type { ComposeLogsOptions, ComposeServiceState } from "./runtime"
+import { ComposeManager, type ComposeSpec, dockerAsync } from "./compose"
+import type { ComposeLogsOptions, ComposeServiceState, Runtime } from "./runtime"
 import { routerLabels } from "./traefik"
 
 export interface ContainerRunConfig {
@@ -82,9 +81,7 @@ export class DockerManager implements Runtime {
     // Add volume mounts
     for (const vol of config.volumes) {
       const hostPath = this.volumeHostPath(config.name, vol)
-      const volumeSpec = vol.readonly
-        ? `${hostPath}:${vol.mountPath}:ro`
-        : `${hostPath}:${vol.mountPath}`
+      const volumeSpec = vol.readonly ? `${hostPath}:${vol.mountPath}:ro` : `${hostPath}:${vol.mountPath}`
       args.push("-v", volumeSpec)
     }
 
@@ -176,7 +173,7 @@ export class DockerManager implements Runtime {
 
       if (result.exitCode !== 0) {
         console.log(
-          `> Could not set ownership of volume '${vol.name}' for '${config.name}': ${result.stderr.toString().trim()}`
+          `> Could not set ownership of volume '${vol.name}' for '${config.name}': ${result.stderr.toString().trim()}`,
         )
       }
     }
@@ -396,11 +393,7 @@ export class DockerManager implements Runtime {
   /**
    * Build Traefik labels for routing
    */
-  buildTraefikLabels(
-    appName: string,
-    domains: string[],
-    port: number
-  ): Record<string, string> {
+  buildTraefikLabels(appName: string, domains: string[], port: number): Record<string, string> {
     return routerLabels(this.containerName(appName), domains, port)
   }
 
@@ -497,7 +490,12 @@ export class DockerManager implements Runtime {
   composeDown(project: string, files: string[], envFile?: string): Promise<void> {
     return this.compose.down(project, files, envFile)
   }
-  composeLogs(project: string, files: string[], envFile: string | undefined, opts: ComposeLogsOptions): Promise<string> {
+  composeLogs(
+    project: string,
+    files: string[],
+    envFile: string | undefined,
+    opts: ComposeLogsOptions,
+  ): Promise<string> {
     return this.compose.logs(project, files, envFile, opts)
   }
   composePs(project: string, files: string[], envFile?: string): Promise<ComposeServiceState[]> {

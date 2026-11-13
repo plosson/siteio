@@ -66,7 +66,7 @@ export class AppStorage {
    */
   update(
     name: string,
-    updates: Partial<Omit<App, "name" | "createdAt">> & { secrets?: Record<string, string>; unsetEnv?: string[] }
+    updates: Partial<Omit<App, "name" | "createdAt">> & { secrets?: Record<string, string>; unsetEnv?: string[] },
   ): App | null {
     const app = this.get(name)
     if (!app) {
@@ -150,5 +150,4 @@ export class AppStorage {
       autoDeployError: app.autoDeployError,
     }
   }
-
 }

@@ -14,8 +14,7 @@
 //
 // The highlight/overlay is drawn here, in native frame coordinates, so it
 // survives the cross-origin split (the parent never paints over the iframe).
-;(function () {
-  "use strict"
+;(() => {
   // Idempotent: the shell re-injects on every frame (re)load; bail if we're
   // already live in this document.
   if (window.__siteioPickerLive) return
@@ -23,15 +22,7 @@
 
   var MAX_TEXT = 500
   var MAX_HTML = 800
-  var STYLE_KEYS = [
-    "color",
-    "backgroundColor",
-    "fontSize",
-    "fontWeight",
-    "fontFamily",
-    "textAlign",
-    "lineHeight",
-  ]
+  var STYLE_KEYS = ["color", "backgroundColor", "fontSize", "fontWeight", "fontFamily", "textAlign", "lineHeight"]
 
   // Where to send messages back to the shell. Learned from the first inbound
   // shell message's origin (referrer is stripped by the shell's no-referrer
@@ -215,13 +206,13 @@
       "position:fixed;z-index:2147483647;display:none;border:0;border-radius:8px;" +
       "background:#2563eb;color:#fff;font:600 12px/1 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;" +
       "padding:7px 10px;cursor:pointer;box-shadow:0 4px 14px rgba(15,23,42,.28);"
-    textBtn.addEventListener("click", function (ev) {
+    textBtn.addEventListener("click", (ev) => {
       ev.preventDefault()
       ev.stopPropagation()
       commitTextSelection()
     })
     // mousedown must not clear the selection before the click fires.
-    textBtn.addEventListener("mousedown", function (ev) {
+    textBtn.addEventListener("mousedown", (ev) => {
       ev.preventDefault()
     })
     document.documentElement.appendChild(textBtn)
@@ -272,7 +263,7 @@
   }
 
   // --- shell messages ------------------------------------------------------
-  window.addEventListener("message", function (ev) {
+  window.addEventListener("message", (ev) => {
     // Only the shell (our parent window) may drive the picker — so a co-resident
     // or sub-framed script on the (untrusted, Phase 2) host can't force pick mode
     // or poison shellOrigin. Mirrors the shell's own ev.source check.

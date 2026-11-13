@@ -1,16 +1,16 @@
 import chalk from "chalk"
 import ora from "ora"
-import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
-import { confirm } from "../../utils/prompt.ts"
 import { formatBytes, formatVersionEntry } from "../../utils/output.ts"
+import { confirm } from "../../utils/prompt.ts"
 import { resolveSiteName } from "../../utils/site-config.ts"
 
 export async function sitesRollbackCommand(
   name: string | undefined,
   version: string | undefined,
-  options: { json?: boolean; yes?: boolean }
+  options: { json?: boolean; yes?: boolean },
 ): Promise<void> {
   const spinner = ora()
 
@@ -18,7 +18,9 @@ export async function sitesRollbackCommand(
     const server = getCurrentServer()
     const resolved = resolveSiteName(name, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("Site name required. Pass it as an argument or run from a directory with .siteio/config.json")
+      throw new ValidationError(
+        "Site name required. Pass it as an argument or run from a directory with .siteio/config.json",
+      )
     }
     if (!name) {
       console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))

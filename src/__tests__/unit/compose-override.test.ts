@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { buildOverride } from "../../lib/agent/compose-override"
 import { APP_ROUTER_PRIORITY } from "../../lib/agent/traefik"
 import type { App } from "../../types"
@@ -74,9 +74,7 @@ describe("Unit: buildOverride", () => {
 
   test("ORs multiple domains with `||`", () => {
     const yaml = build(appWithCompose({ domains: ["a.example.com", "b.example.com"] }))
-    expect(yaml).toContain(
-      'traefik.http.routers.siteio-myapp.rule: "Host(`a.example.com`) || Host(`b.example.com`)"'
-    )
+    expect(yaml).toContain('traefik.http.routers.siteio-myapp.rule: "Host(`a.example.com`) || Host(`b.example.com`)"')
   })
 
   test("emits env vars as a map under the primary service", () => {
@@ -91,9 +89,7 @@ describe("Unit: buildOverride", () => {
   })
 
   test("emits volumes under the primary service when present", () => {
-    const yaml = build(
-      appWithCompose({ volumes: [{ name: "data", mountPath: "/data" }] })
-    )
+    const yaml = build(appWithCompose({ volumes: [{ name: "data", mountPath: "/data" }] }))
     expect(yaml).toMatch(/volumes:\s+- /m)
     expect(yaml).toContain(":/data")
   })
@@ -111,9 +107,7 @@ describe("Unit: buildOverride", () => {
   })
 
   test("escapes newlines in env values as \\n literals", () => {
-    const yaml = build(
-      appWithCompose({ env: { CERT: "line1\nline2\nline3" } })
-    )
+    const yaml = build(appWithCompose({ env: { CERT: "line1\nline2\nline3" } }))
     expect(yaml).toContain('CERT: "line1\\nline2\\nline3"')
     // And must NOT contain a raw newline inside a quoted value (would be folded by YAML parsers)
     const certLine = yaml.split("\n").find((l) => l.includes("CERT:"))!
@@ -121,9 +115,7 @@ describe("Unit: buildOverride", () => {
   })
 
   test("escapes tabs and carriage returns in env values", () => {
-    const yaml = build(
-      appWithCompose({ env: { MSG: "a\tb\r\nc" } })
-    )
+    const yaml = build(appWithCompose({ env: { MSG: "a\tb\r\nc" } }))
     expect(yaml).toContain('MSG: "a\\tb\\r\\nc"')
   })
 
@@ -151,28 +143,29 @@ describe("Unit: buildOverride", () => {
   })
 
   test("ignores stale app.domains when resolved domains differ", () => {
-    const yaml = buildOverride(appWithCompose({ domains: ["old.example.com"] }), { domains: ["new.example.com"], baseNetworks: [] })
+    const yaml = buildOverride(appWithCompose({ domains: ["old.example.com"] }), {
+      domains: ["new.example.com"],
+      baseNetworks: [],
+    })
     expect(yaml).toContain("Host(`new.example.com`)")
     expect(yaml).not.toContain("old.example.com")
   })
 
   test("refuses to build a router without a Host rule", () => {
     // A rule-less router makes Traefik answer 404 with its default certificate.
-    expect(() => buildOverride(appWithCompose({ domains: [] }), { domains: [], baseNetworks: [] })).toThrow(/without domains/)
+    expect(() => buildOverride(appWithCompose({ domains: [] }), { domains: [], baseNetworks: [] })).toThrow(
+      /without domains/,
+    )
   })
 
   test("readonly volumes emit the :ro suffix", () => {
-    const yaml = build(
-      appWithCompose({ volumes: [{ name: "data", mountPath: "/data", readonly: true }] })
-    )
+    const yaml = build(appWithCompose({ volumes: [{ name: "data", mountPath: "/data", readonly: true }] }))
     const volLine = yaml.split("\n").find((l) => l.trim().startsWith("- ") && l.includes("/data"))!
-    expect(volLine).toContain(":/data:ro\"")
+    expect(volLine).toContain(':/data:ro"')
   })
 
   test("absolute-path volumes use the host path directly", () => {
-    const yaml = build(
-      appWithCompose({ volumes: [{ name: "/srv/shared", mountPath: "/data" }] })
-    )
+    const yaml = build(appWithCompose({ volumes: [{ name: "/srv/shared", mountPath: "/data" }] }))
     const volLine = yaml.split("\n").find((l) => l.trim().startsWith("- ") && l.includes("/data"))!
     // Must NOT prepend the dataDir volumes dir
     expect(volLine).not.toContain("volumes/myapp")
@@ -180,10 +173,7 @@ describe("Unit: buildOverride", () => {
   })
 
   test("custom dataDir threads through volume path resolution", () => {
-    const yaml = build(
-      appWithCompose({ volumes: [{ name: "data", mountPath: "/data" }] }),
-      "/custom/data/root"
-    )
+    const yaml = build(appWithCompose({ volumes: [{ name: "data", mountPath: "/data" }] }), "/custom/data/root")
     const volLine = yaml.split("\n").find((l) => l.trim().startsWith("- ") && l.includes("/data"))!
     expect(volLine).toContain("/custom/data/root/volumes/myapp/data:/data")
   })

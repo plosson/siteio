@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { spawn } from "bun"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { spawn } from "bun"
 
 /**
  * After `apps set` / `apps unset` on a running app, the CLI tells the user how
@@ -29,7 +29,7 @@ beforeAll(() => {
   mkdirSync(cfgDir, { recursive: true })
   writeFileSync(
     join(cfgDir, "config.json"),
-    JSON.stringify({ current: "test", servers: { test: { apiUrl: `http://127.0.0.1:${server.port}`, apiKey: "k" } } })
+    JSON.stringify({ current: "test", servers: { test: { apiUrl: `http://127.0.0.1:${server.port}`, apiKey: "k" } } }),
   )
 })
 

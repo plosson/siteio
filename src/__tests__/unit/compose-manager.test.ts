@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { ComposeManager, composeWarnings, parsePsOutput } from "../../lib/agent/compose"
 
 describe("Unit: ComposeManager.buildArgs", () => {
@@ -12,49 +12,43 @@ describe("Unit: ComposeManager.buildArgs", () => {
   test("buildUpArgs appends up -d --build --remove-orphans", () => {
     const args = cm.buildUpArgs("siteio-x", ["/base.yml", "/over.yml"])
     expect(args).toEqual([
-      "compose", "-p", "siteio-x", "-f", "/base.yml", "-f", "/over.yml",
-      "up", "-d", "--build", "--remove-orphans",
+      "compose",
+      "-p",
+      "siteio-x",
+      "-f",
+      "/base.yml",
+      "-f",
+      "/over.yml",
+      "up",
+      "-d",
+      "--build",
+      "--remove-orphans",
     ])
   })
 
   test("buildDownArgs appends down -v --remove-orphans", () => {
     const args = cm.buildDownArgs("siteio-x", ["/base.yml"])
-    expect(args).toEqual([
-      "compose", "-p", "siteio-x", "-f", "/base.yml",
-      "down", "-v", "--remove-orphans",
-    ])
+    expect(args).toEqual(["compose", "-p", "siteio-x", "-f", "/base.yml", "down", "-v", "--remove-orphans"])
   })
 
   test("buildConfigArgs appends config --format json", () => {
     const args = cm.buildConfigArgs("siteio-x", ["/base.yml"])
-    expect(args).toEqual([
-      "compose", "-p", "siteio-x", "-f", "/base.yml",
-      "config", "--format", "json",
-    ])
+    expect(args).toEqual(["compose", "-p", "siteio-x", "-f", "/base.yml", "config", "--format", "json"])
   })
 
   test("buildLogsArgs with no service passes --tail and no service filter", () => {
     const args = cm.buildLogsArgs("siteio-x", ["/base.yml"], undefined, { tail: 50 })
-    expect(args).toEqual([
-      "compose", "-p", "siteio-x", "-f", "/base.yml",
-      "logs", "--no-color", "--tail", "50",
-    ])
+    expect(args).toEqual(["compose", "-p", "siteio-x", "-f", "/base.yml", "logs", "--no-color", "--tail", "50"])
   })
 
   test("buildLogsArgs with service appends the service name", () => {
     const args = cm.buildLogsArgs("siteio-x", ["/base.yml"], undefined, { tail: 100, service: "web" })
-    expect(args).toEqual([
-      "compose", "-p", "siteio-x", "-f", "/base.yml",
-      "logs", "--no-color", "--tail", "100", "web",
-    ])
+    expect(args).toEqual(["compose", "-p", "siteio-x", "-f", "/base.yml", "logs", "--no-color", "--tail", "100", "web"])
   })
 
   test("buildLogsArgs with all ignores service (all = everything)", () => {
     const args = cm.buildLogsArgs("siteio-x", ["/base.yml"], undefined, { tail: 100, all: true, service: "web" })
-    expect(args).toEqual([
-      "compose", "-p", "siteio-x", "-f", "/base.yml",
-      "logs", "--no-color", "--tail", "100",
-    ])
+    expect(args).toEqual(["compose", "-p", "siteio-x", "-f", "/base.yml", "logs", "--no-color", "--tail", "100"])
   })
 
   test("buildStopArgs / buildRestartArgs / buildPsArgs shapes", () => {
@@ -65,9 +59,7 @@ describe("Unit: ComposeManager.buildArgs", () => {
 
   test("buildBaseArgs includes --env-file when provided", () => {
     const args = cm.buildBaseArgs("siteio-x", ["/base.yml"], "/env/.env")
-    expect(args).toEqual([
-      "compose", "-p", "siteio-x", "-f", "/base.yml", "--env-file", "/env/.env"
-    ])
+    expect(args).toEqual(["compose", "-p", "siteio-x", "-f", "/base.yml", "--env-file", "/env/.env"])
   })
 
   test("buildBaseArgs omits --env-file when not provided", () => {
@@ -151,9 +143,7 @@ describe("Unit: parsePsOutput", () => {
 
   test("handles trailing newlines in NDJSON", () => {
     const raw = JSON.stringify({ Service: "web", ID: "a", State: "running" }) + "\n\n"
-    expect(parsePsOutput(raw)).toEqual([
-      { service: "web", containerId: "a", state: "running" },
-    ])
+    expect(parsePsOutput(raw)).toEqual([{ service: "web", containerId: "a", state: "running" }])
   })
 })
 
@@ -216,7 +206,9 @@ describe("Unit: composeWarnings", () => {
   })
 
   test("git-sourced stacks (no upload root) never get the bind-mount warning", () => {
-    const spec = { services: { web: { volumes: [{ type: "bind", source: "/data/compose/myapp/data", target: "/d" }] } } }
+    const spec = {
+      services: { web: { volumes: [{ type: "bind", source: "/data/compose/myapp/data", target: "/d" }] } },
+    }
     expect(composeWarnings(spec, "web")).toEqual([])
   })
 
@@ -226,7 +218,9 @@ describe("Unit: composeWarnings", () => {
   })
 
   test("tolerates null services and malformed volume entries", () => {
-    const spec = { services: { web: null, db: { volumes: "nope" } } } as unknown as Parameters<typeof composeWarnings>[0]
+    const spec = { services: { web: null, db: { volumes: "nope" } } } as unknown as Parameters<
+      typeof composeWarnings
+    >[0]
     expect(composeWarnings(spec, "web", root)).toEqual([])
   })
 })

@@ -1,21 +1,30 @@
 import chalk from "chalk"
 import {
-  getAgentDataDir,
-  loadAgentConfig,
-  setAgentConfigValue,
   deleteAgentConfigValue,
   getAgentConfigValue,
-  maskSensitiveValue,
+  getAgentDataDir,
   isSensitiveKey,
+  loadAgentConfig,
+  maskSensitiveValue,
   type PersistedAgentConfig,
+  setAgentConfigValue,
 } from "../../config/agent.ts"
-import { formatSuccess, formatError } from "../../utils/output.ts"
+import { formatError, formatSuccess } from "../../utils/output.ts"
 
 const VALID_KEYS: (keyof PersistedAgentConfig)[] = [
-  "apiKey", "domain", "cloudflareToken", "acmeChallenge", "acmeDnsProvider", "acmeDnsEnv", "appsEnabled",
+  "apiKey",
+  "domain",
+  "cloudflareToken",
+  "acmeChallenge",
+  "acmeDnsProvider",
+  "acmeDnsEnv",
+  "appsEnabled",
   // AI site-chat editor credentials/settings. llmOauthToken/llmApiKey are masked
   // via isSensitiveKey and written to the 0600 agent-config.json.
-  "llmProvider", "llmModel", "llmOauthToken", "llmApiKey",
+  "llmProvider",
+  "llmModel",
+  "llmOauthToken",
+  "llmApiKey",
   // pagerio URL paged on deploys/restarts (masked: the URL is the secret).
   "pagerUrl",
   // Ranking dashboard URL told about successful deploys.
@@ -64,9 +73,7 @@ export async function listConfigCommand(options: { json?: boolean }): Promise<vo
   for (const [key, value] of Object.entries(config)) {
     if (value !== undefined) {
       if (typeof value === "object") {
-        const display = isSensitiveKey(key)
-          ? `{${Object.keys(value).join(", ")}}`
-          : JSON.stringify(value)
+        const display = isSensitiveKey(key) ? `{${Object.keys(value).join(", ")}}` : JSON.stringify(value)
         console.log(`  ${chalk.bold(key)}: ${display}`)
       } else {
         const displayValue = isSensitiveKey(key) ? maskSensitiveValue(String(value)) : value
@@ -76,10 +83,7 @@ export async function listConfigCommand(options: { json?: boolean }): Promise<vo
   }
 }
 
-export async function getConfigCommand(
-  key: string,
-  options: { json?: boolean }
-): Promise<void> {
+export async function getConfigCommand(key: string, options: { json?: boolean }): Promise<void> {
   validateKey(key)
 
   const dataDir = getAgentDataDir()
@@ -99,11 +103,7 @@ export async function getConfigCommand(
   }
 }
 
-export async function setConfigCommand(
-  key: string,
-  value: string,
-  options: { json?: boolean }
-): Promise<void> {
+export async function setConfigCommand(key: string, value: string, options: { json?: boolean }): Promise<void> {
   validateKey(key)
 
   if ((key === "pagerUrl" || key === "rankingUrl" || key === "analyticsUrl") && !/^https?:\/\//.test(value)) {
@@ -117,7 +117,9 @@ export async function setConfigCommand(
     setAgentConfigValue(dataDir, key, value)
 
     if (options.json) {
-      console.log(JSON.stringify({ success: true, key, value: isSensitiveKey(key) ? maskSensitiveValue(value) : value }))
+      console.log(
+        JSON.stringify({ success: true, key, value: isSensitiveKey(key) ? maskSensitiveValue(value) : value }),
+      )
     } else {
       const displayValue = isSensitiveKey(key) ? maskSensitiveValue(value) : value
       console.log(formatSuccess(`Set ${key} = ${displayValue}`))
@@ -129,10 +131,7 @@ export async function setConfigCommand(
   }
 }
 
-export async function unsetConfigCommand(
-  key: string,
-  options: { json?: boolean }
-): Promise<void> {
+export async function unsetConfigCommand(key: string, options: { json?: boolean }): Promise<void> {
   validateKey(key)
 
   if (key === "apiKey") {

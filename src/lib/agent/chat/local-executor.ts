@@ -1,4 +1,4 @@
-import type { ChatExecutor, ExecutorRunInput, ExecutorResult } from "./executor.ts"
+import type { ChatExecutor, ExecutorResult, ExecutorRunInput } from "./executor.ts"
 import { streamAgentProcess } from "./executor.ts"
 
 // Runs the agent as a host process with cwd = the workspace. NO isolation: the

@@ -1,4 +1,4 @@
-import { randomBytes, createHash } from "crypto"
+import { createHash, randomBytes } from "crypto"
 
 // Share-grant tokens are opaque bearer secrets embedded in an MCP link. They
 // carry no data — the agent looks them up by hash in the GrantStore. Format:

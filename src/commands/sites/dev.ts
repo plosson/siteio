@@ -1,9 +1,9 @@
-import { resolve } from "path"
-import { existsSync } from "fs"
 import chalk from "chalk"
-import { runPocketbaseDev, DEV_SUPERUSER_EMAIL, DEV_SUPERUSER_PASSWORD } from "../../lib/pocketbase-dev.ts"
-import { handleError, ValidationError } from "../../utils/errors.ts"
+import { existsSync } from "fs"
+import { resolve } from "path"
+import { DEV_SUPERUSER_EMAIL, DEV_SUPERUSER_PASSWORD, runPocketbaseDev } from "../../lib/pocketbase-dev.ts"
 import { POCKETBASE_VERSION } from "../../lib/pocketbase-version.ts"
+import { handleError, ValidationError } from "../../utils/errors.ts"
 
 export async function sitesDevCommand(folder: string | undefined, options: { port?: number } = {}): Promise<void> {
   try {

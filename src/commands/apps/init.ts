@@ -1,10 +1,10 @@
-import { resolve, basename } from "path"
 import chalk from "chalk"
-import { scaffoldApp } from "../../lib/app-scaffold.ts"
+import { basename, resolve } from "path"
 import { getCurrentServer } from "../../config/loader.ts"
-import { saveProjectConfig } from "../../utils/site-config.ts"
-import { formatSuccess } from "../../utils/output.ts"
+import { scaffoldApp } from "../../lib/app-scaffold.ts"
 import { handleError } from "../../utils/errors.ts"
+import { formatSuccess } from "../../utils/output.ts"
+import { saveProjectConfig } from "../../utils/site-config.ts"
 
 export async function appsInitCommand(folder: string | undefined, options: { json?: boolean } = {}): Promise<void> {
   try {

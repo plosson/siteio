@@ -1,11 +1,11 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
 import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
 import { UserStore } from "../../lib/agent/user-store.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ApiResponse, Tenant, UserInfo } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 const FRIEND: Tenant = { domain: "friend.com", apiKey: "key-friend", createdAt: "2026-10-19T00:00:00.000Z" }
 const OTHER: Tenant = { domain: "other.org", apiKey: "key-other", createdAt: "2026-10-19T00:00:00.000Z" }
@@ -19,7 +19,7 @@ describe("API: managing users", () => {
   const call = (path: string, key: string, init: RequestInit = {}, host = "localhost") =>
     server.handleRequestForTest(
       new Request(`http://x${path}`, { ...init, headers: { "X-API-Key": key, "Content-Type": "application/json" } }),
-      host
+      host,
     )
   const add = (key: string, body: Record<string, unknown>, host = "localhost") =>
     call("/users", key, { method: "POST", body: JSON.stringify(body) }, host)
@@ -35,8 +35,13 @@ describe("API: managing users", () => {
     await users.create({ username: "tom", role: "member", tenant: "friend.com", password: "member password" })
     for (const name of ["admin", "mia", "olga", "tom"]) keys[name] = users.addKey(name, "machine", "t").secret
     const config: AgentConfig = {
-      apiKey: "god-key", dataDir, domain: "example.com",
-      maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+      apiKey: "god-key",
+      dataDir,
+      domain: "example.com",
+      maxUploadSize: 50 * 1024 * 1024,
+      httpPort: 8080,
+      httpsPort: 8443,
+      skipTraefik: true,
       tenants: [FRIEND, OTHER],
     }
     server = new AgentServer(config, new FakeRuntime())
@@ -89,7 +94,9 @@ describe("API: managing users", () => {
   test("an owner can't see, reset or delete owners, main-domain users or the admin (404)", async () => {
     for (const target of ["oscar", "olga", "mia", "admin"]) {
       expect((await call(`/users/${target}`, keys.olga!, { method: "DELETE" }, "api.friend.com")).status).toBe(404)
-      expect((await call(`/users/${target}/password`, keys.olga!, { method: "POST" }, "api.friend.com")).status).toBe(404)
+      expect((await call(`/users/${target}/password`, keys.olga!, { method: "POST" }, "api.friend.com")).status).toBe(
+        404,
+      )
     }
     expect(users.get("oscar")).not.toBeNull()
   })
@@ -113,7 +120,14 @@ describe("API: managing users", () => {
     expect((await call("/users/admin", keys.admin!, { method: "DELETE" })).status).toBe(400)
     expect((await call("/users/admin", "god-key", { method: "DELETE" })).status).toBe(400)
     expect(users.get("admin")).not.toBeNull()
-    expect((await call("/users/admin/password", "god-key", { method: "POST", body: JSON.stringify({ password: "fresh admin pw" }) })).status).toBe(200)
+    expect(
+      (
+        await call("/users/admin/password", "god-key", {
+          method: "POST",
+          body: JSON.stringify({ password: "fresh admin pw" }),
+        })
+      ).status,
+    ).toBe(200)
     expect(await users.verifyPassword("admin", "fresh admin pw")).not.toBeNull()
   })
 
@@ -134,7 +148,10 @@ describe("API: managing users", () => {
     })
 
     test("an owner, a tenant key and a member can't create, see, delete or reset an admin", async () => {
-      for (const [key, host] of [[keys.olga!, "api.friend.com"], ["key-friend", "api.friend.com"]] as const) {
+      for (const [key, host] of [
+        [keys.olga!, "api.friend.com"],
+        ["key-friend", "api.friend.com"],
+      ] as const) {
         expect((await add(key, { username: "zed", role: "admin" }, host)).status).toBe(403)
         expect(users.get("zed")).toBeNull()
         expect(await names(await call("/users", key, {}, host))).not.toContain("ann")
@@ -189,18 +206,30 @@ describe("API: managing users", () => {
 
     test("reset takes a chosen password, validates it, and ends sessions but keeps machine keys", async () => {
       const session = users.addKey("tom", "session", "browser").secret
-      const res = await call("/users/tom/password", keys.admin!, { method: "POST", body: JSON.stringify({ password: "tom new pass" }) })
+      const res = await call("/users/tom/password", keys.admin!, {
+        method: "POST",
+        body: JSON.stringify({ password: "tom new pass" }),
+      })
       expect(res.status).toBe(200)
-      const body = ((await res.json()) as ApiResponse<{ username: string; password?: string; generated: boolean }>).data!
+      const body = ((await res.json()) as ApiResponse<{ username: string; password?: string; generated: boolean }>)
+        .data!
       expect(body).toEqual({ username: "tom", generated: false })
       expect(await users.verifyPassword("tom", "tom new pass")).not.toBeNull()
       expect(users.resolveKey(session)).toBeNull()
       expect(users.resolveKey(keys.tom!)).not.toBeNull()
       for (const password of ["short", 5]) {
-        expect((await call("/users/tom/password", keys.admin!, { method: "POST", body: JSON.stringify({ password }) })).status).toBe(400)
+        expect(
+          (await call("/users/tom/password", keys.admin!, { method: "POST", body: JSON.stringify({ password }) }))
+            .status,
+        ).toBe(400)
       }
       expect(await users.verifyPassword("tom", "tom new pass")).not.toBeNull()
-      const gen = ((await (await call("/users/tom/password", keys.admin!, { method: "POST" })).json()) as ApiResponse<{ password?: string; generated: boolean }>).data!
+      const gen = (
+        (await (await call("/users/tom/password", keys.admin!, { method: "POST" })).json()) as ApiResponse<{
+          password?: string
+          generated: boolean
+        }>
+      ).data!
       expect(gen.generated).toBe(true)
       expect(gen.password).toHaveLength(24)
     })

@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { spawn } from "bun"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { spawn } from "bun"
 
 /**
  * CLI flag tests for `siteio sites set|unset`, against a mock agent: a secret
@@ -43,12 +43,19 @@ beforeAll(async () => {
         JSON.stringify({
           success: true,
           data: {
-            name: "blog", url: "https://blog.test", adminUrl: "https://blog.test/_/", domains: [],
-            status: "running", pocketbaseVersion: "0.30.0", size: 1, createdAt: "2026-10-08T00:00:00.000Z",
-            env: { A: "1" }, secretKeys: ["STRIPE_SECRET_KEY"],
+            name: "blog",
+            url: "https://blog.test",
+            adminUrl: "https://blog.test/_/",
+            domains: [],
+            status: "running",
+            pocketbaseVersion: "0.30.0",
+            size: 1,
+            createdAt: "2026-10-08T00:00:00.000Z",
+            env: { A: "1" },
+            secretKeys: ["STRIPE_SECRET_KEY"],
           },
         }),
-        { status: 200, headers: { "content-type": "application/json" } }
+        { status: 200, headers: { "content-type": "application/json" } },
       )
     },
   })
@@ -67,7 +74,7 @@ beforeAll(async () => {
       servers: {
         test: { apiUrl: `http://127.0.0.1:${port}`, apiKey: TEST_API_KEY },
       },
-    })
+    }),
   )
 })
 
@@ -76,10 +83,7 @@ afterAll(() => {
   if (homeDir) rmSync(homeDir, { recursive: true, force: true })
 })
 
-async function runCli(
-  args: string[],
-  stdin?: string
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+async function runCli(args: string[], stdin?: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   recorded = []
   const proc = spawn({
     cmd: ["bun", "run", "src/cli.ts", ...args],
@@ -93,10 +97,7 @@ async function runCli(
     stdout: "pipe",
     stderr: "pipe",
   })
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ])
+  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
   const exitCode = await proc.exited
   return { stdout, stderr, exitCode }
 }
@@ -125,7 +126,7 @@ describe("CLI: sites set / unset", () => {
 
   test("-e with a bare path bulk-loads an env file", async () => {
     const file = join(homeDir, "site.env")
-    writeFileSync(file, "# comment\nA=1\nB=\"two\"\n")
+    writeFileSync(file, '# comment\nA=1\nB="two"\n')
     await runCli(["sites", "set", "blog", "-e", file])
     expect(patchBody()).toEqual({ env: { A: "1", B: "two" } })
   })
@@ -141,8 +142,11 @@ describe("CLI: sites set / unset", () => {
 
   test("refuses bad input before calling the agent", async () => {
     for (const args of [
-      ["-e", "=1"], ["-e", "no-equals-and-no-file"], ["--secret-file", "S=/nope/missing"],
-      ["-e", "S=1", "--secret", "S=2"], [],
+      ["-e", "=1"],
+      ["-e", "no-equals-and-no-file"],
+      ["--secret-file", "S=/nope/missing"],
+      ["-e", "S=1", "--secret", "S=2"],
+      [],
     ]) {
       const r = await runCli(["sites", "set", "blog", ...args])
       expect(r.exitCode).not.toBe(0)

@@ -1,11 +1,11 @@
 import chalk from "chalk"
 import ora from "ora"
-import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
+import { SiteioClient } from "../../lib/client.ts"
+import type { SiteUpgradeResult } from "../../types.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { confirm } from "../../utils/prompt.ts"
 import { resolveSiteName } from "../../utils/site-config.ts"
-import type { SiteUpgradeResult } from "../../types.ts"
 
 type Outcome = { name: string; ok: true; result: SiteUpgradeResult } | { name: string; ok: false; error: string }
 
@@ -14,7 +14,7 @@ type Outcome = { name: string; ok: true; result: SiteUpgradeResult } | { name: s
 // so a failure leaves that site on its old version and we carry on.
 export async function sitesUpgradeCommand(
   name: string | undefined,
-  options: { all?: boolean; yes?: boolean; json?: boolean }
+  options: { all?: boolean; yes?: boolean; json?: boolean },
 ): Promise<void> {
   const spinner = ora()
 
@@ -28,18 +28,21 @@ export async function sitesUpgradeCommand(
       skipped = sites.filter((s) => s.status === "stopped").map((s) => s.name)
       names = sites.filter((s) => s.status !== "stopped").map((s) => s.name)
       for (const s of skipped) console.error(chalk.dim(`${s}: stopped, skipped`))
-      if (names.length === 0) throw new ValidationError(skipped.length ? "Every site is stopped; nothing to upgrade" : "No sites to upgrade")
+      if (names.length === 0)
+        throw new ValidationError(skipped.length ? "Every site is stopped; nothing to upgrade" : "No sites to upgrade")
     } else {
       const resolved = resolveSiteName(name, getCurrentServer()?.domain ?? "")
       if (!resolved) {
-        throw new ValidationError("Site name required. Pass it as an argument, use --all, or run from a directory with .siteio/config.json")
+        throw new ValidationError(
+          "Site name required. Pass it as an argument, use --all, or run from a directory with .siteio/config.json",
+        )
       }
       names = [resolved]
     }
 
     if (!options.yes) {
       const proceed = await confirm(
-        `Upgrade PocketBase for ${names.length === 1 ? names[0] : `${names.length} sites`}? Each site restarts; pb_data is backed up first.`
+        `Upgrade PocketBase for ${names.length === 1 ? names[0] : `${names.length} sites`}? Each site restarts; pb_data is backed up first.`,
       )
       if (!proceed) process.exit(0)
     }
@@ -50,7 +53,8 @@ export async function sitesUpgradeCommand(
       try {
         const result = await client.upgradeSite(site)
         outcomes.push({ name: site, ok: true, result })
-        if (result.upgraded) spinner.succeed(`${site}: ${result.from} → ${result.to} ${chalk.dim(`(backup: ${result.backup})`)}`)
+        if (result.upgraded)
+          spinner.succeed(`${site}: ${result.from} → ${result.to} ${chalk.dim(`(backup: ${result.backup})`)}`)
         else spinner.info(`${site}: already on ${result.to}`)
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err)
@@ -65,7 +69,9 @@ export async function sitesUpgradeCommand(
     } else if (names.length > 1) {
       const upgraded = outcomes.filter((o) => o.ok && o.result.upgraded).length
       console.error("")
-      console.error(`${upgraded} upgraded, ${outcomes.length - upgraded - failed.length} already current, ${failed.length} failed${skipped.length > 0 ? `, ${skipped.length} stopped (skipped)` : ""}`)
+      console.error(
+        `${upgraded} upgraded, ${outcomes.length - upgraded - failed.length} already current, ${failed.length} failed${skipped.length > 0 ? `, ${skipped.length} stopped (skipped)` : ""}`,
+      )
     }
     process.exit(failed.length === 0 ? 0 : 1)
   } catch (err) {

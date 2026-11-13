@@ -190,7 +190,10 @@ describe("API: Apps (compose)", () => {
         const app = await jsonOk<App>(await req("POST", "/apps/stopapp/stop"))
         expect(app.status).toBe("stopped")
         expect(runtime.callsOf("composeStop")[0]!.args[0]).toBe("siteio-stopapp")
-        expect(runtime.callsOf("setRestartPolicy").map((c) => c.args)).toEqual([["w1", "no"], ["d1", "no"]])
+        expect(runtime.callsOf("setRestartPolicy").map((c) => c.args)).toEqual([
+          ["w1", "no"],
+          ["d1", "no"],
+        ])
         expect(runtime.callsOf("composeDown")).toHaveLength(0) // that one passes -v
       } finally {
         runtime.composePsReturn = [{ service: "web", containerId: "fake-web-id", state: "running" }]
@@ -210,7 +213,10 @@ describe("API: Apps (compose)", () => {
         const app = await jsonOk<App>(await req("POST", "/apps/startapp/start"))
         expect(app.status).toBe("running")
         expect(runtime.callsOf("composeUp")).toHaveLength(1)
-        expect(runtime.callsOf("setRestartPolicy").map((c) => c.args)).toEqual([["w1", "always"], ["d1", "no"]])
+        expect(runtime.callsOf("setRestartPolicy").map((c) => c.args)).toEqual([
+          ["w1", "always"],
+          ["d1", "no"],
+        ])
       } finally {
         runtime.composePsReturn = [{ service: "web", containerId: "fake-web-id", state: "running" }]
       }
@@ -237,7 +243,10 @@ describe("API: Apps (compose)", () => {
       try {
         await jsonOk<App>(await req("POST", "/apps/startdeploy/start"))
         expect(runtime.callsOf("setRestartPolicy").map((c) => c.args)).toEqual([
-          ["w1", "always"], ["d1", "unless-stopped"], ["j1", "on-failure"], ["o1", "no"],
+          ["w1", "always"],
+          ["d1", "unless-stopped"],
+          ["j1", "on-failure"],
+          ["o1", "no"],
         ])
       } finally {
         runtime.composePsReturn = [{ service: "web", containerId: "fake-web-id", state: "running" }]
@@ -380,7 +389,12 @@ describe("API: Apps (compose)", () => {
     })
 
     test("without a user .env, siteio.env still carries the siteio vars", async () => {
-      await req("POST", "/apps", { name: "noenv", composeContent: inlineCompose, primaryService: "web", internalPort: 80 })
+      await req("POST", "/apps", {
+        name: "noenv",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
       runtime.composeConfigReturn = { services: { web: {}, db: {} } }
       await req("POST", "/apps/noenv/deploy")
 
@@ -389,7 +403,12 @@ describe("API: Apps (compose)", () => {
     })
 
     test("a custom domain replaces the default one on the next compose call", async () => {
-      await req("POST", "/apps", { name: "domenv", composeContent: inlineCompose, primaryService: "web", internalPort: 80 })
+      await req("POST", "/apps", {
+        name: "domenv",
+        composeContent: inlineCompose,
+        primaryService: "web",
+        internalPort: 80,
+      })
       await jsonOk<App>(await req("PATCH", "/apps/domenv", { domains: ["notes.acme.test"] }))
       await req("POST", "/apps/domenv/deploy")
       const content = readFileSync(siteioEnv("domenv"), "utf-8")
@@ -398,26 +417,30 @@ describe("API: Apps (compose)", () => {
     })
 
     test("the create-time check already resolves ${SITEIO_URL} with the requested domain", async () => {
-      await jsonOk<App>(await req("POST", "/apps", {
-        name: "createenv",
-        composeContent: inlineCompose,
-        primaryService: "web",
-        internalPort: 80,
-        domains: ["first.acme.test"],
-      }))
+      await jsonOk<App>(
+        await req("POST", "/apps", {
+          name: "createenv",
+          composeContent: inlineCompose,
+          primaryService: "web",
+          internalPort: 80,
+          domains: ["first.acme.test"],
+        }),
+      )
       const call = runtime.callsOf("composeConfig").at(-1)!
       expect(call.args[2]).toBe(siteioEnv("createenv"))
       expect(readFileSync(siteioEnv("createenv"), "utf-8")).toContain("SITEIO_URL=https://first.acme.test")
     })
 
     test("git stacks keep the repo's .env next to the compose file", async () => {
-      await jsonOk<App>(await req("POST", "/apps", {
-        name: "gitenv",
-        git: { repoUrl: "https://example.test/repo.git" },
-        composePath: "deploy/docker-compose.yml",
-        primaryService: "web",
-        internalPort: 80,
-      }))
+      await jsonOk<App>(
+        await req("POST", "/apps", {
+          name: "gitenv",
+          git: { repoUrl: "https://example.test/repo.git" },
+          composePath: "deploy/docker-compose.yml",
+          primaryService: "web",
+          internalPort: 80,
+        }),
+      )
       // Stand in for a clone: lifecycle calls never re-clone
       const repoDir = join(testDir, "repos", "gitenv", "deploy")
       mkdirSync(repoDir, { recursive: true })
@@ -641,12 +664,19 @@ describe("API: Apps (compose)", () => {
       await jsonOk<App>(await req("POST", "/apps/keepnet/deploy"))
       const configCalls = runtime.callsOf("composeConfig")
       expect(configCalls).toHaveLength(1)
-      expect((configCalls[0]!.args[1] as string[])).toHaveLength(1)
+      expect(configCalls[0]!.args[1] as string[]).toHaveLength(1)
     })
 
     test("a file compose rejects at deploy: 400 with its error, app marked failed, nothing started", async () => {
       runtime.composeConfigReturn = { services: { web: {}, db: {} } }
-      await jsonOk<App>(await req("POST", "/apps", { name: "badatdeploy", composeContent: inlineCompose, primaryService: "web", internalPort: 80 }))
+      await jsonOk<App>(
+        await req("POST", "/apps", {
+          name: "badatdeploy",
+          composeContent: inlineCompose,
+          primaryService: "web",
+          internalPort: 80,
+        }),
+      )
       runtime.composeConfigError = new Error("docker compose config failed: invalid interpolation format")
       try {
         const r = await req("POST", "/apps/badatdeploy/deploy")
@@ -663,12 +693,14 @@ describe("API: Apps (compose)", () => {
     test("primary service gone from the file at deploy: 400, no override, no compose up", async () => {
       // A git repo (or the file behind it) can change after create; deploy re-checks
       runtime.composeConfigReturn = { services: { web: {}, db: {} } }
-      await jsonOk<App>(await req("POST", "/apps", {
-        name: "nooverride",
-        composeContent: inlineCompose,
-        primaryService: "web",
-        internalPort: 80,
-      }))
+      await jsonOk<App>(
+        await req("POST", "/apps", {
+          name: "nooverride",
+          composeContent: inlineCompose,
+          primaryService: "web",
+          internalPort: 80,
+        }),
+      )
       runtime.composeConfigReturn = { services: { db: {} } }
       try {
         const r = await req("POST", "/apps/nooverride/deploy")
@@ -784,11 +816,16 @@ describe("API: Apps (compose)", () => {
 
     test("a client cannot smuggle a compose source change through the compose field", async () => {
       await createInline("upd6")
-      const r = await req("PATCH", "/apps/upd6", { primaryService: "db", compose: { source: "git", path: "x.yml", primaryService: "evil" } })
+      const r = await req("PATCH", "/apps/upd6", {
+        primaryService: "db",
+        compose: { source: "git", path: "x.yml", primaryService: "evil" },
+      })
       const app = await jsonOk<App>(r)
       expect(app.compose).toEqual({ source: "inline", primaryService: "db" })
 
-      const alone = await jsonOk<App>(await req("PATCH", "/apps/upd6", { compose: { source: "git", path: "x.yml", primaryService: "evil" } }))
+      const alone = await jsonOk<App>(
+        await req("PATCH", "/apps/upd6", { compose: { source: "git", path: "x.yml", primaryService: "evil" } }),
+      )
       expect(alone.compose).toEqual({ source: "inline", primaryService: "db" })
     })
   })
@@ -807,7 +844,10 @@ describe("API: Apps (compose)", () => {
     test("create returns the warnings, including relative bind mounts", async () => {
       runtime.composeConfigReturn = {
         services: {
-          web: { ports: ["3010:3010"], volumes: [{ type: "bind", source: join(testDir, "compose", "chk1", "data"), target: "/data" }] },
+          web: {
+            ports: ["3010:3010"],
+            volumes: [{ type: "bind", source: join(testDir, "compose", "chk1", "data"), target: "/data" }],
+          },
           db: { container_name: "pg" },
         },
       }
@@ -856,13 +896,15 @@ describe("API: Apps (compose)", () => {
 
     test("git compose apps are not checked at create (the repo is not cloned yet)", async () => {
       const before = runtime.callsOf("composeConfig").length
-      await jsonOk<App>(await req("POST", "/apps", {
-        name: "chkgit",
-        git: { repoUrl: "https://example.test/repo.git" },
-        composePath: "docker-compose.yml",
-        primaryService: "ghost",
-        internalPort: 80,
-      }))
+      await jsonOk<App>(
+        await req("POST", "/apps", {
+          name: "chkgit",
+          git: { repoUrl: "https://example.test/repo.git" },
+          composePath: "docker-compose.yml",
+          primaryService: "ghost",
+          internalPort: 80,
+        }),
+      )
       expect(runtime.callsOf("composeConfig").length).toBe(before)
     })
 
@@ -892,7 +934,9 @@ describe("API: Apps (compose)", () => {
       await jsonOk<App>(await create("chk7"))
       runtime.composeConfigReturn = { services: { web: {}, db: { ports: ["5432:5432"] } } }
       try {
-        const app = await jsonOk<App & { warnings: string[] }>(await req("PATCH", "/apps/chk7", { composeContent: inlineCompose }))
+        const app = await jsonOk<App & { warnings: string[] }>(
+          await req("PATCH", "/apps/chk7", { composeContent: inlineCompose }),
+        )
         expect(app.warnings).toHaveLength(1)
         expect(app.warnings[0]).toContain("Service 'db' publishes ports")
       } finally {

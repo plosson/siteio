@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync } from "fs"
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "fs"
 import { dirname, join } from "path"
 import { getConfigPath } from "../../config/loader.ts"
 
@@ -42,7 +42,9 @@ export class ServerStateStore {
   load(name: string): ProvisionState | undefined {
     const path = this.path(name)
     let text: string
-    try { text = readFileSync(path, "utf8") } catch (error) {
+    try {
+      text = readFileSync(path, "utf8")
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
       throw error
     }
@@ -59,16 +61,22 @@ export class ServerStateStore {
     writeFileSync(temporary, JSON.stringify(state, null, 2), { mode: 0o600 })
     renameSync(temporary, path)
   }
-  remove(name: string): void { unlinkSync(this.path(name)) }
+  remove(name: string): void {
+    unlinkSync(this.path(name))
+  }
 
   async locked<T>(name: string, run: () => Promise<T>): Promise<T> {
     const lock = `${this.path(name)}.lock`
     mkdirSync(this.directory, { recursive: true, mode: 0o700 })
-    try { writeFileSync(lock, String(process.pid), { flag: "wx", mode: 0o600 }) } catch (error) {
+    try {
+      writeFileSync(lock, String(process.pid), { flag: "wx", mode: 0o600 })
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
       const pid = Number(readFileSync(lock, "utf8"))
       if (!Number.isInteger(pid) || pid <= 0) throw new Error(`Invalid lock: ${lock}`)
-      try { process.kill(pid, 0) } catch (probeError) {
+      try {
+        process.kill(pid, 0)
+      } catch (probeError) {
         if ((probeError as NodeJS.ErrnoException).code === "ESRCH") {
           unlinkSync(lock)
           return this.locked(name, run)
@@ -77,9 +85,17 @@ export class ServerStateStore {
       }
       throw new Error(`Server ${name} is already being managed by process ${pid}`)
     }
-    const release = () => { try { unlinkSync(lock) } catch { /* already released */ } }
+    const release = () => {
+      try {
+        unlinkSync(lock)
+      } catch {
+        /* already released */
+      }
+    }
     process.once("exit", release)
-    try { return await run() } finally {
+    try {
+      return await run()
+    } finally {
       process.removeListener("exit", release)
       release()
     }

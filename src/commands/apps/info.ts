@@ -1,11 +1,11 @@
-import ora from "ora"
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
+import ora from "ora"
 import { getCurrentServer } from "../../config/loader.ts"
-import { formatStatus } from "../../utils/output.ts"
-import { handleError, ValidationError } from "../../utils/errors.ts"
-import { resolveAppName } from "../../utils/site-config.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import type { App } from "../../types.ts"
+import { handleError, ValidationError } from "../../utils/errors.ts"
+import { formatStatus } from "../../utils/output.ts"
+import { resolveAppName } from "../../utils/site-config.ts"
 
 function formatAgo(then: number, now: number): string {
   if (Number.isNaN(then)) return "at an unknown time"
@@ -26,17 +26,16 @@ export function formatAutoDeploy(app: Pick<App, "git" | "autoDeployRef" | "autoD
   return `${mode} (last ${last}, ${checked})`
 }
 
-export async function infoAppCommand(
-  name: string | undefined,
-  options: { json?: boolean } = {}
-): Promise<void> {
+export async function infoAppCommand(name: string | undefined, options: { json?: boolean } = {}): Promise<void> {
   const spinner = ora()
 
   try {
     const server = getCurrentServer()
     const resolved = resolveAppName(name, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("App name required. Provide as argument or run from a directory with .siteio/config.json")
+      throw new ValidationError(
+        "App name required. Provide as argument or run from a directory with .siteio/config.json",
+      )
     }
     if (!name) {
       console.error(chalk.dim(`Using app '${resolved}' from .siteio/config.json`))
@@ -130,7 +129,6 @@ export async function infoAppCommand(
       }
       console.log("")
     }
-
 
     if (app.containerId) {
       console.log(chalk.dim(`Container ID: ${app.containerId}`))

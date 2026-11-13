@@ -2,7 +2,7 @@
  * SSH utility functions for remote command execution
  */
 
-import { spawnSync, spawn } from "bun"
+import { spawn, spawnSync } from "bun"
 
 /**
  * Check if target looks like a remote SSH target (user@host)
@@ -17,7 +17,7 @@ export function isRemoteTarget(target: string): boolean {
 export async function sshExec(
   target: string,
   command: string,
-  identity?: string
+  identity?: string,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const sshArgs = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
   if (identity) {
@@ -41,11 +41,7 @@ export async function sshExec(
 /**
  * Execute a command over SSH with streamed output (for interactive commands)
  */
-export async function sshExecStream(
-  target: string,
-  command: string,
-  identity?: string
-): Promise<number> {
+export async function sshExecStream(target: string, command: string, identity?: string): Promise<number> {
   const sshArgs = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes", "-t", "-t"]
   if (identity) {
     sshArgs.push("-i", identity)

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { SiteioClient } from "../../lib/client.ts"
 
 const realFetch = globalThis.fetch
@@ -8,13 +8,17 @@ describe("Unit: SiteioClient site methods", () => {
   beforeEach(() => {
     client = new SiteioClient({ apiUrl: "http://agent", apiKey: "k" })
   })
-  afterEach(() => { globalThis.fetch = realFetch })
+  afterEach(() => {
+    globalThis.fetch = realFetch
+  })
 
   test("deploySite POSTs the zip and names the caller", async () => {
     let captured: { url: string; method?: string; headers: Record<string, string> } | null = null
     globalThis.fetch = (async (url: string, init: RequestInit) => {
       captured = { url, method: init.method, headers: init.headers as Record<string, string> }
-      return new Response(JSON.stringify({ success: true, data: { name: "blog", url: "https://blog.example.com" } }), { status: 200 })
+      return new Response(JSON.stringify({ success: true, data: { name: "blog", url: "https://blog.example.com" } }), {
+        status: 200,
+      })
     }) as typeof fetch
 
     const info = await client.deploySite("blog", new Uint8Array([1, 2, 3]))
@@ -28,8 +32,13 @@ describe("Unit: SiteioClient site methods", () => {
 
   test("getSiteAdmin returns credentials", async () => {
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ success: true, data: { email: "a@b.co", password: "pw", adminUrl: "https://blog.example.com/_/" } }), { status: 200 })
-    ) as unknown as typeof fetch
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: { email: "a@b.co", password: "pw", adminUrl: "https://blog.example.com/_/" },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch
     const admin = await client.getSiteAdmin("blog")
     expect(admin.email).toBe("a@b.co")
   })
@@ -38,7 +47,13 @@ describe("Unit: SiteioClient site methods", () => {
     let captured: { url: string; method?: string } | null = null
     globalThis.fetch = (async (url: string, init: RequestInit) => {
       captured = { url, method: init.method }
-      return new Response(JSON.stringify({ success: true, data: { from: "0.23.4", to: "0.40.4", upgraded: true, site: { name: "blog" } } }), { status: 200 })
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: { from: "0.23.4", to: "0.40.4", upgraded: true, site: { name: "blog" } },
+        }),
+        { status: 200 },
+      )
     }) as typeof fetch
     const result = await client.upgradeSite("blog")
     expect(result.upgraded).toBe(true)
@@ -48,8 +63,10 @@ describe("Unit: SiteioClient site methods", () => {
 
   test("upgradeSite surfaces the agent's restore message as an error, not a success", async () => {
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ success: false, error: "Upgrade to 0.40.4 failed, site restored to 0.23.4: boom" }), { status: 500 })
-    ) as unknown as typeof fetch
+      new Response(
+        JSON.stringify({ success: false, error: "Upgrade to 0.40.4 failed, site restored to 0.23.4: boom" }),
+        { status: 500 },
+      )) as unknown as typeof fetch
     await expect(client.upgradeSite("blog")).rejects.toThrow("restored to 0.23.4")
   })
 })

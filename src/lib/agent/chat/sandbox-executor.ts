@@ -1,6 +1,6 @@
-import { spawnSync } from "bun"
 import { randomBytes } from "node:crypto"
-import type { ChatExecutor, ExecutorRunInput, ExecutorResult } from "./executor.ts"
+import { spawnSync } from "bun"
+import type { ChatExecutor, ExecutorResult, ExecutorRunInput } from "./executor.ts"
 import { streamAgentProcess } from "./executor.ts"
 
 // Runs the agent inside a throwaway container per turn — the v1 default and the

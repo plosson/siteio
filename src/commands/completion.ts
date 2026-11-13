@@ -214,11 +214,11 @@ type Shell = "bash" | "zsh" | "fish"
 const SHELL_CONFIG: Record<Shell, { rcFile: string; sourceLine: string; writeFile?: string }> = {
   bash: {
     rcFile: join(homedir(), ".bashrc"),
-    sourceLine: 'source <(siteio completion bash)',
+    sourceLine: "source <(siteio completion bash)",
   },
   zsh: {
     rcFile: join(homedir(), ".zshrc"),
-    sourceLine: 'source <(siteio completion zsh)',
+    sourceLine: "source <(siteio completion zsh)",
   },
   fish: {
     rcFile: join(homedir(), ".config/fish/completions/siteio.fish"),
@@ -280,7 +280,7 @@ export async function completionCommand(shell?: string): Promise<void> {
   }
 
   // Interactive mode
-  let detectedShell = detectShell()
+  const detectedShell = detectShell()
 
   if (detectedShell) {
     console.error(`Detected shell: ${detectedShell}`)

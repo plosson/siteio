@@ -1,18 +1,23 @@
 // src/__tests__/api/pockets.test.ts
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import { POCKETBASE_VERSION, pocketbaseImage } from "../../lib/pocketbase-version.ts"
 import type { AgentConfig, ApiResponse, SiteInfo } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
   const config: AgentConfig = {
-    apiKey: "test-key", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+    apiKey: "test-key",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    skipTraefik: true,
   }
   return new AgentServer(config, runtime)
 }
@@ -35,7 +40,7 @@ describe("API: sites", () => {
 
   test("POST /sites/:name deploys a new site using the pinned image", async () => {
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() })
+      new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }),
     )
     expect(res.status).toBe(200)
     const body = (await res.json()) as ApiResponse<SiteInfo>
@@ -48,23 +53,23 @@ describe("API: sites", () => {
     const runConfig = runCall!.args[0] as { labels: Record<string, string> }
     expect(runConfig.labels["traefik.http.routers.siteio-blog.middlewares"]).toBe("siteio-blog-cache")
     expect(
-      runConfig.labels[
-        "traefik.http.middlewares.siteio-blog-cache.headers.customresponseheaders.Cache-Control"
-      ]
+      runConfig.labels["traefik.http.middlewares.siteio-blog-cache.headers.customresponseheaders.Cache-Control"],
     ).toBe("no-cache, max-age=0, must-revalidate")
-    expect(
-      runConfig.labels["traefik.http.middlewares.siteio-blog-cache.headers.customresponseheaders.Pragma"]
-    ).toBe("no-cache")
-    expect(
-      runConfig.labels["traefik.http.middlewares.siteio-blog-cache.headers.customresponseheaders.Expires"]
-    ).toBe("0")
+    expect(runConfig.labels["traefik.http.middlewares.siteio-blog-cache.headers.customresponseheaders.Pragma"]).toBe(
+      "no-cache",
+    )
+    expect(runConfig.labels["traefik.http.middlewares.siteio-blog-cache.headers.customresponseheaders.Expires"]).toBe(
+      "0",
+    )
     const pullCall = runtime.calls.find((c) => c.method === "pull")
     expect(pullCall!.args[0]).toBe(pocketbaseImage())
   })
 
   test("GET /sites lists deployed sites", async () => {
     await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
-    const res = await server.handleRequestForTest(new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }),
+    )
     const body = (await res.json()) as ApiResponse<SiteInfo[]>
     expect(body.data).toHaveLength(1)
     expect(body.data?.[0]?.name).toBe("blog")
@@ -72,7 +77,9 @@ describe("API: sites", () => {
 
   test("GET /sites/:name/admin returns generated superuser credentials", async () => {
     await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
-    const res = await server.handleRequestForTest(new Request("http://x/sites/blog/admin", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog/admin", { method: "GET", headers: { "X-API-Key": "test-key" } }),
+    )
     const body = (await res.json()) as ApiResponse<{ email: string; password: string; adminUrl: string }>
     expect(body.data!.email).toContain("@")
     expect(body.data!.password.length).toBeGreaterThan(8)
@@ -82,10 +89,12 @@ describe("API: sites", () => {
   test("POST /sites/:name returns 500 and creates nothing when Docker is unavailable", async () => {
     runtime.isAvailableReturn = false
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() })
+      new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }),
     )
     expect(res.status).toBe(500)
-    const list = await server.handleRequestForTest(new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const list = await server.handleRequestForTest(
+      new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }),
+    )
     const body = (await list.json()) as ApiResponse<SiteInfo[]>
     expect(body.data).toHaveLength(0)
   })
@@ -93,7 +102,7 @@ describe("API: sites", () => {
   test("pocketbaseVersion is always POCKETBASE_VERSION even when client sends a different X-Site-Version", async () => {
     const headers = { ...H, "X-Site-Version": "0.0.1-custom" }
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog", { method: "POST", headers, body: zip() })
+      new Request("http://x/sites/blog", { method: "POST", headers, body: zip() }),
     )
     expect(res.status).toBe(200)
     const body = (await res.json()) as ApiResponse<SiteInfo>
@@ -108,7 +117,9 @@ describe("API: sites", () => {
     writeFileSync(metaPath, JSON.stringify({ ...meta, pocketbaseVersion: "0.1.0" }))
     runtime.calls = []
 
-    const res = await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }),
+    )
     expect(res.status).toBe(200)
     const body = (await res.json()) as ApiResponse<SiteInfo>
     expect(body.data!.pocketbaseVersion).toBe("0.1.0")
@@ -120,7 +131,7 @@ describe("API: sites", () => {
   test("GET /sites/:name/download returns the deployed code as a zip", async () => {
     await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      new Request("http://x/sites/blog/download", { method: "GET", headers: { "X-API-Key": "test-key" } }),
     )
     expect(res.status).toBe(200)
     expect(res.headers.get("Content-Type")).toBe("application/zip")
@@ -133,19 +144,23 @@ describe("API: sites", () => {
 
   test("GET /sites/:name/download returns 404 for a missing site", async () => {
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/nope/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      new Request("http://x/sites/nope/download", { method: "GET", headers: { "X-API-Key": "test-key" } }),
     )
     expect(res.status).toBe(404)
   })
 
   describe("Download a specific version", () => {
     const deployContent = (html: string) =>
-      server.handleRequestForTest(new Request("http://x/sites/blog", {
-        method: "POST", headers: H, body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
-      }))
+      server.handleRequestForTest(
+        new Request("http://x/sites/blog", {
+          method: "POST",
+          headers: H,
+          body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
+        }),
+      )
     const download = (query: string) =>
       server.handleRequestForTest(
-        new Request(`http://x/sites/blog/download${query}`, { method: "GET", headers: { "X-API-Key": "test-key" } })
+        new Request(`http://x/sites/blog/download${query}`, { method: "GET", headers: { "X-API-Key": "test-key" } }),
       )
     const indexOf = async (res: Response) => {
       const { unzipSync } = await import("fflate")
@@ -164,10 +179,13 @@ describe("API: sites", () => {
     test("after a rollback, the version numbers still match what deploy returned", async () => {
       await deployContent("one")
       await deployContent("two")
-      await server.handleRequestForTest(new Request("http://x/sites/blog/rollback", {
-        method: "POST", headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
-        body: JSON.stringify({ version: 1 }),
-      }))
+      await server.handleRequestForTest(
+        new Request("http://x/sites/blog/rollback", {
+          method: "POST",
+          headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1 }),
+        }),
+      )
       expect(await indexOf(await download("?version=2"))).toBe("two")
       expect(await indexOf(await download("?version=3"))).toBe("one")
     })
@@ -193,7 +211,7 @@ describe("API: sites", () => {
 
     test("a missing site returns 404 even with a version", async () => {
       const res = await server.handleRequestForTest(
-        new Request("http://x/sites/nope/download?version=1", { method: "GET", headers: { "X-API-Key": "test-key" } })
+        new Request("http://x/sites/nope/download?version=1", { method: "GET", headers: { "X-API-Key": "test-key" } }),
       )
       expect(res.status).toBe(404)
     })
@@ -203,9 +221,7 @@ describe("API: sites", () => {
     const deploy = (expectedVersion?: number) => {
       const headers: Record<string, string> = { ...H }
       if (expectedVersion !== undefined) headers["X-Expected-Version"] = String(expectedVersion)
-      return server.handleRequestForTest(
-        new Request("http://x/sites/blog", { method: "POST", headers, body: zip() })
-      )
+      return server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers, body: zip() }))
     }
 
     test("deploy returns a version that increments on redeploy", async () => {
@@ -238,9 +254,10 @@ describe("API: sites", () => {
     const deployContent = (html: string) =>
       server.handleRequestForTest(
         new Request("http://x/sites/blog", {
-          method: "POST", headers: H,
+          method: "POST",
+          headers: H,
           body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
-        })
+        }),
       )
 
     test("GET /sites/:name/history lists archived versions newest first", async () => {
@@ -248,7 +265,7 @@ describe("API: sites", () => {
       await deployContent("v2")
       await deployContent("v3")
       const res = await server.handleRequestForTest(
-        new Request("http://x/sites/blog/history", { method: "GET", headers: { "X-API-Key": "test-key" } })
+        new Request("http://x/sites/blog/history", { method: "GET", headers: { "X-API-Key": "test-key" } }),
       )
       expect(res.status).toBe(200)
       const body = (await res.json()) as ApiResponse<{ version: number; deployedAt: string }[]>
@@ -258,7 +275,7 @@ describe("API: sites", () => {
 
     test("GET /sites/:name/history returns 404 for a missing site", async () => {
       const res = await server.handleRequestForTest(
-        new Request("http://x/sites/nope/history", { method: "GET", headers: { "X-API-Key": "test-key" } })
+        new Request("http://x/sites/nope/history", { method: "GET", headers: { "X-API-Key": "test-key" } }),
       )
       expect(res.status).toBe(404)
     })
@@ -274,7 +291,7 @@ describe("API: sites", () => {
           method: "POST",
           headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
           body: JSON.stringify({ version: 1 }),
-        })
+        }),
       )
       expect(res.status).toBe(200)
       const body = (await res.json()) as ApiResponse<SiteInfo>
@@ -286,7 +303,7 @@ describe("API: sites", () => {
 
       // The live code is v1's content again
       const dl = await server.handleRequestForTest(
-        new Request("http://x/sites/blog/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+        new Request("http://x/sites/blog/download", { method: "GET", headers: { "X-API-Key": "test-key" } }),
       )
       const { unzipSync } = await import("fflate")
       const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
@@ -300,7 +317,7 @@ describe("API: sites", () => {
           method: "POST",
           headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
           body: JSON.stringify({ version: 99 }),
-        })
+        }),
       )
       expect(res.status).toBe(404)
     })
@@ -313,7 +330,7 @@ describe("API: sites", () => {
           method: "PATCH",
           headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
           body: JSON.stringify({ domains }),
-        })
+        }),
       )
 
     test("PATCH /sites/:name/domains sets custom domains and recreates the container with new labels", async () => {
@@ -333,17 +350,15 @@ describe("API: sites", () => {
       expect(labelCall.args[1]).toEqual(["www.custom.org", "custom.org"])
 
       const labels = (runtime.callsOf("run")[0]!.args[0] as { labels: Record<string, string> }).labels
-      expect(labels["traefik.http.routers.siteio-blog.rule"]).toBe(
-        "Host(`www.custom.org`) || Host(`custom.org`)"
-      )
+      expect(labels["traefik.http.routers.siteio-blog.rule"]).toBe("Host(`www.custom.org`) || Host(`custom.org`)")
       expect(labels["traefik.http.routers.siteio-blog-canonical.rule"]).toBe("Host(`blog.example.com`)")
       expect(labels["traefik.http.routers.siteio-blog-canonical.service"]).toBe("siteio-blog")
-      expect(
-        labels["traefik.http.middlewares.siteio-blog-noindex.headers.customresponseheaders.X-Robots-Tag"]
-      ).toBe("noindex, nofollow")
+      expect(labels["traefik.http.middlewares.siteio-blog-noindex.headers.customresponseheaders.X-Robots-Tag"]).toBe(
+        "noindex, nofollow",
+      )
       // The subdomain keeps the no-cache headers the main router has.
       expect(labels["traefik.http.routers.siteio-blog-canonical.middlewares"]).toBe(
-        "siteio-blog-cache,siteio-blog-noindex"
+        "siteio-blog-cache,siteio-blog-noindex",
       )
     })
 
@@ -355,7 +370,7 @@ describe("API: sites", () => {
       expect(labels["traefik.http.routers.siteio-blog.rule"]).toBe("Host(`blog.example.com`)")
       expect(labels["traefik.http.routers.siteio-blog-canonical.rule"]).toBeUndefined()
       expect(
-        labels["traefik.http.middlewares.siteio-blog-noindex.headers.customresponseheaders.X-Robots-Tag"]
+        labels["traefik.http.middlewares.siteio-blog-noindex.headers.customresponseheaders.X-Robots-Tag"],
       ).toBeUndefined()
     })
 
@@ -407,7 +422,7 @@ describe("API: sites", () => {
           method: "PATCH",
           headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
           body: JSON.stringify({ newSubdomain: "journal" }),
-        })
+        }),
       )
       expect(res.status).toBe(200)
       const body = (await res.json()) as ApiResponse<SiteInfo>
@@ -420,10 +435,12 @@ describe("API: sites", () => {
       expect((runCall.args[0] as { name: string }).name).toBe("journal")
 
       // Old name gone, new name resolvable
-      const old = await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+      const old = await server.handleRequestForTest(
+        new Request("http://x/sites/blog", { method: "GET", headers: { "X-API-Key": "test-key" } }),
+      )
       expect(old.status).toBe(404)
       const dl = await server.handleRequestForTest(
-        new Request("http://x/sites/journal/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+        new Request("http://x/sites/journal/download", { method: "GET", headers: { "X-API-Key": "test-key" } }),
       )
       expect(dl.status).toBe(200)
     })
@@ -436,7 +453,7 @@ describe("API: sites", () => {
           method: "PATCH",
           headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
           body: JSON.stringify({ newSubdomain: "shop" }),
-        })
+        }),
       )
       expect(res.status).toBe(400)
     })
@@ -448,7 +465,7 @@ describe("API: sites", () => {
           method: "PATCH",
           headers: { "X-API-Key": "test-key", "Content-Type": "application/json" },
           body: JSON.stringify({ newSubdomain: "api" }),
-        })
+        }),
       )
       expect(res.status).toBe(400)
     })
@@ -469,7 +486,8 @@ describe("API: sites", () => {
       writeFileSync(dataFile(), "old-format")
       runtime.calls = []
     })
-    const upgrade = () => server.handleRequestForTest(new Request("http://x/sites/blog/upgrade", { method: "POST", headers: K }))
+    const upgrade = () =>
+      server.handleRequestForTest(new Request("http://x/sites/blog/upgrade", { method: "POST", headers: K }))
     const siteMeta = () => JSON.parse(readFileSync(join(dataDir, "pockets", "blog.json"), "utf-8"))
 
     test("snapshots pb_data with the container stopped, then starts the new image", async () => {
@@ -488,7 +506,10 @@ describe("API: sites", () => {
     })
 
     test("a site already on the agent's version is a no-op: no container churn, no snapshot", async () => {
-      writeFileSync(join(dataDir, "pockets", "blog.json"), JSON.stringify({ ...siteMeta(), pocketbaseVersion: POCKETBASE_VERSION }))
+      writeFileSync(
+        join(dataDir, "pockets", "blog.json"),
+        JSON.stringify({ ...siteMeta(), pocketbaseVersion: POCKETBASE_VERSION }),
+      )
       const res = await upgrade()
       const body = (await res.json()) as UpgradeBody
       expect(body.data!.upgraded).toBe(false)
@@ -526,7 +547,9 @@ describe("API: sites", () => {
     })
 
     test("a failed image pull leaves the site completely untouched", async () => {
-      runtime.pull = async () => { throw new Error("manifest unknown") }
+      runtime.pull = async () => {
+        throw new Error("manifest unknown")
+      }
       const res = await upgrade()
       expect(res.status).toBe(500)
       expect(((await res.json()) as ApiResponse<unknown>).error).toContain("manifest unknown")
@@ -539,7 +562,10 @@ describe("API: sites", () => {
       runtime.logsReturn = ""
       runtime.isRunningReturn = false
       let runs = 0
-      runtime.run = async () => { if (++runs === 2) throw new Error("docker daemon gone"); return "id" }
+      runtime.run = async () => {
+        if (++runs === 2) throw new Error("docker daemon gone")
+        return "id"
+      }
       const res = await upgrade()
       expect(res.status).toBe(500)
       const error = ((await res.json()) as ApiResponse<unknown>).error!
@@ -549,7 +575,9 @@ describe("API: sites", () => {
     })
 
     test("upgrading a missing site is a 404", async () => {
-      const res = await server.handleRequestForTest(new Request("http://x/sites/nope/upgrade", { method: "POST", headers: K }))
+      const res = await server.handleRequestForTest(
+        new Request("http://x/sites/nope/upgrade", { method: "POST", headers: K }),
+      )
       expect(res.status).toBe(404)
     })
 
@@ -562,21 +590,25 @@ describe("API: sites", () => {
 
   test("deprecated /pockets/* alias routes to the same handlers", async () => {
     await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
-    const viaAlias = await server.handleRequestForTest(new Request("http://x/pockets", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const viaAlias = await server.handleRequestForTest(
+      new Request("http://x/pockets", { method: "GET", headers: { "X-API-Key": "test-key" } }),
+    )
     const aliasBody = (await viaAlias.json()) as ApiResponse<SiteInfo[]>
     expect(aliasBody.data).toHaveLength(1)
-    const viaAliasGet = await server.handleRequestForTest(new Request("http://x/pockets/blog", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const viaAliasGet = await server.handleRequestForTest(
+      new Request("http://x/pockets/blog", { method: "GET", headers: { "X-API-Key": "test-key" } }),
+    )
     expect(viaAliasGet.status).toBe(200)
   })
 
   test("legacy flat static zip deploys with files wrapped under public/", async () => {
     const flat = zipSync({ "index.html": new TextEncoder().encode("<h1>legacy</h1>") })
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/old", { method: "POST", headers: H, body: flat })
+      new Request("http://x/sites/old", { method: "POST", headers: H, body: flat }),
     )
     expect(res.status).toBe(200)
     const dl = await server.handleRequestForTest(
-      new Request("http://x/sites/old/download", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      new Request("http://x/sites/old/download", { method: "GET", headers: { "X-API-Key": "test-key" } }),
     )
     const { unzipSync } = await import("fflate")
     const files = unzipSync(new Uint8Array(await dl.arrayBuffer()))
@@ -592,9 +624,13 @@ describe("API: sites", () => {
 
   test("DELETE /sites/:name removes it", async () => {
     await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
-    const del = await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "DELETE", headers: { "X-API-Key": "test-key" } }))
+    const del = await server.handleRequestForTest(
+      new Request("http://x/sites/blog", { method: "DELETE", headers: { "X-API-Key": "test-key" } }),
+    )
     expect(del.status).toBe(200)
-    const list = await server.handleRequestForTest(new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const list = await server.handleRequestForTest(
+      new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }),
+    )
     const body = (await list.json()) as ApiResponse<SiteInfo[]>
     expect(body.data).toHaveLength(0)
   })
@@ -604,7 +640,7 @@ describe("API: sites", () => {
   test("GET /sites/:name/thumbnail is 404 when no preview exists", async () => {
     await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/thumbnail", { method: "GET", headers: { "X-API-Key": "test-key" } })
+      new Request("http://x/sites/blog/thumbnail", { method: "GET", headers: { "X-API-Key": "test-key" } }),
     )
     expect(res.status).toBe(404)
   })
@@ -616,7 +652,9 @@ describe("API: sites", () => {
 
   test("GET /sites exposes hasThumbnail so the UI knows when to fetch a preview", async () => {
     await server.handleRequestForTest(new Request("http://x/sites/blog", { method: "POST", headers: H, body: zip() }))
-    const res = await server.handleRequestForTest(new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }))
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites", { method: "GET", headers: { "X-API-Key": "test-key" } }),
+    )
     const body = (await res.json()) as ApiResponse<SiteInfo[]>
     expect(body.data?.[0]?.hasThumbnail).toBe(false)
   })

@@ -1,14 +1,22 @@
+import { zipSync } from "fflate"
 import {
-  existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, cpSync, statSync, renameSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
 } from "fs"
 import { join, resolve, sep } from "path"
-import { zipSync } from "fflate"
-import { safeUnzip, zipLimitsFor, type ZipLimits } from "./zip-limits.ts"
 import type { Site, SiteInfo, SiteVersion } from "../../types.ts"
 import { ValidationError } from "../../utils/errors.ts"
-import type { Scope, TenantRegistry } from "./tenants.ts"
-import { applyEnvUpdate, assertValidSiteEnvKeys, type EnvUpdate } from "./env.ts"
 import { readTree } from "../../utils/files.ts"
+import { applyEnvUpdate, assertValidSiteEnvKeys, type EnvUpdate } from "./env.ts"
+import type { Scope, TenantRegistry } from "./tenants.ts"
+import { safeUnzip, type ZipLimits, zipLimitsFor } from "./zip-limits.ts"
 
 const MAX_HISTORY_VERSIONS = 10
 
@@ -46,11 +54,21 @@ export class SiteStorage {
     if (name === "api") throw new ValidationError("'api' is a reserved name")
   }
 
-  private metaPath(name: string): string { return join(this.metaDir, `${name}.json`) }
-  getCodePath(name: string): string { return join(this.codeDir, name) }
-  getDataPath(name: string): string { return join(this.dataDir, name) }
-  private historyPath(name: string): string { return join(this.historyDir, name) }
-  private backupsPath(name: string): string { return join(this.backupsDir, name) }
+  private metaPath(name: string): string {
+    return join(this.metaDir, `${name}.json`)
+  }
+  getCodePath(name: string): string {
+    return join(this.codeDir, name)
+  }
+  getDataPath(name: string): string {
+    return join(this.dataDir, name)
+  }
+  private historyPath(name: string): string {
+    return join(this.historyDir, name)
+  }
+  private backupsPath(name: string): string {
+    return join(this.backupsDir, name)
+  }
 
   create(data: Omit<Site, "createdAt" | "updatedAt">): Site {
     this.validateName(data.name)
@@ -65,15 +83,22 @@ export class SiteStorage {
   get(name: string): Site | null {
     const p = this.metaPath(name)
     if (!existsSync(p)) return null
-    try { return JSON.parse(readFileSync(p, "utf-8")) as Site } catch { return null }
+    try {
+      return JSON.parse(readFileSync(p, "utf-8")) as Site
+    } catch {
+      return null
+    }
   }
 
   update(name: string, updates: Partial<Omit<Site, "name" | "createdAt">>): Site | null {
     const site = this.get(name)
     if (!site) return null
     const updated: Site = {
-      ...site, ...updates,
-      name: site.name, createdAt: site.createdAt, updatedAt: new Date().toISOString(),
+      ...site,
+      ...updates,
+      name: site.name,
+      createdAt: site.createdAt,
+      updatedAt: new Date().toISOString(),
     }
     writeFileSync(this.metaPath(name), JSON.stringify(updated, null, 2), { mode: 0o600 })
     return updated
@@ -93,7 +118,9 @@ export class SiteStorage {
     return updated
   }
 
-  exists(name: string): boolean { return existsSync(this.metaPath(name)) }
+  exists(name: string): boolean {
+    return existsSync(this.metaPath(name))
+  }
 
   list(): Site[] {
     if (!existsSync(this.metaDir)) return []
@@ -105,8 +132,17 @@ export class SiteStorage {
 
   delete(name: string): boolean {
     let deleted = false
-    for (const p of [this.metaPath(name), this.getCodePath(name), this.getDataPath(name), this.historyPath(name), this.backupsPath(name)]) {
-      if (existsSync(p)) { rmSync(p, { recursive: true }); deleted = true }
+    for (const p of [
+      this.metaPath(name),
+      this.getCodePath(name),
+      this.getDataPath(name),
+      this.historyPath(name),
+      this.backupsPath(name),
+    ]) {
+      if (existsSync(p)) {
+        rmSync(p, { recursive: true })
+        deleted = true
+      }
     }
     return deleted
   }
@@ -144,7 +180,9 @@ export class SiteStorage {
     // Prune
     const versions = readdirSync(h)
       .filter((f) => f.startsWith("v") && !f.endsWith(".json"))
-      .map((f) => parseInt(f.slice(1), 10)).filter((n) => !isNaN(n)).sort((a, b) => a - b)
+      .map((f) => parseInt(f.slice(1), 10))
+      .filter((n) => !isNaN(n))
+      .sort((a, b) => a - b)
     while (versions.length > MAX_HISTORY_VERSIONS) {
       const old = versions.shift()!
       for (const p of [join(h, `v${old}`), join(h, `v${old}.json`)]) {
@@ -270,9 +308,7 @@ export class SiteStorage {
     const codeDirs = ["public/", "pb_migrations/", "pb_hooks/"]
     const isFlatZip = !Object.keys(unzipped).some((f) => codeDirs.some((d) => f.startsWith(d)))
     if (isFlatZip) {
-      unzipped = Object.fromEntries(
-        Object.entries(unzipped).map(([f, data]) => [`public/${f}`, data])
-      )
+      unzipped = Object.fromEntries(Object.entries(unzipped).map(([f, data]) => [`public/${f}`, data]))
     }
 
     for (const [filename, data] of Object.entries(unzipped)) {

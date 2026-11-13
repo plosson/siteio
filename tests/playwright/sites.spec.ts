@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test"
+import { expect, test } from "@playwright/test"
 import { startTestServer, type TestServerHandle } from "./helpers/server"
 
 let srv: TestServerHandle
@@ -23,7 +23,7 @@ test.beforeAll(async () => {
   await deploySite(srv.url, srv.apiKey, "alpha", { "index.html": "<h1>v1</h1>" })
   await deploySite(srv.url, srv.apiKey, "alpha", { "index.html": "<h1>v2</h1>" })
   await deploySite(srv.url, srv.apiKey, "alpha", { "index.html": "<h1>v3</h1>" })
-  await deploySite(srv.url, srv.apiKey, "beta",  { "index.html": "<h1>beta</h1>" })
+  await deploySite(srv.url, srv.apiKey, "beta", { "index.html": "<h1>beta</h1>" })
 })
 test.afterAll(() => srv.cleanup())
 
@@ -44,7 +44,10 @@ test("clicking a service card navigates to site detail", async ({ page, context 
   await expect(page.locator("h1", { hasText: "alpha" })).toBeVisible()
 })
 
-test("history sub-tab shows archived versions; rollback archives current and adds a new history row", async ({ page, context }) => {
+test("history sub-tab shows archived versions; rollback archives current and adds a new history row", async ({
+  page,
+  context,
+}) => {
   await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "right-key"))
   await page.goto(`${srv.url}/ui#/sites/alpha/history`)
   // After 3 deploys: current is v3, history has v1 and v2 (archived previous deploys).

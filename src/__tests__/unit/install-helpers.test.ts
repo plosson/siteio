@@ -1,6 +1,6 @@
-import { describe, test, expect } from "bun:test"
-import { isSslipDomain, buildSslipDomain, buildCloudflareTokenUrl } from "../../lib/cloudflare.ts"
+import { describe, expect, test } from "bun:test"
 import { parseAdminPassword } from "../../commands/agent/install.ts"
+import { buildCloudflareTokenUrl, buildSslipDomain, isSslipDomain } from "../../lib/cloudflare.ts"
 
 describe("Install flow: parseAdminPassword", () => {
   test("reads the password from valid JSON", () => {

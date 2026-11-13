@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { clientIp, isCloudflareIp, parseIp } from "../../lib/agent/analytics/client-ip"
 import type { AccessLogEntry } from "../../lib/agent/analytics/classify"
+import { clientIp, isCloudflareIp, parseIp } from "../../lib/agent/analytics/client-ip"
 
 const entry = (over: Partial<AccessLogEntry> = {}): AccessLogEntry => ({
   StartUTC: "2026-10-10T12:00:03Z",
@@ -16,12 +16,18 @@ const entry = (over: Partial<AccessLogEntry> = {}): AccessLogEntry => ({
 })
 
 describe("parseIp", () => {
-  test.each(["1.2.3.4", "0.0.0.0", "255.255.255.255", "::", "::1", "2606:4700::1", "2606:4700:0:0:0:0:0:1", "::ffff:1.2.3.4"])(
-    "accepts %p",
-    (ip) => {
-      expect(parseIp(ip)).not.toBeNull()
-    }
-  )
+  test.each([
+    "1.2.3.4",
+    "0.0.0.0",
+    "255.255.255.255",
+    "::",
+    "::1",
+    "2606:4700::1",
+    "2606:4700:0:0:0:0:0:1",
+    "::ffff:1.2.3.4",
+  ])("accepts %p", (ip) => {
+    expect(parseIp(ip)).not.toBeNull()
+  })
 
   test.each([
     "",
@@ -49,19 +55,31 @@ describe("parseIp", () => {
 })
 
 describe("isCloudflareIp", () => {
-  test.each(["173.245.48.1", "104.16.0.0", "104.23.255.255", "172.70.1.2", "2606:4700::1", "2a06:98c0::1", "::ffff:162.158.1.1"])(
-    "%p is Cloudflare",
-    (ip) => {
-      expect(isCloudflareIp(ip)).toBe(true)
-    }
-  )
+  test.each([
+    "173.245.48.1",
+    "104.16.0.0",
+    "104.23.255.255",
+    "172.70.1.2",
+    "2606:4700::1",
+    "2a06:98c0::1",
+    "::ffff:162.158.1.1",
+  ])("%p is Cloudflare", (ip) => {
+    expect(isCloudflareIp(ip)).toBe(true)
+  })
 
-  test.each(["104.15.255.255", "104.32.0.0", "203.0.113.9", "10.0.0.1", "127.0.0.1", "2606:4701::1", "::1", "", "garbage"])(
-    "%p is not Cloudflare",
-    (ip) => {
-      expect(isCloudflareIp(ip)).toBe(false)
-    }
-  )
+  test.each([
+    "104.15.255.255",
+    "104.32.0.0",
+    "203.0.113.9",
+    "10.0.0.1",
+    "127.0.0.1",
+    "2606:4701::1",
+    "::1",
+    "",
+    "garbage",
+  ])("%p is not Cloudflare", (ip) => {
+    expect(isCloudflareIp(ip)).toBe(false)
+  })
 })
 
 describe("clientIp", () => {
@@ -70,11 +88,15 @@ describe("clientIp", () => {
   })
 
   test("through Cloudflare → the header's visitor IP", () => {
-    expect(clientIp(entry({ ClientHost: "172.70.1.2", "request_Cf-Connecting-Ip": "198.51.100.7" }))).toBe("198.51.100.7")
+    expect(clientIp(entry({ ClientHost: "172.70.1.2", "request_Cf-Connecting-Ip": "198.51.100.7" }))).toBe(
+      "198.51.100.7",
+    )
   })
 
   test("through Cloudflare over IPv6 → the header's visitor IP", () => {
-    expect(clientIp(entry({ ClientHost: "2606:4700::6810:1", "request_Cf-Connecting-Ip": "2001:db8::5" }))).toBe("2001:db8::5")
+    expect(clientIp(entry({ ClientHost: "2606:4700::6810:1", "request_Cf-Connecting-Ip": "2001:db8::5" }))).toBe(
+      "2001:db8::5",
+    )
   })
 
   test("SPOOF: header sent straight to the origin by a non-Cloudflare IP is ignored", () => {
@@ -85,10 +107,12 @@ describe("clientIp", () => {
     "through Cloudflare with a bad header %p → falls back to ClientHost",
     (bad) => {
       expect(clientIp(entry({ ClientHost: "172.70.1.2", "request_Cf-Connecting-Ip": bad }))).toBe("172.70.1.2")
-    }
+    },
   )
 
   test("surrounding whitespace in the header is trimmed", () => {
-    expect(clientIp(entry({ ClientHost: "172.70.1.2", "request_Cf-Connecting-Ip": " 198.51.100.7 " }))).toBe("198.51.100.7")
+    expect(clientIp(entry({ ClientHost: "172.70.1.2", "request_Cf-Connecting-Ip": " 198.51.100.7 " }))).toBe(
+      "198.51.100.7",
+    )
   })
 })

@@ -1,8 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, statSync, existsSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { spawn } from "bun"
+import { existsSync, mkdtempSync, rmSync, statSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
 
 // Exercises `siteio agent config` for the AI-chat LLM keys, which must be
 // settable (VALID_KEYS), masked when sensitive, and persisted to the 0600
@@ -23,10 +23,7 @@ describe("CLI: agent config (LLM keys)", () => {
       stdout: "pipe",
       stderr: "pipe",
     })
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ])
+    const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()])
     const exitCode = await proc.exited
     return { stdout, stderr, exitCode }
   }
@@ -85,7 +82,7 @@ describe("CLI: agent config (LLM keys)", () => {
       expect(res.exitCode).toBe(1)
       expect(res.stderr).toContain("must start with http:// or https://")
       expect(existsSync(join(dataDir, "agent-config.json"))).toBe(false)
-    }
+    },
   )
 
   test.each(["dikkenek.example.com/api/deploy", "ftp://x.example.com", "javascript:alert(1)", ""])(
@@ -95,7 +92,7 @@ describe("CLI: agent config (LLM keys)", () => {
       expect(res.exitCode).toBe(1)
       expect(res.stderr).toContain("rankingUrl must start with http:// or https://")
       expect(existsSync(join(dataDir, "agent-config.json"))).toBe(false)
-    }
+    },
   )
 
   test("rankingUrl is stored next to pagerUrl without replacing it", async () => {
@@ -104,7 +101,9 @@ describe("CLI: agent config (LLM keys)", () => {
     expect((await runCli(["agent", "config", "set", "pagerUrl", pager])).exitCode).toBe(0)
     expect((await runCli(["agent", "config", "set", "rankingUrl", ranking])).exitCode).toBe(0)
     expect(JSON.parse((await runCli(["--json", "agent", "config", "get", "pagerUrl"])).stdout).pagerUrl).toBe(pager)
-    expect(JSON.parse((await runCli(["--json", "agent", "config", "get", "rankingUrl"])).stdout).rankingUrl).toBe(ranking)
+    expect(JSON.parse((await runCli(["--json", "agent", "config", "get", "rankingUrl"])).stdout).rankingUrl).toBe(
+      ranking,
+    )
   })
 
   test.each(["analytics.example.com/api/ingest", "ftp://x.example.com", "javascript:alert(1)", ""])(
@@ -114,7 +113,7 @@ describe("CLI: agent config (LLM keys)", () => {
       expect(res.exitCode).toBe(1)
       expect(res.stderr).toContain("analyticsUrl must start with http:// or https://")
       expect(existsSync(join(dataDir, "agent-config.json"))).toBe(false)
-    }
+    },
   )
 
   test("analyticsUrl is masked in config list: the URL is the secret", async () => {
@@ -122,7 +121,9 @@ describe("CLI: agent config (LLM keys)", () => {
     expect((await runCli(["agent", "config", "set", "analyticsUrl", url])).exitCode).toBe(0)
     const list = await runCli(["--json", "agent", "config", "list"])
     expect(list.stdout).not.toContain("topsecretvalue")
-    expect(JSON.parse((await runCli(["--json", "agent", "config", "get", "analyticsUrl"])).stdout).analyticsUrl).toBe(url)
+    expect(JSON.parse((await runCli(["--json", "agent", "config", "get", "analyticsUrl"])).stdout).analyticsUrl).toBe(
+      url,
+    )
   })
 
   test("an unknown key is still rejected", async () => {

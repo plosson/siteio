@@ -1,15 +1,19 @@
 // src/__tests__/unit/pocket-scaffold.test.ts
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
-import { scaffoldSite } from "../../lib/site-scaffold.ts"
+import { join } from "path"
 import { POCKETBASE_JS_SDK_VERSION } from "../../lib/pocketbase-version.ts"
+import { scaffoldSite } from "../../lib/site-scaffold.ts"
 
 describe("Unit: scaffoldSite", () => {
   let dir: string
-  beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "siteio-pocket-")) })
-  afterEach(() => { rmSync(dir, { recursive: true, force: true }) })
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "siteio-pocket-"))
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
 
   test("creates the .siteio plumbing and a starter index.html", () => {
     scaffoldSite(dir)
@@ -53,7 +57,10 @@ describe("Unit: scaffoldSite", () => {
 
   test("every browser SDK tag the scaffold writes is the pinned SDK version", () => {
     scaffoldSite(dir)
-    const written = [readFileSync(join(dir, "index.html"), "utf-8"), readFileSync(join(dir, "CLAUDE.md"), "utf-8")].join("\n")
+    const written = [
+      readFileSync(join(dir, "index.html"), "utf-8"),
+      readFileSync(join(dir, "CLAUDE.md"), "utf-8"),
+    ].join("\n")
     const pins = written.match(/pocketbase@[^/]+/g) ?? []
     expect(pins.length).toBeGreaterThan(0)
     for (const pin of pins) expect(pin).toBe(`pocketbase@${POCKETBASE_JS_SDK_VERSION}`)

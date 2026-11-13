@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  type AccessLogEntry,
   cleanPath,
   cleanReferrer,
   isBot,
@@ -7,7 +8,6 @@ import {
   parseEntry,
   routerKeys,
   statusClass,
-  type AccessLogEntry,
 } from "../../lib/agent/analytics/classify"
 
 const entry = (over: Partial<AccessLogEntry> = {}): AccessLogEntry => ({
@@ -69,7 +69,7 @@ describe("routerKeys", () => {
     "routers that are not a site or app give no key: %p",
     (name) => {
       expect(routerKeys(name)).toEqual([])
-    }
+    },
   )
 })
 
@@ -119,8 +119,10 @@ describe("cleanPath", () => {
     ["/_siteio/edit?code=SECRET123", "/_siteio/edit"],
     ["/callback?code=abc&state=xyz", "/callback"],
     ["/?token=abc&utm_source=hn", "/?utm_source=hn"],
-    ["/?utm_source=hn&utm_medium=social&utm_campaign=launch&utm_term=t&utm_content=c&x=1",
-      "/?utm_source=hn&utm_medium=social&utm_campaign=launch&utm_term=t&utm_content=c"],
+    [
+      "/?utm_source=hn&utm_medium=social&utm_campaign=launch&utm_term=t&utm_content=c&x=1",
+      "/?utm_source=hn&utm_medium=social&utm_campaign=launch&utm_term=t&utm_content=c",
+    ],
     ["/?UTM_SOURCE=hn", "/"],
     ["/a#frag?code=x", "/a"],
     ["/?utm_source=a?code=SECRET", "/?utm_source=a"],
@@ -168,8 +170,14 @@ describe("isPageview", () => {
     ["POST", { RequestMethod: "POST" }],
     ["304 without Sec-Fetch-Dest", { DownstreamStatus: 304 }],
     ["304 for an image", { DownstreamStatus: 304, "request_Sec-Fetch-Dest": "image" }],
-    ["304 document by a bot", { DownstreamStatus: 304, "request_Sec-Fetch-Dest": "document", "request_User-Agent": "Googlebot/2.1" }],
-    ["304 document on the editor", { DownstreamStatus: 304, "request_Sec-Fetch-Dest": "document", RequestPath: "/_siteio/edit" }],
+    [
+      "304 document by a bot",
+      { DownstreamStatus: 304, "request_Sec-Fetch-Dest": "document", "request_User-Agent": "Googlebot/2.1" },
+    ],
+    [
+      "304 document on the editor",
+      { DownstreamStatus: 304, "request_Sec-Fetch-Dest": "document", RequestPath: "/_siteio/edit" },
+    ],
     ["304 document via POST", { DownstreamStatus: 304, "request_Sec-Fetch-Dest": "document", RequestMethod: "POST" }],
     ["200 non-HTML document dest", { "downstream_Content-Type": "image/png", "request_Sec-Fetch-Dest": "document" }],
     ["404", { DownstreamStatus: 404 }],
@@ -191,7 +199,11 @@ describe("isPageview", () => {
   })
 
   test("a revalidated 304 of a document navigation is a pageview", () => {
-    expect(isPageview(entry({ DownstreamStatus: 304, "downstream_Content-Type": undefined, "request_Sec-Fetch-Dest": "document" }))).toBe(true)
+    expect(
+      isPageview(
+        entry({ DownstreamStatus: 304, "downstream_Content-Type": undefined, "request_Sec-Fetch-Dest": "document" }),
+      ),
+    ).toBe(true)
   })
 
   test("content type is matched case-insensitively", () => {
@@ -200,12 +212,16 @@ describe("isPageview", () => {
 })
 
 describe("statusClass", () => {
-  test.each([[200, "2xx"], [204, "2xx"], [301, "3xx"], [404, "4xx"], [499, "4xx"], [503, "5xx"]] as const)(
-    "%p → %p",
-    (status, cls) => {
-      expect(statusClass(status)).toBe(cls)
-    }
-  )
+  test.each([
+    [200, "2xx"],
+    [204, "2xx"],
+    [301, "3xx"],
+    [404, "4xx"],
+    [499, "4xx"],
+    [503, "5xx"],
+  ] as const)("%p → %p", (status, cls) => {
+    expect(statusClass(status)).toBe(cls)
+  })
 
   test.each([0, 100, 600, -1, 200.5])("%p has no class", (status) => {
     expect(statusClass(status)).toBeNull()

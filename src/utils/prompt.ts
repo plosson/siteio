@@ -28,10 +28,7 @@ export async function confirm(message: string): Promise<boolean> {
   return answer.toLowerCase() === "y" || answer.toLowerCase() === "yes"
 }
 
-export async function select<T extends string>(
-  message: string,
-  options: { value: T; label: string }[]
-): Promise<T> {
+export async function select<T extends string>(message: string, options: { value: T; label: string }[]): Promise<T> {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stderr,

@@ -6,10 +6,10 @@ import {
   parseAutoDeployFlag,
   parseLsRemote,
   parseVersion,
+  type RemoteRef,
   refPatterns,
   resolveTarget,
   shouldDeploy,
-  type RemoteRef,
 } from "../../lib/agent/auto-deploy"
 import { ValidationError } from "../../utils/errors"
 
@@ -28,9 +28,22 @@ describe("parseVersion", () => {
   })
 
   test.each([
-    "v1.2", "v1.2.3.4", "v1.2.3-rc1", "v1.2.3+build", "V1.2.3", "1.2.3",
-    "v01.2.3", "v1.02.3", "v1.2.03", "v1.2.3 ", " v1.2.3", "v1..3", "v-1.2.3",
-    "v1.2.3^{}", "", "v",
+    "v1.2",
+    "v1.2.3.4",
+    "v1.2.3-rc1",
+    "v1.2.3+build",
+    "V1.2.3",
+    "1.2.3",
+    "v01.2.3",
+    "v1.02.3",
+    "v1.2.03",
+    "v1.2.3 ",
+    " v1.2.3",
+    "v1..3",
+    "v-1.2.3",
+    "v1.2.3^{}",
+    "",
+    "v",
   ])("rejects %p", (tag) => {
     expect(parseVersion(tag)).toBeNull()
   })
@@ -96,7 +109,10 @@ describe("resolveTarget: commit mode", () => {
   })
 
   test("a branch whose name only starts with the tracked one does not count", () => {
-    const refs = [{ ref: "refs/heads/main-old", sha: A }, { ref: "refs/heads/feature/main", sha: B }]
+    const refs = [
+      { ref: "refs/heads/main-old", sha: A },
+      { ref: "refs/heads/feature/main", sha: B },
+    ]
     expect(resolveTarget("commit", "main", refs)).toBeNull()
   })
 
@@ -132,7 +148,10 @@ describe("resolveTarget: tag mode", () => {
   })
 
   test("refs outside refs/tags/ are ignored", () => {
-    const refs = [{ ref: "refs/heads/v9.9.9", sha: A }, { ref: "refs/pull/1/v9.9.9", sha: B }]
+    const refs = [
+      { ref: "refs/heads/v9.9.9", sha: A },
+      { ref: "refs/pull/1/v9.9.9", sha: B },
+    ]
     expect(resolveTarget("tag", "main", refs)).toBeNull()
   })
 
@@ -200,7 +219,10 @@ describe("isAutoDeployable", () => {
     expect(isAutoDeployable({ git })).toBe(false)
     expect(isAutoDeployable({})).toBe(false)
     expect(
-      isAutoDeployable({ git: { ...git, autoDeploy: "tag" }, compose: { source: "git", path: "dc.yml", primaryService: "web" } })
+      isAutoDeployable({
+        git: { ...git, autoDeploy: "tag" },
+        compose: { source: "git", path: "dc.yml", primaryService: "web" },
+      }),
     ).toBe(false)
   })
 

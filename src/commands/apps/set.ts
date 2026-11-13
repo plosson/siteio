@@ -1,14 +1,14 @@
-import ora from "ora"
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
+import ora from "ora"
 import { getCurrentServer } from "../../config/loader.ts"
-import { formatSuccess, printComposeWarnings } from "../../utils/output.ts"
-import { handleError, ValidationError } from "../../utils/errors.ts"
-import { resolveAppName } from "../../utils/site-config.ts"
-import { readFlagFile } from "../../utils/files.ts"
-import { collectEnvUpdate } from "../../utils/env-args.ts"
 import { parseAutoDeployFlag } from "../../lib/agent/auto-deploy.ts"
-import type { App, AutoDeployMode, VolumeMount, RestartPolicy } from "../../types.ts"
+import { SiteioClient } from "../../lib/client.ts"
+import type { App, AutoDeployMode, RestartPolicy, VolumeMount } from "../../types.ts"
+import { collectEnvUpdate } from "../../utils/env-args.ts"
+import { handleError, ValidationError } from "../../utils/errors.ts"
+import { readFlagFile } from "../../utils/files.ts"
+import { formatSuccess, printComposeWarnings } from "../../utils/output.ts"
+import { resolveAppName } from "../../utils/site-config.ts"
 
 export interface SetAppOptions {
   env?: string[]
@@ -44,9 +44,7 @@ function parseVolumes(volumeArgs: string[]): VolumeMount[] {
 function validateRestartPolicy(policy: string): RestartPolicy {
   const valid = ["always", "unless-stopped", "on-failure", "no"]
   if (!valid.includes(policy)) {
-    throw new ValidationError(
-      `Invalid restart policy: ${policy}. Valid values: ${valid.join(", ")}`
-    )
+    throw new ValidationError(`Invalid restart policy: ${policy}. Valid values: ${valid.join(", ")}`)
   }
   return policy as RestartPolicy
 }
@@ -57,7 +55,7 @@ function validateRestartPolicy(policy: string): RestartPolicy {
  */
 export function buildGitPatch(
   current: Pick<App, "git" | "compose">,
-  options: Pick<SetAppOptions, "dockerfile" | "gitToken" | "autoDeploy">
+  options: Pick<SetAppOptions, "dockerfile" | "gitToken" | "autoDeploy">,
 ): { dockerfile?: string; token?: string; autoDeploy?: AutoDeployMode } {
   const autoDeploy = options.autoDeploy !== undefined ? parseAutoDeployFlag(options.autoDeploy) : undefined
   if (!current.git) {
@@ -80,17 +78,16 @@ export function buildGitPatch(
   return patch
 }
 
-export async function setAppCommand(
-  name: string | undefined,
-  options: SetAppOptions = {}
-): Promise<void> {
+export async function setAppCommand(name: string | undefined, options: SetAppOptions = {}): Promise<void> {
   const spinner = ora()
 
   try {
     const server = getCurrentServer()
     const resolved = resolveAppName(name, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("App name required. Provide as argument or run from a directory with .siteio/config.json")
+      throw new ValidationError(
+        "App name required. Provide as argument or run from a directory with .siteio/config.json",
+      )
     }
     if (!name) {
       console.error(chalk.dim(`Using app '${resolved}' from .siteio/config.json`))
@@ -109,7 +106,14 @@ export async function setAppCommand(
       restartPolicy?: RestartPolicy
       image?: string
       // Partial patch — server merges with existing app.git
-      git?: { repoUrl?: string; branch?: string; dockerfile?: string; context?: string; token?: string; autoDeploy?: AutoDeployMode }
+      git?: {
+        repoUrl?: string
+        branch?: string
+        dockerfile?: string
+        context?: string
+        token?: string
+        autoDeploy?: AutoDeployMode
+      }
       composeContent?: string
       envFileContent?: string
       primaryService?: string
@@ -152,7 +156,7 @@ export async function setAppCommand(
 
     if (Object.keys(updates).length === 0) {
       throw new ValidationError(
-        "No updates specified. Use --env, --secret, --secret-file, --secret-stdin, --volume, --domain, --port, --restart, --image, --dockerfile, --auto-deploy, --compose-file, --env-file, or --service"
+        "No updates specified. Use --env, --secret, --secret-file, --secret-stdin, --volume, --domain, --port, --restart, --image, --dockerfile, --auto-deploy, --compose-file, --env-file, or --service",
       )
     }
 

@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { mergeTrees, hasConflictMarkers, type FileTree } from "../../lib/agent/three-way-merge.ts"
+import { type FileTree, hasConflictMarkers, mergeTrees } from "../../lib/agent/three-way-merge.ts"
 
 const enc = (s: string) => new TextEncoder().encode(s)
 const dec = (b: Uint8Array | undefined) => (b === undefined ? undefined : new TextDecoder().decode(b))
 const tree = (files: Record<string, string>): FileTree =>
   Object.fromEntries(Object.entries(files).map(([k, v]) => [k, enc(v)]))
-const page = (title: string, footer: string) => `<h1>${title}</h1>\n<p>a</p>\n<p>b</p>\n<p>c</p>\n<footer>${footer}</footer>\n`
+const page = (title: string, footer: string) =>
+  `<h1>${title}</h1>\n<p>a</p>\n<p>b</p>\n<p>c</p>\n<footer>${footer}</footer>\n`
 
 describe("mergeTrees", () => {
   test("edits to different lines of the same file are both kept", () => {
@@ -43,19 +44,19 @@ describe("mergeTrees", () => {
   })
 
   test("both sides making the identical change is not a conflict", () => {
-    const { files, conflicts } = mergeTrees(tree({ "a": "1" }), tree({ "a": "2", "n": "x" }), tree({ "a": "2", "n": "x" }))
+    const { files, conflicts } = mergeTrees(tree({ a: "1" }), tree({ a: "2", n: "x" }), tree({ a: "2", n: "x" }))
     expect(conflicts).toEqual([])
     expect(dec(files["a"])).toBe("2")
   })
 
   test("you deleted a file the site changed: conflict, the site's version is restored", () => {
-    const { files, conflicts } = mergeTrees(tree({ "a": "1" }), tree({ "a": "2" }), tree({}))
+    const { files, conflicts } = mergeTrees(tree({ a: "1" }), tree({ a: "2" }), tree({}))
     expect(conflicts).toEqual([{ path: "a", reason: "deleted-by-you" }])
     expect(dec(files["a"])).toBe("2")
   })
 
   test("the site deleted a file you changed: conflict, your version is kept", () => {
-    const { files, conflicts } = mergeTrees(tree({ "a": "1" }), tree({}), tree({ "a": "mine" }))
+    const { files, conflicts } = mergeTrees(tree({ a: "1" }), tree({}), tree({ a: "mine" }))
     expect(conflicts).toEqual([{ path: "a", reason: "deleted-on-site" }])
     expect(dec(files["a"])).toBe("mine")
   })

@@ -1,9 +1,12 @@
-import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
-import { resolveSiteName } from "../../utils/site-config.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
+import { resolveSiteName } from "../../utils/site-config.ts"
 
-export async function sitesLogsCommand(name: string | undefined, options: { tail?: number; json?: boolean } = {}): Promise<void> {
+export async function sitesLogsCommand(
+  name: string | undefined,
+  options: { tail?: number; json?: boolean } = {},
+): Promise<void> {
   try {
     const server = getCurrentServer()
     const resolved = resolveSiteName(name, server?.domain ?? "")
@@ -15,5 +18,7 @@ export async function sitesLogsCommand(name: string | undefined, options: { tail
       console.log(logs.logs)
     }
     process.exit(0)
-  } catch (err) { handleError(err) }
+  } catch (err) {
+    handleError(err)
+  }
 }

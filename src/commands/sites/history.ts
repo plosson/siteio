@@ -1,19 +1,18 @@
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
 import { formatVersionEntry } from "../../utils/output.ts"
 import { resolveSiteName } from "../../utils/site-config.ts"
 
-export async function sitesHistoryCommand(
-  name: string | undefined,
-  options: { json?: boolean }
-): Promise<void> {
+export async function sitesHistoryCommand(name: string | undefined, options: { json?: boolean }): Promise<void> {
   try {
     const server = getCurrentServer()
     const resolved = resolveSiteName(name, server?.domain ?? "")
     if (!resolved) {
-      throw new ValidationError("Site name required. Pass it as an argument or run from a directory with .siteio/config.json")
+      throw new ValidationError(
+        "Site name required. Pass it as an argument or run from a directory with .siteio/config.json",
+      )
     }
     if (!name) {
       console.error(chalk.dim(`Using site '${resolved}' from .siteio/config.json`))

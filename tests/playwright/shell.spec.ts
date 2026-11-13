@@ -1,9 +1,11 @@
-import { test, expect } from "@playwright/test"
+import { expect, test } from "@playwright/test"
 import { startTestServer, type TestServerHandle } from "./helpers/server"
 
 let srv: TestServerHandle
 
-test.beforeAll(async () => { srv = await startTestServer() })
+test.beforeAll(async () => {
+  srv = await startTestServer()
+})
 test.afterAll(() => srv.cleanup())
 
 test("GET /ui renders the HTML shell", async ({ page }) => {

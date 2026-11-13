@@ -1,10 +1,10 @@
-import { describe, test, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import {
   buildDevArgs,
-  resolveDevPaths,
   buildSuperuserArgs,
   DEV_SUPERUSER_EMAIL,
   DEV_SUPERUSER_PASSWORD,
+  resolveDevPaths,
 } from "../../lib/pocketbase-dev.ts"
 
 describe("Unit: pocketbase dev runner", () => {

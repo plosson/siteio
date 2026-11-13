@@ -4,11 +4,19 @@ import { tmpdir } from "os"
 import { join, resolve } from "path"
 
 const dirs: string[] = []
-afterEach(() => dirs.splice(0).forEach(dir => rmSync(dir, { recursive: true, force: true })))
+afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })))
 
 test("provider credentials stay private, survive login/logout writes, and env overrides stored tokens", () => {
-  const home = mkdtempSync(join(tmpdir(), "siteio-config-")); dirs.push(home)
-  const env = { ...process.env, HOME: home, HETZNER_TOKEN: "", HCLOUD_TOKEN: "", CLOUDFLARE_API_TOKEN: "", CLOUDFLARE_TOKEN: "" }
+  const home = mkdtempSync(join(tmpdir(), "siteio-config-"))
+  dirs.push(home)
+  const env = {
+    ...process.env,
+    HOME: home,
+    HETZNER_TOKEN: "",
+    HCLOUD_TOKEN: "",
+    CLOUDFLARE_API_TOKEN: "",
+    CLOUDFLARE_TOKEN: "",
+  }
   const cli = resolve("src/cli.ts")
   const token = "secret-provider-token"
   const set = Bun.spawnSync(["bun", cli, "--json", "config", "set", "hetznerToken", token], { env })
@@ -30,7 +38,8 @@ test("provider credentials stay private, survive login/logout writes, and env ov
 })
 
 test("server CLI exposes create/destroy and refuses missing configuration before network access", () => {
-  const home = mkdtempSync(join(tmpdir(), "siteio-config-")); dirs.push(home)
+  const home = mkdtempSync(join(tmpdir(), "siteio-config-"))
+  dirs.push(home)
   const env = { ...process.env, HOME: home, HETZNER_TOKEN: "", HCLOUD_TOKEN: "" }
   const cli = resolve("src/cli.ts")
   const help = Bun.spawnSync(["bun", cli, "server", "--help"], { env })
@@ -42,7 +51,8 @@ test("server CLI exposes create/destroy and refuses missing configuration before
 })
 
 test("remote agent install with flags runs without configuration prompts and quotes arguments", () => {
-  const home = mkdtempSync(join(tmpdir(), "siteio-install-")); dirs.push(home)
+  const home = mkdtempSync(join(tmpdir(), "siteio-install-"))
+  dirs.push(home)
   const ssh = join(home, "ssh")
   // Stub the SSH executable only; exercise the real CLI and remote install flow.
   const script = `#!/bin/sh
@@ -54,9 +64,22 @@ case "$last" in
 esac
 `
   writeFileSync(ssh, script, { mode: 0o700 })
-  const result = Bun.spawnSync(["bun", resolve("src/cli.ts"), "agent", "install", "root@192.0.2.1",
-    "--domain", "test.org", "--email", "me@test.org", "--data-dir", "/data with space"],
-    { env: { ...process.env, HOME: home, PATH: `${home}:${process.env.PATH}` }, stdin: "pipe" })
+  const result = Bun.spawnSync(
+    [
+      "bun",
+      resolve("src/cli.ts"),
+      "agent",
+      "install",
+      "root@192.0.2.1",
+      "--domain",
+      "test.org",
+      "--email",
+      "me@test.org",
+      "--data-dir",
+      "/data with space",
+    ],
+    { env: { ...process.env, HOME: home, PATH: `${home}:${process.env.PATH}` }, stdin: "pipe" },
+  )
   expect(result.exitCode).toBe(0)
   const command = readFileSync(join(home, "remote-command"), "utf8")
   expect(command).toContain("--domain 'test.org'")

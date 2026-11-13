@@ -1,20 +1,26 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { zipSync } from "fflate"
+import { mkdtempSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
+import type { ChatExecutor, ExecutorResult, ExecutorRunInput } from "../../lib/agent/chat/executor.ts"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ChatConfig, ChatEvent, ChatMessage } from "../../types.ts"
-import type { ChatExecutor, ExecutorRunInput, ExecutorResult } from "../../lib/agent/chat/executor.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 const GOD = { "X-API-Key": "test-key" }
 const GOD_ZIP = { ...GOD, "Content-Type": "application/zip" }
 const GOD_JSON = { ...GOD, "Content-Type": "application/json" }
 
 const CHAT: ChatConfig = {
-  provider: "anthropic", model: "claude-sonnet-5", sandbox: false,
-  sandboxImage: "x", sandboxNetwork: "n", maxTurns: 5, timeoutMs: 5000, oauthToken: "tok",
+  provider: "anthropic",
+  model: "claude-sonnet-5",
+  sandbox: false,
+  sandboxImage: "x",
+  sandboxNetwork: "n",
+  maxTurns: 5,
+  timeoutMs: 5000,
+  oauthToken: "tok",
 }
 
 class FakeExecutor implements ChatExecutor {
@@ -29,9 +35,15 @@ class FakeExecutor implements ChatExecutor {
 
 function makeServer(dataDir: string, opts: { chat?: ChatConfig; executor?: ChatExecutor } = {}): AgentServer {
   const config: AgentConfig = {
-    apiKey: "test-key", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443,
-    email: "ops@example.com", skipTraefik: true, chat: opts.chat,
+    apiKey: "test-key",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    email: "ops@example.com",
+    skipTraefik: true,
+    chat: opts.chat,
   }
   return new AgentServer(config, new FakeRuntime(), { chatExecutor: opts.executor })
 }
@@ -55,7 +67,7 @@ async function deploySite(server: AgentServer, name: string, html: string): Prom
       method: "POST",
       headers: GOD_ZIP,
       body: zipSync({ "public/index.html": new TextEncoder().encode(html) }),
-    })
+    }),
   )
   expect(res.status).toBe(200)
 }
@@ -73,11 +85,17 @@ describe("API: site chat", () => {
     server = makeServer(dataDir) // no chat
     await deploySite(server, "blog", "<h1>Old</h1>")
 
-    const site: any = await (await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))).json()
+    const site: any = await (
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))
+    ).json()
     expect(site.data.chatEnabled).toBe(false)
 
     const post = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/chat", { method: "POST", headers: GOD_JSON, body: JSON.stringify({ message: "hi" }) })
+      new Request("http://x/sites/blog/chat", {
+        method: "POST",
+        headers: GOD_JSON,
+        body: JSON.stringify({ message: "hi" }),
+      }),
     )
     expect(post.status).toBe(400)
   })
@@ -87,18 +105,26 @@ describe("API: site chat", () => {
     await deploySite(server, "blog", "<h1>Old</h1>")
 
     // Tab visibility + status
-    const site: any = await (await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))).json()
+    const site: any = await (
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))
+    ).json()
     expect(site.data.chatEnabled).toBe(true)
     expect(site.data.version).toBe(1)
 
-    const chat0: any = await (await server.handleRequestForTest(new Request("http://x/sites/blog/chat", { headers: GOD }))).json()
+    const chat0: any = await (
+      await server.handleRequestForTest(new Request("http://x/sites/blog/chat", { headers: GOD }))
+    ).json()
     expect(chat0.data.status.configured).toBe(true)
     expect(chat0.data.status.model).toBe("claude-sonnet-5")
     expect(chat0.data.messages).toEqual([])
 
     // Run a turn (SSE)
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/chat", { method: "POST", headers: GOD_JSON, body: JSON.stringify({ message: "make it new" }) })
+      new Request("http://x/sites/blog/chat", {
+        method: "POST",
+        headers: GOD_JSON,
+        body: JSON.stringify({ message: "make it new" }),
+      }),
     )
     expect(res.headers.get("Content-Type")).toContain("text/event-stream")
     const events = parseSse(await res.text())
@@ -113,11 +139,15 @@ describe("API: site chat", () => {
     expect(events.some((e) => e.kind === "deploy_progress")).toBe(true)
 
     // Site version bumped
-    const site2: any = await (await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))).json()
+    const site2: any = await (
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))
+    ).json()
     expect(site2.data.version).toBe(2)
 
     // Transcript persisted (user + assistant)
-    const chat1: any = await (await server.handleRequestForTest(new Request("http://x/sites/blog/chat", { headers: GOD }))).json()
+    const chat1: any = await (
+      await server.handleRequestForTest(new Request("http://x/sites/blog/chat", { headers: GOD }))
+    ).json()
     expect(chat1.data.messages.map((m: ChatMessage) => m.role)).toEqual(["user", "assistant"])
   })
 
@@ -125,12 +155,18 @@ describe("API: site chat", () => {
     server = makeServer(dataDir, { chat: CHAT, executor: new FakeExecutor({}) }) // writes nothing
     await deploySite(server, "blog", "<h1>Old</h1>")
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/chat", { method: "POST", headers: GOD_JSON, body: JSON.stringify({ message: "hello?" }) })
+      new Request("http://x/sites/blog/chat", {
+        method: "POST",
+        headers: GOD_JSON,
+        body: JSON.stringify({ message: "hello?" }),
+      }),
     )
     const events = parseSse(await res.text())
     const done = events.find((e) => e.kind === "done") as Extract<ChatEvent, { kind: "done" }>
     expect(done.message.status).toBe("no_changes")
-    const site: any = await (await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))).json()
+    const site: any = await (
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))
+    ).json()
     expect(site.data.version).toBe(1) // unchanged
   })
 
@@ -138,7 +174,11 @@ describe("API: site chat", () => {
     server = makeServer(dataDir, { chat: CHAT, executor: new FakeExecutor({ write: "x" }) })
     await deploySite(server, "blog", "<h1>Old</h1>")
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/chat", { method: "POST", headers: GOD_JSON, body: JSON.stringify({ message: "  " }) })
+      new Request("http://x/sites/blog/chat", {
+        method: "POST",
+        headers: GOD_JSON,
+        body: JSON.stringify({ message: "  " }),
+      }),
     )
     const events = parseSse(await res.text())
     expect(events.some((e) => e.kind === "error")).toBe(true)
@@ -147,38 +187,64 @@ describe("API: site chat", () => {
   test("DELETE clears history; deleting the site clears it too", async () => {
     server = makeServer(dataDir, { chat: CHAT, executor: new FakeExecutor({ write: "<h1>New</h1>" }) })
     await deploySite(server, "blog", "<h1>Old</h1>")
-    await server.handleRequestForTest(
-      new Request("http://x/sites/blog/chat", { method: "POST", headers: GOD_JSON, body: JSON.stringify({ message: "go" }) })
-    ).then((r) => r.text())
+    await server
+      .handleRequestForTest(
+        new Request("http://x/sites/blog/chat", {
+          method: "POST",
+          headers: GOD_JSON,
+          body: JSON.stringify({ message: "go" }),
+        }),
+      )
+      .then((r) => r.text())
 
-    const del = await server.handleRequestForTest(new Request("http://x/sites/blog/chat", { method: "DELETE", headers: GOD }))
+    const del = await server.handleRequestForTest(
+      new Request("http://x/sites/blog/chat", { method: "DELETE", headers: GOD }),
+    )
     expect(del.status).toBe(200)
-    const chat: any = await (await server.handleRequestForTest(new Request("http://x/sites/blog/chat", { headers: GOD }))).json()
+    const chat: any = await (
+      await server.handleRequestForTest(new Request("http://x/sites/blog/chat", { headers: GOD }))
+    ).json()
     expect(chat.data.messages).toEqual([])
   })
 
   test("renaming a site moves its chat transcript", async () => {
     server = makeServer(dataDir, { chat: CHAT, executor: new FakeExecutor({ write: "<h1>New</h1>" }) })
     await deploySite(server, "blog", "<h1>Old</h1>")
-    await server.handleRequestForTest(
-      new Request("http://x/sites/blog/chat", { method: "POST", headers: GOD_JSON, body: JSON.stringify({ message: "go" }) })
-    ).then((r) => r.text())
+    await server
+      .handleRequestForTest(
+        new Request("http://x/sites/blog/chat", {
+          method: "POST",
+          headers: GOD_JSON,
+          body: JSON.stringify({ message: "go" }),
+        }),
+      )
+      .then((r) => r.text())
 
     const rn = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/rename", { method: "PATCH", headers: GOD_JSON, body: JSON.stringify({ newSubdomain: "journal" }) })
+      new Request("http://x/sites/blog/rename", {
+        method: "PATCH",
+        headers: GOD_JSON,
+        body: JSON.stringify({ newSubdomain: "journal" }),
+      }),
     )
     expect(rn.status).toBe(200)
 
-    const oldChat: any = await (await server.handleRequestForTest(new Request("http://x/sites/blog/chat", { headers: GOD }))).json()
+    const oldChat: any = await (
+      await server.handleRequestForTest(new Request("http://x/sites/blog/chat", { headers: GOD }))
+    ).json()
     expect(oldChat.success).toBe(false) // site no longer exists
-    const newChat: any = await (await server.handleRequestForTest(new Request("http://x/sites/journal/chat", { headers: GOD }))).json()
+    const newChat: any = await (
+      await server.handleRequestForTest(new Request("http://x/sites/journal/chat", { headers: GOD }))
+    ).json()
     expect(newChat.data.messages.length).toBe(2)
   })
 
   test("stop endpoint reports whether a turn was running", async () => {
     server = makeServer(dataDir, { chat: CHAT, executor: new FakeExecutor({ write: "x" }) })
     await deploySite(server, "blog", "<h1>Old</h1>")
-    const res = await server.handleRequestForTest(new Request("http://x/sites/blog/chat/stop", { method: "POST", headers: GOD }))
+    const res = await server.handleRequestForTest(
+      new Request("http://x/sites/blog/chat/stop", { method: "POST", headers: GOD }),
+    )
     const body: any = await res.json()
     expect(body.success).toBe(true)
     expect(body.data.stopped).toBe(false) // nothing running right now
@@ -186,11 +252,23 @@ describe("API: site chat", () => {
 
   test("a chat turn on a stopped site is refused before the LLM runs", async () => {
     let ran = false
-    server = makeServer(dataDir, { chat: CHAT, executor: { run: async () => { ran = true; return { finalText: "", isError: false, aborted: false, timedOut: false } } } })
+    server = makeServer(dataDir, {
+      chat: CHAT,
+      executor: {
+        run: async () => {
+          ran = true
+          return { finalText: "", isError: false, aborted: false, timedOut: false }
+        },
+      },
+    })
     await deploySite(server, "blog", "<h1>Old</h1>")
     await server.handleRequestForTest(new Request("http://x/sites/blog/stop", { method: "POST", headers: GOD }))
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/chat", { method: "POST", headers: GOD_JSON, body: JSON.stringify({ message: "hi" }) })
+      new Request("http://x/sites/blog/chat", {
+        method: "POST",
+        headers: GOD_JSON,
+        body: JSON.stringify({ message: "hi" }),
+      }),
     )
     expect(res.status).toBe(409)
     expect(ran).toBe(false)
@@ -207,10 +285,16 @@ describe("API: site chat", () => {
     server = makeServer(dataDir, { chat: CHAT, executor: stopper })
     await deploySite(server, "blog", "<h1>Old</h1>")
     const res = await server.handleRequestForTest(
-      new Request("http://x/sites/blog/chat", { method: "POST", headers: GOD_JSON, body: JSON.stringify({ message: "edit" }) })
+      new Request("http://x/sites/blog/chat", {
+        method: "POST",
+        headers: GOD_JSON,
+        body: JSON.stringify({ message: "edit" }),
+      }),
     )
     await res.text() // drain the SSE stream so the turn finishes
-    const site: any = await (await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))).json()
+    const site: any = await (
+      await server.handleRequestForTest(new Request("http://x/sites/blog", { headers: GOD }))
+    ).json()
     expect(site.data.status).toBe("stopped")
     expect(site.data.version).toBe(1)
   })

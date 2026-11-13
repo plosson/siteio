@@ -1,5 +1,5 @@
 // src/__tests__/unit/pocketbase-version.test.ts
-import { describe, test, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { POCKETBASE_VERSION, pocketbaseImage } from "../../lib/pocketbase-version.ts"
 
 describe("Unit: pocketbase version", () => {

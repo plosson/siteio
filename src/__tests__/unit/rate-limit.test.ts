@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import { RateLimiter } from "../../lib/agent/rate-limit.ts"
 
 describe("Unit: RateLimiter", () => {
@@ -47,7 +47,10 @@ describe("Unit: RateLimiter", () => {
     limiter.undo("a")
     expect(limiter.tryHit("a")).toBe(true)
     expect(limiter.tryHit("a")).toBe(false)
-    limiter.undo("a"); limiter.undo("a"); limiter.undo("a"); limiter.undo("a")
+    limiter.undo("a")
+    limiter.undo("a")
+    limiter.undo("a")
+    limiter.undo("a")
     expect(limiter.blocked("a")).toBe(false)
     expect(limiter.tryHit("a")).toBe(true)
     now = 60_000

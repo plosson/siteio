@@ -6,7 +6,9 @@ export function jsonResponse<T>(data: T, status = 200, headers: Record<string, s
 
 // `reason` is an optional machine-readable code (see AgentServer.error).
 export function errorResponse(message: string, status = 400, reason?: string): Response {
-  return Response.json({ success: false, error: message, ...(reason ? { reason } : {}) } as ApiResponse<null>, { status })
+  return Response.json({ success: false, error: message, ...(reason ? { reason } : {}) } as ApiResponse<null>, {
+    status,
+  })
 }
 
 // A JSON object body, or null for anything else (bad JSON, an array, a string).

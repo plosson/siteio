@@ -1,12 +1,15 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, existsSync, statSync } from "fs"
-import { join } from "path"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { existsSync, mkdtempSync, rmSync, statSync } from "fs"
 import { tmpdir } from "os"
+import { join } from "path"
 import { ChatStore } from "../../lib/agent/chat-store.ts"
 import type { ChatMessage } from "../../types.ts"
 
 const msg = (id: string, role: ChatMessage["role"], text: string): ChatMessage => ({
-  id, role, text, at: new Date().toISOString(),
+  id,
+  role,
+  text,
+  at: new Date().toISOString(),
 })
 
 describe("Unit: ChatStore", () => {

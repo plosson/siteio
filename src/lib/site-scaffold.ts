@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } from "fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
 import { join } from "path"
 import { POCKETBASE_JS_SDK_VERSION } from "./pocketbase-version.ts"
 

@@ -1,12 +1,12 @@
-import ora from "ora"
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
+import ora from "ora"
 import { getCurrentServer } from "../../config/loader.ts"
-import { formatSuccess } from "../../utils/output.ts"
-import { handleError, ValidationError } from "../../utils/errors.ts"
-import { resolveSiteName } from "../../utils/site-config.ts"
-import { collectEnvUpdate, type EnvFlagOptions } from "../../utils/env-args.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import type { SiteInfo } from "../../types.ts"
+import { collectEnvUpdate, type EnvFlagOptions } from "../../utils/env-args.ts"
+import { handleError, ValidationError } from "../../utils/errors.ts"
+import { formatSuccess } from "../../utils/output.ts"
+import { resolveSiteName } from "../../utils/site-config.ts"
 
 function resolveOrThrow(name: string | undefined): string {
   const server = getCurrentServer()
@@ -27,7 +27,7 @@ export function printSiteEnv(site: SiteInfo): void {
 async function send(
   name: string | undefined,
   update: Parameters<SiteioClient["updateSiteEnv"]>[1],
-  json?: boolean
+  json?: boolean,
 ): Promise<void> {
   const spinner = ora()
   try {
@@ -38,7 +38,9 @@ async function send(
     if (json) {
       console.log(JSON.stringify({ success: true, data: updated }, null, 2))
     } else {
-      console.error(formatSuccess(`Env of ${chalk.bold(site)} updated${updated.status === "running" ? " and site restarted" : ""}`))
+      console.error(
+        formatSuccess(`Env of ${chalk.bold(site)} updated${updated.status === "running" ? " and site restarted" : ""}`),
+      )
       printSiteEnv(updated)
     }
     process.exit(0)
@@ -48,7 +50,10 @@ async function send(
   }
 }
 
-export async function sitesSetCommand(name: string | undefined, options: EnvFlagOptions & { json?: boolean }): Promise<void> {
+export async function sitesSetCommand(
+  name: string | undefined,
+  options: EnvFlagOptions & { json?: boolean },
+): Promise<void> {
   try {
     const update = await collectEnvUpdate(options)
     if (!update.env && !update.secrets) {
@@ -60,7 +65,10 @@ export async function sitesSetCommand(name: string | undefined, options: EnvFlag
   }
 }
 
-export async function sitesUnsetCommand(name: string | undefined, options: { env?: string[]; json?: boolean }): Promise<void> {
+export async function sitesUnsetCommand(
+  name: string | undefined,
+  options: { env?: string[]; json?: boolean },
+): Promise<void> {
   try {
     if (!options.env?.length) throw new ValidationError("Nothing to unset. Use -e KEY (repeatable)")
     await send(name, { unsetEnv: options.env }, options.json)

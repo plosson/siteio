@@ -1,5 +1,5 @@
-import { isIP } from "node:net"
 import { lookup } from "node:dns/promises"
+import { isIP } from "node:net"
 import { ValidationError } from "./errors.ts"
 
 // SSRF guard for URLs the AGENT fetches on a caller's behalf (write_url). The

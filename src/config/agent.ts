@@ -4,7 +4,7 @@
  * Handles persistent configuration stored in <dataDir>/agent-config.json
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs"
 import { join } from "path"
 
 import type { AcmeChallengeType, Tenant } from "../types.ts"
@@ -79,10 +79,7 @@ export function saveAgentConfig(dataDir: string, config: PersistedAgentConfig): 
 /**
  * Update specific fields in agent config (merge with existing)
  */
-export function updateAgentConfig(
-  dataDir: string,
-  updates: Partial<PersistedAgentConfig>
-): PersistedAgentConfig {
+export function updateAgentConfig(dataDir: string, updates: Partial<PersistedAgentConfig>): PersistedAgentConfig {
   const existing = loadAgentConfig(dataDir)
   const updated = { ...existing, ...updates } as PersistedAgentConfig
 
@@ -102,7 +99,7 @@ export function updateAgentConfig(
  */
 export function getAgentConfigValue(
   dataDir: string,
-  key: keyof PersistedAgentConfig
+  key: keyof PersistedAgentConfig,
 ): PersistedAgentConfig[keyof PersistedAgentConfig] {
   const config = loadAgentConfig(dataDir)
   return config[key]
@@ -111,21 +108,14 @@ export function getAgentConfigValue(
 /**
  * Set a specific config value
  */
-export function setAgentConfigValue(
-  dataDir: string,
-  key: keyof PersistedAgentConfig,
-  value: string
-): void {
+export function setAgentConfigValue(dataDir: string, key: keyof PersistedAgentConfig, value: string): void {
   updateAgentConfig(dataDir, { [key]: value } as Partial<PersistedAgentConfig>)
 }
 
 /**
  * Delete a specific config value
  */
-export function deleteAgentConfigValue(
-  dataDir: string,
-  key: keyof PersistedAgentConfig
-): void {
+export function deleteAgentConfigValue(dataDir: string, key: keyof PersistedAgentConfig): void {
   const config = loadAgentConfig(dataDir)
   delete config[key]
   saveAgentConfig(dataDir, config as PersistedAgentConfig)
@@ -145,6 +135,15 @@ export function maskSensitiveValue(value: string): string {
  * Check if a key contains sensitive data
  */
 export function isSensitiveKey(key: string): boolean {
-  const sensitiveKeys = ["apiKey", "cloudflareToken", "acmeDnsEnv", "llmOauthToken", "llmApiKey", "pagerUrl", "analyticsUrl", "tenants"]
+  const sensitiveKeys = [
+    "apiKey",
+    "cloudflareToken",
+    "acmeDnsEnv",
+    "llmOauthToken",
+    "llmApiKey",
+    "pagerUrl",
+    "analyticsUrl",
+    "tenants",
+  ]
   return sensitiveKeys.includes(key)
 }

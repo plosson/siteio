@@ -1,5 +1,5 @@
-import { describe, test, expect } from "bun:test"
-import { parseStreamEvent, ClaudeRunner } from "../../lib/agent/chat/claude-runner.ts"
+import { describe, expect, test } from "bun:test"
+import { ClaudeRunner, parseStreamEvent } from "../../lib/agent/chat/claude-runner.ts"
 
 describe("Unit: claude stream-json parsing", () => {
   test("assistant text block → assistant_text", () => {
@@ -35,10 +35,12 @@ describe("Unit: claude stream-json parsing", () => {
   })
 
   test("user tool_result → tool_result event with ok flag", () => {
-    expect(parseStreamEvent({ type: "user", message: { content: [{ type: "tool_result", is_error: false }] } }).events)
-      .toEqual([{ kind: "tool_result", ok: true }])
-    expect(parseStreamEvent({ type: "user", message: { content: [{ type: "tool_result", is_error: true }] } }).events)
-      .toEqual([{ kind: "tool_result", ok: false }])
+    expect(
+      parseStreamEvent({ type: "user", message: { content: [{ type: "tool_result", is_error: false }] } }).events,
+    ).toEqual([{ kind: "tool_result", ok: true }])
+    expect(
+      parseStreamEvent({ type: "user", message: { content: [{ type: "tool_result", is_error: true }] } }).events,
+    ).toEqual([{ kind: "tool_result", ok: false }])
   })
 
   test("result line → terminal result", () => {

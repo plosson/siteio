@@ -2,7 +2,17 @@
 // the log, applies to `<path>.1` while a rotated file exists, else to `<path>`.
 // Rotation is rename + reopen (Traefik reopens its log on USR1); the old file
 // is deleted only once fully read and quiet, so late lines are not lost.
-import { closeSync, existsSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "fs"
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "fs"
 
 export interface TailerOptions {
   path: string

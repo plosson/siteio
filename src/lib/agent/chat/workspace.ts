@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, lstatSync, readdirSync, readFileSync, writeFileSync } from "fs"
-import { join } from "path"
 import { zipSync } from "fflate"
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs"
+import { join } from "path"
 import { PUBLIC_DIR, PUBLIC_PREFIX } from "../../site-layout.ts"
 import { mergeScopedDeploy } from "../deploy-merge.ts"
 

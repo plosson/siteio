@@ -1,9 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { createHash, randomBytes } from "crypto"
-import { OAuthStore, AUTH_CODE_TTL_MS } from "../../lib/agent/oauth-store.ts"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
+import { AUTH_CODE_TTL_MS, OAuthStore } from "../../lib/agent/oauth-store.ts"
 import { verifyPkceS256 } from "../../utils/oauth.ts"
 
 // Build a valid PKCE pair the way a client would.
@@ -49,7 +49,10 @@ describe("Unit: OAuthStore", () => {
 
   test("auth code is single-use and carries its binding", () => {
     const code = store.createAuthCode({
-      grantId: "grt_x", clientId: "cid_y", redirectUri: "https://claude.ai/cb", codeChallenge: "abc",
+      grantId: "grt_x",
+      clientId: "cid_y",
+      redirectUri: "https://claude.ai/cb",
+      codeChallenge: "abc",
     })
     expect(code).toStartWith("ac_")
     const rec = store.consumeAuthCode(code)

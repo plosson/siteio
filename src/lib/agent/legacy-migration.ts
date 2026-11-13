@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, cpSync, renameSync } from "fs"
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "fs"
 import { join } from "path"
-import type { SiteStorage } from "./storage.ts"
 import { POCKETBASE_VERSION } from "../pocketbase-version.ts"
+import type { SiteStorage } from "./storage.ts"
 
 // Metadata shape written by pre-merge agents for shared-nginx static sites.
 // The type lives here because everything else about that implementation is gone.
@@ -42,7 +42,7 @@ export function migrateLegacySites(
   dataDir: string,
   domain: string,
   storage: SiteStorage,
-  log: (msg: string) => void = console.log
+  log: (msg: string) => void = console.log,
 ): LegacyMigrationOutcome {
   const metaDir = join(dataDir, "metadata")
   const outcome: LegacyMigrationOutcome = { migrated: [], skipped: [] }
@@ -54,7 +54,10 @@ export function migrateLegacySites(
       name = legacy.subdomain || name
 
       if (storage.exists(name)) {
-        outcome.skipped.push({ name, reason: "a site with this name already exists — legacy files kept in legacy-backup/" })
+        outcome.skipped.push({
+          name,
+          reason: "a site with this name already exists — legacy files kept in legacy-backup/",
+        })
         continue
       }
 
@@ -103,7 +106,9 @@ export function migrateLegacySites(
         log(`> Site '${name}': OAuth protection was dropped (no longer supported)`)
       }
       if (legacy.persistentStorage) {
-        log(`> Site '${name}': persistent-localStorage was dropped — data preserved in legacy-backup/persistent-storage/`)
+        log(
+          `> Site '${name}': persistent-localStorage was dropped — data preserved in legacy-backup/persistent-storage/`,
+        )
       }
 
       outcome.migrated.push(name)

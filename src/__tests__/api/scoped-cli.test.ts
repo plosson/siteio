@@ -1,16 +1,21 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { unzipSync, zipSync } from "fflate"
 import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
 import { tmpdir } from "os"
-import { zipSync, unzipSync } from "fflate"
+import { join } from "path"
 import { AgentServer } from "../../lib/agent/server.ts"
-import { FakeRuntime } from "../helpers/fake-runtime.ts"
 import type { AgentConfig, ApiResponse, ShareGrantCreated, SiteInfo, SiteVersion } from "../../types.ts"
+import { FakeRuntime } from "../helpers/fake-runtime.ts"
 
 function makeServer(dataDir: string, runtime: FakeRuntime): AgentServer {
   const config: AgentConfig = {
-    apiKey: "god-key", dataDir, domain: "example.com",
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 8080, httpsPort: 8443, skipTraefik: true,
+    apiKey: "god-key",
+    dataDir,
+    domain: "example.com",
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 8080,
+    httpsPort: 8443,
+    skipTraefik: true,
   }
   return new AgentServer(config, runtime)
 }
@@ -32,7 +37,7 @@ describe("API: scoped share-code CLI credential", () => {
 
   const mintCode = async (name: string, body: Record<string, unknown> = {}): Promise<string> => {
     const res = await server.handleRequestForTest(
-      new Request(`http://x/sites/${name}/grants`, { method: "POST", headers: GOD_JSON, body: JSON.stringify(body) })
+      new Request(`http://x/sites/${name}/grants`, { method: "POST", headers: GOD_JSON, body: JSON.stringify(body) }),
     )
     return ((await res.json()) as ApiResponse<ShareGrantCreated>).data!.code
   }
@@ -85,7 +90,10 @@ describe("API: scoped share-code CLI credential", () => {
     const scopedDeploy = (code: string, html: string, expectedVersion?: number) =>
       sReq("/_siteio/sites/blog", {
         method: "POST",
-        headers: { ...keyZip(code), ...(expectedVersion !== undefined ? { "X-Expected-Version": String(expectedVersion) } : {}) },
+        headers: {
+          ...keyZip(code),
+          ...(expectedVersion !== undefined ? { "X-Expected-Version": String(expectedVersion) } : {}),
+        },
         body: zip({ "public/index.html": html }),
       })
     const liveIndex = async () => {
@@ -113,7 +121,10 @@ describe("API: scoped share-code CLI credential", () => {
 
     test("a rejected scoped deploy does not touch the backend either", async () => {
       const code = await mintCode("blog", { allowBackend: true })
-      await deploy("blog", { "public/index.html": "<h1>owner v2</h1>", "pb_migrations/1_init.js": "// owner schema v2" })
+      await deploy("blog", {
+        "public/index.html": "<h1>owner v2</h1>",
+        "pb_migrations/1_init.js": "// owner schema v2",
+      })
       const res = await sReq("/_siteio/sites/blog", {
         method: "POST",
         headers: { ...keyZip(code), "X-Expected-Version": "1" },
@@ -129,7 +140,8 @@ describe("API: scoped share-code CLI credential", () => {
   test("a scoped code can deploy its own site; backend preserved by default", async () => {
     const code = await mintCode("blog", { label: "Sam" })
     const res = await sReq("/_siteio/sites/blog", {
-      method: "POST", headers: keyZip(code),
+      method: "POST",
+      headers: keyZip(code),
       // Invitee uploads new web + a smuggled migration — the migration must be ignored.
       body: zip({ "public/index.html": "<h1>via cli</h1>", "pb_migrations/9_evil.js": "DROP" }),
     })
@@ -148,7 +160,8 @@ describe("API: scoped share-code CLI credential", () => {
   test("--allow-backend lets a scoped code change migrations", async () => {
     const code = await mintCode("blog", { allowBackend: true })
     await sReq("/_siteio/sites/blog", {
-      method: "POST", headers: keyZip(code),
+      method: "POST",
+      headers: keyZip(code),
       body: zip({ "public/index.html": "<h1>x</h1>", "pb_migrations/2_add.js": "// new migration" }),
     })
     const dl = await sReq("/sites/blog/download", { method: "GET", headers: GOD }, "localhost")
@@ -160,8 +173,24 @@ describe("API: scoped share-code CLI credential", () => {
   test("scoped deploy is attributed to the grant label and is repeatable until revoked", async () => {
     const code = await mintCode("blog", { label: "Sam" })
     // Two deploys succeed — no budget limit.
-    expect((await sReq("/_siteio/sites/blog", { method: "POST", headers: keyZip(code), body: zip({ "public/index.html": "hi" }) })).status).toBe(200)
-    expect((await sReq("/_siteio/sites/blog", { method: "POST", headers: keyZip(code), body: zip({ "public/index.html": "hi2" }) })).status).toBe(200)
+    expect(
+      (
+        await sReq("/_siteio/sites/blog", {
+          method: "POST",
+          headers: keyZip(code),
+          body: zip({ "public/index.html": "hi" }),
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await sReq("/_siteio/sites/blog", {
+          method: "POST",
+          headers: keyZip(code),
+          body: zip({ "public/index.html": "hi2" }),
+        })
+      ).status,
+    ).toBe(200)
 
     // The god owner sees a history version attributed to the label.
     await deploy("blog", { "public/index.html": "owner" }) // archive the Sam version
@@ -174,7 +203,9 @@ describe("API: scoped share-code CLI credential", () => {
     await deploy("shop", { "public/index.html": "<h1>shop</h1>" })
     const code = await mintCode("blog")
     // Used on shop's host → host/site mismatch.
-    expect((await sReq("/_siteio/sites/shop/download", { method: "GET", headers: key(code) }, "shop.example.com")).status).toBe(403)
+    expect(
+      (await sReq("/_siteio/sites/shop/download", { method: "GET", headers: key(code) }, "shop.example.com")).status,
+    ).toBe(403)
     // Used on blog's host but pointing at shop → path/site mismatch.
     expect((await sReq("/_siteio/sites/shop/download", { method: "GET", headers: key(code) })).status).toBe(403)
   })
@@ -186,10 +217,13 @@ describe("API: scoped share-code CLI credential", () => {
     expect((await sReq("/_siteio/sites/blog/admin", { method: "GET", headers: key(code) })).status).toBe(403)
     expect((await sReq("/_siteio/apps", { method: "GET", headers: key(code) })).status).toBe(403)
     expect(
-      (await sReq("/_siteio/sites/blog/rename", {
-        method: "PATCH", headers: { "X-API-Key": code, "Content-Type": "application/json" },
-        body: JSON.stringify({ newSubdomain: "hijack" }),
-      })).status
+      (
+        await sReq("/_siteio/sites/blog/rename", {
+          method: "PATCH",
+          headers: { "X-API-Key": code, "Content-Type": "application/json" },
+          body: JSON.stringify({ newSubdomain: "hijack" }),
+        })
+      ).status,
     ).toBe(403)
   })
 

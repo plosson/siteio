@@ -1,8 +1,8 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
-import { AgentServer } from "../../lib/agent/server"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs"
-import { join } from "path"
 import { tmpdir } from "os"
+import { join } from "path"
+import { AgentServer } from "../../lib/agent/server"
 import type { AgentConfig, ApiResponse, App, AppInfo } from "../../types"
 
 describe("Apps API - Secret env vars", () => {

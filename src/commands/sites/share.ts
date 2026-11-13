@@ -1,9 +1,9 @@
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
 import { getCurrentServer } from "../../config/loader.ts"
-import { resolveSiteName } from "../../utils/site-config.ts"
-import { formatSuccess, formatTable, formatDim } from "../../utils/output.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
+import { formatDim, formatSuccess, formatTable } from "../../utils/output.ts"
+import { resolveSiteName } from "../../utils/site-config.ts"
 
 interface ShareOptions {
   json?: boolean
@@ -30,11 +30,15 @@ export async function sitesShareCommand(name: string | undefined, options: Share
       console.error("")
       console.error(chalk.bold("  For coding agents (Codex, Claude Code, Cursor) — the siteio CLI:"))
       console.error(`    ${chalk.cyan(`siteio login -t ${created.cliToken}`)}`)
-      console.error(formatDim(`    then: siteio sites download -n ${resolved} ./${resolved} && (edit) && siteio sites deploy`))
+      console.error(
+        formatDim(`    then: siteio sites download -n ${resolved} ./${resolved} && (edit) && siteio sites deploy`),
+      )
       console.error("")
       console.error(chalk.bold("  For claude.ai / Claude Desktop — an MCP connector:"))
       console.error(`    URL:  ${chalk.cyan(created.url)}`)
-      console.error(`    Code: ${chalk.bold(created.code)}   ${chalk.dim("(paste when the connector asks to authorize)")}`)
+      console.error(
+        `    Code: ${chalk.bold(created.code)}   ${chalk.dim("(paste when the connector asks to authorize)")}`,
+      )
       if (created.fallbackUrl) {
         console.error(formatDim(`    (also reachable at ${created.fallbackUrl} if the custom domain isn't ready)`))
       }
@@ -42,8 +46,8 @@ export async function sitesShareCommand(name: string | undefined, options: Share
       console.error(
         formatDim(
           `  Access stays active until revoked` +
-            (created.grant.allowBackend ? " · backend edits allowed" : " · web files only")
-        )
+            (created.grant.allowBackend ? " · backend edits allowed" : " · web files only"),
+        ),
       )
       console.error("")
       console.error(chalk.yellow("  ! Shown only once. Copy it now. Revoke anytime with 'siteio sites share revoke'."))
@@ -82,10 +86,7 @@ export async function sitesShareListCommand(name: string | undefined, options: S
   }
 }
 
-export async function sitesShareRevokeCommand(
-  id: string,
-  options: ShareOptions = {}
-): Promise<void> {
+export async function sitesShareRevokeCommand(id: string, options: ShareOptions = {}): Promise<void> {
   try {
     const server = getCurrentServer()
     const resolved = resolveSiteName(options.name, server?.domain ?? "")

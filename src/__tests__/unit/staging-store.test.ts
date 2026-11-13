@@ -1,9 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync } from "fs"
-import { join } from "path"
-import { tmpdir } from "os"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { unzipSync } from "fflate"
-import { StagingStore, MAX_STAGING_FILE_SIZE } from "../../lib/agent/staging-store.ts"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs"
+import { tmpdir } from "os"
+import { join } from "path"
+import { MAX_STAGING_FILE_SIZE, StagingStore } from "../../lib/agent/staging-store.ts"
 
 describe("Unit: StagingStore", () => {
   let dataDir: string

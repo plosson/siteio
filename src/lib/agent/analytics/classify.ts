@@ -14,7 +14,7 @@ export interface AccessLogEntry {
   Duration: number // nanoseconds
   ClientHost: string
   "request_User-Agent"?: string
-  "request_Referer"?: string
+  request_Referer?: string
   "downstream_Content-Type"?: string
   // Go canonicalizes header names, so CF-Connecting-IP is logged as Cf-Connecting-Ip.
   "request_Cf-Connecting-Ip"?: string
@@ -82,7 +82,8 @@ export function isPageview(e: AccessLogEntry): boolean {
   // Sites revalidate (no-cache), so a returning visitor's page load is a 304
   // with no content type: count it when the browser says it is a navigation.
   const html = (e["downstream_Content-Type"] ?? "").toLowerCase().startsWith("text/html")
-  const loaded = (statusClass(e.DownstreamStatus) === "2xx" && html) ||
+  const loaded =
+    (statusClass(e.DownstreamStatus) === "2xx" && html) ||
     (e.DownstreamStatus === 304 && e["request_Sec-Fetch-Dest"] === "document")
   if (!loaded) return false
   if (isBot(e["request_User-Agent"])) return false
@@ -114,7 +115,10 @@ const MAX_VALUE = 100
 function capValue(pair: string): string {
   const eq = pair.indexOf("=")
   if (eq === -1) return pair
-  const value = pair.slice(eq + 1).split(/[?;#]/)[0]!.slice(0, MAX_VALUE)
+  const value = pair
+    .slice(eq + 1)
+    .split(/[?;#]/)[0]!
+    .slice(0, MAX_VALUE)
   return `${pair.slice(0, eq + 1)}${value}`
 }
 

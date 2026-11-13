@@ -1,12 +1,12 @@
-import { test, expect } from "@playwright/test"
+import { expect, test } from "@playwright/test"
+import { strToU8, zipSync } from "fflate"
 import { mkdtempSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { zipSync, strToU8 } from "fflate"
-import { AgentServer } from "../../src/lib/agent/server"
 import { FakeRuntime } from "../../src/__tests__/helpers/fake-runtime"
+import type { ChatExecutor, ExecutorResult, ExecutorRunInput } from "../../src/lib/agent/chat/executor"
+import { AgentServer } from "../../src/lib/agent/server"
 import type { AgentConfig, ChatConfig } from "../../src/types"
-import type { ChatExecutor, ExecutorRunInput, ExecutorResult } from "../../src/lib/agent/chat/executor"
 
 // A deterministic stand-in for the real agent: streams a couple of events and
 // edits index.html so the controller detects a change and (fake-)deploys v2.
@@ -21,8 +21,14 @@ class FakeExecutor implements ChatExecutor {
 }
 
 const CHAT: ChatConfig = {
-  provider: "anthropic", model: "claude-sonnet-5", sandbox: false,
-  sandboxImage: "x", sandboxNetwork: "n", maxTurns: 5, timeoutMs: 5000, oauthToken: "tok",
+  provider: "anthropic",
+  model: "claude-sonnet-5",
+  sandbox: false,
+  sandboxImage: "x",
+  sandboxNetwork: "n",
+  maxTurns: 5,
+  timeoutMs: 5000,
+  oauthToken: "tok",
 }
 
 let server: AgentServer
@@ -33,8 +39,15 @@ test.beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), "siteio-chat-ui-"))
   const port = 4711
   const config: AgentConfig = {
-    domain: "test.example.com", apiKey: "right-key", dataDir, port, skipTraefik: true,
-    maxUploadSize: 50 * 1024 * 1024, httpPort: 80, httpsPort: 443, chat: CHAT,
+    domain: "test.example.com",
+    apiKey: "right-key",
+    dataDir,
+    port,
+    skipTraefik: true,
+    maxUploadSize: 50 * 1024 * 1024,
+    httpPort: 80,
+    httpsPort: 443,
+    chat: CHAT,
   }
   server = new AgentServer(config, new FakeRuntime(), { chatExecutor: new FakeExecutor() })
   await server.start()
@@ -49,7 +62,11 @@ test.beforeAll(async () => {
 
 test.afterAll(() => {
   server.stop()
-  try { rmSync(dataDir, { recursive: true, force: true }) } catch { /* ignore */ }
+  try {
+    rmSync(dataDir, { recursive: true, force: true })
+  } catch {
+    /* ignore */
+  }
 })
 
 test("chat tab shows empty state, active model, and example prompts", async ({ page, context }) => {
@@ -97,15 +114,22 @@ test("chat tab is hidden when a site reports chat disabled", async ({ page, cont
   const port2 = 4712
   const s2 = new AgentServer(
     {
-      domain: "off.example.com", apiKey: "k2", dataDir: dir2, port: port2, skipTraefik: true,
-      maxUploadSize: 50 * 1024 * 1024, httpPort: 80, httpsPort: 443,
+      domain: "off.example.com",
+      apiKey: "k2",
+      dataDir: dir2,
+      port: port2,
+      skipTraefik: true,
+      maxUploadSize: 50 * 1024 * 1024,
+      httpPort: 80,
+      httpsPort: 443,
     } as AgentConfig,
-    new FakeRuntime()
+    new FakeRuntime(),
   )
   await s2.start()
   try {
     await fetch(`http://127.0.0.1:${port2}/sites/demo`, {
-      method: "POST", headers: { "X-API-Key": "k2", "Content-Type": "application/zip" },
+      method: "POST",
+      headers: { "X-API-Key": "k2", "Content-Type": "application/zip" },
       body: zipSync({ "public/index.html": strToU8("<h1>Off</h1>") }),
     })
     await context.addInitScript(() => sessionStorage.setItem("siteio_api_key", "k2"))
@@ -114,6 +138,10 @@ test("chat tab is hidden when a site reports chat disabled", async ({ page, cont
     await expect(page.getByRole("button", { name: "Chat" })).toHaveCount(0)
   } finally {
     s2.stop()
-    try { rmSync(dir2, { recursive: true, force: true }) } catch { /* ignore */ }
+    try {
+      rmSync(dir2, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
   }
 })

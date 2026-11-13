@@ -1,9 +1,9 @@
-import ora from "ora"
 import chalk from "chalk"
-import { SiteioClient } from "../../lib/client.ts"
+import ora from "ora"
 import { getCurrentServer } from "../../config/loader.ts"
-import { formatSuccess } from "../../utils/output.ts"
+import { SiteioClient } from "../../lib/client.ts"
 import { handleError, ValidationError } from "../../utils/errors.ts"
+import { formatSuccess } from "../../utils/output.ts"
 import { resolveSiteName } from "../../utils/site-config.ts"
 
 function resolveOrThrow(name: string | undefined): string {
@@ -18,10 +18,7 @@ function resolveOrThrow(name: string | undefined): string {
   return resolved
 }
 
-export async function domainAddCommand(
-  domain: string,
-  options: { name?: string; json?: boolean }
-): Promise<void> {
+export async function domainAddCommand(domain: string, options: { name?: string; json?: boolean }): Promise<void> {
   const spinner = ora()
 
   try {
@@ -57,10 +54,7 @@ export async function domainAddCommand(
   }
 }
 
-export async function domainRemoveCommand(
-  domain: string,
-  options: { name?: string; json?: boolean }
-): Promise<void> {
+export async function domainRemoveCommand(domain: string, options: { name?: string; json?: boolean }): Promise<void> {
   const spinner = ora()
 
   try {
@@ -77,7 +71,10 @@ export async function domainRemoveCommand(
       process.exit(0)
     }
 
-    const updated = await client.updateSiteDomains(name, domains.filter((d) => d !== domain))
+    const updated = await client.updateSiteDomains(
+      name,
+      domains.filter((d) => d !== domain),
+    )
     spinner.succeed(`Removed domain ${domain} from ${name}`)
 
     if (options.json) {
@@ -94,9 +91,7 @@ export async function domainRemoveCommand(
   }
 }
 
-export async function domainListCommand(
-  options: { name?: string; json?: boolean }
-): Promise<void> {
+export async function domainListCommand(options: { name?: string; json?: boolean }): Promise<void> {
   const spinner = ora()
 
   try {

@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "fs"
-import { join } from "path"
 import { tmpdir } from "os"
-import { AgentServer } from "../../lib/agent/server"
+import { join } from "path"
 import { AppStorage } from "../../lib/agent/app-storage"
+import { AgentServer } from "../../lib/agent/server"
+import type { AgentConfig, ApiResponse, App } from "../../types"
 import { FakeRuntime } from "../helpers/fake-runtime"
 import { makeRepo, type TestRepo } from "../helpers/git-repo"
-import type { AgentConfig, ApiResponse, App } from "../../types"
 
 const API_KEY = "deploy-swap-test-key"
 
@@ -42,7 +42,7 @@ async function call<T>(method: string, path: string, body?: object): Promise<{ s
       method,
       headers: { "X-API-Key": API_KEY, ...(body && { "Content-Type": "application/json" }) },
       body: body ? JSON.stringify(body) : undefined,
-    })
+    }),
   )
   return { status: res.status, body: (await res.json()) as ApiResponse<T> }
 }
@@ -52,7 +52,12 @@ function methods(): string[] {
 }
 
 async function createGitApp(extra: object = {}): Promise<void> {
-  const res = await call("POST", "/apps", { name: "web", git: { repoUrl: repo.url, branch: "main" }, internalPort: 3000, ...extra })
+  const res = await call("POST", "/apps", {
+    name: "web",
+    git: { repoUrl: repo.url, branch: "main" },
+    internalPort: 3000,
+    ...extra,
+  })
   expect(res.status).toBe(200)
 }
 

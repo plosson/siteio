@@ -1,5 +1,5 @@
-import { describe, test, expect } from "bun:test"
-import { buildSslipDomain, isSslipDomain, buildCloudflareTokenUrl, getPublicIP } from "../../lib/cloudflare.ts"
+import { describe, expect, test } from "bun:test"
+import { buildCloudflareTokenUrl, buildSslipDomain, getPublicIP, isSslipDomain } from "../../lib/cloudflare.ts"
 
 describe("sslip.io helpers", () => {
   test("buildSslipDomain converts IP to sslip.io domain", () => {
