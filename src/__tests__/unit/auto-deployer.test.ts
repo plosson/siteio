@@ -283,15 +283,26 @@ describe("races and skips", () => {
     expect(state.lsCalls).toBe(0)
   })
 
-  test("off, missing mode, image and compose apps are never checked", async () => {
+  test("off, missing mode, image and uploaded compose apps are never checked", async () => {
     const { state, deployer } = harness([
       makeApp("off", { name: "a" }),
       makeApp(undefined, { name: "b" }),
       { ...makeApp(undefined, { name: "c" }), git: undefined },
-      makeApp("tag", { name: "d", compose: { source: "git", path: "dc.yml", primaryService: "web" } }),
+      makeApp("tag", { name: "d", compose: { source: "inline", primaryService: "web" } }),
     ])
     await deployer.tick()
     expect(state.lsCalls).toBe(0)
+  })
+
+  test("a git compose stack is checked and deployed like a single-container app", async () => {
+    const { state, deployer, app } = harness([
+      makeApp("commit", { commitHash: A, compose: { source: "git", path: "dc.yml", primaryService: "web" } }),
+    ])
+    state.refs = [{ ref: "refs/heads/main", sha: B }]
+    await deployer.tick()
+    expect(state.lsCalls).toBe(1)
+    expect(state.deploys).toEqual([{ name: "web", ref: undefined }])
+    expect(app().autoDeployRef).toBe(B)
   })
 
   test("overlapping ticks run one check", async () => {

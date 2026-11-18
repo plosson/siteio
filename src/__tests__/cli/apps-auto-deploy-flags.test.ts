@@ -27,9 +27,12 @@ describe("create --auto-deploy", () => {
     [{ image: "nginx" }, "--auto-deploy requires --git"],
     [{ file: "/tmp/Dockerfile" }, "--auto-deploy requires --git"],
     [{ composeFile: "/tmp/dc.yml", service: "web" }, "--auto-deploy requires --git"],
-    [{ git: GIT.repoUrl, compose: "dc.yml", service: "web" }, "not supported for compose apps"],
   ])("rejects %p", (options, message) => {
     expect(() => validateCreateOptions({ ...options, autoDeploy: "tag" })).toThrow(message)
+  })
+
+  test("accepts a compose stack from the git repo", () => {
+    expect(() => validateCreateOptions({ git: GIT.repoUrl, compose: "dc.yml", service: "web", autoDeploy: "commit" })).not.toThrow()
   })
 })
 
@@ -54,10 +57,16 @@ describe("set --auto-deploy", () => {
     expect(() => buildGitPatch({}, { autoDeploy: "tag" })).toThrow("non-git app")
   })
 
-  test("rejects a compose app", () => {
-    expect(() =>
+  test("accepts a compose stack from the git repo", () => {
+    expect(
       buildGitPatch({ git: GIT, compose: { source: "git", path: "dc.yml", primaryService: "web" } }, { autoDeploy: "tag" })
-    ).toThrow("not supported for compose apps")
+    ).toEqual({ autoDeploy: "tag" })
+  })
+
+  test("rejects an uploaded compose file", () => {
+    expect(() => buildGitPatch({ git: GIT, compose: { source: "inline", primaryService: "web" } }, { autoDeploy: "tag" })).toThrow(
+      "uploaded compose file"
+    )
   })
 
   test("a compose app can still change its git token", () => {

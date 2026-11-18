@@ -75,8 +75,8 @@ export function validateCreateOptions(options: CreateAppOptions): void {
     if (!hasGit) {
       throw new ValidationError("--auto-deploy requires --git")
     }
-    if (options.compose) {
-      throw new ValidationError("--auto-deploy is not supported for compose apps")
+    if (options.composeFile) {
+      throw new ValidationError("--auto-deploy is not supported with --compose-file: use --git with --compose")
     }
   }
 }

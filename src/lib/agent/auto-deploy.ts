@@ -1,7 +1,7 @@
 import type { App, AutoDeployMode } from "../../types"
 import { ValidationError } from "../../utils/errors"
 
-// Auto-deploy for single-container git apps: target selection (pure) and the
+// Auto-deploy for git apps (single-container or git compose stacks): target selection (pure) and the
 // poller. See docs/plans/2026-10-02-auto-deploy.md.
 
 export const AUTO_DEPLOY_MODES: readonly AutoDeployMode[] = ["off", "commit", "tag"]
@@ -110,10 +110,19 @@ export function shouldDeploy(
   return compareVersions(target.ref, app.autoDeployRef) > 0
 }
 
-/** Single-container git app with auto-deploy on. */
+/**
+ * True when an app can use auto-deploy: a git app, single-container or a
+ * compose stack from its repository. An uploaded compose file has no remote
+ * to poll.
+ */
+export function supportsAutoDeploy(app: Pick<App, "git" | "compose">): boolean {
+  return !!app.git && (!app.compose || app.compose.source === "git")
+}
+
+/** A git app (single-container or git compose stack) with auto-deploy on. */
 export function isAutoDeployable(app: Pick<App, "git" | "compose">): boolean {
   const mode = app.git?.autoDeploy
-  return !app.compose && isAutoDeployMode(mode) && mode !== "off"
+  return supportsAutoDeploy(app) && isAutoDeployMode(mode) && mode !== "off"
 }
 
 const DEFAULT_INTERVAL_SECONDS = 300

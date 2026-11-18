@@ -231,7 +231,7 @@ siteio apps deploy myapp
 
 \`siteio apps init ./myapp\` scaffolds a Dockerfile project with an AI guide.
 \`siteio apps create --help\` covers private Git repos.
-To redeploy a Git app automatically, run \`siteio apps set myapp --auto-deploy tag\` (each higher vX.Y.Z tag) or \`--auto-deploy commit\` (each new commit). A manual deploy still builds the branch. Not for compose apps.
+To redeploy a Git app automatically, run \`siteio apps set myapp --auto-deploy tag\` (each higher vX.Y.Z tag) or \`--auto-deploy commit\` (each new commit). A manual deploy still builds the branch. This works for a compose stack from a Git repo (\`--git ... --compose\`) too, but not for an uploaded compose file (\`--compose-file\`).
 
 ## Docker Compose apps
 

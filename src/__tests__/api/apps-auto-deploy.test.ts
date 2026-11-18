@@ -61,15 +61,27 @@ describe("create", () => {
     expect(new AppStorage(dir).exists("web")).toBe(false)
   })
 
-  test("rejects a git compose app", async () => {
+  test("stores the mode of a git compose stack", async () => {
     const res = await call<App>("POST", "/apps", {
       name: "stack",
       git: { ...GIT, autoDeploy: "commit" },
       composePath: "docker-compose.yml",
       primaryService: "web",
     })
+    expect(res.status).toBe(200)
+    expect(res.body.data?.git?.autoDeploy).toBe("commit")
+  })
+
+  test("rejects an uploaded compose file", async () => {
+    const res = await call<App>("POST", "/apps", {
+      name: "stack",
+      git: { ...GIT, autoDeploy: "commit" },
+      composeContent: "services:\n  web:\n    image: nginx\n",
+      primaryService: "web",
+    })
     expect(res.status).toBe(400)
-    expect(res.body.error).toContain("single-container git apps")
+    expect(res.body.error).toContain("only supported on git apps")
+    expect(new AppStorage(dir).exists("stack")).toBe(false)
   })
 })
 
@@ -82,11 +94,26 @@ describe("update", () => {
     expect(res.body.data?.git?.dockerfile).toBe("Dockerfile.prod")
   })
 
+  test("turns auto-deploy on for a git compose stack", async () => {
+    await call("POST", "/apps", { name: "stack", git: GIT, composePath: "docker-compose.yml", primaryService: "web" })
+    const res = await call<App>("PATCH", "/apps/stack", { git: { autoDeploy: "tag" } })
+    expect(res.status).toBe(200)
+    expect(res.body.data?.git?.autoDeploy).toBe("tag")
+  })
+
+  test("rejects an uploaded compose file", async () => {
+    await call("POST", "/apps", { name: "up", composeContent: "services:\n  web:\n    image: nginx\n", primaryService: "web" })
+    const res = await call<App>("PATCH", "/apps/up", { git: { autoDeploy: "commit" } })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toContain("only supported on git apps")
+    expect(new AppStorage(dir).get("up")?.git?.autoDeploy).toBeUndefined()
+  })
+
   test("rejects an image app", async () => {
     await call("POST", "/apps", { name: "img", image: "nginx" })
     const res = await call<App>("PATCH", "/apps/img", { git: { autoDeploy: "tag" } })
     expect(res.status).toBe(400)
-    expect(res.body.error).toContain("single-container git apps")
+    expect(res.body.error).toContain("only supported on git apps")
     expect(new AppStorage(dir).get("img")?.git).toBeUndefined()
   })
 
