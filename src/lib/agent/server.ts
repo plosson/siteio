@@ -36,7 +36,7 @@ import { assertSafePublicUrl } from "../../utils/ssrf.ts"
 import { SiteioError, ValidationError } from "../../utils/errors.ts"
 import { hasLegacySites, migrateLegacySites } from "./legacy-migration.ts"
 import { assertValidSiteEnvKeys, publicEnv, sameEnv, type EnvUpdate } from "./env.ts"
-import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval } from "./auto-deploy.ts"
+import { AUTO_DEPLOY_MODES, AutoDeployer, isAutoDeployMode, parseAutoDeployInterval, supportsAutoDeploy } from "./auto-deploy.ts"
 import { UserStore } from "./user-store.ts"
 import { SESSION_COOKIE, userFitsHost, type Auth } from "./auth.ts"
 import { errorResponse, jsonResponse } from "./http.ts"
@@ -304,8 +304,10 @@ export class AgentServer {
         },
         lsRemote: (url, patterns, token) => this.git.lsRemote(url, patterns, token),
         deploy: async (name, ref) => {
-          if (this.appStorage.get(name)?.status === "stopped") throw new DeployError(this.stoppedMessage("app", name, null), 409)
-          await this.deployContainerApp(name, { ref })
+          const app = this.appStorage.get(name)
+          if (app?.status === "stopped") throw new DeployError(this.stoppedMessage("app", name, null), 409)
+          if (app?.compose) await this.deployComposeApp(app, { ref })
+          else await this.deployContainerApp(name, { ref })
         },
         isDeploying: (name) => this.isDeploying(name),
         log: (line) => console.log(`> ${line}`),
@@ -979,8 +981,8 @@ export class AgentServer {
         if (!isAutoDeployMode(body.git.autoDeploy)) {
           return this.error(`autoDeploy must be one of: ${AUTO_DEPLOY_MODES.join(", ")}`)
         }
-        if (hasCompose) {
-          return this.error("autoDeploy is only supported on single-container git apps")
+        if (body.composeContent) {
+          return this.error("autoDeploy is only supported on git apps: an uploaded compose file has no repository to watch")
         }
       }
 
@@ -1102,16 +1104,17 @@ export class AgentServer {
         }
       }
 
-      // Auto-deploy only runs single-container git apps. A new mode, repository
-      // or branch starts from a clean poller state.
+      // Auto-deploy only runs git apps: single-container, or a compose stack
+      // from the repository. A new mode, repository or branch starts from a
+      // clean poller state.
       const incomingGit = body.git as { autoDeploy?: unknown; repoUrl?: unknown; branch?: unknown } | undefined
       const autoDeploy = incomingGit?.autoDeploy
       if (autoDeploy !== undefined) {
         if (!isAutoDeployMode(autoDeploy)) {
           return this.error(`autoDeploy must be one of: ${AUTO_DEPLOY_MODES.join(", ")}`)
         }
-        if (!app.git || app.compose) {
-          return this.error("autoDeploy is only supported on single-container git apps")
+        if (!supportsAutoDeploy(app)) {
+          return this.error("autoDeploy is only supported on git apps: single-container, or a compose stack from the repository")
         }
       }
       const changed = (incoming: unknown, current: unknown) => incoming !== undefined && incoming !== current
@@ -1255,7 +1258,7 @@ export class AgentServer {
     const deployedBy = this.requestUser(req)
     try {
       if (app.compose) {
-        const { updated, warnings } = await this.deployComposeApp(app, deployedBy)
+        const { updated, warnings } = await this.deployComposeApp(app, { deployedBy })
         return this.json({ ...this.appView(updated, scope), url: this.appStorage.url(updated, this.tenants), warnings })
       }
       const updated = await this.deployContainerApp(name, { noCache, dockerfileContent: newDockerfileContent, deployedBy })
@@ -1333,11 +1336,32 @@ export class AgentServer {
 
   /**
    * Deploy a compose app: (re)write the siteio override and bring the project
-   * up. Throws DeployError.
+   * up. `ref` overrides the git branch of a git stack (a tag, for
+   * auto-deploy). Throws DeployError.
    */
-  private async deployComposeApp(app: App, deployedBy?: string): Promise<{ updated: App; warnings: string[] }> {
+  async deployComposeApp(
+    app: App,
+    opts: { ref?: string; deployedBy?: string } = {}
+  ): Promise<{ updated: App; warnings: string[] }> {
     const { name, compose } = app
+    const { deployedBy } = opts
     if (!compose) throw new DeployError("Not a compose app", 400)
+    if (this.deploying.has(name)) throw new DeployError("Deploy already in progress", 409)
+    this.deploying.add(name)
+    try {
+      return await this.deployComposeAppLocked(app, compose, opts.ref, deployedBy)
+    } finally {
+      this.deploying.delete(name)
+    }
+  }
+
+  private async deployComposeAppLocked(
+    app: App,
+    compose: NonNullable<App["compose"]>,
+    ref: string | undefined,
+    deployedBy: string | undefined
+  ): Promise<{ updated: App; warnings: string[] }> {
+    const { name } = app
     if (!this.docker.isAvailable()) throw new DeployError("Docker is not available", 500)
     try {
       // Ensure Traefik can reach the service
@@ -1346,7 +1370,7 @@ export class AgentServer {
       // Resolve base compose file (git stacks are cloned first)
       if (compose.source === "git") {
         if (!app.git) throw new DeployError("Git source missing on compose app", 500)
-        await this.git.clone(name, app.git.repoUrl, app.git.branch, app.git.token)
+        await this.git.clone(name, app.git.repoUrl, ref ?? app.git.branch, app.git.token)
       }
       const basePath = this.composeBasePath(app)
       if (!existsSync(basePath)) {
@@ -1365,6 +1389,7 @@ export class AgentServer {
         containerId,
         deployedAt: new Date().toISOString(),
         lastBuildAt: new Date().toISOString(),
+        autoDeployError: undefined,
         ...(commitHash && { commitHash }),
       })
       if (!updated) throw new DeployError("App not found", 404)

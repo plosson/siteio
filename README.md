@@ -189,7 +189,7 @@ siteio apps deploy myapi --no-cache
 
 #### Auto-deploy
 
-A git app can redeploy itself. The agent checks the repository every 5 minutes;
+A git app, or a compose stack from a git repo, can redeploy itself. The agent checks the repository every 5 minutes;
 nothing has to change in the repository.
 
 ```bash
@@ -207,7 +207,7 @@ siteio apps set myapi --auto-deploy off
 - A manual `siteio apps deploy` still builds the branch HEAD. Use it to deploy a pre-release.
 - A failed build leaves the running version up and is not retried until a newer
   commit or tag appears. `siteio apps info` shows the error.
-- Compose apps are not supported.
+- A compose stack from a git repo (`--git ... --compose`) works the same way: the agent clones the commit or the tag and runs `docker compose up` again. An uploaded compose file (`--compose-file`) is not supported, because the agent has no repository to check.
 - Set the interval with `SITEIO_AUTODEPLOY_INTERVAL` (seconds, default 300, minimum 60) on the agent, or with `autoDeployInterval` in the agent's `agent-config.json`. The env var wins when set and not empty.
 
 ### Example 3: Monorepo Deployment

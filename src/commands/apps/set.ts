@@ -63,8 +63,8 @@ export function buildGitPatch(
   if (!current.git) {
     throw new ValidationError("Cannot set --dockerfile, --git-token or --auto-deploy on a non-git app")
   }
-  if (autoDeploy !== undefined && current.compose) {
-    throw new ValidationError("--auto-deploy is not supported for compose apps")
+  if (autoDeploy !== undefined && current.compose && current.compose.source !== "git") {
+    throw new ValidationError("--auto-deploy is not supported for an uploaded compose file: create the app with --git and --compose")
   }
   const patch: { dockerfile?: string; token?: string; autoDeploy?: AutoDeployMode } = {}
   if (options.dockerfile) {

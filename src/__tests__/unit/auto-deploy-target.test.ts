@@ -195,13 +195,18 @@ describe("isAutoDeployable", () => {
     expect(isAutoDeployable({ git: { ...git, autoDeploy: "tag" } })).toBe(true)
   })
 
-  test("off, missing mode, no git, or compose", () => {
+  test("off, missing mode, no git, or an uploaded compose file", () => {
     expect(isAutoDeployable({ git: { ...git, autoDeploy: "off" } })).toBe(false)
     expect(isAutoDeployable({ git })).toBe(false)
     expect(isAutoDeployable({})).toBe(false)
+    expect(isAutoDeployable({ git: { ...git, autoDeploy: "tag" }, compose: { source: "inline", primaryService: "web" } })).toBe(false)
+  })
+
+  test("a compose stack from the git repo", () => {
     expect(
       isAutoDeployable({ git: { ...git, autoDeploy: "tag" }, compose: { source: "git", path: "dc.yml", primaryService: "web" } })
-    ).toBe(false)
+    ).toBe(true)
+    expect(isAutoDeployable({ git, compose: { source: "git", path: "dc.yml", primaryService: "web" } })).toBe(false)
   })
 
   test("a corrupted mode value in storage is not deployable", () => {
