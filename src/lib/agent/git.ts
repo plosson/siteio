@@ -105,10 +105,12 @@ async function runGit(
   return { exitCode, stdout, stderr }
 }
 
-// `git clone` argv for a shallow clone of `ref`. The `--` keeps a URL that
-// starts with '-' from being read as an option.
+// `git clone` argv for a shallow clone of `ref`, with its submodules, shallow
+// too, at the commits the repo records (a private one gets the same token,
+// through GIT_ASKPASS). The `--` keeps a URL that starts with '-' from being
+// read as an option.
 export function cloneArgs(url: string, ref: string, targetDir: string): string[] {
-  return ["clone", "--depth", "1", "--branch", ref, "--", url, targetDir]
+  return ["clone", "--depth", "1", "--recurse-submodules", "--shallow-submodules", "--branch", ref, "--", url, targetDir]
 }
 
 function seconds(ms: number): number {
