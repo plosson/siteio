@@ -54,6 +54,14 @@ function siteioAdmin() {
     selectedSite: null, selectedApp: null,
     siteHistory: null,
 
+    // server stats (GET /stats)
+    stats: null, statsRange: "24h", statsHover: null, statsTimer: null,
+    statsMetrics: [
+      { key: "cpu", label: "CPU" },
+      { key: "mem", label: "Memory" },
+      { key: "disk", label: "Disk" },
+    ],
+
     // chat (AI editor)
     chatMessages: null, chatStatus: null, chatInput: "",
     chatStreaming: false, chatLiveText: "", chatLiveTools: [], chatLiveStatus: "",
@@ -108,6 +116,7 @@ function siteioAdmin() {
       // When leaving a logs tab (or any view change), stop any poll
       if (this.route.subtab === "logs" && subtab !== "logs") this.stopLogsPoll()
       if (this.route.subtab === "chat" && subtab !== "chat") this.stopChatPoll()
+      if (this.route.view === "server" && view !== "server") this.stopStatsPoll()
       this.route = { view, param, subtab }
       if (this.authed) this.onRouteEnter()
     },
@@ -121,6 +130,7 @@ function siteioAdmin() {
       }
       if (this.route.view === "services") this.loadServices()
       if (this.route.view === "settings") this.loadAgentInfo()
+      if (this.route.view === "server") this.startStatsPoll()
       if (this.route.view === "account") this.loadMyKeys()
       if (this.route.view !== "users") this.shownPassword = null
       if (this.route.view === "users") {
@@ -577,6 +587,101 @@ function siteioAdmin() {
       } finally {
         this._pendDel("agent-info")
       }
+    },
+
+    // --- Server stats ---
+    async loadStats() {
+      this._pendAdd("stats")
+      try {
+        const res = await this.apiFetch("/stats?range=" + this.statsRange)
+        const body = await res.json()
+        if (body.success) this.stats = body.data
+        else this.toast("error", body.error || "Failed to load server stats")
+      } catch (err) {
+        if (err && err.message !== "Unauthenticated") this.toast("error", "Could not reach server")
+      } finally {
+        this._pendDel("stats")
+      }
+    },
+
+    setStatsRange(range) {
+      this.statsRange = range
+      this.statsHover = null
+      this.loadStats()
+    },
+
+    // The agent samples once a minute; refresh at the same pace while the page is visible.
+    startStatsPoll() {
+      this.stopStatsPoll()
+      this.loadStats()
+      this.statsTimer = setInterval(() => { if (!document.hidden) this.loadStats() }, 60000)
+    },
+
+    stopStatsPoll() {
+      if (this.statsTimer) clearInterval(this.statsTimer)
+      this.statsTimer = null
+      this.statsHover = null
+    },
+
+    pct(used, total) { return total > 0 ? (used / total) * 100 : 0 },
+
+    statsValue(m, s) {
+      if (m.key === "cpu") return s.cpu
+      if (m.key === "mem") return this.pct(s.memUsed, s.memTotal)
+      return this.pct(s.diskUsed, s.diskTotal)
+    },
+
+    statsX(i) {
+      const s = this.stats.samples
+      const t0 = s[0].at, span = s[s.length - 1].at - t0 || 1
+      return ((s[i].at - t0) / span) * 600
+    },
+
+    // The line (or the area under it) on a fixed 0–100% scale. A gap of more
+    // than three sample spacings (the agent was down) breaks the line.
+    statsPath(m, area) {
+      const s = this.stats.samples
+      const gap = 3 * Math.max(this.stats.intervalSeconds * 1000, (s[s.length - 1].at - s[0].at) / (s.length - 1))
+      const runs = [[]]
+      s.forEach((p, i) => {
+        if (i > 0 && p.at - s[i - 1].at > gap) runs.push([])
+        const v = Math.min(100, Math.max(0, this.statsValue(m, p)))
+        runs[runs.length - 1].push([this.statsX(i), 120 - v * 1.2])
+      })
+      return runs.filter((r) => r.length).map((r) => {
+        const line = "M" + r.map(([x, y]) => x.toFixed(1) + "," + y.toFixed(1)).join("L")
+        return area ? line + "L" + r[r.length - 1][0].toFixed(1) + ",120L" + r[0][0].toFixed(1) + ",120Z" : line
+      }).join("")
+    },
+
+    // Hover: the sample nearest the pointer, in every chart at once.
+    statsHoverAt(ev) {
+      const box = ev.currentTarget.getBoundingClientRect()
+      const s = this.stats.samples
+      const t = s[0].at + ((ev.clientX - box.left) / box.width) * (s[s.length - 1].at - s[0].at)
+      let best = 0
+      s.forEach((p, i) => { if (Math.abs(p.at - t) < Math.abs(s[best].at - t)) best = i })
+      this.statsHover = best
+    },
+
+    statsHoverText(m) {
+      const s = this.stats && this.stats.samples[this.statsHover]
+      if (!s) return ""
+      let text = this.statsValue(m, s).toFixed(0) + "%"
+      if (m.key === "mem") text += " · " + this.formatBytes(s.memUsed)
+      if (m.key === "disk") text += " · " + this.formatBytes(s.diskUsed)
+      return this.formatStatsTime(s.at) + " · " + text
+    },
+
+    formatStatsTime(ms) {
+      const d = new Date(ms)
+      const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      return this.statsRange === "7d" ? d.toLocaleDateString([], { weekday: "short" }) + " " + time : time
+    },
+
+    formatDuration(secs) {
+      const d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600), m = Math.floor((secs % 3600) / 60)
+      return d > 0 ? d + "d " + h + "h" : h > 0 ? h + "h " + m + "m" : m + "m"
     },
 
     filteredServices() {

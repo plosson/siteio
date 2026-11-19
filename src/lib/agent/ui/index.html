@@ -68,6 +68,11 @@
           <a href="#/settings" :class="navClass('settings')">
             <i class="hgi hgi-stroke hgi-settings-02"></i> Settings
           </a>
+          <template x-if="isAdmin()">
+            <a href="#/server" :class="navClass('server')">
+              <i class="hgi hgi-stroke hgi-activity"></i> Server
+            </a>
+          </template>
           <template x-if="canManageUsers()">
             <a href="#/users" :class="navClass('users')">
               <i class="hgi hgi-stroke hgi-user-group"></i> Users
@@ -434,6 +439,88 @@
                     <li><span class="label">HTTP / HTTPS</span><span class="value mono" x-text="agentInfo.httpPort + ' / ' + agentInfo.httpsPort"></span></li>
                     <li><span class="label">Max upload</span><span class="value mono" x-text="formatBytes(agentInfo.maxUploadSize)"></span></li>
                   </ul>
+                </div>
+              </template>
+            </section>
+          </template>
+
+          <!-- Server: CPU, memory, disk and load of the host (admin only) -->
+          <template x-if="route.view === 'server'">
+            <section>
+              <div class="pane-head">
+                <div class="title"><h1>Server</h1></div>
+                <div class="tools">
+                  <div class="seg" role="group" aria-label="Range">
+                    <template x-for="r in ['1h', '24h', '7d']" :key="r">
+                      <button @click="setStatsRange(r)" :class="statsRange === r ? 'on' : ''" :aria-pressed="statsRange === r" x-text="r"></button>
+                    </template>
+                  </div>
+                  <button @click="loadStats()" :disabled="pending.has('stats')" class="button">
+                    <i class="hgi hgi-stroke hgi-refresh"></i> Refresh
+                  </button>
+                </div>
+              </div>
+
+              <template x-if="stats === null">
+                <div class="loading">Loading server stats…</div>
+              </template>
+
+              <template x-if="stats">
+                <div>
+                  <p class="stats-host">
+                    <span class="mono" x-text="stats.hostname"></span>
+                    · <span x-text="stats.cores + (stats.cores === 1 ? ' core' : ' cores')"></span>
+                    · up <span x-text="formatDuration(stats.uptime)"></span>
+                  </p>
+                  <div class="stat-tiles">
+                    <div class="stat-tile">
+                      <span class="label">CPU</span>
+                      <span class="value" x-text="stats.current.cpu.toFixed(0) + '%'"></span>
+                      <span class="sub" x-text="'load ' + stats.current.load1.toFixed(2)"></span>
+                    </div>
+                    <div class="stat-tile">
+                      <span class="label">Memory</span>
+                      <span class="value" x-text="pct(stats.current.memUsed, stats.current.memTotal).toFixed(0) + '%'"></span>
+                      <span class="sub" x-text="formatBytes(stats.current.memUsed) + ' of ' + formatBytes(stats.current.memTotal)"></span>
+                    </div>
+                    <div class="stat-tile">
+                      <span class="label">Disk</span>
+                      <span class="value" x-text="pct(stats.current.diskUsed, stats.current.diskTotal).toFixed(0) + '%'"></span>
+                      <span class="sub" x-text="formatBytes(stats.current.diskUsed) + ' of ' + formatBytes(stats.current.diskTotal)"></span>
+                    </div>
+                  </div>
+
+                  <template x-if="stats.samples.length < 2">
+                    <div class="empty-state">History builds up over time: the agent records a sample every minute.</div>
+                  </template>
+
+                  <template x-if="stats.samples.length >= 2">
+                    <div class="stat-charts">
+                      <template x-for="m in statsMetrics" :key="m.key">
+                        <div class="card stat-chart">
+                          <div class="card-head">
+                            <h3 x-text="m.label"></h3>
+                            <span class="muted mono" x-text="statsHoverText(m) || ''"></span>
+                          </div>
+                          <div class="card-body">
+                            <svg viewBox="0 0 600 120" preserveAspectRatio="none" role="img"
+                                 :aria-label="m.label + ' over the last ' + statsRange"
+                                 @mousemove="statsHoverAt($event)" @mouseleave="statsHover = null">
+                              <line class="grid" x1="0" x2="600" y1="60" y2="60" vector-effect="non-scaling-stroke" />
+                              <path class="area" :d="statsPath(m, true)" />
+                              <path class="line" :d="statsPath(m, false)" vector-effect="non-scaling-stroke" />
+                              <line class="cross" x-show="statsHover !== null" :x1="statsHover !== null ? statsX(statsHover) : 0" :x2="statsHover !== null ? statsX(statsHover) : 0" y1="0" y2="120" vector-effect="non-scaling-stroke" />
+                            </svg>
+                            <div class="axis">
+                              <span x-text="formatStatsTime(stats.samples[0].at)"></span>
+                              <span>0–100%</span>
+                              <span x-text="formatStatsTime(stats.samples[stats.samples.length - 1].at)"></span>
+                            </div>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
                 </div>
               </template>
             </section>
