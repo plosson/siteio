@@ -39,7 +39,7 @@ describe("cloneErrorMessage", () => {
 describe("cloneArgs", () => {
   test("a URL is never read as an option", () => {
     const args = cloneArgs("-uhttps://x", "main", "/data/repos/app")
-    expect(args).toEqual(["clone", "--depth", "1", "--branch", "main", "--", "-uhttps://x", "/data/repos/app"])
+    expect(args).toEqual(["clone", "--depth", "1", "--recurse-submodules", "--shallow-submodules", "--branch", "main", "--", "-uhttps://x", "/data/repos/app"])
   })
 })
 
@@ -80,6 +80,54 @@ describe("GitManager", () => {
       expect(existsSync(join(repoPath, ".git"))).toBe(true)
       expect(existsSync(join(repoPath, "README"))).toBe(true)
     }, 15000)
+
+    // Local remotes stand in for GitHub: file:// submodules must be allowed,
+    // and a submodule's remote must serve a commit that is not a branch tip,
+    // as GitHub does (uploadpack.allowReachableSHA1InWant).
+    function withSubmodule(root: string, pinOlder: boolean): { url: string; expected: string } {
+      const sub = makeRepo(join(root, "sub"))
+      const older = sub.commit("older")
+      sub.commit("newer")
+      sub.push()
+      gitIn(sub.bare, "symbolic-ref", "HEAD", "refs/heads/main")
+      gitIn(sub.bare, "config", "uploadpack.allowReachableSHA1InWant", "true")
+      const main = makeRepo(join(root, "main"))
+      gitIn(main.work, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub.url, "vendor/sub")
+      if (pinOlder) {
+        gitIn(join(main.work, "vendor/sub"), "checkout", "-q", older)
+        gitIn(main.work, "add", "vendor/sub")
+      }
+      gitIn(main.work, "commit", "-q", "-m", "add submodule")
+      main.push()
+      return { url: main.url, expected: pinOlder ? older : gitIn(sub.bare, "rev-parse", "main") }
+    }
+
+    function gitIn(cwd: string, ...args: string[]): string {
+      const r = Bun.spawnSync({ cmd: ["git", ...args], cwd, stdout: "pipe", stderr: "pipe", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } })
+      if (r.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr.toString()}`)
+      return r.stdout.toString().trim()
+    }
+
+    for (const pinOlder of [false, true]) {
+      test(`checks out submodules at the commit the repo records (${pinOlder ? "an older commit" : "the branch tip"})`, async () => {
+        const { url, expected } = withSubmodule(join(tempDir, "remotes"), pinOlder)
+        const saved = { ...process.env }
+        Object.assign(process.env, { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "protocol.file.allow", GIT_CONFIG_VALUE_0: "always" })
+        try {
+          await git.clone("with-sub", url, "main")
+        } finally {
+          for (const key of ["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"]) {
+            if (saved[key] === undefined) delete process.env[key]
+            else process.env[key] = saved[key]
+          }
+        }
+        const checkout = join(git.repoPath("with-sub"), "vendor/sub")
+        expect(existsSync(join(checkout, "Dockerfile"))).toBe(true)
+        expect(gitIn(checkout, "rev-parse", "HEAD")).toBe(expected)
+        // Shallow: the submodule holds its one commit, not its history.
+        expect(gitIn(checkout, "rev-list", "--count", "HEAD")).toBe("1")
+      }, 30000)
+    }
 
     test("throws error for non-existent repository", async () => {
       await expect(
