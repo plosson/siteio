@@ -273,6 +273,32 @@ USER app
     })
   })
 
+  describe("removeUnusedImage, against Docker", () => {
+    test("keeps an image a container uses, removes it once unused, and an absent one is no error", async () => {
+      if (!isDockerAvailable()) {
+        console.log("Test skipped: Docker not available")
+        return
+      }
+      const tag = `siteio-rmi-test-${Date.now()}:latest`
+      const contextDir = join(testDir, "rmi-ctx")
+      mkdirSync(contextDir, { recursive: true })
+      writeFileSync(join(contextDir, "Dockerfile"), "FROM alpine:latest\nLABEL siteio.test=rmi\n")
+      await docker.build({ contextPath: contextDir, dockerfilePath: join(contextDir, "Dockerfile"), tag })
+      const container = `siteio-rmi-test-${Date.now()}`
+      Bun.spawnSync({ cmd: ["docker", "create", "--name", container, tag], stdout: "pipe", stderr: "pipe" })
+      try {
+        // A stopped container still uses its image: kept.
+        expect(await docker.removeUnusedImage(tag)).toBe(false)
+        expect(docker.imageExists(tag)).toBe(true)
+      } finally {
+        Bun.spawnSync({ cmd: ["docker", "rm", "-f", container], stdout: "pipe", stderr: "pipe" })
+      }
+      expect(await docker.removeUnusedImage(tag)).toBe(true)
+      expect(docker.imageExists(tag)).toBe(false)
+      expect(await docker.removeUnusedImage(tag)).toBe(false)
+    }, 120000)
+  })
+
   describe("buildTraefikLabels", () => {
     test("builds Traefik host and TLS labels", () => {
       const labels = docker.buildTraefikLabels("myapp", ["myapp.example.com"], 80)

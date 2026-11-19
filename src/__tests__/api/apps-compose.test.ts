@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
@@ -260,6 +260,77 @@ describe("API: Apps (compose)", () => {
       expect(app.status).toBe("running")
       expect(runtime.callsOf("composeRestart")).toHaveLength(1)
       expect(runtime.callsOf("restart")).toHaveLength(0)
+    })
+
+    describe("removing the images the stack built", () => {
+      afterEach(() => {
+        runtime.composeConfigReturn = { services: { web: {} } }
+        runtime.composeConfigError = null
+        runtime.removeUnusedImageError = null
+        runtime.imagesInUse.clear()
+      })
+
+      test("delete removes the images the stack built, after down, and only those", async () => {
+        await setup("imgapp")
+        runtime.composeConfigReturn = {
+          services: {
+            web: { build: { context: "." }, image: "imgapp-web:latest" },
+            worker: { build: { context: "." } },
+            db: { image: "postgres:17-alpine" },
+          },
+        }
+        const r = await req("DELETE", "/apps/imgapp")
+        expect(r.status).toBeLessThan(300)
+        const order = runtime.calls.map((c) => c.method).filter((m) => ["composeConfig", "composeDown", "removeUnusedImage"].includes(m))
+        expect(order).toEqual(["composeConfig", "composeDown", "removeUnusedImage", "removeUnusedImage"])
+        expect(runtime.callsOf("removeUnusedImage").map((c) => c.args[0]).sort()).toEqual(["imgapp-web:latest", "siteio-imgapp-worker"])
+        // Never forced: removeImage (docker rmi -f) is not used for a stack.
+        expect(runtime.callsOf("removeImage")).toHaveLength(0)
+      })
+
+      test("delete keeps an image another app still uses, and still removes the app", async () => {
+        await setup("sharedimg")
+        runtime.composeConfigReturn = { services: { web: { build: { context: "." }, image: "shared:latest" } } }
+        runtime.imagesInUse.add("shared:latest")
+        try {
+          const r = await req("DELETE", "/apps/sharedimg")
+          expect(r.status).toBeLessThan(300)
+          expect(runtime.callsOf("removeUnusedImage").map((c) => c.args[0])).toEqual(["shared:latest"])
+          expect((await req("GET", "/apps/sharedimg")).status).toBe(404)
+        } finally {
+          runtime.imagesInUse.clear()
+        }
+      })
+
+      test("delete removes no image when the config cannot be read, and still removes the app", async () => {
+        await setup("noconfig")
+        runtime.composeConfigError = new Error("compose file is gone")
+        try {
+          const r = await req("DELETE", "/apps/noconfig")
+          expect(r.status).toBeLessThan(300)
+          expect(runtime.callsOf("removeUnusedImage")).toHaveLength(0)
+          expect(runtime.callsOf("composeDown")).toHaveLength(1)
+          expect((await req("GET", "/apps/noconfig")).status).toBe(404)
+        } finally {
+          runtime.composeConfigError = null
+        }
+      })
+
+      test("an image that fails to go does not keep the app, nor the other images", async () => {
+        await setup("rmifail")
+        runtime.composeConfigReturn = { services: { a: { build: "." , image: "a:1" }, b: { build: ".", image: "b:1" } } }
+        runtime.removeUnusedImageError = new Error("daemon hiccup")
+        try {
+          const r = await req("DELETE", "/apps/rmifail")
+          expect(r.status).toBeLessThan(300)
+          expect(runtime.callsOf("removeUnusedImage")).toHaveLength(2)
+          expect((await req("GET", "/apps/rmifail")).status).toBe(404)
+          expect(existsSync(join(testDir, "compose", "rmifail"))).toBe(false)
+        } finally {
+          runtime.removeUnusedImageError = null
+        }
+      })
+
     })
 
     test("delete invokes composeDown and removes compose dir + metadata", async () => {
