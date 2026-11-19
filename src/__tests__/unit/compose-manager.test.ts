@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test"
-import { ComposeManager, composeWarnings, parsePsOutput } from "../../lib/agent/compose"
+import { ComposeManager, builtImages, composeWarnings, parsePsOutput } from "../../lib/agent/compose"
 
 describe("Unit: ComposeManager.buildArgs", () => {
   const cm = new ComposeManager()
@@ -228,5 +228,39 @@ describe("Unit: composeWarnings", () => {
   test("tolerates null services and malformed volume entries", () => {
     const spec = { services: { web: null, db: { volumes: "nope" } } } as unknown as Parameters<typeof composeWarnings>[0]
     expect(composeWarnings(spec, "web", root)).toEqual([])
+  })
+})
+
+describe("Unit: builtImages", () => {
+  test("a built service is named by its image, else as Compose names it", () => {
+    const spec = {
+      services: {
+        master: { build: { context: "." }, image: "ida-nexus-master:latest" },
+        git: { build: "./git" },
+        web: { build: { context: "." }, image: "" },
+      },
+    }
+    expect(builtImages(spec, "siteio-teams").sort()).toEqual(["ida-nexus-master:latest", "siteio-teams-git", "siteio-teams-web"])
+  })
+
+  test("a pulled image is never the stack's own: other apps may use it", () => {
+    const spec = { services: { db: { image: "postgres:17-alpine" }, edge: { image: "caddy:2.11.9" }, bare: {} } }
+    expect(builtImages(spec, "siteio-x")).toEqual([])
+  })
+
+  test("services sharing one built image name it once", () => {
+    const spec = {
+      services: {
+        api: { build: { context: "." }, image: "indexer:local" },
+        worker: { build: { context: "." }, image: "indexer:local" },
+      },
+    }
+    expect(builtImages(spec, "siteio-indexer")).toEqual(["indexer:local"])
+  })
+
+  test("odd shapes give nothing rather than a guess", () => {
+    expect(builtImages({ services: {} }, "p")).toEqual([])
+    expect(builtImages({ services: { a: null, b: "x", c: { build: null }, d: { build: "" } } } as never, "p")).toEqual([])
+    expect(builtImages({} as never, "p")).toEqual([])
   })
 })

@@ -103,6 +103,16 @@ export class FakeRuntime implements Runtime {
     this.record("remove", [appName])
   }
 
+  // Images a container still uses: removeUnusedImage keeps them.
+  imagesInUse = new Set<string>()
+  removeUnusedImageError: Error | null = null
+
+  async removeUnusedImage(tag: string): Promise<boolean> {
+    this.record("removeUnusedImage", [tag])
+    if (this.removeUnusedImageError) throw this.removeUnusedImageError
+    return !this.imagesInUse.has(tag)
+  }
+
   async removeImage(tag: string): Promise<void> {
     this.record("removeImage", [tag])
   }

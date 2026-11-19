@@ -23,6 +23,21 @@ export interface ComposeSpec {
   volumes?: Record<string, unknown>
 }
 
+/**
+ * The images a stack builds itself: each service with `build:`, named by its
+ * `image:` or, without one, as Compose names it (`<project>-<service>`).
+ * Pulled images (no `build:`) are not the stack's own: other apps may use them.
+ */
+export function builtImages(spec: ComposeSpec, project: string): string[] {
+  const images = new Set<string>()
+  for (const [name, service] of Object.entries(spec.services || {})) {
+    if (!service || typeof service !== "object" || !("build" in service) || !(service as { build?: unknown }).build) continue
+    const image = (service as { image?: unknown }).image
+    images.add(typeof image === "string" && image !== "" ? image : `${project}-${name}`)
+  }
+  return [...images]
+}
+
 /** Error message when the resolved config has no such service, else null. */
 export function missingPrimaryService(spec: ComposeSpec, primaryService: string): string | null {
   if (spec.services?.[primaryService]) return null

@@ -482,6 +482,22 @@ export class DockerManager implements Runtime {
     }
   }
 
+  /**
+   * Remove an image unless a container still uses it: no -f, so Docker
+   * refuses an image another app's container runs or keeps.
+   */
+  async removeUnusedImage(tag: string): Promise<boolean> {
+    const result = spawnSync({
+      cmd: ["docker", "rmi", tag],
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    if (result.exitCode === 0) return true
+    const stderr = result.stderr.toString()
+    if (/No such image|conflict|is being used|is using its referenced image/i.test(stderr)) return false
+    throw new SiteioError(`Failed to remove image ${tag}: ${stderr}`)
+  }
+
   composeConfig(project: string, files: string[], envFile?: string): Promise<ComposeSpec> {
     return this.compose.config(project, files, envFile)
   }

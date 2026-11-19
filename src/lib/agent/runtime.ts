@@ -42,6 +42,9 @@ export interface Runtime {
   setRestartPolicy(container: string, policy: string): Promise<void>
   remove(appName: string): Promise<void>
   removeImage(tag: string): Promise<void>
+  // Removes the image unless a container (any app's) still uses it; true when
+  // it was removed, false when it is in use or already gone.
+  removeUnusedImage(tag: string): Promise<boolean>
   logs(appName: string, tail: number): Promise<string>
   isRunning(appName: string): boolean
   containerExists(appName: string): boolean

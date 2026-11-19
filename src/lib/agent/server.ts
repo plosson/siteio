@@ -26,7 +26,7 @@ import { GitManager } from "./git.ts"
 import { DockerfileStorage } from "./dockerfile-storage.ts"
 import { ComposeStorage } from "./compose-storage.ts"
 import { buildOverride } from "./compose-override.ts"
-import { composeWarnings, missingPrimaryService, type ComposeSpec } from "./compose.ts"
+import { builtImages, composeWarnings, missingPrimaryService, type ComposeSpec } from "./compose.ts"
 import { ADMIN_UI_HTML, CHAT_CORE_JS, EDITOR_SHELL_HTML, PICKER_JS } from "./ui/assets.ts"
 import { POCKETBASE_VERSION, pocketbaseImage } from "../pocketbase-version.ts"
 import { getVersion } from "../version.ts"
@@ -1177,11 +1177,27 @@ export class AgentServer {
     }
 
     if (app.compose) {
+      const project = `siteio-${name}`
+      // The images the stack built, read before down while its files are there.
+      let images: string[] = []
       try {
         const files = this.composeFiles(app)
-        await this.docker.composeDown(`siteio-${name}`, files, this.writeComposeEnvFile(app))
+        const envFile = this.writeComposeEnvFile(app)
+        try {
+          images = builtImages(await this.docker.composeConfig(project, files, envFile), project)
+        } catch {
+          // Without its config, its images stay: never guess which to remove.
+        }
+        await this.docker.composeDown(project, files, envFile)
       } catch {
         // Best-effort; the base file may be missing if the repo was cleaned up.
+      }
+      for (const image of images) {
+        try {
+          await this.docker.removeUnusedImage(image)
+        } catch {
+          // Best-effort, like the rest: an image left behind does not keep the app.
+        }
       }
       try {
         this.compose.remove(name)
