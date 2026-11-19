@@ -42,6 +42,7 @@ import { SESSION_COOKIE, userFitsHost, type Auth } from "./auth.ts"
 import { errorResponse, jsonResponse } from "./http.ts"
 import { UserRoutes } from "./user-routes.ts"
 import { requestIp } from "./request-ip.ts"
+import { HOST_STATS_RANGES, HostStatsRecorder } from "./host-stats.ts"
 import { TenantRegistry, assertValidNewName, newTenant, normalizeDomains, tenantServices, type Scope, type Caller } from "./tenants.ts"
 
 // In-site live editor tuning. The code lives 30 min; the derived cookie session
@@ -211,6 +212,8 @@ export class AgentServer {
   private ranking: Ranking | null
   // Sends pageviews + traffic from Traefik's access log; null unless ANALYTICS_URL is set.
   private analytics: AnalyticsPump | null = null
+  // CPU, memory, disk and load of this server, sampled once a minute.
+  private hostStats: HostStatsRecorder
 
   constructor(
     config: AgentConfig,
@@ -279,6 +282,8 @@ export class AgentServer {
       })
       this.thumbnails = new ThumbnailManager(config.dataDir)
     }
+
+    this.hostStats = new HostStatsRecorder(config.dataDir, (line) => console.log(`> ${line}`))
 
     if (config.analyticsUrl) {
       const hook = new Analytics(config.analyticsUrl)
@@ -542,6 +547,20 @@ export class AgentServer {
     // GET /agent - sanitized agent settings (a tenant gets a view of its own scope)
     if (path === "/agent" && req.method === "GET") {
       return this.handleGetAgentInfo(caller)
+    }
+
+    // GET /stats?range=1h|24h|7d - CPU, memory, disk and load history of this
+    // server (admin only: not in TENANT_ROUTE)
+    if (path === "/stats" && req.method === "GET") {
+      const range = url.searchParams.get("range") || "24h"
+      if (!Object.hasOwn(HOST_STATS_RANGES, range)) {
+        return this.error("Invalid range: use 1h, 24h or 7d", 400)
+      }
+      try {
+        return this.json(this.hostStats.stats(range as keyof typeof HOST_STATS_RANGES))
+      } catch (err) {
+        return this.error(`Could not read host stats: ${err instanceof Error ? err.message : String(err)}`, 500)
+      }
     }
 
     // POST /tenants - add a tenant domain (god key only: not in TENANT_ROUTE)
@@ -3142,6 +3161,7 @@ export class AgentServer {
     // Poll auto-deploy apps' remotes (apps-disabled hosts have no apps to poll)
     if (this.config.appsEnabled !== false) this.autoDeployer.start()
     this.analytics?.start()
+    this.hostStats.start()
 
     const port = this.config.port || 3000
 
@@ -3270,6 +3290,7 @@ export class AgentServer {
   stop(): void {
     this.autoDeployer.stop()
     this.analytics?.stop()
+    this.hostStats.stop()
     this.traefik?.stop()
     this.thumbnails?.stop()
     if (this.server) {

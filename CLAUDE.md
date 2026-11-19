@@ -38,6 +38,7 @@ A self-hosted deployment platform for **websites** and **Docker containers** wit
 - **Custom domains, history/rollback, rename**: `siteio sites domain|history|rollback|rename`
 - **Stop / start**: `siteio sites stop|start`, `siteio apps stop|start|restart` take a site or app offline (404, data kept; site containers removed, app containers stopped with their restart policy off) and bring it back as it was; a stopped item refuses deploys until started
 - **Users**: a bootstrap admin per server (`siteio agent password` on the box, also set by `agent install`); admins can add other admins (`siteio users add <name> --role admin`), tenant owners and members (`siteio users add|list|remove|reset-password`); `--password` sets a chosen password instead of a generated one. Each user logs in to the admin UI with a password and has its own revocable keys (`siteio users keys|revoke-key`); the god key, tenant keys and share codes are unchanged
+- **Server stats**: the agent samples CPU, memory, disk and load of its host once a minute and keeps 7 days in `<dataDir>/host-stats.jsonl`; admins read them with `GET /stats?range=1h|24h|7d` and on the admin UI's Server page
 - **Automatic HTTPS**: Traefik handles Let's Encrypt certificates
 - **Two modes**: CLI client talks to a remote agent server
 

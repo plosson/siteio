@@ -583,3 +583,26 @@ export interface AnalyticsBatch {
   pageviews: AnalyticsPageview[]
   traffic: AnalyticsTraffic[]
 }
+
+// Host metrics of the server the agent runs on (GET /stats, admin only).
+export interface HostSample {
+  at: number // epoch ms
+  cpu: number // percent of all cores busy since the previous sample
+  load1: number
+  memUsed: number // bytes
+  memTotal: number
+  diskUsed: number // bytes, on the filesystem that holds the data dir
+  diskTotal: number
+}
+
+export type HostStatsRange = "1h" | "24h" | "7d"
+
+export interface HostStats {
+  hostname: string
+  cores: number
+  uptime: number // seconds
+  intervalSeconds: number
+  range: HostStatsRange
+  current: HostSample
+  samples: HostSample[] // oldest first, averaged down to at most a few hundred points
+}
